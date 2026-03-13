@@ -4,7 +4,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { auth, db } from './api/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { ref, get, push, set } from 'firebase/database';
 import type { User as FirebaseUser } from 'firebase/auth';
 
 // --- Pages Import ---
@@ -69,6 +69,17 @@ export default function App() {
               role = matched.role || 'STAFF';
               staffName = matched.name || staffName;
             }
+          } else {
+            // Database is empty - bootstrap first user as CEO
+            const newStaffRef = push(ref(db, 'staff'));
+            await set(newStaffRef, {
+              name: staffName,
+              email: firebaseUser.email,
+              role: 'CEO',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            });
+            role = 'CEO';
           }
 
           const autoUser = {
