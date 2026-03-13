@@ -2,18 +2,20 @@
 import React, { useMemo, useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency, formatDate } from '../../utils/formatters';
-import { 
-  Landmark, ArrowUpRight, ArrowDownLeft, History, 
+import {
+  Landmark, ArrowUpRight, ArrowDownLeft, History,
   FileText, Search, Filter, AlertCircle, User, Calculator, Calendar,
-  Printer, Download 
+  Printer, Download
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { logTransaction } from '../../utils/transactionLogger';
+import { useToast } from '../../components/ui/ToastProvider';
 
 type Tab = 'requests' | 'audit' | 'statement';
 
 export const WithdrawalPage = () => {
+  const toast = useToast();
   const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
   const { data: transactions, loading: txLoading } = useDatabase('transactions');
   
@@ -136,8 +138,8 @@ export const WithdrawalPage = () => {
         ref_job_id: selected.id
       });
       setSelected(null);
-      alert('บันทึกสำเร็จ');
-    } catch (e) { alert(e); }
+      toast.success('บันทึกสำเร็จ');
+    } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
 
   if (jobsLoading || txLoading) return <div className="p-10 text-center font-bold text-gray-400 animate-pulse">กำลังโหลดข้อมูล...</div>;

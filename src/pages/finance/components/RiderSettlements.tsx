@@ -5,8 +5,10 @@ import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { CheckCircle2, FileText, Zap } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { db } from '../../../api/firebase';
+import { useToast } from '../../../components/ui/ToastProvider';
 
 export const RiderSettlements = () => {
+  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
 
   // 🧠 กรองเฉพาะงานที่จบแล้ว แต่ยังไม่ได้จ่ายค่าเที่ยว
@@ -42,7 +44,7 @@ export const RiderSettlements = () => {
             timestamp: now,
             ref_job_id: job.id
         });
-    } catch (e) { alert('เกิดข้อผิดพลาด: ' + e); }
+    } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
 
   // ⚡ อนุมัติทั้งหมดในคลิกเดียว
@@ -72,8 +74,8 @@ export const RiderSettlements = () => {
         await update(ref(db), updates); // อัปเดตตาราง jobs
         await Promise.all(transactionPromises); // อัปเดตตาราง transactions
 
-        alert("อนุมัติทั้งหมดเข้า Wallet ไรเดอร์เรียบร้อยแล้ว!");
-    } catch(e) { alert(e); }
+        toast.success("อนุมัติทั้งหมดเข้า Wallet ไรเดอร์เรียบร้อยแล้ว!");
+    } catch(e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
 
   if (loading) return <div className="p-10 text-center font-black text-slate-300 animate-pulse uppercase">Loading Settlements...</div>;

@@ -7,6 +7,7 @@ import { ChevronLeft } from 'lucide-react';
 import { InternalQCModal } from '@/features/trade-in/components/qc/InternalQCModal';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
+import { useToast } from '@/components/ui/ToastProvider';
 
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
@@ -15,6 +16,7 @@ import { PricingSidebar } from './components/PricingSidebar';
 import { CancelModal } from './components/CancelModal';
 
 export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => void }) => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);

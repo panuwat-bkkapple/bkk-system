@@ -7,6 +7,7 @@ import {
 import { ref, push, update, remove, onValue } from 'firebase/database';
 // ⚠️ เช็ค Path ของ Firebase ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 
 const StatusToggle = ({ isActive, onToggle }: { isActive: boolean, onToggle: () => void }) => (
     <button onClick={onToggle} className="flex items-center gap-2 group cursor-pointer w-fit">
@@ -22,6 +23,7 @@ const StatusToggle = ({ isActive, onToggle }: { isActive: boolean, onToggle: () 
 );
 
 export const CouponManager = () => {
+    const toast = useToast();
     const [coupons, setCoupons] = useState<any[]>([]);
     const [modelsData, setModelsData] = useState<any[]>([]); // 🌟 ดึงข้อมูลรุ่นมือถือมาไว้ให้เลือก
     const [loading, setLoading] = useState(true);
@@ -76,11 +78,11 @@ export const CouponManager = () => {
     };
 
     const handleSaveCoupon = async () => {
-        if (!editingItem.code.trim() || !editingItem.name.trim()) return alert('กรุณากรอกรหัสโค้ดและชื่อแคมเปญ');
+        if (!editingItem.code.trim() || !editingItem.name.trim()) { toast.warning('กรุณากรอกรหัสโค้ดและชื่อแคมเปญ'); return; }
 
         // 🌟 แก้บั๊ก: ถ้าไม่ใช่ประเภท Service (ฟรีบริการ) ค่าถึงจะห้ามเป็น 0
         if (editingItem.type !== 'service' && editingItem.value <= 0) {
-            return alert('มูลค่าคูปองเงินสด/เปอร์เซ็นต์ ต้องมากกว่า 0');
+            toast.warning('มูลค่าคูปองเงินสด/เปอร์เซ็นต์ ต้องมากกว่า 0'); return;
         }
 
         try {
@@ -94,16 +96,26 @@ export const CouponManager = () => {
             }
             setIsModalOpen(false);
         } catch (error) {
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         }
     };
 
     const handleDeleteCoupon = async (id: string) => {
-        if (confirm('ยืนยันการลบคูปองนี้ใช่หรือไม่?')) await remove(ref(db, `coupons/${id}`));
+        if (confirm('ยืนยันการลบคูปองนี้ใช่หรือไม่?')) {
+            try {
+                await remove(ref(db, `coupons/${id}`));
+            } catch (error) {
+                toast.error('เกิดข้อผิดพลาดในการลบคูปอง');
+            }
+        }
     };
 
     const handleToggleStatus = async (item: any) => {
-        await update(ref(db, `coupons/${item.id}`), { is_active: !item.is_active });
+        try {
+            await update(ref(db, `coupons/${item.id}`), { is_active: !item.is_active });
+        } catch (error) {
+            toast.error('เกิดข้อผิดพลาดในการเปลี่ยนสถานะ');
+        }
     };
 
     // 🌟 ฟังก์ชันจัดการการเลือกรุ่น

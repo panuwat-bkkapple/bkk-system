@@ -4,6 +4,7 @@ import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
 import { ref, push, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { 
   ReceiptText, Truck, Coffee, Megaphone, HelpCircle, 
   Plus, Trash2, Calendar, Banknote, ShieldAlert
@@ -17,6 +18,7 @@ const EXPENSE_CATEGORIES = [
 ];
 
 export const DailyExpenses = () => {
+  const toast = useToast();
   const { currentUser, hasAccess } = useAuth();
   const { data: expenses, loading } = useDatabase('expenses');
   
@@ -31,8 +33,8 @@ export const DailyExpenses = () => {
 
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title || !formData.amount) return alert('กรุณากรอกชื่อรายการและจำนวนเงิน');
-    if (Number(formData.amount) <= 0) return alert('จำนวนเงินต้องมากกว่า 0');
+    if (!formData.title || !formData.amount) { toast.warning('กรุณากรอกชื่อรายการและจำนวนเงิน'); return; }
+    if (Number(formData.amount) <= 0) { toast.warning('จำนวนเงินต้องมากกว่า 0'); return; }
 
     try {
       await push(ref(db, 'expenses'), {
@@ -47,13 +49,17 @@ export const DailyExpenses = () => {
       // รีเซ็ตฟอร์ม
       setFormData({ title: '', amount: '', category: 'MISC', note: '' });
     } catch (error) {
-      alert('เกิดข้อผิดพลาด: ' + error);
+      toast.error('เกิดข้อผิดพลาด: ' + error);
     }
   };
 
   const handleDelete = async (id: string, title: string) => {
     if (window.confirm(`⚠️ ยืนยันการลบรายการเบิกจ่าย: "${title}" ใช่หรือไม่?`)) {
-      await remove(ref(db, `expenses/${id}`));
+      try {
+        await remove(ref(db, `expenses/${id}`));
+      } catch (error) {
+        toast.error('เกิดข้อผิดพลาด: ' + error);
+      }
     }
   };
 

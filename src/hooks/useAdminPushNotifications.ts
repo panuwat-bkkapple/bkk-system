@@ -51,7 +51,7 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           }
         });
       } catch (error) {
-        console.warn('Push notifications not available:', error);
+        // silently handled
       }
     };
 

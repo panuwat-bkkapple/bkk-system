@@ -4,12 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update, remove } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
-import { 
-  Star, MessageSquareQuote, CheckCircle2, XCircle, 
+import {
+  Star, MessageSquareQuote, CheckCircle2, XCircle,
   Trash2, Clock, Search, Filter, AlertTriangle
 } from 'lucide-react';
+import { useToast } from '../../components/ui/ToastProvider';
 
 export default function ReviewManager() {
+  const toast = useToast();
   const [reviews, setReviews] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -43,8 +45,7 @@ export default function ReviewManager() {
         updated_at: Date.now()
       });
     } catch (error) {
-      console.error("Error updating review:", error);
-      alert('เกิดข้อผิดพลาดในการอัปเดตสถานะ');
+      toast.error('เกิดข้อผิดพลาดในการอัปเดตสถานะ');
     }
   };
 
@@ -53,8 +54,7 @@ export default function ReviewManager() {
       try {
         await remove(ref(db, `reviews/${reviewId}`));
       } catch (error) {
-        console.error("Error deleting review:", error);
-        alert('เกิดข้อผิดพลาดในการลบรีวิว');
+        toast.error('เกิดข้อผิดพลาดในการลบรีวิว');
       }
     }
   };

@@ -5,8 +5,10 @@ import { ref, onValue, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { Store, Plus, MapPin, Trash2, Edit3, Save, X, Navigation } from 'lucide-react';
 import { GoogleMap, MarkerF, useJsApiLoader } from '@react-google-maps/api';
+import { useToast } from '../../components/ui/ToastProvider';
 
 export default function BranchManager() {
+    const toast = useToast();
     const [branches, setBranches] = useState<any[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -35,15 +37,19 @@ export default function BranchManager() {
     }, []);
 
     const handleSave = async () => {
-        if (!form.name || !form.address) return alert('กรุณากรอกข้อมูลให้ครบถ้วน');
-        const branchRef = ref(db, 'settings/branches');
+        if (!form.name || !form.address) { toast.warning('กรุณากรอกข้อมูลให้ครบถ้วน'); return; }
+        try {
+            const branchRef = ref(db, 'settings/branches');
 
-        if (editingId) {
-            await update(ref(db, `settings/branches/${editingId}`), form);
-        } else {
-            await push(branchRef, { ...form, created_at: Date.now() });
+            if (editingId) {
+                await update(ref(db, `settings/branches/${editingId}`), form);
+            } else {
+                await push(branchRef, { ...form, created_at: Date.now() });
+            }
+            closeModal();
+        } catch (error) {
+            toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         }
-        closeModal();
     };
 
     const closeModal = () => {
@@ -60,7 +66,11 @@ export default function BranchManager() {
 
     const deleteBranch = async (id: string) => {
         if (window.confirm('ยืนยันการลบสาขานี้?')) {
-            await remove(ref(db, `settings/branches/${id}`));
+            try {
+                await remove(ref(db, `settings/branches/${id}`));
+            } catch (error) {
+                toast.error('เกิดข้อผิดพลาดในการลบสาขา');
+            }
         }
     };
 
@@ -87,7 +97,7 @@ export default function BranchManager() {
                     // 🌟 อัปเดตพิกัด ซึ่งจะทำให้แผนที่และหมุดขยับไปตำแหน่งใหม่ทันที
                     setForm(prev => ({ ...prev, lat, lng }));
                 } else {
-                    alert("ไม่พบพิกัดจากที่อยู่นี้ กรุณาลองพิมพ์ชื่อถนน, เขต หรือจุดสังเกตเพิ่มเติมครับ");
+                    toast.warning("ไม่พบพิกัดจากที่อยู่นี้ กรุณาลองพิมพ์ชื่อถนน, เขต หรือจุดสังเกตเพิ่มเติมครับ");
                 }
             });
         }

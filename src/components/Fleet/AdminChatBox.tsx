@@ -64,7 +64,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, text: msgText }),
       }).catch(() => {});
     } catch (error) {
-      console.error("Chat Error:", error);
+      // silently handled
     }
   };
 

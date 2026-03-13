@@ -9,6 +9,7 @@ import {
 import { ref, update, onValue, set } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { AdminChatBox } from '../../components/Fleet/AdminChatBox';
+import { useToast } from '../../components/ui/ToastProvider';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 const center = { lat: 13.7563, lng: 100.5018 };
@@ -45,6 +46,7 @@ const getJobCoordinates = (jobId: string) => {
 };
 
 export const DispatcherPage = () => {
+  const toast = useToast();
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { isLoaded, loadError } = useJsApiLoader({ id: 'google-map-script', googleMapsApiKey: apiKey || "" });
 
@@ -101,7 +103,7 @@ export const DispatcherPage = () => {
     try {
       await update(ref(db, `jobs/${jobId}`), { status: 'Assigned', rider_id: riderId, assigned_at: Date.now() });
       setSelectedJobId(null);
-    } catch (e) { alert(e); }
+    } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
 
   const handleUnassignJob = async (jobId: string) => {
@@ -112,7 +114,7 @@ export const DispatcherPage = () => {
           rider_id: null,
           assigned_at: null
         });
-      } catch (e) { alert(e); }
+      } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
     }
   };
 
@@ -122,7 +124,7 @@ export const DispatcherPage = () => {
       try {
         await set(ref(db, 'settings/system/dispatch_mode'), newMode);
       } catch (e) {
-        alert("เปลี่ยนโหมดไม่สำเร็จ");
+        toast.error("เปลี่ยนโหมดไม่สำเร็จ");
       }
     }
   };

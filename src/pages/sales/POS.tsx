@@ -1,6 +1,7 @@
 // src/pages/sales/POS.tsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import {
     ScanLine, ShoppingCart, Trash2, CreditCard, Banknote,
@@ -10,6 +11,7 @@ import { ref, update, push, get, runTransaction } from 'firebase/database';
 import { db } from '../../api/firebase';
 
 export const POS = () => {
+    const toast = useToast();
     const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
     const availableDevices = useMemo(() => {
         const list = Array.isArray(jobs) ? jobs : [];
@@ -48,7 +50,7 @@ export const POS = () => {
 
         if (foundDevice) {
             if (cart.find(item => item.id === foundDevice.id)) {
-                alert('เครื่องนี้อยู่ในตะกร้าแล้ว!');
+                toast.warning('เครื่องนี้อยู่ในตะกร้าแล้ว!');
             } else {
                 setCart([...cart, {
                     id: foundDevice.id,
@@ -72,17 +74,17 @@ export const POS = () => {
             return;
         }
 
-        alert('ไม่พบข้อมูลสินค้าในระบบ (หรือสินค้าอาจยังไม่พร้อมขาย)');
+        toast.warning('ไม่พบข้อมูลสินค้าในระบบ (หรือสินค้าอาจยังไม่พร้อมขาย)');
         setBarcodeInput('');
     };
 
     const handleAddSku = (skuItem: any) => {
         const currentStock = Number(skuItem.stock) || 0;
-        if (currentStock <= 0) return alert('สินค้านี้หมดสต็อกแล้ว ไม่สามารถเพิ่มได้!');
+        if (currentStock <= 0) { toast.warning('สินค้านี้หมดสต็อกแล้ว ไม่สามารถเพิ่มได้!'); return; }
 
         const existingItem = cart.find(item => item.id === skuItem.id);
         if (existingItem) {
-            if (existingItem.qty >= currentStock) return alert(`มีสินค้าในสต็อกเพียง ${currentStock} ชิ้น`);
+            if (existingItem.qty >= currentStock) { toast.warning(`มีสินค้าในสต็อกเพียง ${currentStock} ชิ้น`); return; }
             setCart(cart.map(item => item.id === skuItem.id ? { ...item, qty: item.qty + 1 } : item));
         } else {
             setCart([...cart, {
@@ -103,7 +105,7 @@ export const POS = () => {
             if (item.id === id && item.type === 'SKU') {
                 const newQty = item.qty + delta;
                 const maxStock = Number(item.refData.stock) || 0;
-                if (newQty > maxStock) { alert(`เพิ่มไม่ได้ สต็อกเหลือแค่ ${maxStock} ชิ้น`); return item; }
+                if (newQty > maxStock) { toast.warning(`เพิ่มไม่ได้ สต็อกเหลือแค่ ${maxStock} ชิ้น`); return item; }
                 return newQty > 0 ? { ...item, qty: newQty } : item;
             }
             return item;
@@ -118,8 +120,8 @@ export const POS = () => {
 
     // 🔥 โค้ด Checkout ที่คลีนความซ้ำซ้อนออกแล้ว
     const processCheckout = async () => {
-        if (cart.length === 0) return alert('ตะกร้าว่างเปล่า');
-        if (paymentMethod === 'CASH' && receivedAmount < grandTotal) return alert('รับเงินมาไม่พอ!');
+        if (cart.length === 0) { toast.warning('ตะกร้าว่างเปล่า'); return; }
+        if (paymentMethod === 'CASH' && receivedAmount < grandTotal) { toast.warning('รับเงินมาไม่พอ!'); return; }
 
         try {
             const receiptNo = `REC-${Date.now().toString().slice(-6)}`;
@@ -139,7 +141,7 @@ export const POS = () => {
             if (customer.phone) {
                 const cleanPhone = customer.phone.replace(/[^0-9]/g, '');
                 if (cleanPhone.length < 9 || cleanPhone.length > 10) {
-                    console.warn('Invalid phone number, skipping CRM update');
+                    // Invalid phone number, skipping CRM update
                 } else {
                 const customerRef = ref(db, `customers/CUS_${cleanPhone}`); // ใส่ CUS_ ป้องกัน Firebase งง
                 const snap = await get(customerRef);
@@ -175,7 +177,7 @@ export const POS = () => {
             setReceiptData({ ...saleRecord, receivedAmount: paymentMethod === 'CASH' ? receivedAmount : grandTotal, changeAmount: paymentMethod === 'CASH' ? receivedAmount - grandTotal : 0 });
             setIsCheckoutOpen(false);
         } catch (error) {
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + error);
+            toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + error);
         }
     };
 

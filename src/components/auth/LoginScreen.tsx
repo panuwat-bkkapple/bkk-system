@@ -50,7 +50,7 @@ export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
             onLogin({ id: newStaffRef.key, ...newStaff });
           }
         } catch (err) {
-          console.error("Fetch staff error:", err);
+          // silently handled
         } finally {
           setFetchingStaff(false);
         }

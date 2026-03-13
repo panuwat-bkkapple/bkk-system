@@ -12,6 +12,6 @@ export const sendNotification = async (title: string, message: string, type: 'in
       timestamp: Date.now()
     });
   } catch (error) {
-    console.error("Notification Error:", error);
+    // silently handled
   }
 };

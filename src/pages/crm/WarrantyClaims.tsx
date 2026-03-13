@@ -4,6 +4,7 @@ import { useDatabase } from '../../hooks/useDatabase';
 import { ref, push, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { useToast } from '../../components/ui/ToastProvider';
 import { 
   ShieldAlert, Search, FileText, Smartphone, User, 
   Calendar, Wrench, RefreshCcw, Banknote, AlertTriangle, 

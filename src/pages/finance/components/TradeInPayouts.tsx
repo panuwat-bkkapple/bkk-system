@@ -3,12 +3,14 @@ import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
-import { uploadImageToFirebase } from '../../../utils/uploadImage'; 
+import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2 } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { db } from '../../../api/firebase';
+import { useToast } from '../../../components/ui/ToastProvider';
 
 export const TradeInPayouts = () => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const { data: jobs, loading } = useDatabase('jobs');
   
@@ -70,8 +72,8 @@ export const TradeInPayouts = () => {
 
   const handleConfirmTransfer = async () => {
     if (!selectedTx) return;
-    if (!slipFile) return alert("กรุณาแนบสลิปการโอนเงินเพื่อเป็นหลักฐาน"); 
-    if (!editBankName || !editBankAccount || !editBankHolder) return alert("กรุณาระบุข้อมูลบัญชีรับเงินให้ครบถ้วน");
+    if (!slipFile) { toast.warning("กรุณาแนบสลิปการโอนเงินเพื่อเป็นหลักฐาน"); return; }
+    if (!editBankName || !editBankAccount || !editBankHolder) { toast.warning("กรุณาระบุข้อมูลบัญชีรับเงินให้ครบถ้วน"); return; }
 
     if (!confirm('ยืนยันว่าทำการโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
 
@@ -128,12 +130,11 @@ export const TradeInPayouts = () => {
         });
       }
 
-      alert('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
+      toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
       setSelectedTx(null);
       setSlipFile(null);
-    } catch (e) { 
-      console.error(e);
-      alert('Error: ' + e); 
+    } catch (e) {
+      toast.error('Error: ' + e);
     } finally { 
       setIsUploading(false); 
     }

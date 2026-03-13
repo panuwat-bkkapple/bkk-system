@@ -84,7 +84,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     try {
       await update(ref(db, `jobs/${job.id}`), { [field]: val, updated_at: Date.now() });
     } catch (e) {
-      console.error("Error saving date:", e);
+      // silently handled
     }
   };
 
@@ -198,7 +198,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
           await Promise.all(promises);
           alert(`🎉 ปิดจ๊อบเหมา! ส่งเครื่องลูก ${validItems.length} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`);
           onClose();
-        } catch (error) { console.error("Error unpacking:", error); }
+        } catch (error) { /* silently handled */ }
         break;
     }
   };

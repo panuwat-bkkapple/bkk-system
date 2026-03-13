@@ -1,11 +1,13 @@
 // src/pages/inventory/Accessories.tsx
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { Headphones, PlusCircle, Search, Edit, Trash2, X, Save } from 'lucide-react';
 import { ref, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 
 export const Accessories = () => {
+  const toast = useToast();
   const { data: products, loading } = useDatabase('products');
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -23,7 +25,7 @@ export const Accessories = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.sku || !formData.name) return alert('กรุณากรอกรหัส SKU และชื่อสินค้า');
+    if (!formData.sku || !formData.name) { toast.warning('กรุณากรอกรหัส SKU และชื่อสินค้า'); return; }
 
     try {
       const payload = { 
@@ -41,12 +43,16 @@ export const Accessories = () => {
         await update(ref(db, `products/${id}`), updateData);
       }
       setIsModalOpen(false);
-    } catch (error) { alert('Error: ' + error); }
+    } catch (error) { toast.error('บันทึกข้อมูลไม่สำเร็จ'); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('ยืนยันการลบสินค้านี้?')) return;
-    await remove(ref(db, `products/${id}`));
+    try {
+      await remove(ref(db, `products/${id}`));
+    } catch (error) {
+      toast.error('ลบสินค้าไม่สำเร็จ');
+    }
   };
 
   const openModal = (mode: 'add' | 'edit', item?: any) => {

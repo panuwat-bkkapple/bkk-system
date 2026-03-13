@@ -131,7 +131,7 @@ export const PriceEditor = () => {
 
       // บันทึก Statement
       if (processedVariants.length > 0) {
-        processedVariants.forEach(async (v: any) => {
+        await Promise.all(processedVariants.map(async (v: any) => {
           const newPrice = Number(v.usedPrice || v.price || 0);
           let prevPrice = newPrice;
 
@@ -154,14 +154,13 @@ export const PriceEditor = () => {
             const ledgerRef = push(ref(db, 'price_ledger'));
             await update(ledgerRef, ledgerPayload);
           }
-        });
+        }));
       }
 
       setIsModalOpen(false);
       toast.success('บันทึกข้อมูลและโครงสร้างใหม่เรียบร้อยครับ! 🚀');
     } catch (error) {
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ');
-      console.error(error);
     }
   };
 

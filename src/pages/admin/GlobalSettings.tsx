@@ -5,8 +5,10 @@ import { ref, onValue, update } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
 import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle } from 'lucide-react';
+import { useToast } from '../../components/ui/ToastProvider';
 
 export default function GlobalSettings() {
+  const toast = useToast();
   // 🌟 1. State สำหรับตัวแปรคำนวณระยะทาง
   const [pricing, setPricing] = useState({
     baseFare: 50,      // ค่าบริการเริ่มต้น (บาท)
@@ -42,8 +44,7 @@ export default function GlobalSettings() {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (error) {
-      console.error("Error saving settings:", error);
-      alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     } finally {
       setIsSaving(false);
     }

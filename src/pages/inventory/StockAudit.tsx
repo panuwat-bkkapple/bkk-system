@@ -1,6 +1,7 @@
 // src/pages/inventory/StockAudit.tsx
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { useAuth } from '../../hooks/useAuth';
 import { ref, push } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 
 export const StockAudit = () => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
   const { data: audits, loading: auditsLoading } = useDatabase('audits');
@@ -24,7 +26,7 @@ export const StockAudit = () => {
 
   // 🚀 เริ่มการนับสต็อก
   const handleStartAudit = () => {
-    if (!jobs) return alert('ไม่สามารถโหลดข้อมูลคลังสินค้าได้');
+    if (!jobs) { toast.warning('ไม่สามารถโหลดข้อมูลคลังสินค้าได้'); return; }
     
     // ดึงเฉพาะของที่ "ควรจะอยู่ในตู้" (In Stock หรือ Ready to Sell)
     const allJobs = Array.isArray(jobs) ? jobs : Object.keys(jobs).map(k => ({ id: k, ...(jobs as any)[k] }));
@@ -57,10 +59,10 @@ export const StockAudit = () => {
       };
 
       await push(ref(db, 'audits'), auditRecord);
-      alert('บันทึกผลการนับสต็อกเรียบร้อยแล้ว!');
+      toast.success('บันทึกผลการนับสต็อกเรียบร้อยแล้ว!');
       setIsAuditing(false);
     } catch (error) {
-      alert('เกิดข้อผิดพลาดในการบันทึก: ' + error);
+      toast.error('เกิดข้อผิดพลาดในการบันทึก: ' + error);
     }
   };
 

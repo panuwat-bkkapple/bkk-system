@@ -89,7 +89,6 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       await push(ref(db, 'jobs'), finalPayload);
       setIsCreateModalOpen(false);
     } catch (error) {
-      console.error("Create Ticket Error:", error);
       alert("เกิดข้อผิดพลาดในการสร้าง Ticket");
     }
   };
@@ -173,7 +172,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const handleRowClick = async (job: any) => {
     // 1. อัปเดตสถานะการอ่าน
     if ((job.status === 'New Lead' || job.status === 'New B2B Lead') && !job.is_read) {
-      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { console.error(error); }
+      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { /* silently handled */ }
     }
 
     // 2. เรียกใช้ฟังก์ชันเข้าสู่หน้า Workspace เสมอ

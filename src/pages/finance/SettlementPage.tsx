@@ -6,8 +6,10 @@ import { CheckCircle2, FileText } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { logTransaction } from '../../utils/transactionLogger';
+import { useToast } from '../../components/ui/ToastProvider';
 
 export const SettlementPage = () => {
+  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
 
   const pendingFees = useMemo(() => {
@@ -26,7 +28,7 @@ export const SettlementPage = () => {
 
     // ถ้าหาไม่เจอจริงๆ ให้หยุด (กัน Error)
     if (!job) {
-        alert("Error: ไม่พบข้อมูลงาน (Job Data Not Found)");
+        toast.error("Error: ไม่พบข้อมูลงาน (Job Data Not Found)");
         return;
     }
 
@@ -52,9 +54,8 @@ export const SettlementPage = () => {
             ref_job_id: job.id
         });
 
-    } catch (e) { 
-        console.error(e);
-        alert('เกิดข้อผิดพลาด: ' + e); 
+    } catch (e) {
+        toast.error('เกิดข้อผิดพลาด: ' + e);
     }
   };
 
@@ -71,9 +72,9 @@ export const SettlementPage = () => {
     
     try {
         await update(ref(db), updates);
-        alert("อนุมัติทั้งหมดเรียบร้อย");
+        toast.success("อนุมัติทั้งหมดเรียบร้อย");
     } catch(e) {
-        alert(e);
+        toast.error('เกิดข้อผิดพลาด: ' + e);
     }
   };
 

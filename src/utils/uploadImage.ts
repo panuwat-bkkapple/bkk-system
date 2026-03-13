@@ -34,7 +34,6 @@ export const uploadImageToFirebase = async (file: File, path: string): Promise<s
     return await getDownloadURL(snapshot.ref);
     
   } catch (error) {
-    console.error("Upload or Compression failed:", error);
     throw error;
   }
 };

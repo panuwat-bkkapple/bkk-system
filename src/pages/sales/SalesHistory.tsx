@@ -1,9 +1,10 @@
 // src/pages/sales/SalesHistory.tsx
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { formatCurrency, formatDate } from '../../utils/formatters';
-import { 
-  Search, Receipt, RotateCcw, Printer, AlertTriangle, 
+import {
+  Search, Receipt, RotateCcw, Printer, AlertTriangle,
   CheckCircle2, X, Smartphone, Package, User,
   Banknote, CreditCard, Wallet, Calculator, Calendar, Download, FileText
 } from 'lucide-react';
@@ -12,6 +13,7 @@ import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
 
 export const SalesHistory = () => {
+  const toast = useToast();
   const { data: sales, loading } = useDatabase('sales');
   const { hasAccess } = useAuth();
   
@@ -124,7 +126,7 @@ export const SalesHistory = () => {
 
   // 🗑️ Action: Void Sale
   const handleVoidSale = async (saleRecord: any) => {
-     if (saleRecord.status === 'VOIDED') return alert('บิลนี้ถูกยกเลิกไปแล้ว');
+     if (saleRecord.status === 'VOIDED') { toast.warning('บิลนี้ถูกยกเลิกไปแล้ว'); return; }
      const confirmVoid = window.confirm(`⚠️ คำเตือน: ต้องการยกเลิกบิล ${saleRecord.receipt_no} ใช่หรือไม่?\nสินค้าจะถูกคืนเข้าคลังอัตโนมัติ`);
      if (!confirmVoid) return;
 
@@ -139,7 +141,7 @@ export const SalesHistory = () => {
               if (snapshot.exists()) await update(productRef, { stock: (Number(snapshot.val().stock) || 0) + item.qty, updated_at: Date.now() });
            }
         }
-        alert(`✅ ยกเลิกบิลสำเร็จ!`);
+        toast.success('ยกเลิกบิลสำเร็จ!');
         setSelectedReceipt(null);
      } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
   };
