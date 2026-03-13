@@ -14,12 +14,14 @@ import { MethodBadge, TicketPipeline } from '../modal/TradeInUI';
 // 🌟 Import Firebase
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
+import { useToast } from '@/components/ui/ToastProvider';
 
 export const B2CWorkspace = ({ 
   job, onUpdateStatus, onClaimTicket, onSaveNotes, 
   onReviseOffer, setIsInspectionModalOpen, setActiveChatJobId, onClose 
 }: any) => {
-  
+  const toast = useToast();
+
   const [callNotes, setCallNotes] = useState('');
   const [revisedPrice, setRevisedPrice] = useState('');
   const [reviseReason, setReviseReason] = useState('');
@@ -69,12 +71,12 @@ export const B2CWorkspace = ({
 
           await update(ref(db, `jobs/${job.id}`), updatePayload);
           setIsEditingCustomer(false);
-      } catch (error) { alert('เกิดข้อผิดพลาดในการอัปเดตข้อมูล'); }
+      } catch (error) { toast.error('เกิดข้อผิดพลาดในการอัปเดตข้อมูล'); }
   };
 
   // 🌟 THE FIX 2: แก้สมการคณิตศาสตร์ตอนเติมคูปอง (ไม่ให้ไปทับราคาตั้งต้น)
   const handleApplyAdminCoupon = () => {
-    if (!adminCouponCode || !adminCouponValue) return alert('กรุณาระบุชื่อโค้ดและจำนวนเงิน');
+    if (!adminCouponCode || !adminCouponValue) { toast.warning('กรุณาระบุชื่อโค้ดและจำนวนเงิน'); return; }
     const val = Number(adminCouponValue);
     
     // ดึงราคาเครื่องปัจจุบันมาเป็นฐาน (ห้ามใช้ displayNetPayout เพราะมันอาจโดนหักค่ารถไปแล้ว)
