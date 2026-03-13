@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "bkk-apple-tradein"
+  },
+  "targets": {
+    "bkk-apple-tradein": {
+      "hosting": {
+        "admin": [
+          "bkk-apple-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
