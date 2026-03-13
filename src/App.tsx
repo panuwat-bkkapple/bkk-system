@@ -5,7 +5,6 @@ import { AdminLayout } from './components/layout/AdminLayout';
 import { auth, db } from './api/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, get, push, set } from 'firebase/database';
-import type { User as FirebaseUser } from 'firebase/auth';
 
 // --- Pages Import ---
 import { TradeInDashboard } from './features/trade-in/TradeInDashboard';
@@ -14,8 +13,6 @@ import { Analytics } from './pages/analytics/Analytics';
 import { Evaluation } from './features/trade-in/Evaluation';
 import { PriceEditor } from './features/trade-in/PriceEditor';
 import { QCStation } from './pages/lab/QCStation';
-import { SettlementPage } from './pages/finance/SettlementPage';
-import { WithdrawalPage } from './pages/finance/WithdrawalPage';
 import { DispatcherPage } from './pages/fleet/DispatcherPage';
 import { POS } from './pages/sales/POS';
 import { Accessories } from './pages/inventory/Accessories';
@@ -43,7 +40,6 @@ import ReviewManager from './pages/admin/ReviewManager';
 // Main App Router
 // ==========================================
 export default function App() {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(() => {
     const saved = sessionStorage.getItem('bkk_session');
@@ -52,8 +48,6 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-
       if (firebaseUser && !currentUser) {
         try {
           const staffSnap = await get(ref(db, 'staff'));

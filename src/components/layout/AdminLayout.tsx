@@ -11,6 +11,7 @@ import {
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { NavButton } from './NavButton';
+import { NotificationCenter } from './NotificationCenter';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 
 interface AdminLayoutProps {
@@ -152,6 +153,18 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
       </aside>
 
       <main className={`flex-1 transition-all duration-300 ${isCollapsed ? 'ml-20' : 'ml-72'}`}>
+        <div className="sticky top-0 z-10 bg-[#F5F5F7]/80 backdrop-blur-lg border-b border-slate-200/60">
+          <div className="flex justify-end items-center px-6 py-2.5 gap-3">
+            <NotificationCenter />
+            <div className="w-px h-6 bg-slate-200" />
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-xs ${currentUser?.role === 'CEO' ? 'bg-purple-600' : currentUser?.role === 'MANAGER' ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+                {currentUser?.name?.charAt(0) || 'A'}
+              </div>
+              <span className="text-xs font-bold text-slate-500">{currentUser?.name}</span>
+            </div>
+          </div>
+        </div>
         <Outlet />
       </main>
     </div>
