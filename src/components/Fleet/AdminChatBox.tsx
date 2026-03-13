@@ -14,7 +14,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState("");
   const [jobInfo, setJobInfo] = useState<any>(null);
-  
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -28,7 +28,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         if (data.chats) {
           const msgArray = Object.values(data.chats).sort((a: any, b: any) => a.timestamp - b.timestamp);
           setMessages(msgArray);
-          
+
           Object.keys(data.chats).forEach(key => {
             if (data.chats[key].sender === 'rider' && !data.chats[key].read) {
               update(ref(db, `jobs/${jobId}/chats/${key}`), { read: true });
@@ -73,10 +73,10 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
     if (!e.target.files || !e.target.files[0] || !jobId) return;
     const file = e.target.files[0];
     setIsUploading(true);
-    
+
     try {
       const imageUrl = await uploadImageToFirebase(file, `jobs/${jobId}/chats/images`);
-      
+
       await push(ref(db, `jobs/${jobId}/chats`), {
         sender: 'admin',
         senderName: adminName,
@@ -155,7 +155,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         <div className="p-4 bg-white border-t border-slate-100 flex gap-2 rounded-b-2xl items-center">
           {/* 🌟 ปุ่มอัปโหลดรูปฝั่งแอดมิน */}
           <input type="file" accept="image/*" className="hidden" ref={chatFileInputRef} onChange={handleImageUpload} />
-          <button 
+          <button
             onClick={() => chatFileInputRef.current?.click()}
             disabled={isUploading}
             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
@@ -164,15 +164,15 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
              {isUploading ? <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div> : <ImageIcon size={20} />}
           </button>
 
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
             placeholder="พิมพ์ข้อความตอบโต้..."
             className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
           />
-          <button 
+          <button
             onClick={handleSend}
             disabled={!inputText.trim()}
             className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-slate-200 transition-all"
