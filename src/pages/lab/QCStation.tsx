@@ -1,6 +1,7 @@
 // src/pages/QCStation.tsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { formatDate } from '../../utils/formatters';
 import {
    ClipboardCheck, Search, Printer, Save,
@@ -13,6 +14,7 @@ import { db } from '../../api/firebase';
 const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
 
 export const QCStation = () => {
+   const toast = useToast();
    const { data: jobs, loading } = useDatabase('jobs');
    const [searchTerm, setSearchTerm] = useState('');
    const [activeTab, setActiveTab] = useState<'todo' | 'done'>('todo');
@@ -134,18 +136,22 @@ export const QCStation = () => {
 
    const handlePrintCert = async () => {
       if (selectedJob) {
-         const newLog = { action: 'PRINTED', by: supervisor, timestamp: Date.now(), details: 'QC Report Cert Printed' };
-         const updatedLogs = [newLog, ...(selectedJob.qc_logs || [])];
-         await update(ref(db, `jobs/${selectedJob.id}`), { qc_logs: updatedLogs });
+         try {
+            const newLog = { action: 'PRINTED', by: supervisor, timestamp: Date.now(), details: 'QC Report Cert Printed' };
+            const updatedLogs = [newLog, ...(selectedJob.qc_logs || [])];
+            await update(ref(db, `jobs/${selectedJob.id}`), { qc_logs: updatedLogs });
+         } catch (error) {
+            toast.error('บันทึก print log ไม่สำเร็จ');
+         }
       }
       triggerPrint('cert');
    };
 
    // 🔥 2. Logic ส่งไม้ต่อ: แบบ Smart Dynamic (ป้องกันการวนลูป)
    const handleSubmitQC = async () => {
-      if (!qcForm.data_erased) return alert('⚠️ กรุณายืนยันการล้างข้อมูลก่อนบันทึก');
+      if (!qcForm.data_erased) { toast.warning('กรุณายืนยันการล้างข้อมูลก่อนบันทึก'); return; }
       if (!qcForm.actual_imei || qcForm.actual_imei.trim() === '') {
-         return alert('⚠️ กรุณาสแกนหรือกรอกเลข IMEI เครื่องก่อนบันทึกเข้าคลัง');
+         toast.warning('กรุณาสแกนหรือกรอกเลข IMEI เครื่องก่อนบันทึกเข้าคลัง'); return;
       }
       if (!confirm('ยืนยันผลการตรวจสอบอุปกรณ์?')) return;
 
@@ -188,13 +194,13 @@ export const QCStation = () => {
          });
 
          if (nextStatus === 'QC Review') {
-            alert(`บันทึกผลสำเร็จ! ส่งให้ Admin เคาะราคาแล้ว (TXN: ${qcTxnId})`);
+            toast.success(`บันทึกผลสำเร็จ! ส่งให้ Admin เคาะราคาแล้ว (TXN: ${qcTxnId})`);
          } else {
-            alert(`บันทึกสำเร็จ! ส่งสินค้าเข้าคลังแล้ว ปิดจ๊อบสมบูรณ์! (TXN: ${qcTxnId})`);
+            toast.success(`บันทึกสำเร็จ! ส่งสินค้าเข้าคลังแล้ว ปิดจ๊อบสมบูรณ์! (TXN: ${qcTxnId})`);
          }
 
          setSelectedJob(null);
-      } catch (e) { alert(e); }
+      } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
    };
 
    const getBarcodeUrl = (text: string, height: number = 10) => {

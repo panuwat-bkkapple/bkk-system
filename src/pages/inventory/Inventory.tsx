@@ -1,10 +1,11 @@
 // src/pages/Inventory.tsx
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { formatDate } from '../../utils/formatters';
-import { 
-  Package, Search, DollarSign, TrendingUp, 
-  Clock, Tag, Barcode, CheckCircle2, Save, Smartphone, 
+import {
+  Package, Search, DollarSign, TrendingUp,
+  Clock, Tag, Barcode, CheckCircle2, Save, Smartphone,
   ShoppingCart, ListFilter, X
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
@@ -12,6 +13,7 @@ import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
 
 export const Inventory = () => {
+  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'instock' | 'ready'>('instock');
@@ -104,25 +106,33 @@ export const Inventory = () => {
         updated_at: Date.now()
       });
       setEditingItem(null);
-    } catch (e) { alert('Update failed'); }
+    } catch (e) { toast.error('Update failed'); }
   };
 
   // 🔥 ส่งข้อมูลไปยัง POS (อัปเดตสถานะเป็น Ready to Sell)
   const handlePushToPOS = async (id: string) => {
     if(!confirm('ยืนยันส่งสินค้านี้ขึ้นระบบหน้าร้าน (POS) ใช่หรือไม่?')) return;
-    await update(ref(db, `jobs/${id}`), { 
-        status: 'Ready to Sell', 
-        listed_at: Date.now() 
-    });
+    try {
+      await update(ref(db, `jobs/${id}`), {
+          status: 'Ready to Sell',
+          listed_at: Date.now()
+      });
+    } catch (error) {
+      toast.error('ส่งสินค้าขึ้น POS ไม่สำเร็จ');
+    }
   };
 
   // 🔥 กรณีขายหน้าร้านโดยตรง (Manual Sold)
   const handleMarkSold = async (id: string) => {
     if(!confirm('ยืนยันการขายสินค้านี้? (รายการจะถูกย้ายไปที่ประวัติการขาย)')) return;
-    await update(ref(db, `jobs/${id}`), { 
-        status: 'Sold', 
-        sold_date: Date.now() 
-    });
+    try {
+      await update(ref(db, `jobs/${id}`), {
+          status: 'Sold',
+          sold_date: Date.now()
+      });
+    } catch (error) {
+      toast.error('บันทึกการขายไม่สำเร็จ');
+    }
   };
 
   if (loading) return <div className="p-10 text-center text-slate-400">Loading Inventory...</div>;

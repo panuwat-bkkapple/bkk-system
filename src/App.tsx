@@ -35,6 +35,7 @@ import { CouponManager } from './pages/admin/CouponManager';
 import GlobalSettings from './pages/admin/GlobalSettings';
 import BranchManager from './pages/admin/BranchManager';
 import ReviewManager from './pages/admin/ReviewManager';
+import { ToastProvider } from './components/ui/ToastProvider';
 
 // ==========================================
 // Main App Router
@@ -85,7 +86,7 @@ export default function App() {
           sessionStorage.setItem('bkk_session', JSON.stringify(autoUser));
           setCurrentUser(autoUser);
         } catch (err) {
-          console.error('Auto-login role fetch failed:', err);
+          // Auto-login role fetch failed
         }
       }
 
@@ -107,6 +108,7 @@ export default function App() {
   if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">LOADING BKK SYSTEM...</div>;
 
   return (
+    <ToastProvider>
     <Router>
       <Routes>
         {/* Public Routes */}
@@ -128,18 +130,18 @@ export default function App() {
 
             {/* Admin Layout Pages */}
             <Route element={<AdminLayout currentUser={currentUser} onLogout={handleLogout} />}>
-              <Route path="/" element={<CEODashboard onNavigate={() => { }} />} />
+              <Route path="/" element={<CEODashboard />} />
               <Route path="/tickets" element={<TradeInDashboardWrapper />} />
               <Route path="/workspace/:id" element={<B2CWorkspacePageWrapper />} />
               <Route path="/evaluation" element={<Evaluation />} />
               <Route path="/qc-station" element={<QCStation />} />
               <Route path="/b2b-auditor" element={<B2BAuditorTool />} />
-              <Route path="/analytics/trade-in" element={<Analytics mode="buying" />} />
-              <Route path="/analytics/sales" element={<Analytics mode="sales" />} />
+              <Route path="/analytics/trade-in" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="buying" /> : <Navigate to="/" replace />} />
+              <Route path="/analytics/sales" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="sales" /> : <Navigate to="/" replace />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/accessories" element={<Accessories />} />
               <Route path="/sales-history" element={<SalesHistory />} />
-              <Route path="/stock-audit" element={<StockAudit />} />
+              <Route path="/stock-audit" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StockAudit /> : <Navigate to="/" replace />} />
               <Route path="/finance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <Finance /> : <Navigate to="/" replace />} />
               <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
               <Route path="/riders" element={<RiderManagement />} />
@@ -149,10 +151,10 @@ export default function App() {
               <Route path="/warranty" element={<WarrantyClaims />} />
               <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
               <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
-              <Route path="/coupons" element={<CouponManager />} />
-              <Route path="/reviews" element={<ReviewManager />} />
-              <Route path="/global-settings" element={<GlobalSettings />} />
-              <Route path="/admin/branches" element={<BranchManager />} />
+              <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
+              <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
+              <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
+              <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
             </Route>
           </>
         ) : (
@@ -160,6 +162,7 @@ export default function App() {
         )}
       </Routes>
     </Router>
+    </ToastProvider>
   );
 }
 
@@ -179,6 +182,7 @@ const TradeInDashboardWrapper = () => {
   const navigate = useNavigate();
   return <TradeInDashboard onOpenWorkspace={(id: string) => navigate(`/workspace/${id}`)} />;
 };
+
 
 const POSButtonWrapper = ({ to, label }: { to: string, label: string }) => {
   const navigate = useNavigate();

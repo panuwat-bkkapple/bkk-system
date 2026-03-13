@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
-import { db } from '../../api/firebase'; 
+import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { 
   UserCheck, XCircle, Search, Bike, CreditCard, ShieldAlert, 
   FileText, CheckCircle2, Star, Map, Ban, RefreshCw, Save, AlertTriangle, Activity
 } from 'lucide-react';
 
 export const RiderManagement = () => {
+  const toast = useToast();
   const [riders, setRiders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRider, setSelectedRider] = useState<any>(null);
@@ -73,8 +75,8 @@ export const RiderManagement = () => {
           approved_at: Date.now()
         });
         setSelectedRider(null);
-        alert('อนุมัติสำเร็จ! ไรเดอร์สามารถเข้าสู่ระบบและเริ่มรับงานได้ทันที');
-      } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+        toast.success('อนุมัติสำเร็จ! ไรเดอร์สามารถเข้าสู่ระบบและเริ่มรับงานได้ทันที');
+      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
     }
   };
 
@@ -90,7 +92,7 @@ export const RiderManagement = () => {
           rejected_at: Date.now()
         });
         setSelectedRider(null);
-      } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
     }
   };
 
@@ -106,7 +108,7 @@ export const RiderManagement = () => {
           suspended_at: Date.now()
         });
         setSelectedRider(null);
-      } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
     }
   };
 
@@ -121,7 +123,7 @@ export const RiderManagement = () => {
           suspended_at: null
         });
         setSelectedRider(null);
-      } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
     }
   };
 
@@ -130,9 +132,9 @@ export const RiderManagement = () => {
       await update(ref(db, `riders/${riderId}`), { 
         score: Number(editScore), zone: editZone 
       });
-      alert('บันทึกข้อมูลคะแนนและโซนสำเร็จ!');
+      toast.success('บันทึกข้อมูลคะแนนและโซนสำเร็จ!');
       setSelectedRider(null);
-    } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+    } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500 animate-pulse font-bold">กำลังโหลดข้อมูล...</div>;

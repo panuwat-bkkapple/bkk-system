@@ -21,6 +21,6 @@ export const logTransaction = async (data: TransactionLog) => {
       timestamp: Date.now()
     });
   } catch (error) {
-    console.error("Transaction Error:", error);
+    // silently handled
   }
 };

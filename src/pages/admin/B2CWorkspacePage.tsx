@@ -7,6 +7,7 @@ import { ChevronLeft } from 'lucide-react';
 import { InternalQCModal } from '@/features/trade-in/components/qc/InternalQCModal';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
+import { useToast } from '@/components/ui/ToastProvider';
 
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
@@ -15,6 +16,7 @@ import { PricingSidebar } from './components/PricingSidebar';
 import { CancelModal } from './components/CancelModal';
 
 export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => void }) => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     await update(ref(db, `jobs/${job.id}`), { status: newStatus, qc_logs: [makeLog(newStatus, details), ...(job.qc_logs || [])], updated_at: Date.now() });
   };
   const handleCallCustomer = async () => {
-    if (!job?.cust_phone) return alert('ไม่พบเบอร์โทรศัพท์ลูกค้า');
+    if (!job?.cust_phone) { toast.warning('ไม่พบเบอร์โทรศัพท์ลูกค้า'); return; }
     window.location.href = `tel:${job.cust_phone}`;
     if (job.status === 'New Lead') await update(ref(db, `jobs/${job.id}`), { status: 'Following Up', qc_logs: [makeLog('Following Up', 'แอดมินกดโทรติดต่อลูกค้าเพื่อคอนเฟิร์มนัดหมาย'), ...(job.qc_logs || [])], updated_at: Date.now() });
   };
@@ -103,10 +105,10 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
       p.qc_logs = [makeLog('Customer Info Updated', 'อัปเดตข้อมูลการติดต่อ/ที่อยู่ของลูกค้า'), ...(job.qc_logs || [])];
       await update(ref(db, `jobs/${job.id}`), p);
       setIsEditingCustomer(false);
-    } catch { alert('เกิดข้อผิดพลาดในการอัปเดตข้อมูล'); }
+    } catch { toast.error('เกิดข้อผิดพลาดในการอัปเดตข้อมูล'); }
   };
   const handleApplyAdminCoupon = async () => {
-    if (!adminCouponCode || !adminCouponValue) return alert('กรุณาระบุชื่อโค้ดและจำนวนเงิน');
+    if (!adminCouponCode || !adminCouponValue) { toast.warning('กรุณาระบุชื่อโค้ดและจำนวนเงิน'); return; }
     const val = Number(adminCouponValue);
     await update(ref(db, `jobs/${job.id}`), {
       applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val },
@@ -123,7 +125,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   };
 
   const handleReviseOffer = async () => {
-    if (!revisedPrice) return alert('กรุณาระบุราคาใหม่');
+    if (!revisedPrice) { toast.warning('กรุณาระบุราคาใหม่'); return; }
     if (!confirm(`ยืนยันการตั้งราคาเครื่องใหม่เป็น ${revisedPrice} บาท? (ระบบจะหักค่าไรเดอร์อัตโนมัติ)`)) return;
     const p = Number(revisedPrice), net = Math.max(0, p - pickupFee + couponValue);
     await update(ref(db, `jobs/${job.id}`), {
@@ -134,7 +136,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   };
 
   const handleCloseNegotiation = async () => {
-    if (!negotiatedPrice) return alert('กรุณาระบุราคาปิดดีล');
+    if (!negotiatedPrice) { toast.warning('กรุณาระบุราคาปิดดีล'); return; }
     if (!confirm(`ยืนยันปิดการขายที่ราคาเครื่อง ${negotiatedPrice} บาท?`)) return;
     const p = Number(negotiatedPrice), net = Math.max(0, p - pickupFee + couponValue);
     await update(ref(db, `jobs/${job.id}`), {

@@ -1,13 +1,15 @@
 // src/pages/inventory/Traceability.tsx
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
-import { 
-  Search, ShieldCheck, User, Store, 
+import { useToast } from '../../components/ui/ToastProvider';
+import {
+  Search, ShieldCheck, User, Store,
   RotateCcw, CheckCircle2, History, Smartphone,
   FileText, Image as ImageIcon, X, CreditCard
 } from 'lucide-react';
 
 export const Traceability = () => {
+  const toast = useToast();
   const { data: jobs } = useDatabase('jobs');
   const { data: sales } = useDatabase('sales');
   const [query, setQuery] = useState('');
@@ -29,7 +31,7 @@ export const Traceability = () => {
     ).sort((a, b) => (b.sold_at || 0) - (a.sold_at || 0)) : [];
 
     if (!job && saleRecords.length === 0) {
-       alert('ไม่พบข้อมูล S/N หรือ IMEI นี้ในระบบ Traceability');
+       toast.info('ไม่พบข้อมูล S/N หรือ IMEI นี้ในระบบ Traceability');
        setSearchResult(null);
        return;
     }

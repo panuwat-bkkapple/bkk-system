@@ -3,6 +3,7 @@ import {
   User, Phone, MapPin, Store, Bike, Truck, Navigation, Map,
   Pencil, Save, PackageOpen
 } from 'lucide-react';
+import { useToast } from '../../../components/ui/ToastProvider';
 
 interface CustomerInfoCardProps {
   job: any;
@@ -16,9 +17,10 @@ interface CustomerInfoCardProps {
 export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
   job, isEditing, editData, onSave, onToggleEdit, onEditChange
 }) => {
+  const toast = useToast();
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('คัดลอกลิงก์เรียบร้อยแล้ว');
+    toast.success('คัดลอกลิงก์เรียบร้อยแล้ว');
   };
 
   return (

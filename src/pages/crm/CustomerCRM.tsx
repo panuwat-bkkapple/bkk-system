@@ -7,10 +7,12 @@ import {
 } from 'lucide-react';
 import { ref, push, remove, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 
 type CustomerType = 'B2C' | 'B2B';
 
 export const CustomerCRM = () => {
+    const toast = useToast();
     const { data: customers, loading } = useDatabase('customers');
     const [activeTab, setActiveTab] = useState<CustomerType>('B2B');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -81,7 +83,7 @@ export const CustomerCRM = () => {
                 credit_term: '0', 
                 note: ''
             });
-        } catch (err) { alert(err); }
+        } catch (err) { toast.error('เกิดข้อผิดพลาด: ' + err); }
     };
 
     if (loading) return <div className="p-10 text-center font-black text-slate-300 animate-pulse uppercase">Syncing CRM Data...</div>;

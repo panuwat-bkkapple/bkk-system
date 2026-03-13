@@ -3,6 +3,7 @@ import { ref, onValue, push, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { Send, X, MessageSquare, User, Image as ImageIcon } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage'; // 🌟 ดึงฟังก์ชันอัปโหลดรูปมาใช้
+import { useToast } from '../../components/ui/ToastProvider';
 
 interface AdminChatBoxProps {
   jobId: string;
@@ -11,6 +12,7 @@ interface AdminChatBoxProps {
 }
 
 export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) => {
+  const toast = useToast();
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState("");
   const [jobInfo, setJobInfo] = useState<any>(null);
@@ -64,7 +66,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, text: msgText }),
       }).catch(() => {});
     } catch (error) {
-      console.error("Chat Error:", error);
+      // silently handled
     }
   };
 
@@ -93,7 +95,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, imageUrl }),
       }).catch(() => {});
     } catch (error) {
-      alert("ไม่สามารถอัปโหลดรูปภาพได้");
+      toast.error("ไม่สามารถอัปโหลดรูปภาพได้");
     } finally {
       setIsUploading(false);
       if (chatFileInputRef.current) chatFileInputRef.current.value = '';

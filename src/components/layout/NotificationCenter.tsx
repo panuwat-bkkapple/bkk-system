@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
@@ -17,6 +18,7 @@ interface Notification {
 }
 
 export const NotificationCenter = () => {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(() => {
@@ -284,7 +286,7 @@ export const NotificationCenter = () => {
                       className={`flex items-start gap-3 p-3 rounded-xl border transition-all hover:shadow-sm cursor-pointer ${getSeverityStyle(notif.severity)}`}
                       onClick={() => {
                         if (notif.link) {
-                          window.location.href = notif.link;
+                          navigate(notif.link);
                           setIsOpen(false);
                         }
                       }}

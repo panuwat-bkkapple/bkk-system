@@ -74,7 +74,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
       onEditingItemChange({ ...editingItem, series: newSeriesName.trim() });
       setNewSeriesName('');
       setIsAddingSeries(false);
-    } catch (error) { console.error(error); toast.error('เกิดข้อผิดพลาดในการเพิ่ม Series'); }
+    } catch (error) { toast.error('เกิดข้อผิดพลาดในการเพิ่ม Series'); }
   };
 
   return (

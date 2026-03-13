@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { ref, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 import { 
   Users, ShieldCheck, KeyRound, Plus, 
   Edit, Trash2, X, UserCog, AlertTriangle 
@@ -16,6 +17,7 @@ const ROLES = [
 ];
 
 export const StaffManagement = () => {
+  const toast = useToast();
   const { data: staff, loading } = useDatabase('staff');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export const StaffManagement = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.pin.length !== 4) return alert('รหัส PIN ต้องมี 4 หลัก');
+    if (formData.pin.length !== 4) { toast.warning('รหัส PIN ต้องมี 4 หลัก'); return; }
 
     try {
       if (editingId) {
@@ -57,13 +59,17 @@ export const StaffManagement = () => {
       }
       setIsModalOpen(false);
     } catch (error) {
-      alert('เกิดข้อผิดพลาด: ' + error);
+      toast.error('เกิดข้อผิดพลาด: ' + error);
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบพนักงาน "${name}" ออกจากระบบ?`)) {
-      await remove(ref(db, `staff/${id}`));
+      try {
+        await remove(ref(db, `staff/${id}`));
+      } catch (error) {
+        toast.error('เกิดข้อผิดพลาด: ' + error);
+      }
     }
   };
 

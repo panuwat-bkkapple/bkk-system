@@ -11,6 +11,7 @@ import { db } from '@/api/firebase';
 import { formatDate, formatCurrency } from '@/utils/formatters';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/components/ui/ToastProvider';
 import { SmartB2BPipeline } from './components/SmartB2BPipeline';
 import { CompanyInfoCard } from './components/CompanyInfoCard';
 import { PreQuoteBuilder } from './components/PreQuoteBuilder';
@@ -26,6 +27,7 @@ interface B2BManagerProps {
 }
 
 export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BManagerProps) => {
+  const toast = useToast();
   const { currentUser } = useAuth();
 
   const [b2bGrandTotal, setB2bGrandTotal] = useState(job?.price ? Number(Number(job.price).toFixed(2)) : 0);
@@ -84,7 +86,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     try {
       await update(ref(db, `jobs/${job.id}`), { [field]: val, updated_at: Date.now() });
     } catch (e) {
-      console.error("Error saving date:", e);
+      // silently handled
     }
   };
 
@@ -95,7 +97,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   };
 
   const handleCallCustomer = async () => {
-    if (!job?.cust_phone) return alert('ไม่พบเบอร์โทรศัพท์ลูกค้า');
+    if (!job?.cust_phone) { toast.warning('ไม่พบเบอร์โทรศัพท์ลูกค้า'); return; }
     window.location.href = `tel:${job.cust_phone}`;
     if (String(job.status).toLowerCase() === 'new b2b lead') {
       onUpdateStatus(job.id, 'Following Up', 'แอดมินโทรติดต่อลูกค้าองค์กรเพื่อยืนยันข้อมูลและเตรียมเสนอราคา');
@@ -103,7 +105,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   };
 
   const handleSaveCompanyInfo = async () => {
-    if (!editCompanyData.companyName.trim()) return alert("กรุณาระบุชื่อบริษัท");
+    if (!editCompanyData.companyName.trim()) { toast.warning("กรุณาระบุชื่อบริษัท"); return; }
     const newCustName = editCompanyData.contactName ? `${editCompanyData.companyName} (${editCompanyData.contactName})` : editCompanyData.companyName;
     try {
       await update(ref(db, `jobs/${job.id}`), {
@@ -112,12 +114,12 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
       });
       onUpdateStatus(job.id, job.status, "แอดมินแก้ไขข้อมูลบริษัท/ผู้ติดต่อ");
       setIsEditingCompany(false);
-      alert("บันทึกข้อมูลบริษัทสำเร็จ");
-    } catch (error) { alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล"); }
+      toast.success("บันทึกข้อมูลบริษัทสำเร็จ");
+    } catch (error) { toast.error("เกิดข้อผิดพลาดในการบันทึกข้อมูล"); }
   };
 
   const handleAddExpectedItem = async () => {
-    if (!expModel || expQty <= 0 || expPrice <= 0) return alert('กรุณากรอกรุ่น จำนวน และราคาประเมินให้ครบถ้วน');
+    if (!expModel || expQty <= 0 || expPrice <= 0) { toast.warning('กรุณากรอกรุ่น จำนวน และราคาประเมินให้ครบถ้วน'); return; }
     const newItem = { id: Date.now().toString(), model: expModel, qty: expQty, unit_price: expPrice };
     const updatedExpected = [...expectedItems, newItem];
     const newTotal = updatedExpected.reduce((sum: number, item: any) => sum + (item.qty * item.unit_price), 0);
@@ -129,7 +131,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
       setExpectedItems(updatedExpected);
       if (!job.price || job.price === 0) setB2bGrandTotal(newTotal);
       setExpModel(''); setExpQty(1); setExpPrice(0);
-    } catch (error) { alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล'); }
+    } catch (error) { toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล'); }
   };
 
   const handleRemoveExpectedItem = async (id: string) => {
@@ -141,21 +143,21 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   const handleB2BAction = async (actionType: string) => {
     switch (actionType) {
       case 'send_pre_quote':
-        if (expectedItems.length === 0) return alert('กรุณาเพิ่มรายการสินค้าใน Pre-Quote Builder ก่อนครับ');
-        if (!quoteExpiryDate) return alert('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ');
+        if (expectedItems.length === 0) { toast.warning('กรุณาเพิ่มรายการสินค้าใน Pre-Quote Builder ก่อนครับ'); return; }
+        if (!quoteExpiryDate) { toast.warning('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ'); return; }
         onUpdateStatus(job.id, 'Pre-Quote Sent', `ส่งใบเสนอราคาเบื้องต้น (หมดอายุ: ${quoteExpiryDate})`, { price: preQuoteTotal, quote_expiry_date: quoteExpiryDate });
         break;
       case 'accept_pre_quote':
         onUpdateStatus(job.id, 'Pre-Quote Accepted', 'ลูกค้ายอมรับราคาเบื้องต้น เตรียมเข้าสู่ขั้นตอนนัดหมายหน้างาน');
         break;
       case 'dispatch_inspector':
-        if (!siteVisitDate) return alert('กรุณากำหนดวัน-เวลานัดหมายหน้างาน (Site Visit Schedule) ก่อนจ่ายงานครับ');
+        if (!siteVisitDate) { toast.warning('กรุณากำหนดวัน-เวลานัดหมายหน้างาน (Site Visit Schedule) ก่อนจ่ายงานครับ'); return; }
         onUpdateStatus(job.id, 'Site Visit & Grading', `จ่ายงานให้ทีม Inspector ประเมินหน้างานวันที่ ${formatDate(new Date(siteVisitDate).getTime())}`, { site_visit_date: siteVisitDate });
         break;
       case 'send_final_quote':
-        if (b2bGrandTotal <= 0) return alert('ระบบล็อค: กรุณาระบุยอดรวมสุทธิให้ถูกต้อง');
-        if (validItems.length === 0) return alert('ระบบล็อค: ทีมงานยังไม่ได้ประเมินเกรดหน้างาน หรือไม่มีเครื่องที่ผ่านเกณฑ์');
-        if (!quoteExpiryDate) return alert('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ');
+        if (b2bGrandTotal <= 0) { toast.warning('ระบบล็อค: กรุณาระบุยอดรวมสุทธิให้ถูกต้อง'); return; }
+        if (validItems.length === 0) { toast.warning('ระบบล็อค: ทีมงานยังไม่ได้ประเมินเกรดหน้างาน หรือไม่มีเครื่องที่ผ่านเกณฑ์'); return; }
+        if (!quoteExpiryDate) { toast.warning('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ'); return; }
         onUpdateStatus(job.id, 'Final Quote Sent', `ส่งใบเสนอราคาจริง (ยอดสุทธิ: ฿${b2bGrandTotal.toLocaleString()}) สำหรับ ${validItems.length} เครื่อง`, { price: b2bGrandTotal, ex_vat: b2bPriceExVat, vat_amount: vatAmount });
         break;
       case 'accept_final_quote':
@@ -165,20 +167,20 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
         onUpdateStatus(job.id, 'Negotiation', 'ลูกค้าขอต่อรองราคา เข้าสู่โหมดเจรจาพิเศษ');
         break;
       case 'issue_po':
-        if (!poNumber) return alert('ระบบล็อค: กรุณากรอกเลขที่ P.O. ฝั่งเราในกล่องเอกสารซ้ายมือก่อนครับ');
+        if (!poNumber) { toast.warning('ระบบล็อค: กรุณากรอกเลขที่ P.O. ฝั่งเราในกล่องเอกสารซ้ายมือก่อนครับ'); return; }
         onUpdateStatus(job.id, 'PO Issued', `บริษัทออกเอกสาร PO เลขที่ ${poNumber} เรียบร้อยแล้ว`, { documents: { ...job.documents, po_number: poNumber } });
         break;
       case 'wait_invoice':
         onUpdateStatus(job.id, 'Waiting for Invoice/Tax Inv.', 'รอลูกค้าองค์กรส่ง Invoice และใบกำกับภาษีมาวางบิล');
         break;
       case 'submit_to_finance':
-        if (!invoiceNumber) return alert('กรุณาระบุเลขที่ Invoice ของลูกค้าก่อนส่งเรื่องตั้งเบิกครับ');
-        if (!paymentDueDate) return alert('กรุณากำหนด Payment Due Date ในคลังเอกสารให้บัญชีทราบกำหนดโอนก่อนครับ');
+        if (!invoiceNumber) { toast.warning('กรุณาระบุเลขที่ Invoice ของลูกค้าก่อนส่งเรื่องตั้งเบิกครับ'); return; }
+        if (!paymentDueDate) { toast.warning('กรุณากำหนด Payment Due Date ในคลังเอกสารให้บัญชีทราบกำหนดโอนก่อนครับ'); return; }
         onUpdateStatus(job.id, 'Pending Finance Approval', `แอดมินส่งเรื่องตั้งเบิกยอด ฿${b2bGrandTotal.toLocaleString()} ให้ฝ่ายบัญชี (กำหนดจ่าย: ${paymentDueDate})`, { finance_status: 'Waiting for Transfer', payment_due_date: paymentDueDate, documents: { ...job.documents, po_number: poNumber, invoice_number: invoiceNumber, tax_invoice_number: taxInvoiceNumber } });
         break;
       case 'unpack_to_stock':
-        if (!taxInvoiceNumber) return alert('ระบบล็อค: ไม่สามารถรับเข้าคลังได้หากไม่มีเลขใบกำกับภาษี (Tax Invoice)');
-        if (validItems.length === 0) return alert('ระบบล็อค: ไม่พบรายการเครื่องที่ประเมินไว้');
+        if (!taxInvoiceNumber) { toast.warning('ระบบล็อค: ไม่สามารถรับเข้าคลังได้หากไม่มีเลขใบกำกับภาษี (Tax Invoice)'); return; }
+        if (validItems.length === 0) { toast.warning('ระบบล็อค: ไม่พบรายการเครื่องที่ประเมินไว้'); return; }
         if (!confirm(`ยืนยันการรับเครื่องเข้าคลัง? ระบบจะสร้างคิว QC จำนวน ${validItems.length} เครื่องอัตโนมัติ`)) return;
 
         onUpdateStatus(job.id, 'Completed', 'ระเบิดกล่องและกระจายเครื่องเข้าคลังสำเร็จ (สิ้นสุดงานแอดมิน B2B)');
@@ -196,9 +198,9 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
             return push(ref(db, 'jobs'), childPayload);
           });
           await Promise.all(promises);
-          alert(`🎉 ปิดจ๊อบเหมา! ส่งเครื่องลูก ${validItems.length} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`);
+          toast.success(`ปิดจ๊อบเหมา! ส่งเครื่องลูก ${validItems.length} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`);
           onClose();
-        } catch (error) { console.error("Error unpacking:", error); }
+        } catch (error) { /* silently handled */ }
         break;
     }
   };
@@ -253,7 +255,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
                   {b2bGrandTotal !== (job?.price || 0) && (
                     <div className="flex gap-3 animate-in slide-in-from-top-2 ml-[33%] bg-amber-50 p-4 rounded-2xl border border-amber-200">
                       <input type="text" placeholder="ระบุเหตุผลที่ปรับราคา (เช่น Negotiation)..." value={b2bPriceReason} onChange={(e) => setB2bPriceReason(e.target.value)} className="flex-1 bg-white border border-amber-200 p-3 rounded-xl text-sm font-bold outline-none focus:border-amber-400 shadow-sm" />
-                      <button onClick={() => { if (!b2bPriceReason) return alert('กรุณาระบุเหตุผลการปรับราคา'); onUpdateStatus(job.id, job.status, `แอดมินปรับราคารวม (Inc. VAT) ใหม่เป็น ฿${b2bGrandTotal.toLocaleString()} (เหตุผล: ${b2bPriceReason})`, { price: b2bGrandTotal }); setB2bPriceReason(''); alert('บันทึกราคาเจรจาใหม่เรียบร้อยแล้ว'); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 rounded-xl font-black text-xs uppercase shadow-sm transition-colors">Update Price</button>
+                      <button onClick={() => { if (!b2bPriceReason) { toast.warning('กรุณาระบุเหตุผลการปรับราคา'); return; } onUpdateStatus(job.id, job.status, `แอดมินปรับราคารวม (Inc. VAT) ใหม่เป็น ฿${b2bGrandTotal.toLocaleString()} (เหตุผล: ${b2bPriceReason})`, { price: b2bGrandTotal }); setB2bPriceReason(''); toast.success('บันทึกราคาเจรจาใหม่เรียบร้อยแล้ว'); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 rounded-xl font-black text-xs uppercase shadow-sm transition-colors">Update Price</button>
                     </div>
                   )}
                 </div>

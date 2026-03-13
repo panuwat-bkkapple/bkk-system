@@ -4,12 +4,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { db } from '@/api/firebase';
+import { useToast } from '@/components/ui/ToastProvider';
 
 // นำเข้า Components หลัก (ลบ Modal เก่าๆ ออกไปแล้ว)
 import { JobTable } from './components/modal/TradeInUI';
 import { CreateTicketModal } from './components/CreateTicketModal';
 
-export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: string) => void }) => {  
+export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: string) => void }) => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const { data: jobs, loading } = useDatabase('jobs');
   const { data: basePricing } = useDatabase('base_pricing');
@@ -89,8 +91,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       await push(ref(db, 'jobs'), finalPayload);
       setIsCreateModalOpen(false);
     } catch (error) {
-      console.error("Create Ticket Error:", error);
-      alert("เกิดข้อผิดพลาดในการสร้าง Ticket");
+      toast.error("เกิดข้อผิดพลาดในการสร้าง Ticket");
     }
   };
 
@@ -121,7 +122,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   };
 
   const handleReviseOffer = async (job: any, price: string, reason: string, targetStatus: string = 'Revised Offer') => {
-    if (!price || !reason) return alert('กรุณาระบุราคาและเหตุผลให้ครบถ้วน');
+    if (!price || !reason) { toast.warning('กรุณาระบุราคาและเหตุผลให้ครบถ้วน'); return; }
     const actionLabel = targetStatus === 'Payout Processing' ? 'Deal Closed (Negotiated)' : 'Revised Offer';
     if (!confirm(`ยืนยันการตั้งราคาใหม่ที่ ${price} บาท?`)) return;
 
@@ -173,7 +174,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const handleRowClick = async (job: any) => {
     // 1. อัปเดตสถานะการอ่าน
     if ((job.status === 'New Lead' || job.status === 'New B2B Lead') && !job.is_read) {
-      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { console.error(error); }
+      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { /* silently handled */ }
     }
 
     // 2. เรียกใช้ฟังก์ชันเข้าสู่หน้า Workspace เสมอ

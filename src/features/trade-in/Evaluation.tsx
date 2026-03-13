@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
 
 const GRADES = [
   { id: 'A', label: 'Grade A (นางฟ้า / ไร้รอย)', multiplier: 1.0, color: 'bg-green-50 text-green-700 border-green-200' },
@@ -18,6 +19,7 @@ const GRADES = [
 
 // ✅ แก้ไขบรรทัดนี้: เปลี่ยน (page: string) เป็น (page: any) เพื่อแก้ Error ใน App.tsx
 export const Evaluation = ({ onNavigate }: { onNavigate?: (page: any) => void }) => {
+  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedJob, setSelectedJob] = useState<any>(null);
@@ -52,12 +54,12 @@ export const Evaluation = ({ onNavigate }: { onNavigate?: (page: any) => void })
         conditions: `ประเมินจากระบบ: Grade ${selectedGrade} (${currentGradeObj.multiplier * 100}%)` 
       });
 
-      alert('บันทึกผลการประเมินเรียบร้อย');
+      toast.success('บันทึกผลการประเมินเรียบร้อย');
       setSelectedJob(null);
       setNote('');
       if (onNavigate) onNavigate('tradein_dash'); 
     } catch (e) {
-      alert('Error: ' + e);
+      toast.error('Error: ' + e);
     }
   };
 

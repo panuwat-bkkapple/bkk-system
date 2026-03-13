@@ -33,7 +33,6 @@ export const useDatabase = (path: string) => {
       },
       (err) => {
         // 🌟 ดักจับ Error ตรงนี้! ถ้าโดน Rules บล็อก มันจะเด้งมาหาฟังก์ชันนี้ครับ
-        console.error(`Firebase Error (Path: ${path}):`, err.message);
         setError(err.message);
         setLoading(false); // 🛑 สั่งหยุดหมุนโหลดดิ้งทันที!
       }

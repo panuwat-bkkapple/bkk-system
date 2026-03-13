@@ -8,6 +8,7 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../../../api/firebase';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { formatCurrency } from '../../../../utils/formatters';
+import { useToast } from '../../../../components/ui/ToastProvider';
 
 interface InternalQCModalProps {
     isOpen: boolean;
@@ -24,6 +25,7 @@ const getDeviceDisplayName = (device: any) => {
 };
 
 export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQCModalProps) => {
+    const toast = useToast();
     const [activeDeviceIndex, setActiveDeviceIndex] = useState<number | null>(null);
     const [inspectedDevicesData, setInspectedDevicesData] = useState<Record<number, any>>({});
     const [checks, setChecks] = useState<string[]>([]);
@@ -211,7 +213,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQC
             onClose(); 
         } catch (error) {
             console.error(error);
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setIsUploadingQC(false);
         }

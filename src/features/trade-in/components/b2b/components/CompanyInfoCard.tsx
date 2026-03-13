@@ -1,5 +1,6 @@
 import React from 'react';
 import { Building2, User, Phone, Mail, MapPin, Pencil, Save, Copy } from 'lucide-react';
+import { useToast } from '../../../../../components/ui/ToastProvider';
 
 interface EditCompanyData {
   companyName: string;
@@ -20,11 +21,12 @@ interface CompanyInfoCardProps {
 }
 
 export const CompanyInfoCard = ({ job, isEditing, editData, onSave, onToggleEdit, onEditChange }: CompanyInfoCardProps) => {
+  const toast = useToast();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes(String(job.status || '').toLowerCase());
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('คัดลอกลิงก์เรียบร้อยแล้ว');
+    toast.success('คัดลอกลิงก์เรียบร้อยแล้ว');
   };
 
   return (
