@@ -30,7 +30,7 @@ export const SettlementPage = () => {
         return;
     }
 
-    console.log("Job Data to Approve:", job); // เช็คใน Console
+
 
     if(!confirm(`ยืนยันอนุมัติค่าเที่ยวงาน ${job.ref_no}?`)) return;
 

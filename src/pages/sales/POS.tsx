@@ -6,7 +6,7 @@ import {
     ScanLine, ShoppingCart, Trash2, CreditCard, Banknote,
     Smartphone, Package, User, CheckCircle2, X, Plus, Minus, Receipt, Printer
 } from 'lucide-react';
-import { ref, update, push, get } from 'firebase/database'; // 🔥 เพิ่ม get ตรงนี้
+import { ref, update, push, get, runTransaction } from 'firebase/database';
 import { db } from '../../api/firebase';
 
 export const POS = () => {
@@ -137,7 +137,10 @@ export const POS = () => {
 
             // 🎯 ระบบบันทึก CRM ที่ปลอดภัย (ทำงานรอบเดียว)
             if (customer.phone) {
-                const cleanPhone = customer.phone.replace(/[^0-9]/g, ''); 
+                const cleanPhone = customer.phone.replace(/[^0-9]/g, '');
+                if (cleanPhone.length < 9 || cleanPhone.length > 10) {
+                    console.warn('Invalid phone number, skipping CRM update');
+                } else {
                 const customerRef = ref(db, `customers/CUS_${cleanPhone}`); // ใส่ CUS_ ป้องกัน Firebase งง
                 const snap = await get(customerRef);
                 const existingData = snap.exists() ? snap.val() : { total_spent: 0, total_sold_qty: 0 };
@@ -150,6 +153,7 @@ export const POS = () => {
                     updated_at: timestamp,
                     created_at: existingData.created_at || timestamp
                 });
+                }
             }
 
             const deviceUpdates = cart.filter(item => item.type === 'DEVICE').map(async (deviceItem) => {
@@ -157,8 +161,13 @@ export const POS = () => {
             });
 
             const skuUpdates = cart.filter(item => item.type === 'SKU').map(async (skuItem) => {
-                const newStock = Math.max(0, (Number(skuItem.refData.stock) || 0) - skuItem.qty);
-                await update(ref(db, `products/${skuItem.id}`), { stock: newStock, updated_at: timestamp });
+                const stockRef = ref(db, `products/${skuItem.id}/stock`);
+                await runTransaction(stockRef, (currentStock) => {
+                    const stock = Number(currentStock) || 0;
+                    if (stock < skuItem.qty) return; // abort if insufficient
+                    return stock - skuItem.qty;
+                });
+                await update(ref(db, `products/${skuItem.id}`), { updated_at: timestamp });
             });
 
             await Promise.all([...deviceUpdates, ...skuUpdates]);

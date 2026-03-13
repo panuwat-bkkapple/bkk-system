@@ -60,16 +60,27 @@ export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
     }
   };
 
-  // 🌟 ฟังก์ชันล็อกอินพนักงานด้วย PIN
-  const handlePinLogin = (e: React.FormEvent) => {
+  // 🌟 ฟังก์ชันล็อกอินพนักงานด้วย PIN (ตรวจสอบกับ database โดยตรง)
+  const handlePinLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinError('');
 
-    if (pin === selectedStaff?.pin) {
-      onLogin(selectedStaff); // ส่งข้อมูลพนักงานเข้าสู่ระบบ App.tsx
-    } else {
-      setPinError('รหัส PIN 4 หลักไม่ถูกต้อง');
-      setPin(''); // ล้างช่องให้พิมพ์ใหม่
+    try {
+      // ดึง PIN จาก database ใหม่ทุกครั้ง ป้องกันการแก้ไข client-side
+      const snap = await get(ref(db, `staff/${selectedStaff.id}/pin`));
+      const dbPin = snap.exists() ? String(snap.val()) : null;
+
+      if (dbPin && pin === dbPin) {
+        // ส่งข้อมูลพนักงาน (ไม่รวม PIN) เข้าสู่ระบบ
+        const { pin: _pin, ...safeStaff } = selectedStaff;
+        onLogin(safeStaff);
+      } else {
+        setPinError('รหัส PIN 4 หลักไม่ถูกต้อง');
+        setPin('');
+      }
+    } catch (err) {
+      setPinError('เกิดข้อผิดพลาดในการตรวจสอบ กรุณาลองใหม่');
+      setPin('');
     }
   };
 

@@ -19,12 +19,8 @@ export const uploadImageToFirebase = async (file: File, path: string): Promise<s
       fileType: 'image/jpeg'
     };
 
-    console.log(`[Before] ขนาดไฟล์ต้นฉบับ: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
-    
     // 🌟 2. สั่งบีบอัด!
     const compressedFile = await imageCompression(file, options);
-    
-    console.log(`[After] ขนาดไฟล์หลังบีบอัด: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
 
     // 3. จัดการตั้งชื่อไฟล์ใหม่ (บังคับให้เป็น .jpg เพราะเราแปลงไฟล์แล้ว)
     const originalName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;

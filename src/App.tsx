@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from './api/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, update, onValue } from 'firebase/database';
+import { ref, update, onValue, get } from 'firebase/database';
 import type { User as FirebaseUser } from 'firebase/auth';
 
 // --- Pages Import ---
@@ -107,7 +107,7 @@ const AdminLayout = ({ currentUser, onLogout }: { currentUser: any, onLogout: ()
     const unsub = onValue(reviewsRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const count = Object.values(data).filter((r: any) => r.status === 'pending').length;
+        const count = Object.values(data).filter((r: any) => r && r.status === 'pending').length;
         setPendingReviews(count);
       } else {
         setPendingReviews(0);
@@ -252,16 +252,36 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       
-      // ⚡ AUTO-LOGIN: ถ้า Firebase Auth ผ่าน → เข้า Dashboard เลย ไม่ต้องเลือก user
+      // ⚡ AUTO-LOGIN: ถ้า Firebase Auth ผ่าน → ดึง role จาก database ก่อนเข้าระบบ
       if (firebaseUser && !currentUser) {
-        const autoUser = {
-          uid: firebaseUser.uid,
-          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin',
-          email: firebaseUser.email || '',
-          role: 'CEO'
-        };
-        sessionStorage.setItem('bkk_session', JSON.stringify(autoUser));
-        setCurrentUser(autoUser);
+        try {
+          const staffSnap = await get(ref(db, 'staff'));
+          let role = 'STAFF'; // default role ที่จำกัดสิทธิ์
+          let staffName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin';
+
+          if (staffSnap.exists()) {
+            const staffData = staffSnap.val();
+            // หาพนักงานที่ตรงกับ email ที่ login
+            const matched = Object.values(staffData).find(
+              (s: any) => s.email === firebaseUser.email && s.status === 'ACTIVE'
+            ) as any;
+            if (matched) {
+              role = matched.role || 'STAFF';
+              staffName = matched.name || staffName;
+            }
+          }
+
+          const autoUser = {
+            uid: firebaseUser.uid,
+            name: staffName,
+            email: firebaseUser.email || '',
+            role,
+          };
+          sessionStorage.setItem('bkk_session', JSON.stringify(autoUser));
+          setCurrentUser(autoUser);
+        } catch (err) {
+          console.error('Auto-login role fetch failed:', err);
+        }
       }
       
       setLoading(false);
@@ -316,15 +336,15 @@ export default function App() {
               <Route path="/accessories" element={<Accessories />} />
               <Route path="/sales-history" element={<SalesHistory />} />
               <Route path="/stock-audit" element={<StockAudit />} />
-              <Route path="/finance" element={<Finance />} />
-              <Route path="/daily-expenses" element={<DailyExpenses />} />
+              <Route path="/finance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <Finance /> : <Navigate to="/" replace />} />
+              <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
               <Route path="/riders" element={<RiderManagement />} />
               <Route path="/crm" element={<Customers />} />
               <Route path="/customer-crm" element={<CustomerCRM />} />
               <Route path="/traceability" element={<Traceability />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
-              <Route path="/pricing" element={<PriceEditor />} />
-              <Route path="/staff" element={<StaffManagement />} />
+              <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
+              <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
               <Route path="/coupons" element={<CouponManager />} />
               <Route path="/reviews" element={<ReviewManager />} />
               <Route path="/global-settings" element={<GlobalSettings />} />
