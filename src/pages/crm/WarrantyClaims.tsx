@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 export const WarrantyClaims = () => {
+  const toast = useToast();
   const { currentUser } = useAuth();
   const { data: sales } = useDatabase('sales');
   const { data: jobs } = useDatabase('jobs');
@@ -55,7 +56,7 @@ export const WarrantyClaims = () => {
     }
 
     if (!foundSale || !foundItem) {
-       alert('ไม่พบประวัติการขายสินค้า หรือ IMEI นี้ในระบบ (หรือบิลถูกยกเลิกไปแล้ว)');
+       toast.warning('ไม่พบประวัติการขายสินค้า หรือ IMEI นี้ในระบบ (หรือบิลถูกยกเลิกไปแล้ว)');
        setSearchResult(null);
        return;
     }
@@ -69,7 +70,7 @@ export const WarrantyClaims = () => {
 
   const handleSubmitClaim = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!claimForm.issue) return alert('กรุณาระบุอาการเสีย');
+    if (!claimForm.issue) { toast.warning('กรุณาระบุอาการเสีย'); return; }
     if (!window.confirm('ยืนยันการเปิดบิลเคลมสินค้า?')) return;
 
     try {
@@ -108,13 +109,13 @@ export const WarrantyClaims = () => {
          });
       }
 
-      alert(`เปิดบิลเคลมสำเร็จ! เลขที่: ${claimNo}`);
+      toast.success(`เปิดบิลเคลมสำเร็จ! เลขที่: ${claimNo}`);
       setSearchResult(null);
       setQuery('');
       setClaimForm({ issue: '', resolution: 'REPAIR', note: '' });
 
     } catch (error) {
-      alert('เกิดข้อผิดพลาด: ' + error);
+      toast.error('เกิดข้อผิดพลาด: ' + error);
     }
   };
 

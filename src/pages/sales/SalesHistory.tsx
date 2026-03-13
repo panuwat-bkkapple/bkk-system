@@ -143,7 +143,7 @@ export const SalesHistory = () => {
         }
         toast.success('ยกเลิกบิลสำเร็จ!');
         setSelectedReceipt(null);
-     } catch (error) { alert('เกิดข้อผิดพลาด: ' + error); }
+     } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
   };
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400">Loading Transactions...</div>;
