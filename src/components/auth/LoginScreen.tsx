@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '../../api/firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { ref, get, push, set } from 'firebase/database';
 import { Lock, LogIn, KeyRound, User, ChevronLeft, LogOut, ShieldCheck } from 'lucide-react';
 
 export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
@@ -33,7 +33,21 @@ export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
           const snap = await get(ref(db, 'staff'));
           if (snap.exists()) {
             const arr = Object.keys(snap.val()).map(k => ({ id: k, ...snap.val()[k] }));
-            setStaffList(arr.filter(s => s.status === 'ACTIVE')); // เอาเฉพาะคนที่ยังทำงานอยู่
+            setStaffList(arr.filter(s => s.status === 'ACTIVE'));
+          } else {
+            // Database is empty - bootstrap first user as CEO and auto-login
+            const staffName = user.displayName || user.email?.split('@')[0] || 'Admin';
+            const newStaffRef = push(ref(db, 'staff'));
+            const newStaff = {
+              name: staffName,
+              email: user.email,
+              role: 'CEO',
+              status: 'ACTIVE',
+              pin: '0000',
+              createdAt: new Date().toISOString(),
+            };
+            await set(newStaffRef, newStaff);
+            onLogin({ id: newStaffRef.key, ...newStaff });
           }
         } catch (err) {
           console.error("Fetch staff error:", err);
