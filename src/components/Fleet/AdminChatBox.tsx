@@ -58,13 +58,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         read: false
       });
       setInputText("");
-
-      // Notify rider via Cloud Function
-      fetch('https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/notifyChatMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, text: msgText }),
-      }).catch(() => {});
+      // Notification is now handled by onChatMessageCreated database trigger
     } catch (error) {
       // silently handled
     }
@@ -87,13 +81,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         timestamp: Date.now(),
         read: false
       });
-
-      // Notify rider via Cloud Function
-      fetch('https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/notifyChatMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, imageUrl }),
-      }).catch(() => {});
+      // Notification is now handled by onChatMessageCreated database trigger
     } catch (error) {
       toast.error("ไม่สามารถอัปโหลดรูปภาพได้");
     } finally {
