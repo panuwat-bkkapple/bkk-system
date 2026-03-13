@@ -46,15 +46,23 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
 
   const handleSend = async () => {
     if (!inputText.trim()) return;
+    const msgText = inputText.trim();
     try {
       await push(ref(db, `jobs/${jobId}/chats`), {
         sender: 'admin',
         senderName: adminName,
-        text: inputText.trim(),
+        text: msgText,
         timestamp: Date.now(),
         read: false
       });
       setInputText("");
+
+      // Notify rider via Cloud Function
+      fetch('https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/notifyChatMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, text: msgText }),
+      }).catch(() => {});
     } catch (error) {
       console.error("Chat Error:", error);
     }
@@ -77,6 +85,13 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         timestamp: Date.now(),
         read: false
       });
+
+      // Notify rider via Cloud Function
+      fetch('https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/notifyChatMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, sender: 'Admin', senderName: adminName, imageUrl }),
+      }).catch(() => {});
     } catch (error) {
       alert("ไม่สามารถอัปโหลดรูปภาพได้");
     } finally {
