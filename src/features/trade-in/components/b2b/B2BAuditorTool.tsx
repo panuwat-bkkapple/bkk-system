@@ -2,13 +2,15 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useDatabase } from "@/hooks/useDatabase";
 import { ref, update } from "firebase/database";
 import { db } from "@/api/firebase";
-import { 
-  ScanLine, CheckCircle2, AlertCircle, Building2, 
+import {
+  ScanLine, CheckCircle2, AlertCircle, Building2,
   Smartphone, Plus, Save, X, Trash2, Calculator,
   ClipboardCheck, AlertTriangle
 } from 'lucide-react';
+import { useToast } from '@/components/ui/ToastProvider';
 
 export const B2BAuditorTool = () => {
+  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
   const { data: basePricing } = useDatabase('base_pricing');
 
@@ -50,8 +52,8 @@ export const B2BAuditorTool = () => {
   }, [selectedModel, grade, basePricing]);
 
   const handleAddItem = async () => {
-    if (!selectedJobId) return alert('กรุณาเลือกล็อตงาน B2B ก่อนครับ');
-    if (!imei || !selectedModel) return alert('กรุณากรอก IMEI และเลือกรุ่น');
+    if (!selectedJobId) { toast.warning('กรุณาเลือกล็อตงาน B2B ก่อนครับ'); return; }
+    if (!imei || !selectedModel) { toast.warning('กรุณากรอก IMEI และเลือกรุ่น'); return; }
 
     const newItem = {
       id: Date.now().toString(),

@@ -11,6 +11,7 @@ import { db } from '@/api/firebase';
 import { formatDate, formatCurrency } from '@/utils/formatters';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/components/ui/ToastProvider';
 import { SmartB2BPipeline } from './components/SmartB2BPipeline';
 import { CompanyInfoCard } from './components/CompanyInfoCard';
 import { PreQuoteBuilder } from './components/PreQuoteBuilder';
@@ -26,6 +27,7 @@ interface B2BManagerProps {
 }
 
 export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BManagerProps) => {
+  const toast = useToast();
   const { currentUser } = useAuth();
 
   const [b2bGrandTotal, setB2bGrandTotal] = useState(job?.price ? Number(Number(job.price).toFixed(2)) : 0);
@@ -95,7 +97,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   };
 
   const handleCallCustomer = async () => {
-    if (!job?.cust_phone) return alert('ไม่พบเบอร์โทรศัพท์ลูกค้า');
+    if (!job?.cust_phone) { toast.warning('ไม่พบเบอร์โทรศัพท์ลูกค้า'); return; }
     window.location.href = `tel:${job.cust_phone}`;
     if (String(job.status).toLowerCase() === 'new b2b lead') {
       onUpdateStatus(job.id, 'Following Up', 'แอดมินโทรติดต่อลูกค้าองค์กรเพื่อยืนยันข้อมูลและเตรียมเสนอราคา');
@@ -103,7 +105,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   };
 
   const handleSaveCompanyInfo = async () => {
-    if (!editCompanyData.companyName.trim()) return alert("กรุณาระบุชื่อบริษัท");
+    if (!editCompanyData.companyName.trim()) { toast.warning("กรุณาระบุชื่อบริษัท"); return; }
     const newCustName = editCompanyData.contactName ? `${editCompanyData.companyName} (${editCompanyData.contactName})` : editCompanyData.companyName;
     try {
       await update(ref(db, `jobs/${job.id}`), {
@@ -112,8 +114,8 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
       });
       onUpdateStatus(job.id, job.status, "แอดมินแก้ไขข้อมูลบริษัท/ผู้ติดต่อ");
       setIsEditingCompany(false);
-      alert("บันทึกข้อมูลบริษัทสำเร็จ");
-    } catch (error) { alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล"); }
+      toast.success("บันทึกข้อมูลบริษัทสำเร็จ");
+    } catch (error) { toast.error("เกิดข้อผิดพลาดในการบันทึกข้อมูล"); }
   };
 
   const handleAddExpectedItem = async () => {
