@@ -249,7 +249,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       
       // ⚡ AUTO-LOGIN: ถ้า Firebase Auth ผ่าน → ดึง role จาก database ก่อนเข้าระบบ
