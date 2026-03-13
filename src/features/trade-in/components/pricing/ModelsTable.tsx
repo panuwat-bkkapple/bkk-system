@@ -97,9 +97,9 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
 
                   <td className="p-4">
                     <div className="flex gap-2 opacity-60">
-                      {item.inStore && <Layers size={14} title="Store" className="text-emerald-600" />}
-                      {item.pickup && <Layers size={14} title="Pickup" className="text-blue-600" />}
-                      {item.mailIn && <Layers size={14} title="Mail" className="text-orange-600" />}
+                      {item.inStore && <Layers size={14} aria-label="Store" className="text-emerald-600" />}
+                      {item.pickup && <Layers size={14} aria-label="Pickup" className="text-blue-600" />}
+                      {item.mailIn && <Layers size={14} aria-label="Mail" className="text-orange-600" />}
                     </div>
                   </td>
                   <td className="p-4 text-right pr-6">
