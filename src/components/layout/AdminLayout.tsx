@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, Package, LogOut, ClipboardCheck,
@@ -13,6 +13,8 @@ import { db } from '../../api/firebase';
 import { NavButton } from './NavButton';
 import { NotificationCenter } from './NotificationCenter';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
+import { useNewTicketAlert } from '../../hooks/useNewTicketAlert';
+import { useToast } from '../ui/ToastProvider';
 
 interface AdminLayoutProps {
   currentUser: any;
@@ -22,10 +24,39 @@ interface AdminLayoutProps {
 export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const navigate = useNavigate();
+  const toast = useToast();
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
   // Register admin FCM token for push notifications
   useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
+
+  // Real-time new ticket alerts (in-app toast + sound + browser notification)
+  const handleNewTicket = useCallback((ticket: any) => {
+    const isB2B = ticket.status === 'New B2B Lead';
+    const price = ticket.price ? `฿${Number(ticket.price).toLocaleString()}` : '';
+
+    // Toast notification
+    toast.info(
+      `${isB2B ? '📦 B2B' : '📱'} ${ticket.model} ${price} ${ticket.cust_name ? `- ${ticket.cust_name}` : ''}`
+    );
+
+    // Add to NotificationCenter
+    setNewTicketAlerts(prev => [
+      {
+        id: `new_ticket_${ticket.id}`,
+        type: 'new_ticket' as const,
+        title: isB2B ? 'New B2B Ticket!' : 'Ticket ใหม่เข้ามา!',
+        description: `${ticket.model} ${price} ${ticket.receive_method ? `(${ticket.receive_method})` : ''}`,
+        severity: 'critical' as const,
+        time: ticket.created_at,
+        link: '/tickets',
+      },
+      ...prev,
+    ]);
+  }, [toast]);
+
+  useNewTicketAlert({ onNewTicket: handleNewTicket });
 
   const hasAccess = (allowedRoles: string[]) => {
     return allowedRoles.includes(currentUser?.role);
@@ -155,7 +186,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
       <main className={`flex-1 transition-all duration-300 ${isCollapsed ? 'ml-20' : 'ml-72'}`}>
         <div className="sticky top-0 z-10 bg-[#F5F5F7]/80 backdrop-blur-lg border-b border-slate-200/60">
           <div className="flex justify-end items-center px-6 py-2.5 gap-3">
-            <NotificationCenter />
+            <NotificationCenter newTicketAlerts={newTicketAlerts} />
             <div className="w-px h-6 bg-slate-200" />
             <div className="flex items-center gap-2">
               <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-xs ${currentUser?.role === 'CEO' ? 'bg-purple-600' : currentUser?.role === 'MANAGER' ? 'bg-blue-600' : 'bg-emerald-600'}`}>

@@ -4,12 +4,12 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Bell, Package, ShieldAlert, Clock, Smartphone,
-  AlertTriangle, X, CheckCircle2, MessageSquareQuote
+  AlertTriangle, X, CheckCircle2, MessageSquareQuote, Ticket
 } from 'lucide-react';
 
 interface Notification {
   id: string;
-  type: 'low_stock' | 'dead_stock' | 'pending_claim' | 'pending_review' | 'pending_job';
+  type: 'low_stock' | 'dead_stock' | 'pending_claim' | 'pending_review' | 'pending_job' | 'new_ticket';
   title: string;
   description: string;
   severity: 'critical' | 'warning' | 'info';
@@ -17,7 +17,7 @@ interface Notification {
   link?: string;
 }
 
-export const NotificationCenter = () => {
+export const NotificationCenter = ({ newTicketAlerts = [] }: { newTicketAlerts?: Notification[] }) => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -190,6 +190,17 @@ export const NotificationCenter = () => {
     return () => unsubs.forEach(fn => fn());
   }, []);
 
+  // Merge new ticket alerts from parent
+  useEffect(() => {
+    if (newTicketAlerts.length > 0) {
+      setNotifications(prev => {
+        const existingIds = new Set(prev.map(n => n.id));
+        const newOnes = newTicketAlerts.filter(n => !existingIds.has(n.id));
+        return [...newOnes, ...prev];
+      });
+    }
+  }, [newTicketAlerts]);
+
   const dismiss = (id: string) => {
     const next = new Set(dismissed).add(id);
     setDismissed(next);
@@ -213,6 +224,7 @@ export const NotificationCenter = () => {
       case 'pending_claim': return <ShieldAlert size={16} />;
       case 'pending_review': return <MessageSquareQuote size={16} />;
       case 'pending_job': return <Smartphone size={16} />;
+      case 'new_ticket': return <Ticket size={16} />;
     }
   };
 

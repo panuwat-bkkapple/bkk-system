@@ -7,6 +7,7 @@ import { db } from '../api/firebase';
 /**
  * Hook สำหรับลงทะเบียน FCM token ของแอดมิน
  * เก็บ token ไว้ที่ admin_fcm_tokens/{staffId}/{tokenKey}
+ * รับ foreground messages แล้วแสดง Browser Notification
  */
 export const useAdminPushNotifications = (staffId: string | null) => {
   useEffect(() => {
@@ -41,16 +42,24 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           });
         }
 
-        // Handle foreground messages - show browser notification
+        // Handle foreground messages from Cloud Functions
+        // (useNewTicketAlert handles in-app toast+sound, this only handles browser notif for FCM push)
         onMessage(messaging, (payload) => {
+          const data = payload.data || {};
+
+          // ถ้าเป็น new_ticket → useNewTicketAlert จัดการ in-app แล้ว
+          // แต่ยังแสดง browser notification ถ้า tab ไม่ได้ focus
+          if (data.type === 'new_ticket' && document.hasFocus()) return;
+
           if (payload.notification) {
             new Notification(payload.notification.title || 'BKK Admin', {
               body: payload.notification.body,
-              icon: '/vite.svg'
+              icon: '/vite.svg',
+              tag: data.type === 'new_ticket' ? `ticket-${data.jobId}` : undefined,
             });
           }
         });
-      } catch (error) {
+      } catch {
         // silently handled
       }
     };
