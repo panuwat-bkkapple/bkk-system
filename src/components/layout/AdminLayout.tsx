@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck
+  Ticket, MessageSquareQuote, UserCheck, Inbox
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -26,6 +26,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const navigate = useNavigate();
   const toast = useToast();
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [unreadInbox, setUnreadInbox] = useState(0);
   const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
   // Register admin FCM token for push notifications
@@ -61,6 +62,21 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const hasAccess = (allowedRoles: string[]) => {
     return allowedRoles.includes(currentUser?.role);
   };
+
+  // Unread inbox count
+  useEffect(() => {
+    const inboxRef = ref(db, 'inbox');
+    const unsub = onValue(inboxRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const total = Object.values(data).reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0);
+        setUnreadInbox(total);
+      } else {
+        setUnreadInbox(0);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const reviewsRef = ref(db, 'reviews');
@@ -100,6 +116,14 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <NavButton collapsed={isCollapsed} to="/qc-station" icon={<ClipboardCheck size={18} />} label="QC Lab Station" />
               <NavButton collapsed={isCollapsed} to="/b2b-auditor" icon={<ScanLine size={18} />} label="สแกนหน้างาน (B2B)" />
               {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />}
+            </div>
+          </div>
+
+          {/* Inbox */}
+          <div>
+            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Communication</p>}
+            <div className="space-y-1">
+              <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
             </div>
           </div>
 

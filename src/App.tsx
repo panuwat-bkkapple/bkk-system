@@ -35,6 +35,7 @@ import { CouponManager } from './pages/admin/CouponManager';
 import GlobalSettings from './pages/admin/GlobalSettings';
 import BranchManager from './pages/admin/BranchManager';
 import ReviewManager from './pages/admin/ReviewManager';
+import { InboxPage } from './pages/inbox/InboxPage';
 import { ToastProvider } from './components/ui/ToastProvider';
 
 // ==========================================
@@ -154,6 +155,7 @@ export default function App() {
               <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
+              <Route path="/inbox" element={<InboxPage />} />
               <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
             </Route>
           </>
