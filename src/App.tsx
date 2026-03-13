@@ -130,7 +130,7 @@ export default function App() {
 
             {/* Admin Layout Pages */}
             <Route element={<AdminLayout currentUser={currentUser} onLogout={handleLogout} />}>
-              <Route path="/" element={<CEODashboardWrapper />} />
+              <Route path="/" element={<CEODashboard />} />
               <Route path="/tickets" element={<TradeInDashboardWrapper />} />
               <Route path="/workspace/:id" element={<B2CWorkspacePageWrapper />} />
               <Route path="/evaluation" element={<Evaluation />} />
@@ -183,17 +183,6 @@ const TradeInDashboardWrapper = () => {
   return <TradeInDashboard onOpenWorkspace={(id: string) => navigate(`/workspace/${id}`)} />;
 };
 
-const CEODashboardWrapper = () => {
-  const navigate = useNavigate();
-  const routeMap: Record<string, string> = {
-    pos_register: '/pos',
-    tradein_analytics: '/analytics/trade-in',
-    tradein_dash: '/tickets',
-    product_trace: '/traceability',
-    warranty_claims: '/warranty',
-  };
-  return <CEODashboard onNavigate={(page: string) => navigate(routeMap[page] || '/' + page)} />;
-};
 
 const POSButtonWrapper = ({ to, label }: { to: string, label: string }) => {
   const navigate = useNavigate();

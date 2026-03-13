@@ -1,14 +1,25 @@
 // src/pages/dashboard/CEODashboard.tsx
 import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
-import { 
-  TrendingUp, TrendingDown, ShoppingCart, Smartphone, 
+import {
+  TrendingUp, TrendingDown, ShoppingCart, Smartphone,
   ShieldAlert, AlertTriangle, ArrowRight, Wallet, Activity,
   Clock, Package
 } from 'lucide-react';
 
-export const CEODashboard = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
+const routeMap: Record<string, string> = {
+  pos_register: '/pos',
+  tradein_analytics: '/analytics/trade-in',
+  tradein_dash: '/tickets',
+  product_trace: '/traceability',
+  warranty_claims: '/warranty',
+};
+
+export const CEODashboard = () => {
+  const navigate = useNavigate();
+  const onNavigate = (page: string) => navigate(routeMap[page] || '/' + page);
   const { currentUser } = useAuth();
   const { data: sales, loading: salesLoading } = useDatabase('sales');
   const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
