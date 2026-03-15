@@ -1,5 +1,5 @@
 // src/pages/inventory/Traceability.tsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
@@ -10,7 +10,9 @@ import {
 
 export const Traceability = () => {
   const toast = useToast();
-  const { data: jobs } = useDatabase('jobs');
+  const { data: activeJobs } = useDatabase('jobs');
+  const { data: archivedJobs } = useDatabase('jobs_archived');
+  const jobs = useMemo(() => [...activeJobs, ...archivedJobs], [activeJobs, archivedJobs]);
   const { data: sales } = useDatabase('sales');
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState<any>(null);

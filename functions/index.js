@@ -1,10 +1,95 @@
 const { onValueCreated } = require("firebase-functions/v2/database");
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 
 initializeApp();
+
+// =============================================================================
+// Archive System: ย้ายงานที่จบแล้วไป jobs_archived เพื่อลด load
+// =============================================================================
+
+const TERMINAL_STATUSES = [
+  "Completed",
+  "Sold",
+  "Cancelled",
+  "Closed (Lost)",
+  "Returned",
+  "Withdrawal Completed",
+];
+const ARCHIVE_THRESHOLD_DAYS = 90;
+
+/**
+ * ฟังก์ชันกลางสำหรับ archive งานเก่า
+ * ย้ายงานที่สถานะจบ + เก่ากว่า 90 วัน จาก jobs → jobs_archived
+ */
+async function runArchive() {
+  const db = getDatabase();
+  const jobsSnap = await db.ref("jobs").once("value");
+  if (!jobsSnap.exists()) return { archived: 0 };
+
+  const now = Date.now();
+  const thresholdMs = ARCHIVE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+  const updates = {};
+  let count = 0;
+
+  jobsSnap.forEach((child) => {
+    const job = child.val();
+    const jobId = child.key;
+    const createdAt = job.created_at || job.updated_at || 0;
+
+    if (
+      TERMINAL_STATUSES.includes(job.status) &&
+      createdAt > 0 &&
+      now - createdAt > thresholdMs
+    ) {
+      updates[`jobs_archived/${jobId}`] = { ...job, archived_at: now };
+      updates[`jobs/${jobId}`] = null;
+      count++;
+    }
+  });
+
+  if (count > 0) {
+    await db.ref().update(updates);
+  }
+
+  console.log(`Archived ${count} old jobs`);
+  return { archived: count };
+}
+
+/**
+ * Scheduled Function: รันทุกวันตี 3 (Bangkok time)
+ * ตรวจสอบและ archive งานเก่าอัตโนมัติ
+ */
+exports.archiveOldJobs = onSchedule(
+  {
+    schedule: "0 3 * * *",
+    timeZone: "Asia/Bangkok",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const result = await runArchive();
+    console.log(`Scheduled archive completed:`, result);
+  }
+);
+
+/**
+ * HTTP Function: เรียกด้วยมือเพื่อ migrate งานเก่าทันที
+ * ใช้สำหรับการ migrate ครั้งแรก หรือเรียกเมื่อต้องการ archive ทันที
+ */
+exports.migrateOldJobs = onRequest(
+  { region: "asia-southeast1", cors: true },
+  async (req, res) => {
+    const result = await runArchive();
+    res.json({
+      success: true,
+      message: `Archived ${result.archived} old jobs`,
+      ...result,
+    });
+  }
+);
 
 /**
  * Cloud Function: ส่ง Push Notification ให้ admin ทุกคนเมื่อมี ticket ใหม่

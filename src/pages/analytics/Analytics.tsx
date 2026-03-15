@@ -21,8 +21,12 @@ import {
 interface AnalyticsProps { mode: 'buying' | 'sales'; }
 
 export const Analytics = ({ mode }: AnalyticsProps) => {
-  const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
+  const { data: activeJobs, loading: jobsLoading } = useDatabase('jobs');
+  const { data: archivedJobs, loading: archiveLoading } = useDatabase('jobs_archived');
   const { data: sales, loading: salesLoading } = useDatabase('sales');
+
+  // รวม jobs ปัจจุบัน + archived เข้าด้วยกันเพื่อให้ Analytics เห็นข้อมูลทั้งหมด
+  const jobs = useMemo(() => [...activeJobs, ...archivedJobs], [activeJobs, archivedJobs]);
   
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'this_week' | 'this_month'>('today');
 
@@ -202,7 +206,7 @@ export const Analytics = ({ mode }: AnalyticsProps) => {
       };
   }, [jobs, sales, workingCapital, fixedCosts]);
 
-  if (jobsLoading || salesLoading) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Loading Analytics Data...</div>;
+  if (jobsLoading || archiveLoading || salesLoading) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Loading Analytics Data...</div>;
 
   // ==========================================
   // 📊 VIEW: SALES & PROFIT ANALYTICS
