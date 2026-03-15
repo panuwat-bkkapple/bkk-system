@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate, useParams, useLocation } from 'react-router-dom';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { auth, db } from './api/firebase';
@@ -122,7 +122,7 @@ export default function App() {
         {/* Login Route */}
         <Route
           path="/login"
-          element={!currentUser ? <LoginScreen onLogin={handleLogin} /> : <Navigate to="/" replace />}
+          element={!currentUser ? <LoginScreen onLogin={handleLogin} /> : <RedirectAfterLogin />}
         />
 
         {/* Protected Routes */}
@@ -172,7 +172,7 @@ export default function App() {
             </Route>
           </>
         ) : (
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<SavePathAndRedirect />} />
         )}
       </Routes>
     </Router>
@@ -197,6 +197,21 @@ const TradeInDashboardWrapper = () => {
   return <TradeInDashboard onOpenWorkspace={(id: string) => navigate(`/workspace/${id}`)} />;
 };
 
+
+const SavePathAndRedirect = () => {
+  const location = useLocation();
+  const intendedPath = location.pathname + location.search;
+  if (intendedPath && intendedPath !== '/login' && intendedPath !== '/') {
+    sessionStorage.setItem('bkk_redirect', intendedPath);
+  }
+  return <Navigate to="/login" replace />;
+};
+
+const RedirectAfterLogin = () => {
+  const redirectTo = sessionStorage.getItem('bkk_redirect') || '/';
+  sessionStorage.removeItem('bkk_redirect');
+  return <Navigate to={redirectTo} replace />;
+};
 
 const POSButtonWrapper = ({ to, label }: { to: string, label: string }) => {
   const navigate = useNavigate();
