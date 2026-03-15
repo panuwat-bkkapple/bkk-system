@@ -36,6 +36,10 @@ import GlobalSettings from './pages/admin/GlobalSettings';
 import BranchManager from './pages/admin/BranchManager';
 import ReviewManager from './pages/admin/ReviewManager';
 import { InboxPage } from './pages/inbox/InboxPage';
+import { MobileLayout } from './pages/mobile/MobileLayout';
+import { MobileTicketsPage } from './pages/mobile/MobileTicketsPage';
+import { MobileTicketDetail } from './pages/mobile/MobileTicketDetail';
+import { MobileNotificationsPage } from './pages/mobile/MobileNotificationsPage';
 import { ToastProvider } from './components/ui/ToastProvider';
 
 // ==========================================
@@ -128,6 +132,14 @@ export default function App() {
             <Route path="/pos" element={<div className="relative min-h-screen"><POSButtonWrapper to="/inventory" label="Exit POS" /><POS /></div>} />
             <Route path="/dispatcher" element={<div className="relative min-h-screen bg-[#F5F7FA]"><POSButtonWrapper to="/tickets" label="กลับสู่ระบบหลังบ้าน (Exit)" /><DispatcherPage /></div>} />
             <Route path="/invoice/:id" element={<InvoicePage />} />
+
+            {/* Mobile Admin Pages */}
+            <Route element={<MobileLayout currentUser={currentUser} onLogout={handleLogout} />}>
+              <Route path="/mobile" element={<MobileTicketsPage />} />
+              <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
+              <Route path="/mobile/inbox" element={<InboxPage />} />
+              <Route path="/mobile/notifications" element={<MobileNotificationsPage />} />
+            </Route>
 
             {/* Admin Layout Pages */}
             <Route element={<AdminLayout currentUser={currentUser} onLogout={handleLogout} />}>
