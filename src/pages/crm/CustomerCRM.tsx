@@ -3,20 +3,27 @@ import { useDatabase } from '../../hooks/useDatabase';
 import {
     Users, Building2, UserPlus, Search,
     Phone, Mail, MapPin, FileText,
-    ChevronRight, Trash2, Edit3, Plus, Globe, X, Save, Landmark, User
+    ChevronRight, Trash2, Edit3, Plus, Globe, X, Save, Landmark, User,
+    History, Clock, ShoppingCart, Smartphone, Tag, Star, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { ref, push, remove, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
+import { formatDate } from '../../utils/formatters';
 
 type CustomerType = 'B2C' | 'B2B';
 
 export const CustomerCRM = () => {
     const toast = useToast();
     const { data: customers, loading } = useDatabase('customers');
+    const { data: salesData } = useDatabase('sales');
+    const { data: activeJobs } = useDatabase('jobs');
+    const { data: archivedJobs } = useDatabase('jobs_archived');
+    const jobsData = useMemo(() => [...activeJobs, ...archivedJobs], [activeJobs, archivedJobs]);
     const [activeTab, setActiveTab] = useState<CustomerType>('B2B');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
     // 📝 Form State (ใส่ให้ครบทุกฟิลด์)
     const [formData, setFormData] = useState({
@@ -47,6 +54,45 @@ export const CustomerCRM = () => {
                 c.phone?.includes(searchTerm))
         ).sort((a, b) => b.created_at - a.created_at);
     }, [customers, activeTab, searchTerm]);
+
+    // ประวัติธุรกรรมของลูกค้าที่เลือก (ซื้อ + ขาย)
+    const customerHistory = useMemo(() => {
+        if (!selectedCustomer) return [];
+        const history: any[] = [];
+        const targetPhone = selectedCustomer.phone?.replace(/[^0-9]/g, '');
+
+        // ประวัติที่ลูกค้า "ซื้อจากเรา" (Sales)
+        if (Array.isArray(salesData)) {
+            salesData.forEach(sale => {
+                const cleanPhone = sale.cust_phone?.replace(/[^0-9]/g, '');
+                if (cleanPhone === targetPhone || sale.cust_phone === targetPhone) {
+                    history.push({
+                        id: sale.id, type: 'BUY', date: sale.sold_at || sale.created_at,
+                        title: `ซื้อสินค้า (Receipt: ${sale.receipt_no})`, amount: sale.grand_total,
+                        items: sale.items?.map((i: any) => i.type === 'DEVICE' ? `${i.name} [IMEI/SN: ${i.code}]` : `${i.name} (x${i.qty})`).join(' • '),
+                        status: sale.status || 'COMPLETED', icon: <ShoppingCart size={16} />, color: 'blue'
+                    });
+                }
+            });
+        }
+
+        // ประวัติที่ลูกค้า "ขายให้เรา" (Jobs/Trade-in)
+        if (Array.isArray(jobsData)) {
+            jobsData.forEach(job => {
+                const cleanPhone = job.cust_phone?.replace(/[^0-9]/g, '');
+                if (cleanPhone === targetPhone || job.cust_phone === targetPhone) {
+                    history.push({
+                        id: job.id, type: 'SELL', date: job.created_at,
+                        title: `ขายเครื่องให้ร้าน (รุ่น: ${job.model})`, amount: job.final_price || job.price,
+                        items: `IMEI/SN: ${job.imei || job.serial || '-'}`,
+                        status: job.status, icon: <Smartphone size={16} />, color: 'orange'
+                    });
+                }
+            });
+        }
+
+        return history.sort((a, b) => b.date - a.date);
+    }, [selectedCustomer, salesData, jobsData]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -172,9 +218,10 @@ export const CustomerCRM = () => {
                                     </div>
                                 </td>
                                 <td className="p-6 text-right pr-10">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => { setFormData(cust); setIsModalOpen(true); }} className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 shadow-sm"><Edit3 size={16} /></button>
-                                        <button onClick={async () => { if (confirm('Delete?')) await remove(ref(db, `customers/${cust.id}`)); }} className="p-2.5 bg-white border border-slate-200 text-red-500 rounded-xl hover:bg-red-50 shadow-sm"><Trash2 size={16} /></button>
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setSelectedCustomer(cust)} className="p-2.5 bg-blue-50 border border-blue-200 text-blue-600 rounded-xl hover:bg-blue-100 shadow-sm" title="ดูประวัติธุรกรรม"><History size={16} /></button>
+                                        <button onClick={() => { setFormData(cust); setIsModalOpen(true); }} className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"><Edit3 size={16} /></button>
+                                        <button onClick={async () => { if (confirm('Delete?')) await remove(ref(db, `customers/${cust.id}`)); }} className="p-2.5 bg-white border border-slate-200 text-red-500 rounded-xl hover:bg-red-50 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16} /></button>
                                     </div>
                                 </td>
                             </tr>
@@ -317,6 +364,74 @@ export const CustomerCRM = () => {
                             <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-sm hover:bg-slate-200 transition-all">
                                 Cancel
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Transaction Timeline Modal */}
+            {selectedCustomer && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-[2rem] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center relative overflow-hidden">
+                            <div className="relative z-10 flex items-center gap-4">
+                                <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg">{selectedCustomer.name?.charAt(0)}</div>
+                                <div>
+                                    <h3 className="font-black text-xl text-slate-800 uppercase tracking-tight">{selectedCustomer.name}</h3>
+                                    <p className="text-xs font-bold text-slate-500">{selectedCustomer.phone}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedCustomer(null)} className="text-slate-400 hover:text-slate-600 bg-white p-2 rounded-full shadow-sm relative z-10"><X size={20} /></button>
+                            <History className="absolute -right-4 -top-4 text-slate-200 opacity-50 rotate-12" size={100} />
+                        </div>
+
+                        {/* สรุปยอด */}
+                        <div className="grid grid-cols-2 gap-4 p-6 border-b border-slate-100">
+                            <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                <div className="text-[10px] font-black text-emerald-600 uppercase mb-1 flex items-center gap-1"><ArrowUpRight size={12} /> ยอดซื้อสะสม</div>
+                                <div className="text-lg font-black text-slate-800">฿{Number(selectedCustomer.total_spent || 0).toLocaleString()}</div>
+                            </div>
+                            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                                <div className="text-[10px] font-black text-blue-600 uppercase mb-1 flex items-center gap-1"><Smartphone size={12} /> เคยขายเครื่อง</div>
+                                <div className="text-lg font-black text-slate-800">
+                                    {Array.isArray(jobsData) ? jobsData.filter(j => (j.cust_phone || '').replace(/[^0-9]/g, '') === selectedCustomer.phone?.replace(/[^0-9]/g, '')).length : 0} ครั้ง
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-8 overflow-y-auto flex-1 bg-slate-50">
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2"><Clock size={14} /> Transaction Timeline</h4>
+
+                            <div className="relative space-y-6 before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-slate-200 before:to-transparent">
+                                {customerHistory.length === 0 ? (
+                                    <div className="pl-12 py-10 text-center text-slate-400 font-bold italic">ไม่พบประวัติการทำธุรกรรม</div>
+                                ) : (
+                                    customerHistory.map((item, idx) => (
+                                        <div key={`${item.id}-${idx}`} className="relative pl-12">
+                                            <div className={`absolute left-0 w-10 h-10 rounded-full border-4 border-slate-50 flex items-center justify-center z-10 ${item.color === 'blue' ? 'bg-blue-500 text-white' : 'bg-orange-500 text-white'}`}>
+                                                {item.icon}
+                                            </div>
+                                            <div className={`p-5 rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md ${item.status === 'VOIDED' ? 'opacity-60 grayscale' : ''}`}>
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded mb-2 inline-block ${item.color === 'blue' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{item.type === 'BUY' ? 'Customer Bought (ซื้อสินค้า)' : 'Customer Sold (เทิร์นเครื่อง)'}</span>
+                                                        <h5 className="font-black text-slate-800 text-sm">{item.title}</h5>
+                                                        <p className="text-[10px] text-slate-400 font-bold mt-0.5">{new Date(item.date).toLocaleString('th-TH')}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className={`text-lg font-black ${item.status === 'VOIDED' ? 'line-through text-slate-400' : 'text-slate-800'}`}>฿{Number(item.amount).toLocaleString()}</div>
+                                                        {item.status === 'VOIDED' && <div className="text-[9px] font-black text-red-500 uppercase mt-0.5">VOIDED</div>}
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 pt-3 border-t border-slate-100">
+                                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><Tag size={10} /> รายละเอียด</div>
+                                                    <p className="text-xs font-bold text-slate-600 leading-relaxed whitespace-pre-line">{item.items}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

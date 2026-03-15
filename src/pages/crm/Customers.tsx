@@ -11,7 +11,9 @@ import { formatDate } from '../../utils/formatters';
 export const Customers = () => {
   const { data: customersData, loading } = useDatabase('customers');
   const { data: salesData } = useDatabase('sales'); // ดึงข้อมูลการขาย
-  const { data: jobsData } = useDatabase('jobs');   // ดึงข้อมูลการรับซื้อ
+  const { data: activeJobs } = useDatabase('jobs');   // ดึงข้อมูลการรับซื้อ
+  const { data: archivedJobs } = useDatabase('jobs_archived'); // รวมงานที่ archive แล้ว
+  const jobsData = useMemo(() => [...activeJobs, ...archivedJobs], [activeJobs, archivedJobs]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);

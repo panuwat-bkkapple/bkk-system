@@ -106,42 +106,46 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
         </div>
 
         <nav className="p-4 space-y-6 flex-1 overflow-y-auto no-scrollbar pb-20 overflow-x-hidden">
-          {/* Trade-In Dept */}
+          {/* Trade-In */}
           <div>
-            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Trade-In Management</p>}
+            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Trade-In</p>}
             <div className="space-y-1">
-              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/" icon={<Activity size={18} />} label="ภาพรวม (Dashboard)" />}
               <NavButton collapsed={isCollapsed} to="/tickets" icon={<LayoutDashboard size={18} />} label="Tickets" />
               <NavButton collapsed={isCollapsed} to="/evaluation" icon={<ClipboardCheck size={18} />} label="ประเมินราคาใหม่" />
               <NavButton collapsed={isCollapsed} to="/qc-station" icon={<ClipboardCheck size={18} />} label="QC Lab Station" />
               <NavButton collapsed={isCollapsed} to="/b2b-auditor" icon={<ScanLine size={18} />} label="สแกนหน้างาน (B2B)" />
-              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />}
             </div>
           </div>
 
-          {/* Inbox */}
-          <div>
-            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Communication</p>}
-            <div className="space-y-1">
-              <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
-            </div>
-          </div>
-
-          {/* Inventory & Sales Dept */}
+          {/* Inventory & Sales */}
           <div>
             {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Inventory & Sales</p>}
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/inventory" icon={<Package size={18} />} label="คลังสินค้า" />
               <NavButton collapsed={isCollapsed} to="/accessories" icon={<Headphones size={18} />} label="อุปกรณ์เสริม (Accessories)" />
+              <NavButton collapsed={isCollapsed} to="/traceability" icon={<ShieldCheck size={18} />} label="สืบประวัติสินค้า (Trace)" />
               <NavButton collapsed={isCollapsed} to="/sales-history" icon={<Receipt size={18} />} label="ประวัติการขาย & คืนสินค้า" />
               {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/stock-audit" icon={<ScanLine size={18} />} label="นับสต็อก (Stock Audit)" />}
-              {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/analytics/sales" icon={<TrendingUp size={18} />} label="วิเคราะห์กำไร" />}
             </div>
           </div>
 
-          {/* Finance & Rider Dept */}
+          {/* CRM & After-Sales */}
+          {hasAccess(['CEO', 'MANAGER']) && (
+            <div>
+              {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">CRM & After-Sales</p>}
+              <div className="space-y-1">
+                <NavButton collapsed={isCollapsed} to="/crm" icon={<Users size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
+                <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
+                <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
+                <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
+                <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
+              </div>
+            </div>
+          )}
+
+          {/* Finance & Logistics */}
           <div>
-            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Finance & Rider</p>}
+            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Finance & Logistics</p>}
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
@@ -149,17 +153,14 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             </div>
           </div>
 
-          {/* CRM & Marketing */}
+          {/* Analytics */}
           {hasAccess(['CEO', 'MANAGER']) && (
             <div>
-              {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">CRM & Marketing</p>}
+              {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Analytics</p>}
               <div className="space-y-1">
-                <NavButton collapsed={isCollapsed} to="/crm" icon={<User size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
-                <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
-                <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
-                <NavButton collapsed={isCollapsed} to="/traceability" icon={<ShieldCheck size={18} />} label="สืบประวัติสินค้า (Trace)" />
-                <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
-                <NavButton collapsed={isCollapsed} to="/customer-crm" icon={<Users size={18} />} label="Customer CRM (Advanced)" />
+                <NavButton collapsed={isCollapsed} to="/" icon={<Activity size={18} />} label="ภาพรวม (Dashboard)" />
+                <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />
+                {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/analytics/sales" icon={<TrendingUp size={18} />} label="วิเคราะห์กำไร" />}
               </div>
             </div>
           )}
@@ -179,13 +180,18 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             </div>
           </div>
 
-          {/* Settings */}
-          <div className="pt-4 border-t border-gray-100 mt-4">
-            <NavButton collapsed={isCollapsed} to="/global-settings" icon={<Settings size={18} />} label="ตั้งค่าระบบส่วนกลาง" />
-            <NavButton collapsed={isCollapsed} to="/pricing" icon={<Settings size={18} />} label="Price Editor" />
-            <NavButton collapsed={isCollapsed} to="/admin/branches" icon={<Store size={18} />} label="จัดการสาขา" />
-            <NavButton collapsed={isCollapsed} to="/staff" icon={<Users size={18} />} label="จัดการพนักงาน (Staff)" />
-          </div>
+          {/* Settings (CEO/Manager) */}
+          {hasAccess(['CEO', 'MANAGER']) && (
+            <div className="pt-4 border-t border-gray-100 mt-4">
+              {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Settings</p>}
+              <div className="space-y-1">
+                <NavButton collapsed={isCollapsed} to="/pricing" icon={<Settings size={18} />} label="Price Editor" />
+                <NavButton collapsed={isCollapsed} to="/admin/branches" icon={<Store size={18} />} label="จัดการสาขา" />
+                {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/global-settings" icon={<Settings size={18} />} label="ตั้งค่าระบบส่วนกลาง" />}
+                {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/staff" icon={<Users size={18} />} label="จัดการพนักงาน (Staff)" />}
+              </div>
+            </div>
+          )}
         </nav>
 
         {/* Profile & Logout */}

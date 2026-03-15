@@ -1,9 +1,95 @@
 const { onValueCreated } = require("firebase-functions/v2/database");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 
 initializeApp();
+
+// =============================================================================
+// Archive System: ย้ายงานที่จบแล้วไป jobs_archived เพื่อลด load
+// =============================================================================
+
+const TERMINAL_STATUSES = [
+  "Completed",
+  "Sold",
+  "Cancelled",
+  "Closed (Lost)",
+  "Returned",
+  "Withdrawal Completed",
+];
+const ARCHIVE_THRESHOLD_DAYS = 90;
+
+/**
+ * ฟังก์ชันกลางสำหรับ archive งานเก่า
+ * ย้ายงานที่สถานะจบ + เก่ากว่า 90 วัน จาก jobs → jobs_archived
+ */
+async function runArchive() {
+  const db = getDatabase();
+  const jobsSnap = await db.ref("jobs").once("value");
+  if (!jobsSnap.exists()) return { archived: 0 };
+
+  const now = Date.now();
+  const thresholdMs = ARCHIVE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+  const updates = {};
+  let count = 0;
+
+  jobsSnap.forEach((child) => {
+    const job = child.val();
+    const jobId = child.key;
+    const createdAt = job.created_at || job.updated_at || 0;
+
+    if (
+      TERMINAL_STATUSES.includes(job.status) &&
+      createdAt > 0 &&
+      now - createdAt > thresholdMs
+    ) {
+      updates[`jobs_archived/${jobId}`] = { ...job, archived_at: now };
+      updates[`jobs/${jobId}`] = null;
+      count++;
+    }
+  });
+
+  if (count > 0) {
+    await db.ref().update(updates);
+  }
+
+  console.log(`Archived ${count} old jobs`);
+  return { archived: count };
+}
+
+/**
+ * Scheduled Function: รันทุกวันตี 3 (Bangkok time)
+ * ตรวจสอบและ archive งานเก่าอัตโนมัติ
+ */
+exports.archiveOldJobs = onSchedule(
+  {
+    schedule: "0 3 * * *",
+    timeZone: "Asia/Bangkok",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const result = await runArchive();
+    console.log(`Scheduled archive completed:`, result);
+  }
+);
+
+/**
+ * HTTP Function: เรียกด้วยมือเพื่อ migrate งานเก่าทันที
+ * ใช้สำหรับการ migrate ครั้งแรก หรือเรียกเมื่อต้องการ archive ทันที
+ */
+exports.migrateOldJobs = onRequest(
+  { region: "asia-southeast1", cors: true },
+  async (req, res) => {
+    const result = await runArchive();
+    res.json({
+      success: true,
+      message: `Archived ${result.archived} old jobs`,
+      ...result,
+    });
+  }
+);
 
 /**
  * Cloud Function: ส่ง Push Notification ให้ admin ทุกคนเมื่อมี ticket ใหม่
@@ -114,5 +200,136 @@ exports.onNewTicketCreated = onValueCreated(
       0
     );
     console.log(`Sent new ticket notification to ${successCount}/${tokens.length} devices`);
+  }
+);
+
+/**
+ * Cloud Function: ส่ง Push Notification เมื่อมีข้อความแชทใหม่ในงาน
+ * Trigger: เมื่อมีข้อมูลใหม่ถูกเขียนลง /jobs/{jobId}/chats/{chatId}
+ * - ถ้า sender เป็น admin/customer → แจ้ง rider ที่ได้รับมอบหมาย
+ * - ถ้า sender เป็น rider → แจ้ง admin ทุกคน
+ * ใช้ collapseKey + apns-collapse-id เพื่อป้องกัน notification ซ้ำ
+ */
+exports.onChatMessageCreated = onValueCreated(
+  {
+    ref: "/jobs/{jobId}/chats/{chatId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const chat = event.data.val();
+    if (!chat) return;
+
+    const { jobId } = event.params;
+    const sender = chat.sender || "";
+    const senderName = chat.senderName || sender;
+    const text = chat.text || "";
+    const imageUrl = chat.imageUrl || "";
+
+    const db = getDatabase();
+    const messaging = getMessaging();
+
+    // ดึงข้อมูล job เพื่อหา rider_id และ model
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    if (sender === "rider") {
+      // Rider ส่งข้อความ → แจ้ง admin ทุกคน
+      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+      if (!tokensSnap.exists()) return;
+
+      const tokens = [];
+      tokensSnap.forEach((staffSnap) => {
+        staffSnap.forEach((tokenSnap) => {
+          const data = tokenSnap.val();
+          if (data && data.token) tokens.push(data.token);
+        });
+      });
+
+      if (tokens.length === 0) return;
+
+      const title = `💬 ${senderName}`;
+      const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
+      const collapseKey = `chat-${jobId}`;
+
+      const message = {
+        notification: { title, body },
+        data: { jobId, type: "chat_message", sender },
+        android: { collapseKey },
+        apns: {
+          headers: { "apns-collapse-id": collapseKey },
+        },
+        webpush: {
+          notification: {
+            icon: "/vite.svg",
+            tag: collapseKey,
+          },
+        },
+      };
+
+      const batches = [];
+      for (let i = 0; i < tokens.length; i += 500) {
+        batches.push(
+          messaging.sendEachForMulticast({
+            ...message,
+            tokens: tokens.slice(i, i + 500),
+          })
+        );
+      }
+      const results = await Promise.all(batches);
+      const successCount = results.reduce((a, r) => a + r.successCount, 0);
+      console.log(`Chat notif (rider→admin): ${successCount}/${tokens.length} devices`);
+    } else {
+      // Admin หรือ Customer ส่งข้อความ → แจ้ง rider
+      const riderId = job.rider_id;
+      if (!riderId) return;
+
+      const riderSnap = await db.ref(`riders/${riderId}`).once("value");
+      if (!riderSnap.exists()) return;
+      const rider = riderSnap.val();
+      const riderToken = rider.fcm_token;
+      if (!riderToken) return;
+
+      const senderLabel = sender === "admin" ? "แอดมิน" : "ลูกค้า";
+      const title = `💬 ${senderLabel}`;
+      const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
+      const collapseKey = `chat-${jobId}`;
+
+      try {
+        await messaging.send({
+          token: riderToken,
+          notification: { title, body },
+          data: { jobId, type: "chat_message", sender },
+          android: { collapseKey },
+          apns: {
+            headers: { "apns-collapse-id": collapseKey },
+          },
+        });
+        console.log(`Chat notif (${sender}→rider ${riderId}): sent`);
+      } catch (err) {
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          await db.ref(`riders/${riderId}/fcm_token`).remove();
+          console.log(`Removed invalid FCM token for rider ${riderId}`);
+        } else {
+          console.error(`Failed to send chat notif to rider ${riderId}:`, err);
+        }
+      }
+    }
+  }
+);
+
+/**
+ * HTTP Cloud Function: notifyChatMessage (backward-compatible)
+ * เปลี่ยนเป็น no-op เพราะ onChatMessageCreated จัดการแล้ว
+ * คงไว้เพื่อไม่ให้ client เก่าที่ยังเรียก HTTP endpoint เกิด error
+ */
+exports.notifyChatMessage = onRequest(
+  { region: "asia-southeast1", cors: true },
+  (req, res) => {
+    // No-op: notification is now handled by onChatMessageCreated database trigger
+    res.json({ success: true, message: "Handled by database trigger" });
   }
 );

@@ -5,3 +5,11 @@
 body {
   @apply bg-[#F5F5F7] text-[#1D1D1F] font-sans antialiased;
 }
+
+/* PWA safe area for notch devices */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
