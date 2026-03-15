@@ -22,7 +22,6 @@ const POS = lazy(() => import('./pages/sales/POS').then(m => ({ default: m.POS }
 const Accessories = lazy(() => import('./pages/inventory/Accessories').then(m => ({ default: m.Accessories })));
 const SalesHistory = lazy(() => import('./pages/sales/SalesHistory').then(m => ({ default: m.SalesHistory })));
 const Traceability = lazy(() => import('./pages/inventory/Traceability').then(m => ({ default: m.Traceability })));
-const Customers = lazy(() => import('./pages/crm/Customers').then(m => ({ default: m.Customers })));
 const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').then(m => ({ default: m.StaffManagement })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
 const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
@@ -161,8 +160,8 @@ export default function App() {
               <Route path="/finance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <Finance /> : <Navigate to="/" replace />} />
               <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
               <Route path="/riders" element={<RiderManagement />} />
-              <Route path="/crm" element={<Customers />} />
-              <Route path="/customer-crm" element={<CustomerCRM />} />
+              <Route path="/crm" element={<CustomerCRM />} />
+              <Route path="/customer-crm" element={<Navigate to="/crm" replace />} />
               <Route path="/traceability" element={<Traceability />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
               <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />

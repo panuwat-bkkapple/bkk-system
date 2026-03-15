@@ -154,12 +154,11 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div>
               {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">CRM & Marketing</p>}
               <div className="space-y-1">
-                <NavButton collapsed={isCollapsed} to="/crm" icon={<User size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
+                <NavButton collapsed={isCollapsed} to="/crm" icon={<Users size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
                 <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
                 <NavButton collapsed={isCollapsed} to="/traceability" icon={<ShieldCheck size={18} />} label="สืบประวัติสินค้า (Trace)" />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
-                <NavButton collapsed={isCollapsed} to="/customer-crm" icon={<Users size={18} />} label="Customer CRM (Advanced)" />
               </div>
             </div>
           )}
