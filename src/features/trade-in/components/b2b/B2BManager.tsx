@@ -86,7 +86,8 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     try {
       await update(ref(db, `jobs/${job.id}`), { [field]: val, updated_at: Date.now() });
     } catch (e) {
-      // silently handled
+      console.error('Save date failed:', e);
+      toast.error('บันทึกวันที่ล้มเหลว กรุณาลองใหม่');
     }
   };
 
@@ -136,8 +137,13 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
 
   const handleRemoveExpectedItem = async (id: string) => {
     const updatedExpected = expectedItems.filter((i: any) => i.id !== id);
-    await update(ref(db, `jobs/${job.id}`), { expected_items: updatedExpected });
-    setExpectedItems(updatedExpected);
+    try {
+      await update(ref(db, `jobs/${job.id}`), { expected_items: updatedExpected });
+      setExpectedItems(updatedExpected);
+    } catch (error) {
+      console.error('Remove item failed:', error);
+      toast.error('ลบรายการล้มเหลว กรุณาลองใหม่');
+    }
   };
 
   const handleB2BAction = async (actionType: string) => {
@@ -183,11 +189,23 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
         if (validItems.length === 0) { toast.warning('ระบบล็อค: ไม่พบรายการเครื่องที่ประเมินไว้'); return; }
         if (!confirm(`ยืนยันการรับเครื่องเข้าคลัง? ระบบจะสร้างคิว QC จำนวน ${validItems.length} เครื่องอัตโนมัติ`)) return;
 
-        onUpdateStatus(job.id, 'Completed', 'ระเบิดกล่องและกระจายเครื่องเข้าคลังสำเร็จ (สิ้นสุดงานแอดมิน B2B)');
-
         try {
-          const promises = validItems.map((item: any, index: number) => {
-            const childPayload = {
+          // สร้าง atomic multi-path update: parent + children ทั้งหมดในคำสั่งเดียว
+          const batchUpdates: Record<string, any> = {};
+
+          // 1. อัปเดต parent job status
+          const parentLog = [
+            { action: 'Completed', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: 'ระเบิดกล่องและกระจายเครื่องเข้าคลังสำเร็จ (สิ้นสุดงานแอดมิน B2B)' },
+            ...(job.qc_logs || [])
+          ];
+          batchUpdates[`jobs/${job.id}/status`] = 'Completed';
+          batchUpdates[`jobs/${job.id}/qc_logs`] = parentLog;
+          batchUpdates[`jobs/${job.id}/updated_at`] = Date.now();
+
+          // 2. สร้าง child jobs ทั้งหมด
+          validItems.forEach((item: any, index: number) => {
+            const childKey = push(ref(db, 'jobs')).key;
+            batchUpdates[`jobs/${childKey}`] = {
               ref_no: `${job.ref_no}-U${String(index + 1).padStart(3, '0')}`,
               type: 'B2B-Unpacked', model: item.model, price: item.price, pre_grade: item.grade,
               status: 'Pending QC', receive_method: 'Corporate Bulk', cust_name: `[Corporate] ${job.cust_name.split('(')[0]}`,
@@ -195,12 +213,16 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
               agent_name: job.agent_name || 'Admin', parent_b2b_id: job.id,
               qc_logs: [{ action: 'Sent to QC Lab', details: `ระเบิดกล่องจากล็อต B2B (${job.ref_no}) รอกระบวนการ Test & Data Wipe`, timestamp: Date.now(), by: 'System' }]
             };
-            return push(ref(db, 'jobs'), childPayload);
           });
-          await Promise.all(promises);
+
+          // 3. Atomic write - ถ้าพังก็พังทั้งหมด ไม่มีข้อมูลค้าง
+          await update(ref(db), batchUpdates);
           toast.success(`ปิดจ๊อบเหมา! ส่งเครื่องลูก ${validItems.length} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`);
           onClose();
-        } catch (error) { /* silently handled */ }
+        } catch (error) {
+          console.error('Unpack failed:', error);
+          toast.error(`เกิดข้อผิดพลาดในการระเบิดกล่อง กรุณาลองใหม่อีกครั้ง`);
+        }
         break;
     }
   };

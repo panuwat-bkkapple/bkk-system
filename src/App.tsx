@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate, useParams, useLocation } from 'react-router-dom';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { AdminLayout } from './components/layout/AdminLayout';
@@ -6,41 +6,43 @@ import { auth, db } from './api/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, get, push, set } from 'firebase/database';
 
-// --- Pages Import ---
-import { TradeInDashboard } from './features/trade-in/TradeInDashboard';
-import { Inventory } from './pages/inventory/Inventory';
-import { Analytics } from './pages/analytics/Analytics';
-import { Evaluation } from './features/trade-in/Evaluation';
-import { PriceEditor } from './features/trade-in/PriceEditor';
-import { QCStation } from './pages/lab/QCStation';
-import { DispatcherPage } from './pages/fleet/DispatcherPage';
-import { POS } from './pages/sales/POS';
-import { Accessories } from './pages/inventory/Accessories';
-import { SalesHistory } from './pages/sales/SalesHistory';
-import { Traceability } from './pages/inventory/Traceability';
-import { Customers } from './pages/crm/Customers';
-import { StaffManagement } from './pages/settings/StaffManagement';
-import { WarrantyClaims } from './pages/crm/WarrantyClaims';
-import { CEODashboard } from './pages/dashboard/CEODashboard';
-import { DailyExpenses } from './pages/finance/DailyExpenses';
-import { StockAudit } from './pages/inventory/StockAudit';
-import { Finance } from './pages/finance/Finance';
-import { B2BAuditorTool } from './features/trade-in/components/b2b/B2BAuditorTool';
-import { CustomerCRM } from './pages/crm/CustomerCRM';
-import { RiderManagement } from './pages/fleet/RiderManagement';
-import { CustomerTracking } from './pages/tracking/CustomerTracking';
-import { B2CWorkspacePage } from '@/pages/admin/B2CWorkspacePage';
-import { InvoicePage } from './features/trade-in/pages/InvoicePage';
-import { CouponManager } from './pages/admin/CouponManager';
-import GlobalSettings from './pages/admin/GlobalSettings';
-import BranchManager from './pages/admin/BranchManager';
-import ReviewManager from './pages/admin/ReviewManager';
-import { InboxPage } from './pages/inbox/InboxPage';
+// --- Static Imports (needed immediately) ---
 import { MobileLayout } from './pages/mobile/MobileLayout';
-import { MobileTicketsPage } from './pages/mobile/MobileTicketsPage';
-import { MobileTicketDetail } from './pages/mobile/MobileTicketDetail';
-import { MobileNotificationsPage } from './pages/mobile/MobileNotificationsPage';
 import { ToastProvider } from './components/ui/ToastProvider';
+
+// --- Lazy-loaded Pages ---
+const TradeInDashboard = lazy(() => import('./features/trade-in/TradeInDashboard').then(m => ({ default: m.TradeInDashboard })));
+const Inventory = lazy(() => import('./pages/inventory/Inventory').then(m => ({ default: m.Inventory })));
+const Analytics = lazy(() => import('./pages/analytics/Analytics').then(m => ({ default: m.Analytics })));
+const Evaluation = lazy(() => import('./features/trade-in/Evaluation').then(m => ({ default: m.Evaluation })));
+const PriceEditor = lazy(() => import('./features/trade-in/PriceEditor').then(m => ({ default: m.PriceEditor })));
+const QCStation = lazy(() => import('./pages/lab/QCStation').then(m => ({ default: m.QCStation })));
+const DispatcherPage = lazy(() => import('./pages/fleet/DispatcherPage').then(m => ({ default: m.DispatcherPage })));
+const POS = lazy(() => import('./pages/sales/POS').then(m => ({ default: m.POS })));
+const Accessories = lazy(() => import('./pages/inventory/Accessories').then(m => ({ default: m.Accessories })));
+const SalesHistory = lazy(() => import('./pages/sales/SalesHistory').then(m => ({ default: m.SalesHistory })));
+const Traceability = lazy(() => import('./pages/inventory/Traceability').then(m => ({ default: m.Traceability })));
+const Customers = lazy(() => import('./pages/crm/Customers').then(m => ({ default: m.Customers })));
+const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').then(m => ({ default: m.StaffManagement })));
+const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
+const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
+const DailyExpenses = lazy(() => import('./pages/finance/DailyExpenses').then(m => ({ default: m.DailyExpenses })));
+const StockAudit = lazy(() => import('./pages/inventory/StockAudit').then(m => ({ default: m.StockAudit })));
+const Finance = lazy(() => import('./pages/finance/Finance').then(m => ({ default: m.Finance })));
+const B2BAuditorTool = lazy(() => import('./features/trade-in/components/b2b/B2BAuditorTool').then(m => ({ default: m.B2BAuditorTool })));
+const CustomerCRM = lazy(() => import('./pages/crm/CustomerCRM').then(m => ({ default: m.CustomerCRM })));
+const RiderManagement = lazy(() => import('./pages/fleet/RiderManagement').then(m => ({ default: m.RiderManagement })));
+const CustomerTracking = lazy(() => import('./pages/tracking/CustomerTracking').then(m => ({ default: m.CustomerTracking })));
+const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').then(m => ({ default: m.B2CWorkspacePage })));
+const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
+const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(m => ({ default: m.CouponManager })));
+const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
+const BranchManager = lazy(() => import('./pages/admin/BranchManager'));
+const ReviewManager = lazy(() => import('./pages/admin/ReviewManager'));
+const InboxPage = lazy(() => import('./pages/inbox/InboxPage').then(m => ({ default: m.InboxPage })));
+const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').then(m => ({ default: m.MobileTicketsPage })));
+const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
+const MobileNotificationsPage = lazy(() => import('./pages/mobile/MobileNotificationsPage').then(m => ({ default: m.MobileNotificationsPage })));
 
 // ==========================================
 // Main App Router
@@ -115,6 +117,7 @@ export default function App() {
   return (
     <ToastProvider>
     <Router>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading...</div>}>
       <Routes>
         {/* Public Routes */}
         <Route path="/track/:id" element={<CustomerTrackingWrapper />} />
@@ -175,6 +178,7 @@ export default function App() {
           <Route path="*" element={<SavePathAndRedirect />} />
         )}
       </Routes>
+      </Suspense>
     </Router>
     </ToastProvider>
   );

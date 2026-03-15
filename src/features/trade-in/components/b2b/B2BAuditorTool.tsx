@@ -68,15 +68,19 @@ export const B2BAuditorTool = () => {
     const totalQty = updatedItems.filter((i) => i.grade !== 'Reject').length;
     const totalPrice = updatedItems.reduce((sum: number, item: any) => sum + Number(item.price), 0);
 
-    await update(ref(db, `jobs/${selectedJobId}`), {
-      graded_items: updatedItems,
-      price: totalPrice,
-      summary: { total_qty: totalQty, total_price: totalPrice },
-      status: 'Site Visit & Grading'
-    });
-
-    setImei('');
-    document.getElementById('imei-input')?.focus();
+    try {
+      await update(ref(db, `jobs/${selectedJobId}`), {
+        graded_items: updatedItems,
+        price: totalPrice,
+        summary: { total_qty: totalQty, total_price: totalPrice },
+        status: 'Site Visit & Grading'
+      });
+      setImei('');
+      document.getElementById('imei-input')?.focus();
+    } catch (error) {
+      console.error('Add item failed:', error);
+      toast.error('บันทึกรายการล้มเหลว กรุณาลองใหม่');
+    }
   };
 
   const handleRemoveItem = async (itemId: string) => {
@@ -85,37 +89,47 @@ export const B2BAuditorTool = () => {
     const totalQty = updatedItems.filter((i) => i.grade !== 'Reject').length;
     const totalPrice = updatedItems.reduce((sum: number, item: any) => sum + Number(item.price), 0);
 
-    await update(ref(db, `jobs/${selectedJobId}`), {
-      graded_items: updatedItems,
-      price: totalPrice,
-      summary: { total_qty: totalQty, total_price: totalPrice }
+    try {
+      await update(ref(db, `jobs/${selectedJobId}`), {
+        graded_items: updatedItems,
+        price: totalPrice,
+        summary: { total_qty: totalQty, total_price: totalPrice }
+      });
+    } catch (error) {
+      console.error('Remove item failed:', error);
+      toast.error('ลบรายการล้มเหลว กรุณาลองใหม่');
+    }
+  };
+
+  // 📊 คำนวณความคืบหน้าแบบ O(n) แทน O(n*m) - รองรับ 1000+ เครื่อง
+  const { reconciliation, unexpectedSummary, gradeSummary } = useMemo(() => {
+    // นับจำนวนเครื่องตาม model ใน 1 รอบ (O(n))
+    const modelCounts: Record<string, number> = {};
+    const grades = { A: 0, B: 0, C: 0, Reject: 0 };
+    const expectedModels = new Set(expectedItems.map((e: any) => e.model));
+
+    for (const item of gradedItems) {
+      const g = item.grade as keyof typeof grades;
+      if (g in grades) grades[g]++;
+      if (g !== 'Reject') {
+        modelCounts[item.model] = (modelCounts[item.model] || 0) + 1;
+      }
+    }
+
+    // Reconciliation
+    const recon = expectedItems.map((exp: any) => {
+      const scannedCount = modelCounts[exp.model] || 0;
+      return { ...exp, scannedCount, isComplete: scannedCount >= exp.qty, isOver: scannedCount > exp.qty };
     });
-  };
 
-  // 📊 คำนวณความคืบหน้าการกระทบยอด (Reconciliation Logic)
-  const reconciliation = expectedItems.map(exp => {
-    const scannedCount = gradedItems.filter(item => item.model === exp.model && item.grade !== 'Reject').length;
-    return {
-      ...exp,
-      scannedCount,
-      isComplete: scannedCount >= exp.qty,
-      isOver: scannedCount > exp.qty
-    };
-  });
+    // Unexpected items (สแกนเข้ามาแต่ไม่มีในโพย)
+    const unexpected: Record<string, number> = {};
+    for (const [model, count] of Object.entries(modelCounts)) {
+      if (!expectedModels.has(model)) unexpected[model] = count;
+    }
 
-  // ⚠️ ค้นหาเครื่องที่สแกนเข้ามาแต่ "ไม่มีในโพย" (Unexpected Items)
-  const unexpectedItems = gradedItems.filter(item => item.grade !== 'Reject' && !expectedItems.some(exp => exp.model === item.model));
-  const unexpectedSummary = unexpectedItems.reduce((acc: any, item: any) => {
-    acc[item.model] = (acc[item.model] || 0) + 1;
-    return acc;
-  }, {});
-
-  const gradeSummary = {
-    A: gradedItems.filter((i) => i.grade === 'A').length,
-    B: gradedItems.filter((i) => i.grade === 'B').length,
-    C: gradedItems.filter((i) => i.grade === 'C').length,
-    Reject: gradedItems.filter((i) => i.grade === 'Reject').length,
-  };
+    return { reconciliation: recon, unexpectedSummary: unexpected, gradeSummary: grades };
+  }, [gradedItems, expectedItems]);
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400">Loading Auditor System...</div>;
 

@@ -5,6 +5,7 @@ import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Cloc
 import { ref, update, push } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
+import { withRetry } from '@/utils/firebaseRetry';
 
 // นำเข้า Components หลัก (ลบ Modal เก่าๆ ออกไปแล้ว)
 import { JobTable } from './components/modal/TradeInUI';
@@ -99,12 +100,12 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const handleUpdateStatus = async (id: string, newStatus: string, logMsg: string, extraData: any = {}) => {
     const job = (jobs as any[]).find(j => j.id === id);
     const updatedLogs = [
-      { action: newStatus, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: logMsg }, 
+      { action: newStatus, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: logMsg },
       ...(job?.qc_logs || [])
     ];
 
     let cancelReason = extraData.cancel_reason || '';
-    
+
     if (!cancelReason && (newStatus === 'Closed (Lost)' || newStatus === 'Cancelled' || newStatus === 'Returned')) {
       cancelReason = prompt(`ระบุเหตุผลสำหรับสถานะ ${newStatus}:`) || 'ไม่ระบุเหตุผล';
       updatedLogs[0].details = `${logMsg} (เหตุผล: ${cancelReason})`;
@@ -112,13 +113,18 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       updatedLogs[0].details = `${logMsg} (เหตุผล: ${cancelReason})`;
     }
 
-    await update(ref(db, `jobs/${id}`), { 
-      status: newStatus, 
-      qc_logs: updatedLogs, 
-      cancel_reason: cancelReason || null,
-      updated_at: Date.now(),
-      ...extraData 
-    });
+    try {
+      await withRetry(() => update(ref(db, `jobs/${id}`), {
+        status: newStatus,
+        qc_logs: updatedLogs,
+        cancel_reason: cancelReason || null,
+        updated_at: Date.now(),
+        ...extraData
+      }));
+    } catch (error) {
+      console.error('Status update failed:', error);
+      toast.error('บันทึกสถานะล้มเหลว กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   const handleReviseOffer = async (job: any, price: string, reason: string, targetStatus: string = 'Revised Offer') => {
@@ -136,30 +142,40 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       ...(job.qc_logs || [])
     ];
     
-    await update(ref(db, `jobs/${job.id}`), { 
-      status: targetStatus, 
-      net_payout: newNetPayout,        
-      final_price: newNetPayout,       
-      negotiated_price: newNetPayout,  
-      revised_price: newNetPayout,     
-      original_price: newOriginalPrice, 
-      price: newOriginalPrice,          
-      revise_reason: reason, 
-      qc_logs: updatedLogs,
-      updated_at: Date.now()
-    });
+    try {
+      await withRetry(() => update(ref(db, `jobs/${job.id}`), {
+        status: targetStatus,
+        net_payout: newNetPayout,
+        final_price: newNetPayout,
+        negotiated_price: newNetPayout,
+        revised_price: newNetPayout,
+        original_price: newOriginalPrice,
+        price: newOriginalPrice,
+        revise_reason: reason,
+        qc_logs: updatedLogs,
+        updated_at: Date.now()
+      }));
+    } catch (error) {
+      console.error('Revise offer failed:', error);
+      toast.error('บันทึกราคาล้มเหลว กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   const handleClaimTicket = async (job: any) => {
     const updatedLogs = [{ action: 'Claimed Ticket', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: 'แอดมินรับผิดชอบเคส' }, ...(job?.qc_logs || [])];
     const nextStatus = job.status === 'New Lead' ? 'Following Up' : job.status;
-    await update(ref(db, `jobs/${job.id}`), { 
-      agent_name: currentUser?.name || 'Admin', 
-      agent_id: currentUser?.id || 'admin_1', 
-      qc_logs: updatedLogs, 
-      status: nextStatus, 
-      is_read: true 
-    });
+    try {
+      await withRetry(() => update(ref(db, `jobs/${job.id}`), {
+        agent_name: currentUser?.name || 'Admin',
+        agent_id: currentUser?.id || 'admin_1',
+        qc_logs: updatedLogs,
+        status: nextStatus,
+        is_read: true
+      }));
+    } catch (error) {
+      console.error('Claim ticket failed:', error);
+      toast.error('รับเคสล้มเหลว กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   const handleSaveNotes = async (id: string, notes: string) => {
@@ -174,7 +190,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const handleRowClick = async (job: any) => {
     // 1. อัปเดตสถานะการอ่าน
     if ((job.status === 'New Lead' || job.status === 'New B2B Lead') && !job.is_read) {
-      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { /* silently handled */ }
+      try { await update(ref(db, `jobs/${job.id}`), { is_read: true }); } catch (error) { console.error('Mark read failed:', error); }
     }
 
     // 2. เรียกใช้ฟังก์ชันเข้าสู่หน้า Workspace เสมอ
