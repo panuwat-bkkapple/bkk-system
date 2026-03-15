@@ -1,11 +1,11 @@
-name: Deploy to Firebase (Hosting + Functions)
+name: Preview Deploy (PR)
 
 on:
-  push:
+  pull_request:
     branches: [main]
 
 jobs:
-  build-and-deploy:
+  preview:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,22 +31,9 @@ jobs:
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
           VITE_FIREBASE_VAPID_KEY: ${{ secrets.VITE_FIREBASE_VAPID_KEY }}
 
-      # Deploy Cloud Functions
-      - name: Install Functions dependencies
-        run: cd functions && npm ci
-
-      - name: Deploy Firebase Functions
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-
-      # Deploy Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-          channelId: live
           projectId: bkk-apple-tradein
           target: admin
