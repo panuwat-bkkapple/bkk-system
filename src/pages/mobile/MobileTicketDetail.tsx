@@ -6,7 +6,8 @@ import {
   Phone, MapPin, Truck, Store, Mail, Clock, User, Package,
   MessageSquare, Send, ChevronDown, ChevronUp, DollarSign,
   ClipboardCheck, AlertTriangle, CheckCircle2, XCircle,
-  Image as ImageIcon, RefreshCw, FileText
+  Image as ImageIcon, RefreshCw, FileText, Camera,
+  ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -68,7 +69,6 @@ export const MobileTicketDetail = () => {
   const [loading, setLoading] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [showActions, setShowActions] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([]);
@@ -153,7 +153,6 @@ export const MobileTicketDetail = () => {
       updated_at: Date.now()
     });
     toast.success('รับเคสสำเร็จ');
-    setShowActions(false);
   };
 
   const handleUpdateStatus = async (newStatus: string, details: string) => {
@@ -163,7 +162,6 @@ export const MobileTicketDetail = () => {
       updated_at: Date.now()
     });
     toast.success(`อัพเดทเป็น ${newStatus}`);
-    setShowActions(false);
   };
 
   // Chat handlers
@@ -317,31 +315,123 @@ export const MobileTicketDetail = () => {
             </div>
           </div>
 
-          {/* === Device Details (if available) === */}
-          {job.devices && job.devices.length > 0 && (
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Package size={16} className="text-purple-500" />
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">
-                  รายละเอียดเครื่อง ({job.devices.length})
-                </h3>
-              </div>
-              <div className="space-y-3">
-                {job.devices.map((dev: any, i: number) => (
-                  <div key={i} className="bg-slate-50 rounded-xl p-3 text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span className="font-bold text-slate-700">{dev.model || dev.brand || `เครื่อง #${i + 1}`}</span>
-                      {dev.price && <span className="font-bold text-emerald-600">฿{Number(dev.price).toLocaleString()}</span>}
-                    </div>
-                    {dev.grade && <p className="text-xs text-slate-500">เกรด: {dev.grade}</p>}
-                    {dev.serial && <p className="text-xs text-slate-400">SN: {dev.serial}</p>}
-                    {dev.storage && <p className="text-xs text-slate-400">ความจุ: {dev.storage}</p>}
-                    {dev.color && <p className="text-xs text-slate-400">สี: {dev.color}</p>}
+          {/* === Device Details (enhanced) === */}
+          {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {
+            const customerConds = dev.customer_conditions || (idx === 0 ? job.customer_conditions : []) || [];
+            const riderChecks = dev.rider_conditions || dev.deductions || (idx === 0 ? job.deductions : []) || [];
+            const devicePhotos = dev.photos || (idx === 0 && job.photos ? job.photos : []);
+            const isInspected = dev.inspection_status === 'Inspected';
+
+            return (
+              <div key={idx} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
+                {/* Device header */}
+                <div className="flex items-center gap-2 mb-1">
+                  <Package size={16} className="text-purple-500" />
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                    เครื่อง {idx + 1}
+                  </h3>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 text-sm space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="font-bold text-slate-700">{dev.model || job.model || `เครื่อง #${idx + 1}`}</span>
+                    {(dev.price || dev.estimated_price) && (
+                      <span className="font-bold text-emerald-600">฿{Number(dev.price || dev.estimated_price).toLocaleString()}</span>
+                    )}
                   </div>
-                ))}
+                  {dev.storage && <p className="text-xs text-slate-500">ความจุ: {dev.storage}</p>}
+                  {dev.color && <p className="text-xs text-slate-500">สี: {dev.color}</p>}
+                  {dev.grade && <p className="text-xs text-slate-500">เกรด: <span className="font-bold">{dev.grade}</span></p>}
+                  {dev.serial && <p className="text-xs text-slate-400">SN: {dev.serial}</p>}
+                  {dev.isNewDevice && (
+                    <p className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg inline-block">เครื่องใหม่มือ 1</p>
+                  )}
+                </div>
+
+                {/* Customer reported conditions */}
+                {customerConds.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <ShieldCheck size={12} /> ลูกค้าแจ้งสภาพ
+                    </p>
+                    <div className="space-y-1.5">
+                      {customerConds.map((c: any, i: number) => {
+                        const cText = getConditionText(c);
+                        const Icon = getConditionIcon(cText);
+                        const matched = riderChecks.length > 0 && riderChecks.some((r: any) => {
+                          const rText = getConditionText(r);
+                          return cText.includes(rText) || rText.includes(cText);
+                        });
+                        return (
+                          <div key={i} className={`flex items-start gap-2 p-2 rounded-lg text-[11px] font-bold ${
+                            riderChecks.length === 0 ? 'bg-slate-50 text-slate-600 border border-slate-100' :
+                            matched ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                            'bg-red-50 text-red-600 border border-red-100'
+                          }`}>
+                            <Icon size={13} className="shrink-0 mt-0.5" />
+                            <span>{cText}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inspection / Rider deductions */}
+                {riderChecks.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Search size={12} /> ผลตรวจจริง
+                    </p>
+                    <div className="space-y-1.5">
+                      {riderChecks.map((d: any, i: number) => {
+                        const dText = getConditionText(d);
+                        const Icon = getConditionIcon(dText);
+                        const isGood = dText.includes('สมบูรณ์') || dText.includes('ปกติ');
+                        const isMatch = isGood || (customerConds.length > 0 && customerConds.some((c: any) => {
+                          const cText = getConditionText(c);
+                          return dText.includes(cText) || cText.includes(dText);
+                        }));
+                        return (
+                          <div key={i} className={`flex items-start gap-2 p-2 rounded-lg text-[11px] font-bold ${
+                            isMatch ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                            'bg-red-50 text-red-600 border border-red-100'
+                          }`}>
+                            <Icon size={13} className="shrink-0 mt-0.5" />
+                            <span>{dText}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* No conditions yet */}
+                {customerConds.length === 0 && riderChecks.length === 0 && !dev.isNewDevice && (
+                  <div className="text-center py-3 text-slate-300">
+                    <Search size={20} className="mx-auto mb-1 opacity-30" />
+                    <p className="text-[10px] font-bold">ยังไม่มีข้อมูลสภาพเครื่อง</p>
+                  </div>
+                )}
+
+                {/* Device photos */}
+                {devicePhotos.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Camera size={12} /> รูปถ่าย ({devicePhotos.length})
+                    </p>
+                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                      {devicePhotos.map((url: string, i: number) => (
+                        <a key={i} href={url} target="_blank" rel="noreferrer"
+                          className="w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-slate-200">
+                          <img src={url} className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })}
 
           {/* === Activity Log (collapsible) === */}
           {job.qc_logs && job.qc_logs.length > 0 && (
@@ -377,58 +467,47 @@ export const MobileTicketDetail = () => {
             </div>
           )}
 
-          {/* === Quick Actions === */}
-          {!isCancelled && quickActions.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <button
-                onClick={() => setShowActions(!showActions)}
-                className="w-full flex items-center justify-between p-4"
-              >
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">
-                  ดำเนินการ
-                </h3>
-                {showActions ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-              </button>
-              {showActions && (
-                <div className="px-4 pb-4 space-y-2">
-                  {!job.agent_name && (
-                    <button
-                      onClick={handleClaim}
-                      className="w-full py-3 bg-slate-900 text-white rounded-xl text-sm font-bold"
-                    >
-                      รับเคสนี้ (Claim)
-                    </button>
-                  )}
-                  {quickActions.map((action, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleUpdateStatus(action.status, action.log)}
-                      className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${action.style}`}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => {
-                      if (confirm('ยืนยันยกเลิกงานนี้?')) {
-                        const reason = prompt('เหตุผลที่ยกเลิก:');
-                        if (reason) {
-                          update(ref(db, `jobs/${job.id}`), {
-                            status: 'Cancelled', cancel_reason: reason,
-                            qc_logs: [makeLog('Cancelled', `ยกเลิก: ${reason}`), ...(job.qc_logs || [])],
-                            updated_at: Date.now()
-                          });
-                          toast.success('ยกเลิกงานแล้ว');
-                          setShowActions(false);
-                        }
-                      }
-                    }}
-                    className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-red-50"
-                  >
-                    ยกเลิกงาน
-                  </button>
-                </div>
+          {/* === Quick Actions (always visible) === */}
+          {!isCancelled && (quickActions.length > 0 || !job.agent_name) && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-2">
+              <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">
+                ดำเนินการ
+              </h3>
+              {!job.agent_name && (
+                <button
+                  onClick={handleClaim}
+                  className="w-full py-3 bg-slate-900 text-white rounded-xl text-sm font-bold"
+                >
+                  รับเคสนี้ (Claim)
+                </button>
               )}
+              {quickActions.map((action, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleUpdateStatus(action.status, action.log)}
+                  className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${action.style}`}
+                >
+                  {action.label}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  if (confirm('ยืนยันยกเลิกงานนี้?')) {
+                    const reason = prompt('เหตุผลที่ยกเลิก:');
+                    if (reason) {
+                      update(ref(db, `jobs/${job.id}`), {
+                        status: 'Cancelled', cancel_reason: reason,
+                        qc_logs: [makeLog('Cancelled', `ยกเลิก: ${reason}`), ...(job.qc_logs || [])],
+                        updated_at: Date.now()
+                      });
+                      toast.success('ยกเลิกงานแล้ว');
+                    }
+                  }
+                }}
+                className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-red-50"
+              >
+                ยกเลิกงาน
+              </button>
             </div>
           )}
 
@@ -548,6 +627,31 @@ export const MobileTicketDetail = () => {
       )}
     </div>
   );
+};
+
+// ---------------------------------------------------------------------------
+// Condition text helpers
+// ---------------------------------------------------------------------------
+
+const getConditionText = (item: any): string => {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object') {
+    const textValue = item.value || item.label;
+    if (item.title && textValue) return `[${item.title}] ${textValue}`;
+    return textValue || item.title || JSON.stringify(item);
+  }
+  return '';
+};
+
+const getConditionIcon = (text: string) => {
+  const t = text || '';
+  if (t.includes('จอ') || t.includes('กระจก')) return Monitor;
+  if (t.includes('ตัวเครื่อง') || t.includes('ฝาหลัง') || t.includes('รอย')) return Smartphone;
+  if (t.includes('แบต')) return Battery;
+  if (t.includes('ทำงาน') || t.includes('ระบบ')) return Cpu;
+  if (t.includes('อุปกรณ์') || t.includes('กล่อง')) return Package;
+  if (t.includes('โมเดล') || t.includes('ประเทศ') || t.includes('รหัส')) return Globe;
+  return Info;
 };
 
 // ---------------------------------------------------------------------------
