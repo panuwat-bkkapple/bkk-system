@@ -12,19 +12,22 @@ export const uploadImageToFirebase = async (file: File, path: string): Promise<s
        throw new Error("Unsupported file format: DNG/RAW");
     }
 
+    // PNG/WebP คงฟอร์แมตเดิมเพื่อรักษา transparency, ที่เหลือแปลง JPEG
+    const keepFormat = file.type === 'image/png' || file.type === 'image/webp';
+    const outputType = keepFormat ? file.type : 'image/jpeg';
+    const ext = keepFormat ? (file.type === 'image/png' ? '.png' : '.webp') : '.jpg';
+
     const options = {
       maxSizeMB: 0.5,
       maxWidthOrHeight: 1280,
       useWebWorker: true,
-      fileType: 'image/jpeg'
+      fileType: outputType as string,
     };
 
-    // 🌟 2. สั่งบีบอัด!
     const compressedFile = await imageCompression(file, options);
 
-    // 3. จัดการตั้งชื่อไฟล์ใหม่ (บังคับให้เป็น .jpg เพราะเราแปลงไฟล์แล้ว)
     const originalName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-    const fileName = `${Date.now()}_${originalName.replace(/[^a-zA-Z0-9]/g, '')}.jpg`; 
+    const fileName = `${Date.now()}_${originalName.replace(/[^a-zA-Z0-9]/g, '')}${ext}`;
     const fullPath = `${path}/${fileName}`;
     
     const storageRef = ref(storage, fullPath);
