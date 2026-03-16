@@ -42,6 +42,7 @@ const InboxPage = lazy(() => import('./pages/inbox/InboxPage').then(m => ({ defa
 const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').then(m => ({ default: m.MobileTicketsPage })));
 const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
 const MobileNotificationsPage = lazy(() => import('./pages/mobile/MobileNotificationsPage').then(m => ({ default: m.MobileNotificationsPage })));
+const MobileFinancePage = lazy(() => import('./pages/mobile/MobileFinancePage').then(m => ({ default: m.MobileFinancePage })));
 
 // ==========================================
 // Main App Router
@@ -140,6 +141,7 @@ export default function App() {
               <Route path="/mobile" element={<MobileTicketsPage />} />
               <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
               <Route path="/mobile/inbox" element={<InboxPage />} />
+              <Route path="/mobile/finance" element={<MobileFinancePage />} />
               <Route path="/mobile/notifications" element={<MobileNotificationsPage />} />
             </Route>
 

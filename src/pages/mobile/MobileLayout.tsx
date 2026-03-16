@@ -4,7 +4,7 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   ClipboardList, Inbox, Bell, User, LogOut,
-  ChevronLeft
+  ChevronLeft, Banknote
 } from 'lucide-react';
 
 interface MobileLayoutProps {
@@ -17,19 +17,27 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   const location = useLocation();
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [inboxUnread, setInboxUnread] = useState(0);
+  const [pendingPayouts, setPendingPayouts] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
 
-  // Count new/unread tickets
+  // Count new/unread tickets + pending payouts
   useEffect(() => {
     const jobsRef = ref(db, 'jobs');
     const unsub = onValue(jobsRef, (snap) => {
       if (!snap.exists()) return;
       let count = 0;
+      let payoutCount = 0;
       snap.forEach((child) => {
         const j = child.val();
         if (j.status === 'New Lead' || j.status === 'New B2B Lead') count++;
+        const s = String(j.status || '').trim().toLowerCase();
+        if (!j.slip_url && !j.payment_slip &&
+            (s === 'payout processing' || s === 'pending finance approval' || s === 'waiting for finance' || s === 'price accepted')) {
+          payoutCount++;
+        }
       });
       setNewTicketCount(count);
+      setPendingPayouts(payoutCount);
     });
     return () => unsub();
   }, []);
@@ -53,6 +61,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
 
   const tabs = [
     { key: '/mobile', label: 'งาน', icon: ClipboardList, badge: newTicketCount },
+    { key: '/mobile/finance', label: 'โอนเงิน', icon: Banknote, badge: pendingPayouts },
     { key: '/mobile/inbox', label: 'แชท', icon: Inbox, badge: inboxUnread },
     { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: 0 },
   ];
