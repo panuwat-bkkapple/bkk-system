@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
-  Smartphone, X, Image as ImageIcon, Plus, ClipboardList, Trash2, Save
+  Smartphone, X, Image as ImageIcon, Plus, ClipboardList, Trash2, Save, Upload, Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS } from '../constants/categorySchemas';
 
 interface ProductEditorModalProps {
@@ -27,6 +28,41 @@ const categories = [
   { id: 'Game System' },
 ];
 const brands = ['All', 'Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
+
+const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ onUploaded }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadImageToFirebase(file, 'product-images');
+      onUploaded(url);
+      toast.success('อัพโหลดรูปสำเร็จ');
+    } catch (err: any) {
+      toast.error(err.message || 'อัพโหลดรูปไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => fileRef.current?.click()}
+        className="px-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors text-sm shadow-sm shrink-0 disabled:opacity-50"
+      >
+        {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+      </button>
+    </>
+  );
+};
 
 export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
   isOpen,
@@ -149,12 +185,15 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1.5 block">Image URL</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1.5 block">รูปสินค้า</label>
                   <div className="flex gap-2">
                     <div className="w-12 h-12 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-center shrink-0">
                       {editingItem.imageUrl ? <img src={editingItem.imageUrl} alt="preview" className="max-h-full p-1 object-contain" /> : <ImageIcon size={20} className="text-slate-300" />}
                     </div>
-                    <input type="text" placeholder="https://..." className="w-full p-3 bg-white rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500" value={editingItem.imageUrl} onChange={(e) => onEditingItemChange({ ...editingItem, imageUrl: e.target.value })} />
+                    <div className="flex-1 flex gap-2">
+                      <input type="text" placeholder="https://... หรืออัพโหลดรูป →" className="w-full p-3 bg-white rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500" value={editingItem.imageUrl} onChange={(e) => onEditingItemChange({ ...editingItem, imageUrl: e.target.value })} />
+                      <ImageUploadButton onUploaded={(url) => onEditingItemChange({ ...editingItem, imageUrl: url })} />
+                    </div>
                   </div>
                 </div>
               </div>
