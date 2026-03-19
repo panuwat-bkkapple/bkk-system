@@ -147,11 +147,16 @@ exports.onNewTicketCreated = onValueCreated(
         click_action: `/tickets`,
       },
       webpush: {
+        headers: {
+          Urgency: "high",
+          TTL: "86400",
+        },
         notification: {
-          icon: "/vite.svg",
-          badge: "/vite.svg",
-          vibrate: [200, 100, 200],
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          vibrate: [200, 100, 200, 100, 200],
           requireInteraction: true,
+          renotify: true,
           actions: [
             { action: "open", title: "เปิดดู" },
             { action: "dismiss", title: "ปิด" },
@@ -260,9 +265,16 @@ exports.onChatMessageCreated = onValueCreated(
           headers: { "apns-collapse-id": collapseKey },
         },
         webpush: {
+          headers: {
+            Urgency: "high",
+            TTL: "86400",
+          },
           notification: {
-            icon: "/vite.svg",
+            icon: "/icons/icon-192.png",
+            badge: "/icons/icon-192.png",
             tag: collapseKey,
+            vibrate: [200, 100, 200],
+            renotify: true,
           },
         },
       };

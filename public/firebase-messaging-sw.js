@@ -1,5 +1,5 @@
-// Firebase Cloud Messaging Service Worker
-// Handles background push notifications for admin panel
+// Firebase Cloud Messaging + Caching Service Worker
+// Handles background push notifications AND offline caching
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
@@ -15,20 +15,24 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+// =============================================================================
+// Push Notifications (Background)
+// =============================================================================
+
 messaging.onBackgroundMessage((payload) => {
-  // ไม่แสดง notification ซ้ำถ้า foreground handler จัดการแล้ว
   const data = payload.data || {};
   const isNewTicket = data.type === 'new_ticket';
 
   const notificationTitle = payload.notification?.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
   const notificationOptions = {
     body: payload.notification?.body || '',
-    icon: '/vite.svg',
-    badge: '/vite.svg',
-    tag: isNewTicket ? `ticket-${data.jobId}` : 'bkk-admin',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: isNewTicket ? `ticket-${data.jobId}` : (data.type === 'chat_message' ? `chat-${data.jobId}` : 'bkk-admin'),
     data: data,
-    vibrate: [200, 100, 200],
+    vibrate: [200, 100, 200, 100, 200],
     requireInteraction: isNewTicket,
+    renotify: true,
     actions: isNewTicket
       ? [
           { action: 'open', title: 'เปิดดู' },
@@ -47,28 +51,72 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   const action = event.action;
 
-  // ถ้ากด "ปิด" ก็แค่ปิด notification
   if (action === 'dismiss') return;
 
-  // กำหนด URL เป้าหมาย
-  let targetUrl = '/';
+  let targetUrl = '/mobile';
   if (data.type === 'new_ticket') {
-    targetUrl = '/tickets';
+    targetUrl = '/mobile';
+  } else if (data.type === 'chat_message' && data.jobId) {
+    targetUrl = `/mobile/job/${data.jobId}`;
   } else if (data.jobId) {
-    targetUrl = `/workspace/${data.jobId}`;
+    targetUrl = `/mobile/job/${data.jobId}`;
   }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // ถ้ามี window เปิดอยู่แล้ว → focus แล้ว navigate
       for (const client of clientList) {
         if ('focus' in client) {
           client.navigate(targetUrl);
           return client.focus();
         }
       }
-      // ไม่มี window → เปิดใหม่
       return clients.openWindow(targetUrl);
     })
+  );
+});
+
+// =============================================================================
+// Caching (Offline Support)
+// =============================================================================
+
+const CACHE_NAME = 'bkk-system-v2';
+const STATIC_ASSETS = [
+  '/mobile',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.hostname.includes('firebase') || url.hostname.includes('googleapis') || url.hostname.includes('gstatic')) return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && url.origin === self.location.origin) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/mobile')))
   );
 });

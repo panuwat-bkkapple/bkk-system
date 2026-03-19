@@ -6,6 +6,7 @@ import {
   ClipboardList, Inbox, Bell, User, LogOut,
   ChevronLeft, Banknote
 } from 'lucide-react';
+import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 
 interface MobileLayoutProps {
   currentUser: any;
@@ -15,6 +16,9 @@ interface MobileLayoutProps {
 export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Register FCM token for push notifications (lock screen + background)
+  useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [inboxUnread, setInboxUnread] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
