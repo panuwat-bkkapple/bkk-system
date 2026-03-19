@@ -51,10 +51,14 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           if (data.type === 'new_ticket' && document.hasFocus()) return;
 
           if (payload.notification) {
+            const tag = data.type === 'new_ticket' ? `ticket-${data.jobId}`
+              : data.type === 'status_change' ? `status-${data.jobId}`
+              : data.type === 'chat_message' ? `chat-${data.jobId}`
+              : undefined;
             new Notification(payload.notification.title || 'BKK Admin', {
               body: payload.notification.body,
               icon: '/icons/icon-192.png',
-              tag: data.type === 'new_ticket' ? `ticket-${data.jobId}` : undefined,
+              tag,
             });
           }
         });

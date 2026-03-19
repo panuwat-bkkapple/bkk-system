@@ -4,12 +4,12 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Bell, Package, AlertTriangle, Clock, ChevronRight,
-  RefreshCw, Smartphone
+  RefreshCw, Smartphone, XCircle, RotateCcw, DollarSign, MessageSquare
 } from 'lucide-react';
 
 interface Notification {
   id: string;
-  type: 'new_ticket' | 'pending_job' | 'dead_stock';
+  type: 'new_ticket' | 'pending_job' | 'dead_stock' | 'status_change';
   title: string;
   body: string;
   jobId?: string;
@@ -80,6 +80,33 @@ export const MobileNotificationsPage = () => {
             });
           }
         }
+
+        // Status changes (cancelled, returned, negotiation, etc.) within 24 hours
+        const statusLabels: Record<string, { title: string; severity: 'critical' | 'warning' | 'info' }> = {
+          'Cancelled': { title: '🚫 ยกเลิกงาน', severity: 'critical' },
+          'Closed (Lost)': { title: '❌ ปิดงาน (Lost)', severity: 'critical' },
+          'Returned': { title: '📦 ตีเครื่องกลับ', severity: 'critical' },
+          'Negotiation': { title: '💬 ลูกค้าต่อราคา', severity: 'warning' },
+          'Revised Offer': { title: '💰 เสนอราคาใหม่', severity: 'warning' },
+          'Price Accepted': { title: '✅ ลูกค้ารับราคา', severity: 'info' },
+          'Withdrawal Requested': { title: '💸 ขอถอนเงิน', severity: 'warning' },
+        };
+        const statusInfo = statusLabels[job.status];
+        if (statusInfo) {
+          const updatedAge = now - (job.updated_at || 0);
+          if (updatedAge < 24 * 3600000 && job.updated_at) {
+            const reason = job.cancel_reason ? ` - ${job.cancel_reason}` : '';
+            notifs.push({
+              id: `status-${jobId}`,
+              type: 'status_change',
+              title: statusInfo.title,
+              body: `${job.model || 'ไม่ระบุรุ่น'}${job.cust_name ? ` - ${job.cust_name}` : ''}${reason}`,
+              jobId,
+              timestamp: job.updated_at,
+              severity: statusInfo.severity,
+            });
+          }
+        }
       });
 
       notifs.sort((a, b) => b.timestamp - a.timestamp);
@@ -141,6 +168,8 @@ export const MobileNotificationsPage = () => {
                     <Smartphone size={18} className={notif.severity === 'critical' ? 'text-red-500' : 'text-blue-500'} />
                   ) : notif.type === 'pending_job' ? (
                     <Clock size={18} className="text-amber-500" />
+                  ) : notif.type === 'status_change' ? (
+                    <Bell size={18} className={notif.severity === 'critical' ? 'text-red-500' : notif.severity === 'warning' ? 'text-amber-500' : 'text-green-500'} />
                   ) : (
                     <Package size={18} className={notif.severity === 'critical' ? 'text-red-500' : 'text-amber-500'} />
                   )}
