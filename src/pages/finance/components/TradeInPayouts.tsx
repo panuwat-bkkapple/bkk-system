@@ -5,7 +5,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2 } from 'lucide-react';
-import { ref, update, push, child } from 'firebase/database';
+import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
@@ -137,13 +137,19 @@ export const TradeInPayouts = () => {
 
       await update(ref(db), updates);
 
-      toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
+      // ✅ Post-payment verification: ตรวจสอบว่า transaction ถูกสร้างจริง
+      const verifySnapshot = await get(ref(db, `transactions/${debitKey}`));
+      if (!verifySnapshot.exists()) {
+        toast.warning('⚠️ โอนเงินสำเร็จแต่ Transaction อาจไม่ถูกบันทึก — กรุณาตรวจสอบที่แท็บ "ซ่อม Transaction"');
+      } else {
+        toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
+      }
       setSelectedTx(null);
       setSlipFile(null);
     } catch (e) {
       toast.error('Error: ' + e);
-    } finally { 
-      setIsUploading(false); 
+    } finally {
+      setIsUploading(false);
     }
   };
 
