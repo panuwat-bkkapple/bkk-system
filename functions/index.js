@@ -1,4 +1,4 @@
-const { onValueCreated } = require("firebase-functions/v2/database");
+const { onValueCreated, onValueUpdated } = require("firebase-functions/v2/database");
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
@@ -343,5 +343,104 @@ exports.notifyChatMessage = onRequest(
   (req, res) => {
     // No-op: notification is now handled by onChatMessageCreated database trigger
     res.json({ success: true, message: "Handled by database trigger" });
+  }
+);
+
+// =============================================================================
+// Status Change Notifications: แจ้ง admin เมื่อสถานะงานเปลี่ยน (ยกเลิก, ตีกลับ ฯลฯ)
+// =============================================================================
+
+/**
+ * สถานะที่ต้องแจ้งเตือน admin พร้อม label ภาษาไทย
+ */
+const NOTIFY_STATUS_MAP = {
+  Cancelled: "ยกเลิกงาน",
+  "Closed (Lost)": "ปิดงาน (Lost)",
+  Returned: "ตีเครื่องกลับ",
+  "Withdrawal Requested": "ขอถอนเงิน",
+  "Revised Offer": "เสนอราคาใหม่",
+  Negotiation: "ลูกค้าต่อราคา",
+  "Price Accepted": "ลูกค้ารับราคา",
+};
+
+exports.onJobStatusChanged = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+
+    // สถานะไม่เปลี่ยน หรือไม่ใช่สถานะที่ต้องแจ้ง
+    if (before === after) return;
+    if (!NOTIFY_STATUS_MAP[after]) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+
+    // ดึงข้อมูล job เพื่อแสดงในข้อความ
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const model = job.model || "ไม่ระบุรุ่น";
+    const custName = job.cust_name || "";
+    const statusLabel = NOTIFY_STATUS_MAP[after];
+    const reason = job.cancel_reason ? ` - ${job.cancel_reason}` : "";
+
+    const title = `🔔 ${statusLabel}`;
+    const body = `${model}${custName ? ` - ${custName}` : ""}${reason}`.trim();
+
+    // ดึง FCM tokens ของ admin ทุกคน
+    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+    if (!tokensSnap.exists()) return;
+
+    const tokens = [];
+    tokensSnap.forEach((staffSnap) => {
+      staffSnap.forEach((tokenSnap) => {
+        const data = tokenSnap.val();
+        if (data && data.token) tokens.push(data.token);
+      });
+    });
+
+    if (tokens.length === 0) return;
+
+    const messaging = getMessaging();
+    const message = {
+      notification: { title, body },
+      data: {
+        jobId,
+        type: "status_change",
+        oldStatus: String(before || ""),
+        newStatus: after,
+        model,
+      },
+      webpush: {
+        headers: { Urgency: "high", TTL: "86400" },
+        notification: {
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: `status-${jobId}`,
+          vibrate: [200, 100, 200],
+          renotify: true,
+        },
+      },
+    };
+
+    const batches = [];
+    for (let i = 0; i < tokens.length; i += 500) {
+      batches.push(
+        messaging.sendEachForMulticast({
+          ...message,
+          tokens: tokens.slice(i, i + 500),
+        })
+      );
+    }
+    const results = await Promise.all(batches);
+    const successCount = results.reduce((a, r) => a + r.successCount, 0);
+    console.log(
+      `Status change notif (${before}→${after}) job ${jobId}: ${successCount}/${tokens.length} devices`
+    );
   }
 );
