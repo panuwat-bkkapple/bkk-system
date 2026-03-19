@@ -1,15 +1,16 @@
 // src/pages/finance/Finance.tsx
 import React, { useState } from 'react';
-import { Landmark, Smartphone, Bike, CheckCircle2, History } from 'lucide-react';
+import { Landmark, Smartphone, Bike, CheckCircle2, History, Wrench } from 'lucide-react';
 
 // Import ครบทุก Component ย่อย
 import { TradeInPayouts } from './components/TradeInPayouts';
 import { RiderWithdrawals } from './components/RiderWithdrawals';
 import { RiderSettlements } from './components/RiderSettlements';
 import { FinanceAuditLog } from './components/FinanceAuditLog'
+import { TransactionRepair } from './components/TransactionRepair'
 
 export const Finance = () => {
-  const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit'>('payouts');
+  const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit' | 'repair'>('payouts');
 
   return (
     <div className="p-8 space-y-8 bg-[#F8FAFC] min-h-screen font-sans">
@@ -35,6 +36,9 @@ export const Finance = () => {
              <button onClick={() => setActiveTab('audit')} className={`px-6 py-2.5 rounded-xl font-black text-xs uppercase flex items-center gap-2 transition-all ${activeTab === 'audit' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
                 <History size={16}/> ประวัติบัญชี (Audit Log)
              </button>
+             <button onClick={() => setActiveTab('repair')} className={`px-6 py-2.5 rounded-xl font-black text-xs uppercase flex items-center gap-2 transition-all ${activeTab === 'repair' ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <Wrench size={16}/> ซ่อม Transaction
+             </button>
           </div>
         </div>
       </div>
@@ -46,6 +50,7 @@ export const Finance = () => {
          {activeTab === 'withdrawals' && <RiderWithdrawals />}
          {activeTab === 'settlements' && <RiderSettlements />}
          {activeTab === 'audit' && <FinanceAuditLog />}
+         {activeTab === 'repair' && <TransactionRepair />}
       </div>
 
     </div>
