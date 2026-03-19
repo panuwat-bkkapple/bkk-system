@@ -1,6 +1,6 @@
 // src/pages/finance/Finance.tsx
 import React, { useState, useMemo } from 'react';
-import { Landmark, Smartphone, Bike, CheckCircle2, History, Wrench } from 'lucide-react';
+import { Landmark, Smartphone, Bike, CheckCircle2, History, Wrench, Trash2 } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
 // Import ครบทุก Component ย่อย
@@ -9,9 +9,10 @@ import { RiderWithdrawals } from './components/RiderWithdrawals';
 import { RiderSettlements } from './components/RiderSettlements';
 import { FinanceAuditLog } from './components/FinanceAuditLog'
 import { TransactionRepair } from './components/TransactionRepair'
+import { DataCleanup } from './components/DataCleanup'
 
 export const Finance = () => {
-  const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit' | 'repair'>('payouts');
+  const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit' | 'repair' | 'cleanup'>('payouts');
 
   // Integrity check: นับจำนวน jobs ที่จ่ายแล้วแต่ไม่มี transaction
   const { data: jobs } = useDatabase('jobs');
@@ -58,6 +59,9 @@ export const Finance = () => {
                   </span>
                 )}
              </button>
+             <button onClick={() => setActiveTab('cleanup')} className={`px-6 py-2.5 rounded-xl font-black text-xs uppercase flex items-center gap-2 transition-all ${activeTab === 'cleanup' ? 'bg-red-500 text-white shadow-lg shadow-red-200' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <Trash2 size={16}/> ล้างข้อมูลทดสอบ
+             </button>
           </div>
         </div>
       </div>
@@ -70,6 +74,7 @@ export const Finance = () => {
          {activeTab === 'settlements' && <RiderSettlements />}
          {activeTab === 'audit' && <FinanceAuditLog />}
          {activeTab === 'repair' && <TransactionRepair />}
+         {activeTab === 'cleanup' && <DataCleanup />}
       </div>
 
     </div>
