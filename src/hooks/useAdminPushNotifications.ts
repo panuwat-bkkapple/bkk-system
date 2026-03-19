@@ -18,7 +18,7 @@ export const useAdminPushNotifications = (staffId: string | null) => {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') return;
 
-        // Register service worker
+        // Register unified service worker (handles both push + caching)
         let swRegistration: ServiceWorkerRegistration | undefined;
         if ('serviceWorker' in navigator) {
           swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
@@ -34,27 +34,26 @@ export const useAdminPushNotifications = (staffId: string | null) => {
         });
 
         if (token) {
+          const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
           const tokenKey = btoa(token).slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_');
           await set(ref(db, `admin_fcm_tokens/${staffId}/${tokenKey}`), {
             token,
-            device: 'desktop',
+            device: isMobile ? 'mobile' : 'desktop',
             updated_at: Date.now()
           });
         }
 
         // Handle foreground messages from Cloud Functions
-        // (useNewTicketAlert handles in-app toast+sound, this only handles browser notif for FCM push)
         onMessage(messaging, (payload) => {
           const data = payload.data || {};
 
-          // ถ้าเป็น new_ticket → useNewTicketAlert จัดการ in-app แล้ว
-          // แต่ยังแสดง browser notification ถ้า tab ไม่ได้ focus
+          // ถ้าเป็น new_ticket + tab กำลัง focus → useNewTicketAlert จัดการแล้ว
           if (data.type === 'new_ticket' && document.hasFocus()) return;
 
           if (payload.notification) {
             new Notification(payload.notification.title || 'BKK Admin', {
               body: payload.notification.body,
-              icon: '/vite.svg',
+              icon: '/icons/icon-192.png',
               tag: data.type === 'new_ticket' ? `ticket-${data.jobId}` : undefined,
             });
           }
