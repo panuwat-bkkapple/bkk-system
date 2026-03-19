@@ -60,6 +60,11 @@
     "branches": {
       ".read": "auth != null",
       ".write": "auth != null"
+    },
+    "transactions": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "ref_job_id", "rider_id", "type", "category"]
     }
   }
 }
