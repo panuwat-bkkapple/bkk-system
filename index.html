@@ -20,7 +20,15 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
+          // Unregister old sw.js if still active (one-time migration)
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            if (reg.active && reg.active.scriptURL.endsWith('/sw.js')) {
+              await reg.unregister();
+            }
+          }
+          // Register unified service worker (push + caching)
           navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
         });
       }
