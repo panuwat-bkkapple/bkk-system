@@ -5,7 +5,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage'; // ✅ ใช้ Utility
 import { Search, CheckCircle2, X, Copy, Check, Bike, Upload, FileText, Loader2 } from 'lucide-react';
-import { ref, update, push } from 'firebase/database';
+import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
@@ -58,16 +58,14 @@ export const RiderWithdrawals = () => {
       // 1. อัปโหลดสลิป
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/withdrawals/${selectedTx.id}_${now}`);
 
-      // 2. อัปเดตสถานะใบเบิกเงิน
-      await update(ref(db, `jobs/${selectedTx.id}`), { 
-        status: 'Completed', 
-        paid_at: now, 
-        paid_by: currentUser?.name || 'Finance',
-        payment_slip: slipUrl 
-      });
-
-      // 3. บันทึก Transaction ตัดเงิน + แนบสลิปใน Timeline
-      await push(ref(db, 'transactions'), {
+      // Atomic multi-path update: job + transaction ในครั้งเดียว
+      const txKey = push(child(ref(db), 'transactions')).key;
+      const updates: Record<string, any> = {};
+      updates[`jobs/${selectedTx.id}/status`] = 'Completed';
+      updates[`jobs/${selectedTx.id}/paid_at`] = now;
+      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
+      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      updates[`transactions/${txKey}`] = {
         rider_id: selectedTx.rider_id,
         amount: Number(selectedTx.withdraw_amount),
         type: 'DEBIT',
@@ -75,8 +73,9 @@ export const RiderWithdrawals = () => {
         description: `ถอนเงินเข้าบัญชี ${selectedTx.bank_name} (${selectedTx.bank_account})`,
         timestamp: now,
         ref_job_id: selectedTx.id,
-        slip_url: slipUrl // 🔗 แนบลิงก์สลิป
-      });
+        slip_url: slipUrl
+      };
+      await update(ref(db), updates);
 
       toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
       setSelectedTx(null);
