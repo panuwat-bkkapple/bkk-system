@@ -5,7 +5,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2 } from 'lucide-react';
-import { ref, update, push } from 'firebase/database';
+import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
@@ -92,43 +92,50 @@ export const TradeInPayouts = () => {
       const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
 
       const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
-      
-      await update(ref(db, `jobs/${selectedTx.id}`), { 
-        status: nextStatus, 
-        paid_at: now, 
-        paid_by: currentUser?.name || 'Finance',
-        payment_slip: slipUrl,
-        updated_at: now, 
-        bank_name: editBankName,
-        bank_account: editBankAccount,
-        bank_holder: editBankHolder,
-        qc_logs: [newLog, ...(selectedTx.qc_logs || [])]
-      });
 
-      // 🌟 1. บันทึกบัญชีถอนเงิน (DEBIT) ให้ลูกค้า (เฉพาะยอด Net)
-      await push(ref(db, 'transactions'), {
-        rider_id: 'SYSTEM', 
+      // 🌟 Atomic multi-path update: job + transactions ทั้งหมดในครั้งเดียว
+      // ถ้า path ใด fail ทั้งหมดจะ rollback — ไม่มี partial write
+      const updates: Record<string, any> = {};
+
+      // Job update
+      updates[`jobs/${selectedTx.id}/status`] = nextStatus;
+      updates[`jobs/${selectedTx.id}/paid_at`] = now;
+      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
+      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      updates[`jobs/${selectedTx.id}/updated_at`] = now;
+      updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
+      updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
+      updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
+      updates[`jobs/${selectedTx.id}/qc_logs`] = [newLog, ...(selectedTx.qc_logs || [])];
+
+      // Transaction: DEBIT (payout to customer)
+      const debitKey = push(child(ref(db), 'transactions')).key;
+      updates[`transactions/${debitKey}`] = {
+        rider_id: 'SYSTEM',
         amount: actualTransferAmount,
-        type: 'DEBIT', 
-        category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT', 
+        type: 'DEBIT',
+        category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
         description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
         timestamp: now,
         ref_job_id: selectedTx.id,
-        slip_url: slipUrl 
-      });
+        slip_url: slipUrl
+      };
 
-      // 🌟 2. บันทึกรายได้บริษัทจากค่าไรเดอร์ (CREDIT)
+      // Transaction: CREDIT (logistics revenue)
       if (pickupFee > 0) {
-        await push(ref(db, 'transactions'), {
-          rider_id: selectedTx.rider_id || 'SYSTEM', 
+        const creditKey = push(child(ref(db), 'transactions')).key;
+        updates[`transactions/${creditKey}`] = {
+          rider_id: selectedTx.rider_id || 'SYSTEM',
           amount: pickupFee,
-          type: 'CREDIT', 
-          category: 'LOGISTICS_REVENUE', 
+          type: 'CREDIT',
+          category: 'LOGISTICS_REVENUE',
           description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
           timestamp: now,
           ref_job_id: selectedTx.id
-        });
+        };
       }
+
+      await update(ref(db), updates);
 
       toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
       setSelectedTx(null);

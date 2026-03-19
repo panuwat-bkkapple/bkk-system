@@ -8,7 +8,7 @@ import {
   Smartphone, Upload, FileText, Loader2,
   RefreshCw, Banknote, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { ref, update, push } from 'firebase/database';
+import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -115,19 +115,21 @@ export const MobileFinancePage = () => {
 
       const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
 
-      await update(ref(db, `jobs/${selectedTx.id}`), {
-        status: nextStatus,
-        paid_at: now,
-        paid_by: currentUser?.name || 'Finance',
-        payment_slip: slipUrl,
-        updated_at: now,
-        bank_name: editBankName,
-        bank_account: editBankAccount,
-        bank_holder: editBankHolder,
-        qc_logs: [newLog, ...(selectedTx.qc_logs || [])]
-      });
+      // Atomic multi-path update: job + transactions ทั้งหมดในครั้งเดียว
+      const updates: Record<string, any> = {};
 
-      await push(ref(db, 'transactions'), {
+      updates[`jobs/${selectedTx.id}/status`] = nextStatus;
+      updates[`jobs/${selectedTx.id}/paid_at`] = now;
+      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
+      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      updates[`jobs/${selectedTx.id}/updated_at`] = now;
+      updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
+      updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
+      updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
+      updates[`jobs/${selectedTx.id}/qc_logs`] = [newLog, ...(selectedTx.qc_logs || [])];
+
+      const debitKey = push(child(ref(db), 'transactions')).key;
+      updates[`transactions/${debitKey}`] = {
         rider_id: 'SYSTEM',
         amount: actualTransferAmount,
         type: 'DEBIT',
@@ -136,10 +138,11 @@ export const MobileFinancePage = () => {
         timestamp: now,
         ref_job_id: selectedTx.id,
         slip_url: slipUrl
-      });
+      };
 
       if (pickupFee > 0) {
-        await push(ref(db, 'transactions'), {
+        const creditKey = push(child(ref(db), 'transactions')).key;
+        updates[`transactions/${creditKey}`] = {
           rider_id: selectedTx.rider_id || 'SYSTEM',
           amount: pickupFee,
           type: 'CREDIT',
@@ -147,8 +150,10 @@ export const MobileFinancePage = () => {
           description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
           timestamp: now,
           ref_job_id: selectedTx.id
-        });
+        };
       }
+
+      await update(ref(db), updates);
 
       toast.success('บันทึกการโอนเงินสำเร็จ!');
       setSelectedTx(null);

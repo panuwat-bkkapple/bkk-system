@@ -2,10 +2,26 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "models": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "series": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "users": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
     "jobs": {
       ".read": "auth != null",
       ".write": "auth != null",
-      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name"]
+      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name", "uid", "cust_email", "cust_phone"]
     },
     "jobs_archived": {
       ".read": "auth != null",
@@ -38,6 +54,18 @@
       ".write": "auth != null"
     },
     "settings": {
+      "branches": {
+        ".read": true,
+        ".write": "auth != null"
+      },
+      "store": {
+        ".read": true,
+        ".write": "auth != null"
+      },
+      "condition_sets": {
+        ".read": true,
+        ".write": "auth != null"
+      },
       ".read": "auth != null",
       ".write": "auth != null"
     },
@@ -50,7 +78,7 @@
       ".write": "auth != null"
     },
     "coupons": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "reviews": {
@@ -60,6 +88,26 @@
     "branches": {
       ".read": "auth != null",
       ".write": "auth != null"
+    },
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["target_uid"]
+    },
+    "draft_carts": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "blogs": {
+      ".read": true,
+      ".indexOn": ["slug"]
+    },
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid"
+      }
     },
     "transactions": {
       ".read": "auth != null",

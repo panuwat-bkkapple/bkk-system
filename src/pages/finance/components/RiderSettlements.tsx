@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { CheckCircle2, FileText, Zap } from 'lucide-react';
-import { ref, update, push } from 'firebase/database';
+import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
@@ -31,11 +31,12 @@ export const RiderSettlements = () => {
 
     try {
         const now = Date.now();
-        // 1. อัปเดตสถานะงานว่าจ่ายค่าเที่ยวแล้ว
-        await update(ref(db, `jobs/${job.id}`), { rider_fee_status: 'Paid', settled_at: now });
-        
-        // 2. เติมเงินเข้า Wallet ไรเดอร์ (CREDIT)
-        await push(ref(db, 'transactions'), {
+        // Atomic multi-path update: job + transaction ในครั้งเดียว
+        const txKey = push(child(ref(db), 'transactions')).key;
+        const updates: Record<string, any> = {};
+        updates[`jobs/${job.id}/rider_fee_status`] = 'Paid';
+        updates[`jobs/${job.id}/settled_at`] = now;
+        updates[`transactions/${txKey}`] = {
             rider_id: job.rider_id,
             amount: Number(job.rider_fee || 150),
             type: 'CREDIT',
@@ -43,7 +44,8 @@ export const RiderSettlements = () => {
             description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'})`,
             timestamp: now,
             ref_job_id: job.id
-        });
+        };
+        await update(ref(db), updates);
     } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
 
@@ -53,14 +55,15 @@ export const RiderSettlements = () => {
     
     try {
         const now = Date.now();
-        const updates: any = {};
-        
-        // เราใช้ Promise.all เพื่อวนลูปยิงข้อมูลเข้า transaction ด้วย
-        const transactionPromises = pendingFees.map(job => {
+        // Atomic multi-path update: jobs + transactions ทั้งหมดในครั้งเดียว
+        const updates: Record<string, any> = {};
+
+        pendingFees.forEach(job => {
             updates[`jobs/${job.id}/rider_fee_status`] = 'Paid';
             updates[`jobs/${job.id}/settled_at`] = now;
-            
-            return push(ref(db, 'transactions'), {
+
+            const txKey = push(child(ref(db), 'transactions')).key;
+            updates[`transactions/${txKey}`] = {
                 rider_id: job.rider_id,
                 amount: Number(job.rider_fee || 150),
                 type: 'CREDIT',
@@ -68,11 +71,10 @@ export const RiderSettlements = () => {
                 description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'}) [Batch]`,
                 timestamp: now,
                 ref_job_id: job.id
-            });
+            };
         });
 
-        await update(ref(db), updates); // อัปเดตตาราง jobs
-        await Promise.all(transactionPromises); // อัปเดตตาราง transactions
+        await update(ref(db), updates);
 
         toast.success("อนุมัติทั้งหมดเข้า Wallet ไรเดอร์เรียบร้อยแล้ว!");
     } catch(e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
