@@ -22,18 +22,19 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   const data = payload.data || {};
   const isNewTicket = data.type === 'new_ticket';
+  const isStatusChange = data.type === 'status_change';
 
   const notificationTitle = payload.notification?.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
   const notificationOptions = {
     body: payload.notification?.body || '',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    tag: isNewTicket ? `ticket-${data.jobId}` : (data.type === 'chat_message' ? `chat-${data.jobId}` : 'bkk-admin'),
+    tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : (data.type === 'chat_message' ? `chat-${data.jobId}` : 'bkk-admin'),
     data: data,
     vibrate: [200, 100, 200, 100, 200],
-    requireInteraction: isNewTicket,
+    requireInteraction: isNewTicket || isStatusChange,
     renotify: true,
-    actions: isNewTicket
+    actions: (isNewTicket || isStatusChange)
       ? [
           { action: 'open', title: 'เปิดดู' },
           { action: 'dismiss', title: 'ปิด' },
@@ -56,6 +57,8 @@ self.addEventListener('notificationclick', (event) => {
   let targetUrl = '/mobile';
   if (data.type === 'new_ticket') {
     targetUrl = '/mobile';
+  } else if (data.type === 'status_change' && data.jobId) {
+    targetUrl = `/mobile/job/${data.jobId}`;
   } else if (data.type === 'chat_message' && data.jobId) {
     targetUrl = `/mobile/job/${data.jobId}`;
   } else if (data.jobId) {
