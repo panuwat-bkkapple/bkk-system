@@ -24,7 +24,8 @@
   },
   "functions": {
     "source": "functions",
-    "runtime": "nodejs22"
+    "runtime": "nodejs22",
+    "codebase": "bkk-system"
   },
   "database": {
     "rules": "database.rules.json"
