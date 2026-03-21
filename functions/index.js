@@ -146,6 +146,28 @@ exports.onNewTicketCreated = onValueCreated(
         status: job.status,
         click_action: `/tickets`,
       },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "new_tickets",
+          priority: "high",
+          defaultSound: true,
+          defaultVibrateTimings: true,
+        },
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
       webpush: {
         headers: {
           Urgency: "high",
@@ -260,9 +282,27 @@ exports.onChatMessageCreated = onValueCreated(
       const message = {
         notification: { title, body },
         data: { jobId, type: "chat_message", sender },
-        android: { collapseKey },
+        android: {
+          priority: "high",
+          collapseKey,
+          notification: {
+            channelId: "chat_messages",
+            priority: "high",
+            defaultSound: true,
+          },
+        },
         apns: {
-          headers: { "apns-collapse-id": collapseKey },
+          headers: {
+            "apns-collapse-id": collapseKey,
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: "default",
+            },
+          },
         },
         webpush: {
           headers: {
@@ -312,9 +352,27 @@ exports.onChatMessageCreated = onValueCreated(
           token: riderToken,
           notification: { title, body },
           data: { jobId, type: "chat_message", sender },
-          android: { collapseKey },
+          android: {
+            priority: "high",
+            collapseKey,
+            notification: {
+              channelId: "chat_messages",
+              priority: "high",
+              defaultSound: true,
+            },
+          },
           apns: {
-            headers: { "apns-collapse-id": collapseKey },
+            headers: {
+              "apns-collapse-id": collapseKey,
+              "apns-priority": "10",
+              "apns-push-type": "alert",
+            },
+            payload: {
+              aps: {
+                alert: { title, body },
+                sound: "default",
+              },
+            },
           },
         });
         console.log(`Chat notif (${sender}→rider ${riderId}): sent`);
@@ -415,6 +473,27 @@ exports.onJobStatusChanged = onValueUpdated(
         oldStatus: String(before || ""),
         newStatus: after,
         model,
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "status_changes",
+          priority: "high",
+          defaultSound: true,
+          tag: `status-${jobId}`,
+        },
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: "default",
+          },
+        },
       },
       webpush: {
         headers: { Urgency: "high", TTL: "86400" },
