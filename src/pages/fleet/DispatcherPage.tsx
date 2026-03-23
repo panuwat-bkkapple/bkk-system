@@ -86,13 +86,16 @@ export const DispatcherPage = () => {
     const selectedJobCoords = selectedJobId ? getJobCoordinates(selectedJobId) : null;
 
     let processed = rawRiders.map((rider: any) => {
+      // Normalize field names from the rider mobile app
+      const name = rider.name || rider.fullName || rider.full_name || rider.displayName || rider.display_name || rider.rider_name || '';
+      const phone = rider.phone || rider.phoneNumber || rider.phone_number || rider.tel || rider.mobile || '';
       const lat = Number(rider.lat) || 13.75;
       const lng = Number(rider.lng) || 100.50;
       const distance = selectedJobCoords ? calculateDistance(lat, lng, selectedJobCoords.lat, selectedJobCoords.lng) : null;
       const eta = distance ? calculateETA(distance) : null;
       const currentTasks = activeJobs.filter(j => j.rider_id === rider.id);
 
-      return { ...rider, lat, lng, distance, eta, status: rider.status || 'Offline', tasks: currentTasks };
+      return { ...rider, name, phone, lat, lng, distance, eta, status: rider.status || 'Offline', tasks: currentTasks };
     });
 
     if (selectedJobId) processed.sort((a, b) => (a.distance || 999) - (b.distance || 999));

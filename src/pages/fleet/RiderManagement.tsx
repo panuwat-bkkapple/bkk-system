@@ -17,26 +17,66 @@ export const RiderManagement = () => {
   const [editScore, setEditScore] = useState<number>(100);
   const [editZone, setEditZone] = useState<string>('Unassigned');
 
+  // Normalize rider data: map alternative field names from the rider mobile app
+  // to the field names expected by this admin panel
+  const normalizeRider = (id: string, raw: any) => {
+    const name = raw.name || raw.fullName || raw.full_name || raw.displayName || raw.display_name || raw.rider_name || '';
+    const phone = raw.phone || raw.phoneNumber || raw.phone_number || raw.tel || raw.mobile || '';
+    const email = raw.email || raw.emailAddress || raw.email_address || '';
+    const emergency_contact = raw.emergency_contact || raw.emergencyContact || raw.emergency_phone || raw.emergency_tel || '';
+
+    // Vehicle: support both nested object and flat fields
+    const vehicle = {
+      plate: raw.vehicle?.plate || raw.vehicle_plate || raw.licensePlate || raw.license_plate || raw.plate || raw.plate_number || '',
+      model: raw.vehicle?.model || raw.vehicle_model || raw.vehicleModel || raw.car_model || raw.model || '',
+    };
+
+    // Bank: support both nested object and flat fields
+    const bank = {
+      name: raw.bank?.name || raw.bank_name || raw.bankName || '',
+      account: raw.bank?.account || raw.bank_account || raw.bankAccount || raw.account_number || '',
+    };
+
+    // Documents: support both nested object and flat fields
+    const documents = raw.documents ? raw.documents : (
+      (raw.idCard || raw.id_card || raw.selfie || raw.license || raw.driving_license) ? {
+        idCard: raw.idCard || raw.id_card || '',
+        selfie: raw.selfie || raw.selfie_url || '',
+        license: raw.license || raw.driving_license || raw.driver_license || '',
+      } : null
+    );
+
+    // Determine approval status
+    let approval_status = raw.approval_status;
+    if (!approval_status) {
+      if (['Online', 'Offline', 'Busy'].includes(raw.status)) {
+        approval_status = 'Active';
+      } else {
+        approval_status = raw.status || 'Pending';
+      }
+    }
+
+    return {
+      ...raw,
+      id,
+      name,
+      phone,
+      email,
+      emergency_contact,
+      vehicle,
+      bank,
+      documents,
+      approval_status,
+    };
+  };
+
   // ดึงข้อมูลไรเดอร์ทั้งหมดแบบ Realtime
   useEffect(() => {
     const ridersRef = ref(db, 'riders');
     const unsubscribe = onValue(ridersRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
-        const ridersArray = Object.keys(data).map(key => {
-          const riderData = data[key];
-          // 🌟 ตัวแก้ปัญหา Field Collision: แยกสถานะอนุมัติออกจากสถานะออนไลน์
-          let actualApprovalStatus = riderData.approval_status;
-          if (!actualApprovalStatus) {
-            // ถ้าไม่มี approval_status ให้เดาจาก status เดิม
-            if (['Online', 'Offline', 'Busy'].includes(riderData.status)) {
-              actualApprovalStatus = 'Active'; // ถ้าเคยออนไลน์แปลว่าอนุมัติแล้ว
-            } else {
-              actualApprovalStatus = riderData.status || 'Pending';
-            }
-          }
-          return { id: key, ...riderData, approval_status: actualApprovalStatus };
-        });
+        const ridersArray = Object.keys(data).map(key => normalizeRider(key, data[key]));
         ridersArray.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         setRiders(ridersArray);
       } else {
