@@ -116,6 +116,7 @@ export const JobTable = ({ jobs, onRowClick }: { jobs: any[], onRowClick: (job: 
               <div className="font-mono text-[11px] font-black text-blue-600 mb-1 flex items-center gap-2">
                 {job.ref_no}
                 {job.status === 'New Lead' && !job.is_read && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded text-[8px] tracking-widest animate-pulse shadow-sm">NEW</span>}
+                {job.source === 'instant-sell' && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 flex items-center gap-0.5"><Zap size={8} />INSTANT</span>}
               </div>
               <div className="text-[10px] font-bold text-slate-400">{formatDate(job.created_at)}</div>
             </td>
