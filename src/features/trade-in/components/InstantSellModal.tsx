@@ -29,12 +29,16 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
     const list = Array.isArray(modelsData) ? modelsData : [];
     const items: any[] = [];
     list.forEach((model: any) => {
+      if (!model.name) return;
       if (!model.isActive && model.isActive !== undefined) return;
-      const variants = model.variants || [];
+      // Firebase อาจเก็บ variants เป็น object หรือ array
+      const rawVariants = model.variants;
+      const variants: any[] = !rawVariants ? [] : Array.isArray(rawVariants) ? rawVariants : Object.values(rawVariants);
       if (variants.length === 0) {
         items.push({ id: model.id, model: model.name, brand: model.brand || '', category: model.category || '', variant: '', newPrice: 0, usedPrice: 0, imageUrl: model.imageUrl || '' });
       } else {
         variants.forEach((v: any) => {
+          if (!v) return;
           items.push({
             id: `${model.id}_${v.id || v.name}`,
             model: model.name,
