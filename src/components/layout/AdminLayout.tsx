@@ -111,7 +111,6 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Trade-In</p>}
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/tickets" icon={<LayoutDashboard size={18} />} label="Tickets" />
-              <NavButton collapsed={isCollapsed} to="/evaluation" icon={<ClipboardCheck size={18} />} label="ประเมินราคาใหม่" />
               <NavButton collapsed={isCollapsed} to="/qc-station" icon={<ClipboardCheck size={18} />} label="QC Lab Station" />
               <NavButton collapsed={isCollapsed} to="/b2b-auditor" icon={<ScanLine size={18} />} label="สแกนหน้างาน (B2B)" />
             </div>
