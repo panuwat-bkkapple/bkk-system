@@ -53,7 +53,7 @@ export const NotificationCenter = ({ newTicketAlerts = [] }: { newTicketAlerts?:
 
       // Pending jobs (waiting for action)
       const pendingJobs = jobs.filter((j: any) =>
-        ['Pending Evaluation', 'Pending QC', 'Awaiting Pickup'].includes(j.status) &&
+        ['Pending QC', 'Awaiting Pickup'].includes(j.status) &&
         j.type !== 'Withdrawal' && j.type !== 'B2B-Unpacked'
       );
       if (pendingJobs.length > 0) {
