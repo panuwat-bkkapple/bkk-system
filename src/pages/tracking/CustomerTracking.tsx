@@ -38,7 +38,15 @@ export const CustomerTracking = ({ jobId }: { jobId: string }) => {
     if (job?.rider_id) {
       const riderRef = ref(db, `riders/${job.rider_id}`);
       const unsubscribeRider = onValue(riderRef, (snapshot) => {
-        if (snapshot.exists()) setRider(snapshot.val());
+        if (snapshot.exists()) {
+          const raw = snapshot.val();
+          // Normalize field names from the rider mobile app
+          setRider({
+            ...raw,
+            name: raw.name || raw.fullName || raw.full_name || raw.displayName || raw.display_name || raw.rider_name || '',
+            phone: raw.phone || raw.phoneNumber || raw.phone_number || raw.tel || raw.mobile || '',
+          });
+        }
       });
       return () => unsubscribeRider();
     }
