@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
-import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
@@ -10,6 +10,7 @@ import { withRetry } from '@/utils/firebaseRetry';
 // นำเข้า Components หลัก (ลบ Modal เก่าๆ ออกไปแล้ว)
 import { JobTable } from './components/modal/TradeInUI';
 import { CreateTicketModal } from './components/CreateTicketModal';
+import { InstantSellModal } from './components/InstantSellModal';
 
 export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: string) => void }) => {
   const toast = useToast();
@@ -28,6 +29,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isInstantSellOpen, setIsInstantSellOpen] = useState(false);
 
   // 🎯 2. อัปเดตการกรองข้อมูล (แยก B2C และ B2B เด็ดขาด)
   const displayJobs = useMemo(() => {
@@ -91,6 +93,38 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       };
       await push(ref(db, 'jobs'), finalPayload);
       setIsCreateModalOpen(false);
+    } catch (error) {
+      toast.error("เกิดข้อผิดพลาดในการสร้าง Ticket");
+    }
+  };
+
+  // Instant Sell: สร้าง Ticket แบบด่วนจากแอดมิน
+  const handleInstantSell = async (payload: any) => {
+    try {
+      const finalPayload = {
+        ...payload,
+        price: Number(payload.price),
+        type: 'Trade-in',
+        source: 'instant-sell',
+        status: 'Active Leads',
+        receive_method: 'Store-in',
+        created_at: Date.now(),
+        created_by: currentUser?.name || 'Admin',
+        agent_name: currentUser?.name || 'Admin',
+        agent_id: currentUser?.id || 'admin_1',
+        is_read: true,
+        ref_no: `OID-${Math.floor(100000 + Math.random() * 900000)}`,
+        updated_at: Date.now(),
+        qc_logs: [{
+          action: 'Instant Sell Created',
+          by: currentUser?.name || 'Admin',
+          timestamp: Date.now(),
+          details: `เปิดรับซื้อด่วน — ราคา ฿${Number(payload.price).toLocaleString()}${payload.offer_note ? ` (${payload.offer_note})` : ''}`
+        }]
+      };
+      await push(ref(db, 'jobs'), finalPayload);
+      setIsInstantSellOpen(false);
+      toast.success('เปิดรับซื้อด่วนสำเร็จ!');
     } catch (error) {
       toast.error("เกิดข้อผิดพลาดในการสร้าง Ticket");
     }
@@ -276,9 +310,14 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
           </div>
           
           {workspace === 'B2C' && (
-            <button onClick={() => setIsCreateModalOpen(true)} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-blue-700 transition-colors text-sm">
-              <PlusCircle size={18} /> New Ticket
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setIsInstantSellOpen(true)} className="bg-amber-500 text-white px-5 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-amber-600 transition-colors text-sm shadow-sm">
+                <Zap size={16} /> Instant Sell
+              </button>
+              <button onClick={() => setIsCreateModalOpen(true)} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-blue-700 transition-colors text-sm">
+                <PlusCircle size={18} /> New Ticket
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -340,14 +379,23 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
       {/* Modals ที่เหลืออยู่ */}
       {isCreateModalOpen && (
-        <CreateTicketModal 
-          onClose={() => setIsCreateModalOpen(false)} 
+        <CreateTicketModal
+          onClose={() => setIsCreateModalOpen(false)}
           onSubmit={(data: any) => {
             const payload = { ...data, price: Number(data.price), type: 'Trade-in', status: 'New Lead' };
             handleCreateTicket(payload);
-          }} 
-          basePricing={basePricing} 
-          jobs={jobs} 
+          }}
+          basePricing={basePricing}
+          jobs={jobs}
+        />
+      )}
+
+      {isInstantSellOpen && (
+        <InstantSellModal
+          onClose={() => setIsInstantSellOpen(false)}
+          onSubmit={handleInstantSell}
+          basePricing={basePricing}
+          jobs={jobs}
         />
       )}
     </div>
