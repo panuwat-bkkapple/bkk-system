@@ -5,13 +5,14 @@ import { useDatabase } from '../../../hooks/useDatabase';
 
 const BANKS = ["กสิกรไทย (KBank)", "ไทยพาณิชย์ (SCB)", "กรุงเทพ (BBL)", "กรุงศรี (BAY)", "ออมสิน (GSB)", "พร้อมเพย์ (PromptPay)"];
 
-export const InstantSellModal = ({ onClose, onSubmit, basePricing, jobs }: any) => {
+export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
   const [step, setStep] = useState(1);
   const [modelSearch, setModelSearch] = useState('');
   const [isExistingCustomer, setIsExistingCustomer] = useState(false);
   const [isCustomPrice, setIsCustomPrice] = useState(false);
 
   const { data: customers } = useDatabase('customers');
+  const { data: modelsData } = useDatabase('models');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [offerNote, setOfferNote] = useState('');
@@ -23,9 +24,36 @@ export const InstantSellModal = ({ onClose, onSubmit, basePricing, jobs }: any) 
     customer_id: ''
   });
 
-  const filteredBasePricing = Array.isArray(basePricing)
-    ? basePricing.filter((item: any) => item.model.toLowerCase().includes(modelSearch.toLowerCase())).slice(0, 5)
-    : [];
+  // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
+  const flattenedProducts = useMemo(() => {
+    const list = Array.isArray(modelsData) ? modelsData : [];
+    const items: any[] = [];
+    list.forEach((model: any) => {
+      if (!model.isActive && model.isActive !== undefined) return;
+      const variants = model.variants || [];
+      if (variants.length === 0) {
+        items.push({ id: model.id, model: model.name, variant: '', price: 0 });
+      } else {
+        variants.forEach((v: any) => {
+          items.push({
+            id: `${model.id}_${v.id || v.name}`,
+            model: model.name,
+            variant: v.name || '',
+            price: Number(v.usedPrice || v.price || 0),
+          });
+        });
+      }
+    });
+    return items;
+  }, [modelsData]);
+
+  const filteredProducts = useMemo(() => {
+    if (!modelSearch || modelSearch.length < 1) return [];
+    const term = modelSearch.toLowerCase();
+    return flattenedProducts
+      .filter((item: any) => `${item.model} ${item.variant}`.toLowerCase().includes(term))
+      .slice(0, 8);
+  }, [flattenedProducts, modelSearch]);
 
   // Customer search from CRM
   const searchResults = useMemo(() => {
@@ -240,16 +268,26 @@ export const InstantSellModal = ({ onClose, onSubmit, basePricing, jobs }: any) 
                   <div className="relative">
                     <Search className="absolute left-4 top-3.5 text-slate-300" size={18} />
                     <input type="text" className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold outline-none border border-slate-200"
-                      placeholder="พิมพ์ชื่อรุ่น..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} />
+                      placeholder="พิมพ์ชื่อรุ่น เช่น iPhone, iPad..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} />
                   </div>
-                  <div className="space-y-2">
-                    {filteredBasePricing.map((item: any) => (
-                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: `${item.model} (${item.storage})`, price: item.basePrice }); setModelSearch(`${item.model} (${item.storage})`); }}
-                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${formData.model.includes(item.model) ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-100'}`}>
-                        <div className="font-black text-sm">{item.model} {item.storage}</div>
-                        <div className="font-black">{formatCurrency(item.basePrice)}</div>
-                      </div>
-                    ))}
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {filteredProducts.map((item: any) => {
+                      const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
+                      const isSelected = formData.model === displayName;
+                      return (
+                        <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.price || '' }); setModelSearch(displayName); }}
+                          className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${isSelected ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-100 hover:border-amber-200'}`}>
+                          <div>
+                            <div className="font-black text-sm">{item.model}</div>
+                            {item.variant && <div className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-amber-100' : 'text-slate-400'}`}>{item.variant}</div>}
+                          </div>
+                          <div className="font-black">{item.price ? formatCurrency(item.price) : '-'}</div>
+                        </div>
+                      );
+                    })}
+                    {modelSearch && filteredProducts.length === 0 && (
+                      <div className="text-center py-4 text-slate-400 text-sm font-bold">ไม่พบรุ่นที่ค้นหา — ลองใช้ "พิมพ์ชื่อรุ่นเอง"</div>
+                    )}
                   </div>
                 </>
               ) : (

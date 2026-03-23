@@ -10,13 +10,14 @@ const RECEIVE_METHODS = [
   { id: 'Mail-in', label: 'ส่งพัสดุ (Mail-in)', icon: Mail }
 ];
 
-export const CreateTicketModal = ({ onClose, onSubmit, basePricing, jobs }: any) => {
+export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
   const [step, setStep] = useState(1);
   const [modelSearch, setModelSearch] = useState('');
   const [isExistingCustomer, setIsExistingCustomer] = useState(false);
-  
+
   // 🌟 2. เพิ่ม State สำหรับระบบค้นหา Autocomplete
   const { data: customers } = useDatabase('customers');
+  const { data: modelsData } = useDatabase('models');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -27,9 +28,36 @@ export const CreateTicketModal = ({ onClose, onSubmit, basePricing, jobs }: any)
     customer_id: '' // 🌟 เก็บ ID อ้างอิงเวลาดึงจาก CRM
   });
 
-  const filteredBasePricing = Array.isArray(basePricing) 
-    ? basePricing.filter(item => item.model.toLowerCase().includes(modelSearch.toLowerCase())).slice(0, 5) 
-    : [];
+  // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
+  const flattenedProducts = useMemo(() => {
+    const list = Array.isArray(modelsData) ? modelsData : [];
+    const items: any[] = [];
+    list.forEach((model: any) => {
+      if (!model.isActive && model.isActive !== undefined) return;
+      const variants = model.variants || [];
+      if (variants.length === 0) {
+        items.push({ id: model.id, model: model.name, variant: '', price: 0 });
+      } else {
+        variants.forEach((v: any) => {
+          items.push({
+            id: `${model.id}_${v.id || v.name}`,
+            model: model.name,
+            variant: v.name || '',
+            price: Number(v.usedPrice || v.price || 0),
+          });
+        });
+      }
+    });
+    return items;
+  }, [modelsData]);
+
+  const filteredProducts = useMemo(() => {
+    if (!modelSearch || modelSearch.length < 1) return [];
+    const term = modelSearch.toLowerCase();
+    return flattenedProducts
+      .filter((item: any) => `${item.model} ${item.variant}`.toLowerCase().includes(term))
+      .slice(0, 8);
+  }, [flattenedProducts, modelSearch]);
 
   // 🧠 3. ระบบประมวลผลการค้นหา (พิมพ์ชื่อ, เบอร์, หรือ Tax ID ก็เจอ)
   const searchResults = useMemo(() => {
@@ -94,13 +122,24 @@ export const CreateTicketModal = ({ onClose, onSubmit, basePricing, jobs }: any)
             <div className="space-y-6 animate-in slide-in-from-right-4">
               <div className="space-y-4">
                 <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest"><Database size={14} /> ค้นหารุ่นสินค้าจากราคากลาง</label>
-                <div className="relative"><Search className="absolute left-4 top-3.5 text-slate-300" size={18} /><input type="text" className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold outline-none border border-slate-200" placeholder="พิมพ์ชื่อรุ่น..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} /></div>
-                <div className="space-y-2">
-                  {filteredBasePricing.map((item: any) => (
-                    <div key={item.id} onClick={() => { setFormData({ ...formData, model: `${item.model} (${item.storage})`, price: item.basePrice }); setModelSearch(`${item.model} (${item.storage})`); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${formData.model.includes(item.model) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100'}`}>
-                      <div className="font-black text-sm">{item.model} {item.storage}</div><div className="font-black">{formatCurrency(item.basePrice)}</div>
-                    </div>
-                  ))}
+                <div className="relative"><Search className="absolute left-4 top-3.5 text-slate-300" size={18} /><input type="text" className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold outline-none border border-slate-200" placeholder="พิมพ์ชื่อรุ่น เช่น iPhone, iPad..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} /></div>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {filteredProducts.map((item: any) => {
+                    const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
+                    const isSelected = formData.model === displayName;
+                    return (
+                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.price || '' }); setModelSearch(displayName); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
+                        <div>
+                          <div className="font-black text-sm">{item.model}</div>
+                          {item.variant && <div className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{item.variant}</div>}
+                        </div>
+                        <div className="font-black">{item.price ? formatCurrency(item.price) : '-'}</div>
+                      </div>
+                    );
+                  })}
+                  {modelSearch && filteredProducts.length === 0 && (
+                    <div className="text-center py-4 text-slate-400 text-sm font-bold">ไม่พบรุ่นที่ค้นหา</div>
+                  )}
                 </div>
               </div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ราคาเสนอรับซื้อเริ่มต้น</label><input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-2xl outline-none" placeholder="0.00" /></div>

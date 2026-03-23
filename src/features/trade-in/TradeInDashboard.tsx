@@ -16,7 +16,6 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const toast = useToast();
   const { currentUser } = useAuth();
   const { data: jobs, loading } = useDatabase('jobs');
-  const { data: basePricing } = useDatabase('base_pricing');
   
   // 🔥 1. State สำหรับสลับโหมด Workspace (B2C vs B2B)
   const [workspace, setWorkspace] = useState<'B2C' | 'B2B'>('B2C');
@@ -385,7 +384,6 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
             const payload = { ...data, price: Number(data.price), type: 'Trade-in', status: 'New Lead' };
             handleCreateTicket(payload);
           }}
-          basePricing={basePricing}
           jobs={jobs}
         />
       )}
@@ -394,7 +392,6 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         <InstantSellModal
           onClose={() => setIsInstantSellOpen(false)}
           onSubmit={handleInstantSell}
-          basePricing={basePricing}
           jobs={jobs}
         />
       )}
