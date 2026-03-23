@@ -33,17 +33,25 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
     const list = Array.isArray(modelsData) ? modelsData : [];
     const items: any[] = [];
     list.forEach((model: any) => {
+      if (!model.name) return;
       if (!model.isActive && model.isActive !== undefined) return;
-      const variants = model.variants || [];
+      // Firebase อาจเก็บ variants เป็น object หรือ array
+      const rawVariants = model.variants;
+      const variants: any[] = !rawVariants ? [] : Array.isArray(rawVariants) ? rawVariants : Object.values(rawVariants);
       if (variants.length === 0) {
-        items.push({ id: model.id, model: model.name, variant: '', price: 0 });
+        items.push({ id: model.id, model: model.name, brand: model.brand || '', category: model.category || '', variant: '', newPrice: 0, usedPrice: 0, imageUrl: model.imageUrl || '' });
       } else {
         variants.forEach((v: any) => {
+          if (!v) return;
           items.push({
             id: `${model.id}_${v.id || v.name}`,
             model: model.name,
+            brand: model.brand || '',
+            category: model.category || '',
             variant: v.name || '',
-            price: Number(v.usedPrice || v.price || 0),
+            newPrice: Number(v.newPrice || 0),
+            usedPrice: Number(v.usedPrice || v.price || 0),
+            imageUrl: model.imageUrl || '',
           });
         });
       }
@@ -55,7 +63,7 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
     if (!modelSearch || modelSearch.length < 1) return [];
     const term = modelSearch.toLowerCase();
     return flattenedProducts
-      .filter((item: any) => `${item.model} ${item.variant}`.toLowerCase().includes(term))
+      .filter((item: any) => `${item.model} ${item.variant} ${item.brand}`.toLowerCase().includes(term))
       .slice(0, 8);
   }, [flattenedProducts, modelSearch]);
 
@@ -123,17 +131,27 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
               <div className="space-y-4">
                 <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest"><Database size={14} /> ค้นหารุ่นสินค้าจากราคากลาง</label>
                 <div className="relative"><Search className="absolute left-4 top-3.5 text-slate-300" size={18} /><input type="text" className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold outline-none border border-slate-200" placeholder="พิมพ์ชื่อรุ่น เช่น iPhone, iPad..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} /></div>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2 max-h-72 overflow-y-auto">
                   {filteredProducts.map((item: any) => {
                     const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
                     const isSelected = formData.model === displayName;
                     return (
-                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.price || '' }); setModelSearch(displayName); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
-                        <div>
-                          <div className="font-black text-sm">{item.model}</div>
-                          {item.variant && <div className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{item.variant}</div>}
+                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
+                        <div className="flex items-center gap-3">
+                          {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100 shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-sm truncate">{item.model}</span>
+                              {item.brand && <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${isSelected ? 'bg-blue-500/50 text-white' : 'bg-slate-100 text-slate-400'}`}>{item.brand}</span>}
+                            </div>
+                            {item.variant && <div className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>{item.variant}</div>}
+                          </div>
+                          <div className="text-right shrink-0">
+                            {item.usedPrice > 0 && <div className="font-black text-sm">{formatCurrency(item.usedPrice)}</div>}
+                            {item.newPrice > 0 && <div className={`text-[9px] font-bold ${isSelected ? 'text-blue-200' : 'text-emerald-500'}`}>ซีล {formatCurrency(item.newPrice)}</div>}
+                            {!item.usedPrice && !item.newPrice && <div className="font-black text-sm">-</div>}
+                          </div>
                         </div>
-                        <div className="font-black">{item.price ? formatCurrency(item.price) : '-'}</div>
                       </div>
                     );
                   })}
