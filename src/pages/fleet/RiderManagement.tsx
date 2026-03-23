@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, update } from 'firebase/database';
+import { ref, onValue, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
-import { 
-  UserCheck, XCircle, Search, Bike, CreditCard, ShieldAlert, 
-  FileText, CheckCircle2, Star, Map, Ban, RefreshCw, Save, AlertTriangle, Activity
+import {
+  UserCheck, XCircle, Search, Bike, CreditCard, ShieldAlert,
+  FileText, CheckCircle2, Star, Map, Ban, RefreshCw, Save, AlertTriangle, Activity,
+  Pencil, Trash2
 } from 'lucide-react';
 
 export const RiderManagement = () => {
@@ -16,6 +17,15 @@ export const RiderManagement = () => {
   
   const [editScore, setEditScore] = useState<number>(100);
   const [editZone, setEditZone] = useState<string>('Unassigned');
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editEmergency, setEditEmergency] = useState('');
+  const [editPlate, setEditPlate] = useState('');
+  const [editVehicleModel, setEditVehicleModel] = useState('');
+  const [editBankName, setEditBankName] = useState('');
+  const [editBankAccount, setEditBankAccount] = useState('');
 
   // Normalize rider data: map alternative field names from the rider mobile app
   // to the field names expected by this admin panel
@@ -94,6 +104,15 @@ export const RiderManagement = () => {
     if (selectedRider) {
       setEditScore(selectedRider.score !== undefined ? selectedRider.score : 100);
       setEditZone(selectedRider.zone || 'Unassigned');
+      setEditName(selectedRider.name || '');
+      setEditPhone(selectedRider.phone || '');
+      setEditEmail(selectedRider.email || '');
+      setEditEmergency(selectedRider.emergency_contact || '');
+      setEditPlate(selectedRider.vehicle?.plate || '');
+      setEditVehicleModel(selectedRider.vehicle?.model || '');
+      setEditBankName(selectedRider.bank?.name || '');
+      setEditBankAccount(selectedRider.bank?.account || '');
+      setIsEditingProfile(false);
     }
   }, [selectedRider]);
 
@@ -169,12 +188,29 @@ export const RiderManagement = () => {
 
   const handleSaveProfile = async (riderId: string) => {
     try {
-      await update(ref(db, `riders/${riderId}`), { 
-        score: Number(editScore), zone: editZone 
-      });
-      toast.success('บันทึกข้อมูลคะแนนและโซนสำเร็จ!');
+      const updates: any = { score: Number(editScore), zone: editZone };
+      if (isEditingProfile) {
+        updates.name = editName;
+        updates.phone = editPhone;
+        updates.email = editEmail;
+        updates.emergency_contact = editEmergency;
+        updates.vehicle = { plate: editPlate, model: editVehicleModel };
+        updates.bank = { name: editBankName, account: editBankAccount };
+      }
+      await update(ref(db, `riders/${riderId}`), updates);
+      toast.success('บันทึกข้อมูลสำเร็จ!');
       setSelectedRider(null);
     } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+  };
+
+  const handleDeleteRider = async (riderId: string) => {
+    if (window.confirm(`ยืนยันการลบไรเดอร์ ID: ${riderId}?\n\nข้อมูลจะถูกลบออกจากระบบถาวร ไม่สามารถกู้คืนได้`)) {
+      try {
+        await remove(ref(db, `riders/${riderId}`));
+        setSelectedRider(null);
+        toast.success('ลบไรเดอร์สำเร็จ');
+      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+    }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-500 animate-pulse font-bold">กำลังโหลดข้อมูล...</div>;
@@ -226,15 +262,14 @@ export const RiderManagement = () => {
                 return (
                   <tr key={rider.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="p-4 font-bold text-gray-800">
-                      {rider.name}
-                      {/* 🌟 แสดงสถานะ Online/Busy เล็กๆ ไว้ให้แอดมินดูด้วย */}
+                      {rider.name || <span className="text-gray-300 italic text-sm">ไม่มีข้อมูล</span>}
                       {rider.approval_status === 'Active' && (rider.status === 'Online' || rider.status === 'Busy') && (
                         <span className={`ml-2 inline-block w-2 h-2 rounded-full ${rider.status === 'Online' ? 'bg-emerald-500' : 'bg-amber-500'}`} title={rider.status}></span>
                       )}
                     </td>
                     <td className="p-4">
-                      <div className="text-sm font-semibold text-gray-700">{rider.phone}</div>
-                      <div className="text-[10px] text-gray-400">{rider.email}</div>
+                      <div className="text-sm font-semibold text-gray-700">{rider.phone || <span className="text-gray-300">-</span>}</div>
+                      <div className="text-[10px] text-gray-400">{rider.email || '-'}</div>
                     </td>
                     <td className="p-4">
                       <div className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit">{rider.vehicle?.plate || '-'}</div>
@@ -340,23 +375,48 @@ export const RiderManagement = () => {
                 )}
 
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-                  <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4 border-b pb-2"><UserCheck size={18} className="text-gray-500"/> ข้อมูลส่วนตัว</h3>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between"><span className="text-gray-500">ชื่อ-สกุล:</span> <span className="font-bold">{selectedRider.name}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">เบอร์โทร:</span> <span className="font-bold">{selectedRider.phone}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">อีเมล:</span> <span className="font-bold">{selectedRider.email}</span></div>
-                    <div className="flex justify-between bg-red-50 p-2 rounded-lg"><span className="text-red-600 font-medium">ติดต่อฉุกเฉิน:</span> <span className="font-bold text-red-700">{selectedRider.emergency_contact || '-'}</span></div>
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><UserCheck size={18} className="text-gray-500"/> ข้อมูลส่วนตัว</h3>
+                    {(selectedRider.approval_status === 'Active' || selectedRider.approval_status === 'Suspended') && (
+                      <button onClick={() => setIsEditingProfile(!isEditingProfile)} className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors ${isEditingProfile ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600'}`}>
+                        <Pencil size={12}/> {isEditingProfile ? 'กำลังแก้ไข' : 'แก้ไข'}
+                      </button>
+                    )}
                   </div>
+                  {isEditingProfile ? (
+                    <div className="space-y-3 text-sm">
+                      <div><label className="text-xs text-gray-500 font-medium">ชื่อ-สกุล</label><input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="กรอกชื่อ-นามสกุล" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">เบอร์โทร</label><input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="เช่น 0812345678" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">อีเมล</label><input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="email@example.com" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div className="bg-red-50 p-3 rounded-lg"><label className="text-xs text-red-600 font-medium">ติดต่อฉุกเฉิน</label><input type="tel" value={editEmergency} onChange={e => setEditEmergency(e.target.value)} placeholder="เบอร์โทรฉุกเฉิน" className="w-full bg-white border border-red-200 rounded-lg px-3 py-2 font-bold text-red-700 outline-none focus:border-red-400" /></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between"><span className="text-gray-500">ชื่อ-สกุล:</span> <span className="font-bold">{selectedRider.name || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">เบอร์โทร:</span> <span className="font-bold">{selectedRider.phone || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">อีเมล:</span> <span className="font-bold">{selectedRider.email || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
+                      <div className="flex justify-between bg-red-50 p-2 rounded-lg"><span className="text-red-600 font-medium">ติดต่อฉุกเฉิน:</span> <span className="font-bold text-red-700">{selectedRider.emergency_contact || '-'}</span></div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                   <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4 border-b pb-2"><Bike size={18} className="text-orange-500"/> ข้อมูลรถ & บัญชี</h3>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between"><span className="text-gray-500">ป้ายทะเบียน:</span> <span className="font-bold bg-orange-100 text-orange-800 px-2 py-0.5 rounded">{selectedRider.vehicle?.plate}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">รุ่นรถ:</span> <span className="font-medium">{selectedRider.vehicle?.model}</span></div>
-                    <div className="flex justify-between mt-4 pt-4 border-t"><span className="text-gray-500">ธนาคาร:</span> <span className="font-bold">{selectedRider.bank?.name}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">เลขบัญชี:</span> <span className="font-bold text-emerald-600">{selectedRider.bank?.account}</span></div>
-                  </div>
+                  {isEditingProfile ? (
+                    <div className="space-y-3 text-sm">
+                      <div><label className="text-xs text-gray-500 font-medium">ป้ายทะเบียน</label><input type="text" value={editPlate} onChange={e => setEditPlate(e.target.value)} placeholder="เช่น กทม 1234" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">รุ่นรถ</label><input type="text" value={editVehicleModel} onChange={e => setEditVehicleModel(e.target.value)} placeholder="เช่น Honda Wave สีแดง" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div className="pt-3 mt-3 border-t"><label className="text-xs text-gray-500 font-medium">ธนาคาร</label><input type="text" value={editBankName} onChange={e => setEditBankName(e.target.value)} placeholder="เช่น กสิกรไทย" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">เลขบัญชี</label><input type="text" value={editBankAccount} onChange={e => setEditBankAccount(e.target.value)} placeholder="เลขบัญชีธนาคาร" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between"><span className="text-gray-500">ป้ายทะเบียน:</span> <span className="font-bold bg-orange-100 text-orange-800 px-2 py-0.5 rounded">{selectedRider.vehicle?.plate || '-'}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">รุ่นรถ:</span> <span className="font-medium">{selectedRider.vehicle?.model || '-'}</span></div>
+                      <div className="flex justify-between mt-4 pt-4 border-t"><span className="text-gray-500">ธนาคาร:</span> <span className="font-bold">{selectedRider.bank?.name || '-'}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">เลขบัญชี:</span> <span className="font-bold text-emerald-600">{selectedRider.bank?.account || '-'}</span></div>
+                    </div>
+                  )}
                 </div>
 
                 {selectedRider.approval_status === 'Suspended' && (
@@ -402,8 +462,8 @@ export const RiderManagement = () => {
 
             {/* Footer Actions */}
             <div className="p-6 border-t border-gray-100 bg-white flex justify-between items-center gap-3">
-              
-              <div>
+
+              <div className="flex gap-2">
                 {selectedRider.approval_status === 'Active' && (
                   <button onClick={() => handleSuspend(selectedRider.id)} className="px-4 py-2.5 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors flex items-center gap-2 text-sm">
                     <Ban size={16}/> ระงับการใช้งาน
@@ -414,6 +474,9 @@ export const RiderManagement = () => {
                     <RefreshCw size={16}/> ปลดแบน (Reactivate)
                   </button>
                 )}
+                <button onClick={() => handleDeleteRider(selectedRider.id)} className="px-4 py-2.5 rounded-xl font-bold text-red-500 bg-white border border-red-200 hover:bg-red-50 transition-colors flex items-center gap-2 text-sm">
+                  <Trash2 size={16}/> ลบไรเดอร์
+                </button>
               </div>
 
               <div className="flex gap-3">
