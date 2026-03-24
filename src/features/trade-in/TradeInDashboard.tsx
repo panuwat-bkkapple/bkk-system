@@ -114,11 +114,14 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         is_read: true,
         ref_no: `OID-${Math.floor(100000 + Math.random() * 900000)}`,
         updated_at: Date.now(),
+        isNewDevice: payload.isNewDevice || false,
+        imei: payload.imei || '',
+        assessment_details: { isNewDevice: payload.isNewDevice || false },
         qc_logs: [{
           action: 'Instant Sell Created',
           by: currentUser?.name || 'Admin',
           timestamp: Date.now(),
-          details: `เปิดรับซื้อด่วน — ราคา ฿${Number(payload.price).toLocaleString()}${payload.offer_note ? ` (${payload.offer_note})` : ''}`
+          details: `เปิดรับซื้อด่วน — ${payload.isNewDevice ? 'มือหนึ่ง/ซีล' : 'มือสอง'} — ราคา ฿${Number(payload.price).toLocaleString()}${payload.imei ? ` (IMEI: ${payload.imei})` : ''}${payload.offer_note ? ` (${payload.offer_note})` : ''}`
         }]
       };
       await push(ref(db, 'jobs'), finalPayload);

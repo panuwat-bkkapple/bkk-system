@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Search, ArrowRight, ArrowLeft, CheckCircle2, Phone, Zap, MessageCircle, Package, Banknote } from 'lucide-react';
+import { X, Search, ArrowRight, ArrowLeft, CheckCircle2, Phone, Zap, MessageCircle, Package, Banknote, Smartphone, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '../../../utils/formatters';
 import { useDatabase } from '../../../hooks/useDatabase';
 
@@ -10,6 +10,8 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
   const [modelSearch, setModelSearch] = useState('');
   const [isExistingCustomer, setIsExistingCustomer] = useState(false);
   const [isCustomPrice, setIsCustomPrice] = useState(false);
+  const [isNewDevice, setIsNewDevice] = useState(false);
+  const [imei, setImei] = useState('');
 
   const { data: customers } = useDatabase('customers');
   const { data: modelsData } = useDatabase('models');
@@ -132,6 +134,8 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
     onSubmit({
       ...formData,
       offer_note: offerNote,
+      isNewDevice,
+      imei: imei.trim() || '',
     });
   };
 
@@ -283,7 +287,7 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                       const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
                       const isSelected = formData.model === displayName;
                       return (
-                        <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); }}
+                        <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: isNewDevice ? (item.newPrice || item.usedPrice || '') : (item.usedPrice || '') }); setModelSearch(displayName); }}
                           className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-100 hover:border-amber-200'}`}>
                           <div className="flex items-center gap-3">
                             {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100 shrink-0" />}
@@ -313,6 +317,51 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                   className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none"
                   placeholder="พิมพ์ชื่อรุ่น เช่น iPhone 16 Pro 256GB" />
               )}
+
+              {/* Device Condition Toggle */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <ShieldCheck size={14} /> สภาพสินค้า
+                </label>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  <button onClick={() => {
+                    setIsNewDevice(false);
+                    if (!isCustomPrice && formData.model) {
+                      const found = flattenedProducts.find((p: any) => {
+                        const dn = p.variant ? `${p.model} (${p.variant})` : p.model;
+                        return dn === formData.model;
+                      });
+                      if (found?.usedPrice) setFormData(prev => ({ ...prev, price: found.usedPrice }));
+                    }
+                  }}
+                    className={`flex-1 px-4 py-3 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 ${!isNewDevice ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>
+                    <Package size={14} /> มือสอง (Used)
+                  </button>
+                  <button onClick={() => {
+                    setIsNewDevice(true);
+                    if (!isCustomPrice && formData.model) {
+                      const found = flattenedProducts.find((p: any) => {
+                        const dn = p.variant ? `${p.model} (${p.variant})` : p.model;
+                        return dn === formData.model;
+                      });
+                      if (found?.newPrice) setFormData(prev => ({ ...prev, price: found.newPrice }));
+                    }
+                  }}
+                    className={`flex-1 px-4 py-3 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-2 ${isNewDevice ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>
+                    <ShieldCheck size={14} /> มือหนึ่ง / ซีล (New)
+                  </button>
+                </div>
+              </div>
+
+              {/* IMEI (Optional) */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Smartphone size={14} /> IMEI / Serial Number <span className="text-slate-300 font-bold normal-case">(ไม่บังคับ)</span>
+                </label>
+                <input type="text" value={imei} onChange={e => setImei(e.target.value)}
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none tracking-wider text-sm"
+                  placeholder="เช่น 350000000000000" />
+              </div>
 
               {/* Offer Price */}
               <div className="space-y-2">
@@ -356,7 +405,13 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                   <span className="font-bold text-slate-600 text-sm">{formData.cust_name}</span>
                   <span className="text-[10px] font-bold text-slate-400">{formData.cust_phone}</span>
                 </div>
-                <div className="font-black text-slate-800 text-sm mb-2">{formData.model}</div>
+                <div className="font-black text-slate-800 text-sm mb-1 flex items-center gap-2">
+                  {formData.model}
+                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-md ${isNewDevice ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                    {isNewDevice ? 'มือหนึ่ง / ซีล' : 'มือสอง'}
+                  </span>
+                </div>
+                {imei && <div className="text-[10px] font-bold text-slate-400 mb-2">IMEI: {imei}</div>}
                 <div className="text-2xl font-black text-amber-600">{formData.price ? formatCurrency(Number(formData.price)) : '—'}</div>
                 {offerNote && <div className="text-[10px] text-amber-600 font-bold mt-2 bg-amber-100/50 px-3 py-1.5 rounded-lg">"{offerNote}"</div>}
               </div>
