@@ -39,28 +39,35 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
   }, [activeSeriesId, availableSeries]);
 
   const handleCreateNewSeriesModal = async () => {
-    const newRef = push(ref(db, 'series'));
-    await update(newRef, {
-      name: 'New Series',
-      brand: 'Apple',
-      category: 'Tablets',
-      imageUrl: ''
-    });
-    setActiveSeriesId(newRef.key);
-    toast.success('สร้าง Series ใหม่เรียบร้อย');
+    try {
+      const newRef = push(ref(db, 'series'));
+      await update(newRef, {
+        name: 'New Series',
+        brand: 'Apple',
+        category: 'Tablets',
+        imageUrl: ''
+      });
+      setActiveSeriesId(newRef.key);
+      toast.success('สร้าง Series ใหม่เรียบร้อย');
+    } catch (error) {
+      toast.error('เกิดข้อผิดพลาดในการสร้าง Series');
+    }
   };
 
   const handleSaveSeriesModal = async () => {
     if (!editingSeries || !editingSeries.name.trim()) return toast.error('กรุณาระบุชื่อ Series');
 
-    await update(ref(db, `series/${editingSeries.id}`), {
-      name: editingSeries.name,
-      brand: editingSeries.brand || 'Apple',
-      category: editingSeries.category || 'Tablets',
-      imageUrl: editingSeries.imageUrl || ''
-    });
-
-    toast.success('บันทึกข้อมูล Series สำเร็จ!');
+    try {
+      await update(ref(db, `series/${editingSeries.id}`), {
+        name: editingSeries.name,
+        brand: editingSeries.brand || 'Apple',
+        category: editingSeries.category || 'Tablets',
+        imageUrl: editingSeries.imageUrl || ''
+      });
+      toast.success('บันทึกข้อมูล Series สำเร็จ!');
+    } catch (error) {
+      toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    }
   };
 
   const handleDeleteSeriesModal = async (id: string, seriesName: string) => {
@@ -71,9 +78,13 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
     }
 
     if (confirm('ยืนยันการลบ Series นี้ใช่หรือไม่?')) {
-      await remove(ref(db, `series/${id}`));
-      setActiveSeriesId(availableSeries.length > 0 ? availableSeries[0].id : null);
-      toast.success('ลบ Series สำเร็จ');
+      try {
+        await remove(ref(db, `series/${id}`));
+        setActiveSeriesId(availableSeries.length > 0 ? availableSeries[0].id : null);
+        toast.success('ลบ Series สำเร็จ');
+      } catch (error) {
+        toast.error('เกิดข้อผิดพลาดในการลบ Series');
+      }
     }
   }
 

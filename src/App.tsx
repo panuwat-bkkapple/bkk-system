@@ -5,6 +5,7 @@ import { AdminLayout } from './components/layout/AdminLayout';
 import { auth, db } from './api/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, get, push, set } from 'firebase/database';
+import { Toaster } from 'react-hot-toast';
 
 // --- Static Imports (needed immediately) ---
 import { MobileLayout } from './pages/mobile/MobileLayout';
@@ -179,6 +180,7 @@ export default function App() {
       </Routes>
       </Suspense>
     </Router>
+    <Toaster position="top-right" />
     </ToastProvider>
   );
 }
