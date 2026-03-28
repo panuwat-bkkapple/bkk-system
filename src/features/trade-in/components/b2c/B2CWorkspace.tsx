@@ -260,17 +260,20 @@ export const B2CWorkspace = ({
                   <div className="space-y-4">
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">ลูกค้าแจ้งมาเบื้องต้น</p>
                      <div className="bg-white p-5 rounded-3xl border border-slate-200 min-h-[150px]">
-                        {device.isNewDevice ? (
-                          <div className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold text-xs flex items-center gap-2 border border-blue-100"><PackageOpen size={16}/> เครื่องใหม่มือ 1 (ยังไม่แกะซีล)</div>
-                        ) : (
+                        {device.isNewDevice && (
+                          <div className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold text-xs flex items-center gap-2 border border-blue-100 mb-3"><PackageOpen size={16}/> เครื่องใหม่มือ 1 (ยังไม่แกะซีล)</div>
+                        )}
+                        {(device.customer_conditions || []).length > 0 ? (
                           <ul className="space-y-2">
                             {(device.customer_conditions || []).map((c: string, i: number) => (
                               <li key={i} className="text-xs font-bold text-slate-600 flex items-start gap-2">
-                                <span className="text-blue-400 mt-1">•</span>{c}
+                                <span className="text-blue-400 mt-1">•</span>{typeof c === 'object' ? (c as any).title ? `[${(c as any).title}] ${(c as any).value || (c as any).label}` : JSON.stringify(c) : c}
                               </li>
                             ))}
                           </ul>
-                        )}
+                        ) : !device.isNewDevice ? (
+                          <div className="text-xs text-slate-400 text-center py-4">ไม่มีข้อมูลสภาพเครื่อง</div>
+                        ) : null}
                      </div>
                   </div>
 

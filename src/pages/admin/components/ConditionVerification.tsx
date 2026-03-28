@@ -76,11 +76,12 @@ export const ConditionVerification: React.FC<ConditionVerificationProps> = ({ jo
               <div className="space-y-3">
                 <p className="text-[9px] font-black text-slate-400 uppercase text-center tracking-widest">ลูกค้าแจ้ง</p>
                 <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 min-h-[120px]">
-                  {device.isNewDevice ? (
-                    <div className="text-xs font-bold text-blue-600 flex items-center gap-2 bg-blue-50 p-3 rounded-xl border border-blue-100"><PackageOpen size={16} /> เครื่องใหม่มือ 1</div>
-                  ) : (
+                  {device.isNewDevice && (
+                    <div className="text-xs font-bold text-blue-600 flex items-center gap-2 bg-blue-50 p-3 rounded-xl border border-blue-100 mb-2"><PackageOpen size={16} /> เครื่องใหม่มือ 1</div>
+                  )}
+                  {device.customer_conditions?.length > 0 ? (
                     <ul className="space-y-1.5">
-                      {device.customer_conditions?.map((c: any, i: number) => {
+                      {device.customer_conditions.map((c: any, i: number) => {
                         const cText = getConditionText(c);
 
                         let isMatchWithRider = false;
@@ -112,7 +113,9 @@ export const ConditionVerification: React.FC<ConditionVerificationProps> = ({ jo
                         );
                       })}
                     </ul>
-                  )}
+                  ) : !device.isNewDevice ? (
+                    <div className="text-[11px] text-slate-400 text-center py-4">ไม่มีข้อมูลสภาพเครื่อง</div>
+                  ) : null}
                 </div>
               </div>
 
