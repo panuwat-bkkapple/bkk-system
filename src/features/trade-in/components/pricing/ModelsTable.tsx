@@ -2,7 +2,7 @@
 
 import React from 'react';
 import {
-  ToggleLeft, ToggleRight, Pencil, Trash2, Star, ClipboardList, Layers
+  ToggleLeft, ToggleRight, Pencil, Trash2, Star, ClipboardList, Layers, Copy
 } from 'lucide-react';
 
 interface ModelsTableProps {
@@ -11,6 +11,7 @@ interface ModelsTableProps {
   loading: boolean;
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onDuplicate: (item: any) => void;
   onToggleStatus: (item: any) => void;
   onToggleFeatured: (item: any) => void;
 }
@@ -37,6 +38,7 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
   loading,
   onEdit,
   onDelete,
+  onDuplicate,
   onToggleStatus,
   onToggleFeatured,
 }) => {
@@ -104,8 +106,9 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
                   </td>
                   <td className="p-4 text-right pr-6">
                     <div className="flex justify-end gap-1">
-                      <button onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 transition hover:bg-white rounded-lg"><Pencil size={18} /></button>
-                      <button onClick={() => onDelete(item.id)} className="p-2 text-slate-400 hover:text-red-600 transition hover:bg-white rounded-lg"><Trash2 size={18} /></button>
+                      <button onClick={() => onDuplicate(item)} className="p-2 text-slate-400 hover:text-emerald-600 transition hover:bg-white rounded-lg" title="Duplicate"><Copy size={18} /></button>
+                      <button onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-blue-600 transition hover:bg-white rounded-lg" title="Edit"><Pencil size={18} /></button>
+                      <button onClick={() => onDelete(item.id)} className="p-2 text-slate-400 hover:text-red-600 transition hover:bg-white rounded-lg" title="Delete"><Trash2 size={18} /></button>
                     </div>
                   </td>
                 </tr>
