@@ -320,6 +320,47 @@ export const B2CWorkspace = ({
                 )}
              </div>
           </div>
+
+          {/* Discrepancy Reports Section */}
+          {job.discrepancy_reports && Object.keys(job.discrepancy_reports).length > 0 && (
+            <div className="bg-white p-8 rounded-[3rem] border border-orange-200 shadow-sm">
+              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <AlertTriangle size={16}/> รายงานข้อมูลไม่ตรงจากไรเดอร์ ({Object.keys(job.discrepancy_reports).length})
+              </p>
+              <div className="space-y-3">
+                {Object.entries(job.discrepancy_reports).map(([reportId, report]: [string, any]) => {
+                  const isPending = report.status === 'pending';
+                  const categoryLabels: Record<string, string> = {
+                    address: 'ที่อยู่ผิด', customer: 'ชื่อลูกค้าไม่ตรง', device: 'รุ่นเครื่องไม่ตรง',
+                    price: 'ราคาไม่ตรง', appointment: 'เวลานัดหมายไม่ตรง', other: 'อื่นๆ'
+                  };
+                  return (
+                    <div key={reportId} className={`p-4 rounded-2xl border ${isPending ? 'bg-orange-50 border-orange-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${isPending ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {isPending ? 'รอตรวจสอบ' : 'แก้ไขแล้ว'}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400">{categoryLabels[report.category] || report.category}</span>
+                          </div>
+                          <p className="text-sm font-bold text-slate-700">{report.detail}</p>
+                          <p className="text-[11px] font-bold text-slate-400 mt-1">
+                            {report.reported_by} - {report.reported_at ? formatDate(report.reported_at) : '-'}
+                          </p>
+                        </div>
+                        {report.imageUrl && (
+                          <a href={report.imageUrl} target="_blank" className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                            <img src={report.imageUrl} className="w-full h-full object-cover" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

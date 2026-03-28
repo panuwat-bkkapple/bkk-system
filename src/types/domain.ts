@@ -158,6 +158,22 @@ export enum ExpenseCategory {
   MISC = 'MISC',
 }
 
+/** หมวดหมู่รายงานข้อมูลไม่ตรง */
+export enum DiscrepancyCategory {
+  ADDRESS = 'address',
+  CUSTOMER = 'customer',
+  DEVICE = 'device',
+  PRICE = 'price',
+  APPOINTMENT = 'appointment',
+  OTHER = 'other',
+}
+
+/** สถานะรายงานข้อมูลไม่ตรง */
+export enum DiscrepancyStatus {
+  PENDING = 'pending',
+  RESOLVED = 'resolved',
+}
+
 /** สถานะเคลมประกัน */
 export enum WarrantyClaimStatus {
   OPEN = 'OPEN',
@@ -370,6 +386,30 @@ export interface ChatMessage {
   timestamp: Date;
   /** อ่านแล้วหรือยัง */
   read: boolean;
+}
+
+/** รายงานข้อมูลไม่ตรงจากไรเดอร์ */
+export interface DiscrepancyReport {
+  /** รหัสรายงาน */
+  id: string;
+  /** รหัสงานที่เกี่ยวข้อง */
+  jobId: string;
+  /** หมวดหมู่ */
+  category: DiscrepancyCategory;
+  /** รายละเอียดที่ไรเดอร์กรอก */
+  detail: string;
+  /** URL รูปภาพแนบ (ถ้ามี) */
+  imageUrl?: string | null;
+  /** ผู้แจ้ง */
+  reported_by: string;
+  /** เวลาที่แจ้ง (timestamp) */
+  reported_at: number;
+  /** สถานะ */
+  status: DiscrepancyStatus;
+  /** เวลาที่แก้ไขแล้ว */
+  resolved_at?: number | null;
+  /** ผู้แก้ไข */
+  resolved_by?: string;
 }
 
 /** ธุรกรรมทางการเงิน */

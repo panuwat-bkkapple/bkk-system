@@ -27,6 +27,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const toast = useToast();
   const [pendingReviews, setPendingReviews] = useState(0);
   const [unreadInbox, setUnreadInbox] = useState(0);
+  const [pendingDiscrepancies, setPendingDiscrepancies] = useState(0);
   const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
   // Register admin FCM token for push notifications
@@ -92,6 +93,26 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
     return () => unsub();
   }, []);
 
+  // นับจำนวนรายงานข้อมูลไม่ตรงที่รอตรวจสอบ
+  useEffect(() => {
+    const jobsRef = ref(db, 'jobs');
+    const unsub = onValue(jobsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        let count = 0;
+        Object.values(data).forEach((job: any) => {
+          if (job.discrepancy_reports) {
+            count += Object.values(job.discrepancy_reports).filter((r: any) => r.status === 'pending').length;
+          }
+        });
+        setPendingDiscrepancies(count);
+      } else {
+        setPendingDiscrepancies(0);
+      }
+    });
+    return () => unsub();
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#F5F5F7] flex transition-all duration-300">
       <aside className={`${isCollapsed ? 'w-20' : 'w-72'} bg-white border-r flex flex-col fixed h-full z-20 shadow-sm transition-all duration-300 ease-in-out`}>
@@ -149,6 +170,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
               <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
+              <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>
 
