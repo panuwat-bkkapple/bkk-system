@@ -168,6 +168,50 @@ export const PriceEditor = () => {
   const handleToggleStatus = async (item: any) => { await update(ref(db, `models/${item.id}`), { isActive: !item.isActive }); };
   const handleToggleFeatured = async (item: any) => { await update(ref(db, `models/${item.id}`), { isFeatured: !item.isFeatured }); };
 
+  const handleDuplicateModel = (item: any) => {
+    const cloned = JSON.parse(JSON.stringify(item));
+    cloned.id = Date.now().toString();
+    cloned.name = `${item.name} (Copy)`;
+    cloned.isActive = false;
+    cloned.isFeatured = false;
+
+    // Reset variant IDs so they are treated as new
+    cloned.variants = (cloned.variants || []).map((v: any, idx: number) => ({
+      ...v,
+      id: `v${idx + 1}`,
+    }));
+
+    // Auto-migration for attributes (same logic as edit)
+    const schema = cloned.attributesSchema || CATEGORY_SCHEMAS[cloned.category] || CATEGORY_SCHEMAS['Smartphones'];
+    cloned.attributesSchema = schema;
+    cloned.variants = cloned.variants.map((v: any) => {
+      if (!v.attributes) {
+        v.attributes = {};
+        const parts = (v.name || '').split('|').map((s: string) => s.trim());
+        if (cloned.category === 'Mac / Laptop') {
+          v.attributes.processor = parts[0] || '';
+          v.attributes.ram = parts[1] || '';
+          v.attributes.storage = parts[2] || '';
+          v.attributes.display = parts[3] || '';
+        } else if (cloned.category === 'Tablets') {
+          v.attributes.connectivity = parts[0] || '';
+          v.attributes.storage = parts[1] || '';
+        } else if (cloned.category === 'Smart Watch') {
+          v.attributes.size = parts[0] || '';
+          v.attributes.case_material = parts[1] || '';
+          v.attributes.connectivity = parts[2] || '';
+        } else {
+          v.attributes.storage = parts[0] || v.name || '';
+        }
+      }
+      return v;
+    });
+
+    setEditingItem(cloned);
+    setIsModalOpen(true);
+    toast.success('สำเนาสินค้าเรียบร้อย กรุณาตรวจสอบและบันทึกครับ');
+  };
+
   const handleOpenModal = (item: any = null) => {
     if (item) {
       // Auto-Migration: ดึงข้อมูลเดิมมาหั่นเป็น Attributes ชั่วคราวถ้ายังไม่มี
@@ -262,6 +306,7 @@ export const PriceEditor = () => {
         loading={loading}
         onEdit={handleOpenModal}
         onDelete={handleDeleteModel}
+        onDuplicate={handleDuplicateModel}
         onToggleStatus={handleToggleStatus}
         onToggleFeatured={handleToggleFeatured}
       />
