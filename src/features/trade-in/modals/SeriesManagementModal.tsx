@@ -60,12 +60,17 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
     if (!editingSeries || !editingSeries.name.trim()) return toast.error('กรุณาระบุชื่อ Series');
 
     try {
+      // Look up subcategory image from subcategories collection
+      const matchedSubcategory = subcategories.find(sc => sc.name === editingSeries.subcategory);
+      const subcategoryImageUrl = matchedSubcategory?.imageUrl || '';
+
       await update(ref(db, `series/${editingSeries.id}`), {
         name: editingSeries.name,
         brand: editingSeries.brand || 'Apple',
         category: editingSeries.category || 'Tablets',
         imageUrl: editingSeries.imageUrl || '',
-        subcategory: editingSeries.subcategory || ''
+        subcategory: editingSeries.subcategory || '',
+        subcategoryImageUrl
       });
       toast.success('บันทึกข้อมูล Series สำเร็จ!');
     } catch (error) {
