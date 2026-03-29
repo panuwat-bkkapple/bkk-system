@@ -164,9 +164,24 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                     <div className="flex gap-2">
                       <select value={editingItem.series || ''} onChange={(e) => onEditingItemChange({ ...editingItem, series: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-colors outline-none">
                         <option value="">-- ไม่ระบุ --</option>
-                        {availableSeries.filter(s => s.brand === editingItem.brand && s.category === editingItem.category).map(s => (
-                            <option key={s.id} value={s.name}>{s.name}</option>
-                        ))}
+                        {(() => {
+                          const filtered = availableSeries.filter(s => s.brand === editingItem.brand && s.category === editingItem.category);
+                          const groups = filtered.reduce((acc: Record<string, any[]>, s) => {
+                            const key = s.subcategory || '';
+                            if (!acc[key]) acc[key] = [];
+                            acc[key].push(s);
+                            return acc;
+                          }, {});
+                          const hasSubcategories = Object.keys(groups).some(k => k !== '');
+                          if (!hasSubcategories) {
+                            return filtered.map(s => <option key={s.id} value={s.name}>{s.name}</option>);
+                          }
+                          return Object.entries(groups).map(([group, items]) => (
+                            <optgroup key={group || '_none'} label={group || 'ไม่ระบุ Subcategory'}>
+                              {items.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </optgroup>
+                          ));
+                        })()}
                       </select>
                       <button type="button" onClick={() => setIsAddingSeries(true)} className="px-4 bg-slate-100 text-blue-600 rounded-xl hover:bg-blue-50 font-bold border border-slate-200 whitespace-nowrap transition-colors text-sm">+ เพิ่มใหม่</button>
                     </div>

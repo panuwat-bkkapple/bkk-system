@@ -318,6 +318,17 @@ export interface Job {
   notes?: string;
 }
 
+/** ซีรีส์สินค้า */
+export interface Series {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  imageUrl: string;
+  subcategory?: string;
+  subcategoryImageUrl?: string;
+}
+
 /** ตัวเลือกสินค้า (เช่น ความจุ, สี) */
 export interface ProductVariant {
   /** ชื่อ variant เช่น "128GB - Black" */
