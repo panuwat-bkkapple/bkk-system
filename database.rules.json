@@ -10,6 +10,10 @@
       ".read": true,
       ".write": "auth != null"
     },
+    "subcategories": {
+      ".read": true,
+      ".write": "auth != null"
+    },
     "users": {
       ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
       ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
