@@ -4,7 +4,7 @@ import { getAuth } from 'firebase/auth';
 import React, { useState, useEffect } from 'react';
 import {
   Smartphone, Tablet, Laptop, Watch, Camera,
-  Gamepad2, Search, PlusCircle, Settings, FolderTree
+  Gamepad2, Search, PlusCircle, Settings, FolderTree, Layers
 } from 'lucide-react';
 import { ref, push, update, remove, onValue } from 'firebase/database';
 import { db, app } from '../../api/firebase';
@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { CATEGORY_SCHEMAS } from './constants/categorySchemas';
 import { EngineSettingsModal } from './modals/EngineSettingsModal';
 import { SeriesManagementModal } from './modals/SeriesManagementModal';
+import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
 
@@ -21,12 +22,14 @@ export const PriceEditor = () => {
   const [activeBrand, setActiveBrand] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [availableSeries, setAvailableSeries] = useState<any[]>([]);
+  const [subcategories, setSubcategories] = useState<any[]>([]);
   const [modelsData, setModelsData] = useState<any[]>([]);
   const [conditionSets, setConditionSets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
+  const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
   const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
 
   const categories = [
@@ -66,6 +69,18 @@ export const PriceEditor = () => {
       }
     });
 
+    const subcategoriesRef = ref(db, 'subcategories');
+    const unsubSubcategories = onValue(subcategoriesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const formatted = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        formatted.sort((a, b) => a.name.localeCompare(b.name));
+        setSubcategories(formatted);
+      } else {
+        setSubcategories([]);
+      }
+    });
+
     const conditionsRef = ref(db, 'settings/condition_sets');
     const unsubConditions = onValue(conditionsRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -77,7 +92,7 @@ export const PriceEditor = () => {
       }
     });
 
-    return () => { unsubModels(); unsubConditions(); unsubSeries(); };
+    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); };
   }, []);
 
   const handleSaveModel = async () => {
@@ -294,6 +309,7 @@ export const PriceEditor = () => {
         </div>
         <div className="flex gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
           <button onClick={() => setIsEngineModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Settings size={18} className="text-indigo-500" /> Engine Settings</button>
+          <button onClick={() => setIsSubcategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Layers size={18} className="text-violet-500" /> Subcategories</button>
           <button onClick={() => setIsSeriesModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><FolderTree size={18} className="text-blue-500" /> Manage Series</button>
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
         </div>
@@ -317,8 +333,16 @@ export const PriceEditor = () => {
         onClose={() => setIsEngineModalOpen(false)}
       />
 
+      <SubcategoryManagementModal
+        subcategories={subcategories}
+        availableSeries={availableSeries}
+        isOpen={isSubcategoryModalOpen}
+        onClose={() => setIsSubcategoryModalOpen(false)}
+      />
+
       <SeriesManagementModal
         availableSeries={availableSeries}
+        subcategories={subcategories}
         modelsData={modelsData}
         isOpen={isSeriesModalOpen}
         onClose={() => setIsSeriesModalOpen(false)}
