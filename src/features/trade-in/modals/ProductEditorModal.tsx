@@ -105,7 +105,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
       const { ref, push, update } = await import('firebase/database');
       const { db } = await import('../../../api/firebase');
       const newRef = push(ref(db, 'series'));
-      await update(newRef, { name: newSeriesName.trim(), brand: editingItem.brand || 'Apple', category: editingItem.category || 'Tablets' });
+      await update(newRef, { name: newSeriesName.trim(), brand: editingItem.brand || 'Apple', category: editingItem.category || 'Tablets', subcategory: '' });
       toast.success(`เพิ่ม Series: ${newSeriesName} สำเร็จ!`);
       onEditingItemChange({ ...editingItem, series: newSeriesName.trim() });
       setNewSeriesName('');

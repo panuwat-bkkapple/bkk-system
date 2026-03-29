@@ -326,7 +326,15 @@ export interface Series {
   category: string;
   imageUrl: string;
   subcategory?: string;
-  subcategoryImageUrl?: string;
+}
+
+/** กลุ่มย่อยสินค้า (เช่น MacBook Air, MacBook Pro) */
+export interface Subcategory {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  imageUrl: string;
 }
 
 /** ตัวเลือกสินค้า (เช่น ความจุ, สี) */

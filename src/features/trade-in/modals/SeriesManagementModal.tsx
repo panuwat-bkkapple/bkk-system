@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 
 interface SeriesManagementModalProps {
   availableSeries: any[];
+  subcategories: any[];
   modelsData: any[];
   isOpen: boolean;
   onClose: () => void;
@@ -25,7 +26,7 @@ const categories = [
 ];
 const brands = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
 
-export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ availableSeries, modelsData, isOpen, onClose }) => {
+export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ availableSeries, subcategories, modelsData, isOpen, onClose }) => {
   const [activeSeriesId, setActiveSeriesId] = useState<string | null>(availableSeries.length > 0 ? availableSeries[0].id : null);
   const [editingSeries, setEditingSeries] = useState<any>(null);
 
@@ -46,8 +47,7 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
         brand: 'Apple',
         category: 'Tablets',
         imageUrl: '',
-        subcategory: '',
-        subcategoryImageUrl: ''
+        subcategory: ''
       });
       setActiveSeriesId(newRef.key);
       toast.success('สร้าง Series ใหม่เรียบร้อย');
@@ -65,8 +65,7 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
         brand: editingSeries.brand || 'Apple',
         category: editingSeries.category || 'Tablets',
         imageUrl: editingSeries.imageUrl || '',
-        subcategory: editingSeries.subcategory || '',
-        subcategoryImageUrl: editingSeries.subcategoryImageUrl || ''
+        subcategory: editingSeries.subcategory || ''
       });
       toast.success('บันทึกข้อมูล Series สำเร็จ!');
     } catch (error) {
@@ -91,6 +90,11 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
       }
     }
   }
+
+  // Filter subcategories by current series brand+category
+  const filteredSubcategories = editingSeries
+    ? subcategories.filter(sc => sc.brand === editingSeries.brand && sc.category === editingSeries.category)
+    : [];
 
   const modelsInActiveSeries = editingSeries ? modelsData.filter(m => m.series === editingSeries.name) : [];
 
@@ -127,8 +131,10 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
                   ) : (
                     <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400"><ImageIcon size={14} /></div>
                   )}
-                  <div className={`font-black text-sm truncate pr-6 ${activeSeriesId === series.id ? 'text-blue-900' : 'text-slate-700'}`}>{series.name}</div>
-                  {series.subcategory && <div className="text-[10px] text-slate-400 font-medium mt-0.5 truncate">{series.subcategory}</div>}
+                  <div>
+                    <div className={`font-black text-sm truncate pr-6 ${activeSeriesId === series.id ? 'text-blue-900' : 'text-slate-700'}`}>{series.name}</div>
+                    {series.subcategory && <div className="text-[10px] text-slate-400 font-medium mt-0.5 truncate">{series.subcategory}</div>}
+                  </div>
                 </div>
 
                 <button onClick={(e) => { e.stopPropagation(); handleDeleteSeriesModal(series.id, series.name); }} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -160,21 +166,30 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Brand</label>
-                          <select value={editingSeries.brand} onChange={e => setEditingSeries({ ...editingSeries, brand: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
+                          <select value={editingSeries.brand} onChange={e => setEditingSeries({ ...editingSeries, brand: e.target.value, subcategory: '' })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
                             {brands.map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Category</label>
-                          <select value={editingSeries.category} onChange={e => setEditingSeries({ ...editingSeries, category: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
+                          <select value={editingSeries.category} onChange={e => setEditingSeries({ ...editingSeries, category: e.target.value, subcategory: '' })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
                             {categories.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
                           </select>
                         </div>
                       </div>
                       <div>
                         <label className="text-xs font-bold text-slate-500 block mb-1">Subcategory (optional)</label>
-                        <input type="text" placeholder="e.g. MacBook Air, MacBook Pro, iMac..." value={editingSeries.subcategory || ''} onChange={e => setEditingSeries({ ...editingSeries, subcategory: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                        <p className="text-[10px] text-slate-400 mt-1">ใช้สำหรับจัดกลุ่มย่อยภายใน Category (เช่น Mac / Laptop → MacBook Air, MacBook Pro)</p>
+                        <select
+                          value={editingSeries.subcategory || ''}
+                          onChange={e => setEditingSeries({ ...editingSeries, subcategory: e.target.value })}
+                          className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">-- ไม่ระบุ --</option>
+                          {filteredSubcategories.map(sc => (
+                            <option key={sc.id} value={sc.name}>{sc.name}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-400 mt-1">จัดกลุ่มย่อยภายใน Category (จัดการได้ที่เมนู Subcategories)</p>
                       </div>
                     </div>
 
@@ -188,17 +203,6 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
                           <label className="text-xs font-bold text-slate-500 block mb-1">Image URL (รูปโปร่งใสพื้นหลัง PNG)</label>
                           <input type="text" placeholder="https://..." value={editingSeries.imageUrl} onChange={e => setEditingSeries({ ...editingSeries, imageUrl: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-2" />
                           <p className="text-[10px] text-slate-400">รูปนี้จะถูกนำไปแสดงเป็นไอคอนเมนูด้านบน (Sub-navigation) แบบเดียวกับหน้าเว็บ Apple</p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-4 items-start mt-4 pt-4 border-t border-slate-100">
-                        <div className="w-24 h-24 bg-slate-50 rounded-2xl border border-dashed border-slate-300 flex items-center justify-center shrink-0 p-2">
-                          {editingSeries.subcategoryImageUrl ? <img src={editingSeries.subcategoryImageUrl} alt="subcategory icon" className="max-w-full max-h-full object-contain drop-shadow-md" /> : <ImageIcon className="text-slate-300" size={32} />}
-                        </div>
-                        <div className="flex-1">
-                          <label className="text-xs font-bold text-slate-500 block mb-1">Subcategory Image URL (optional)</label>
-                          <input type="text" placeholder="https://..." value={editingSeries.subcategoryImageUrl || ''} onChange={e => setEditingSeries({ ...editingSeries, subcategoryImageUrl: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-2" />
-                          <p className="text-[10px] text-slate-400">รูปนี้จะใช้แสดงในขั้นตอน Sub-category ของหน้า Sell (เช่น รูป MacBook Air ทั่วไป)</p>
                         </div>
                       </div>
                     </div>
@@ -231,7 +235,7 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
 
                 </div>
               </>
-            ) : <div className="flex-1 flex items-center justify-center text-slate-400 font-bold bg-slate-50/50">👈 เลือกหรือสร้าง Series จากเมนูด้านซ้าย</div>}
+            ) : <div className="flex-1 flex items-center justify-center text-slate-400 font-bold bg-slate-50/50">เลือกหรือสร้าง Series จากเมนูด้านซ้าย</div>}
           </div>
         </div>
       </div>
