@@ -2,117 +2,185 @@
   "rules": {
     ".read": false,
     ".write": false,
+
     "models": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
     },
+
     "series": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
     },
+
+    "subcategories": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
     "users": {
       ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
       ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["phone", "email"],
       "$uid": {
         ".read": "auth != null && auth.uid == $uid",
         ".write": "auth != null && auth.uid == $uid"
       }
     },
-    "jobs": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name", "uid", "cust_email", "cust_phone"]
-    },
-    "jobs_archived": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      ".indexOn": ["status", "created_at"]
-    },
-    "staff": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "sales": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      ".indexOn": ["sold_at", "status"]
-    },
-    "customers": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "riders": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "admin_fcm_tokens": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "base_pricing": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "settings": {
-      "branches": {
-        ".read": true,
-        ".write": "auth != null"
-      },
-      "store": {
-        ".read": true,
-        ".write": "auth != null"
-      },
-      "condition_sets": {
-        ".read": true,
-        ".write": "auth != null"
-      },
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "claims": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "daily_expenses": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "coupons": {
-      ".read": true,
-      ".write": "auth != null"
-    },
-    "reviews": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "branches": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "notifications": {
-      ".read": "auth != null",
-      ".write": "auth != null",
-      ".indexOn": ["target_uid"]
-    },
-    "draft_carts": {
-      "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
-        ".write": "auth != null && auth.uid == $uid"
-      }
-    },
-    "blogs": {
-      ".read": true,
-      ".indexOn": ["slug"]
-    },
+
     "admins": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
       "$uid": {
         ".read": "auth != null && auth.uid == $uid"
       }
     },
-    "transactions": {
+
+    "jobs": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name", "uid", "cust_email", "cust_phone"],
+      "$jobId": {
+        ".read": true,
+        ".write": "auth != null && (data.child('rider_id').val() === auth.uid || newData.child('rider_id').val() === auth.uid)",
+        "chats": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "jobs_archived": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["status", "created_at"]
+    },
+
+    "staff": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "sales": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["sold_at", "status"]
+    },
+
+    "customers": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "riders": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "!newData.hasChildren(['approval_status', 'suspend_reason']) || root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+      }
+    },
+
+    "admin_fcm_tokens": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "base_pricing": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "settings": {
+      "branches": {
+        ".read": true
+      },
+      "store": {
+        ".read": true
+      },
+      "condition_sets": {
+        ".read": true
+      },
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "claims": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "daily_expenses": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "coupons": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "reviews": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "branches": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "notifications": {
       ".read": "auth != null",
       ".write": "auth != null",
-      ".indexOn": ["timestamp", "ref_job_id", "rider_id", "type", "category"]
+      ".indexOn": ["target_uid"],
+      "$notificationId": {
+        ".read": "auth != null && (data.child('target_uid').val() === auth.uid || root.child('admins').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+
+    "draft_carts": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+
+    "blogs": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["slug", "created_at"]
+    },
+
+    "price_ledger": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "transactions": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "articles": {
+      ".read": true,
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "assessment_events": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": true,
+      ".indexOn": ["timestamp", "event_type", "model_id"]
+    },
+
+    "rate_limits": {
+      ".read": false,
+      ".write": false
+    },
+
+    "security_logs": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".write": false
     }
   }
 }
