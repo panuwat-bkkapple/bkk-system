@@ -101,6 +101,15 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
         category: editing.category || 'Mac / Laptop',
         imageUrl: editing.imageUrl || ''
       });
+
+      // Sync subcategoryImageUrl to all series that belong to this subcategory
+      const relatedSeries = availableSeries.filter(s => s.subcategory === editing.name);
+      if (relatedSeries.length > 0) {
+        await Promise.all(relatedSeries.map(s =>
+          update(ref(db, `series/${s.id}`), { subcategoryImageUrl: editing.imageUrl || '' })
+        ));
+      }
+
       toast.success('บันทึกข้อมูล Subcategory สำเร็จ!');
     } catch (error) {
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
