@@ -42,6 +42,14 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
+      # Deploy Database Rules
+      - name: Deploy Firebase Database Rules
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only database --project bkk-apple-tradein
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+
       # Deploy Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
