@@ -365,6 +365,27 @@ async function fetchExistingModels(authToken) {
   return data || {};
 }
 
+async function fetchConditionSets(authToken) {
+  console.log('📡 Fetching condition sets from Firebase...');
+  const data = await firebaseRequest('GET', '/settings/condition_sets', null, authToken);
+  return data || {};
+}
+
+/**
+ * Find the Firebase push-key ID of a condition set by its name.
+ * The CSV column "Condition Item" contains the human-readable name,
+ * but Firebase stores a push-key (e.g. "-NxYz123") as conditionSetId.
+ */
+function resolveConditionSetId(conditionSetsData, conditionItemName) {
+  if (!conditionItemName) return '';
+  for (const [key, val] of Object.entries(conditionSetsData)) {
+    if (val && val.name && val.name.trim() === conditionItemName.trim()) {
+      return key;
+    }
+  }
+  return '';
+}
+
 // ---------------------------------------------------------------------------
 // Duplicate detection
 // ---------------------------------------------------------------------------
@@ -491,13 +512,36 @@ async function main() {
 
   // 4. Fetch existing data from Firebase (public read)
   let existingModels = {};
+  let conditionSetsData = {};
   if (opts.skipFetch) {
     console.log('⏩ Skipping fetch — treating all records as new.\n');
+    console.log('   ⚠️  conditionSetId will be empty (assign manually in admin panel after upload).\n');
   } else {
     existingModels = await fetchExistingModels(authToken);
     const existingModelCount = Object.keys(existingModels).length;
-    console.log(`🔍 Found ${existingModelCount} existing models in Firebase.\n`);
+    console.log(`🔍 Found ${existingModelCount} existing models in Firebase.`);
+
+    conditionSetsData = await fetchConditionSets(authToken);
+    const csCount = Object.keys(conditionSetsData).length;
+    console.log(`🔍 Found ${csCount} condition sets in Firebase.\n`);
   }
+
+  // Resolve condition set names → Firebase push-key IDs
+  const conditionItemNames = new Set();
+  for (const [, modelData] of modelMap) {
+    if (modelData.conditionItem) conditionItemNames.add(modelData.conditionItem);
+  }
+  const conditionSetMapping = {};
+  for (const name of conditionItemNames) {
+    const resolvedId = resolveConditionSetId(conditionSetsData, name);
+    conditionSetMapping[name] = resolvedId;
+    if (resolvedId) {
+      console.log(`   ✅ Condition set matched: "${name}" → ${resolvedId}`);
+    } else if (!opts.skipFetch) {
+      console.log(`   ⚠️  Condition set NOT found: "${name}" — conditionSetId will be empty`);
+    }
+  }
+  console.log();
 
   const existingVariantKeys = buildExistingVariantKeys(existingModels);
   const existingModelLookup = buildExistingModelMap(existingModels);
@@ -536,6 +580,8 @@ async function main() {
       stats.newModels++;
       const newFbKey = `mac_${modelKey}`;
 
+      const resolvedConditionSetId = conditionSetMapping[modelData.conditionItem] || '';
+
       updates[`models/${newFbKey}`] = {
         brand: modelData.brand,
         category: 'Mac / Laptop',
@@ -547,7 +593,7 @@ async function main() {
         inStore: modelData.inStore,
         pickup: modelData.pickup,
         mailIn: modelData.mailIn,
-        conditionSetId: '',
+        conditionSetId: resolvedConditionSetId,
         attributesSchema: MAC_LAPTOP_SCHEMA,
         variants: newVariants,
         updatedAt: Date.now(),
@@ -565,6 +611,12 @@ async function main() {
   console.log(`  Variants to SKIP:          ${stats.toSkip}`);
   console.log(`  New models to create:      ${stats.newModels}`);
   console.log(`  Existing models to update: ${stats.existingModelsUpdated}`);
+  const unmatchedCS = Object.entries(conditionSetMapping).filter(([, v]) => !v);
+  if (unmatchedCS.length > 0) {
+    console.log(`  Condition sets unmatched:  ${unmatchedCS.length} (will need manual assignment)`);
+  } else if (Object.keys(conditionSetMapping).length > 0) {
+    console.log(`  Condition sets:            All matched ✅`);
+  }
   console.log('─'.repeat(60));
 
   if (stats.totalVariants > 0 && stats.toSkip / stats.totalVariants > 0.9) {
