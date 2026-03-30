@@ -446,7 +446,7 @@ function buildExistingModelMap(existingModels) {
 
 async function uploadBatch(updates, authToken, retryCount = 0) {
   try {
-    await firebaseRequest('PATCH', '', updates, authToken);
+    await firebaseRequest('PATCH', '/', updates, authToken);
   } catch (err) {
     if (retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
