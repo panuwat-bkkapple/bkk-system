@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, Phone, User,
-  X, Edit3, Trash2, CalendarDays, CheckCircle2, XCircle, AlertCircle
+  X, Edit3, Trash2, CalendarDays, CheckCircle2, XCircle, AlertCircle,
+  Zap, Smartphone, Filter
 } from 'lucide-react';
 import { ref, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -57,6 +58,98 @@ function formatThaiDate(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return `${d} ${MONTHS_TH[m - 1]} ${y + 543}`;
 }
+
+function timestampToDateStr(ts: number) {
+  const d = new Date(ts);
+  return toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function timestampToTimeStr(ts: number) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Unified calendar entry
+interface CalendarEntry {
+  id: string;
+  title: string;
+  customer_name: string;
+  customer_phone?: string;
+  date: string;
+  time: string;
+  source: 'job' | 'appointment';
+  // Job-specific
+  jobStatus?: string;
+  price?: number;
+  receive_method?: string;
+  pickupType?: 'instant' | 'scheduled' | null;
+  ref_no?: string;
+  // Appointment-specific
+  type?: AppointmentType;
+  status?: AppointmentStatus;
+  notes?: string;
+}
+
+const JOB_STATUS_COLORS: Record<string, { color: string; bg: string }> = {
+  'New Lead': { color: 'text-blue-700', bg: 'bg-blue-100' },
+  'Active Leads': { color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  'New B2B Lead': { color: 'text-purple-700', bg: 'bg-purple-100' },
+  'Following Up': { color: 'text-amber-700', bg: 'bg-amber-100' },
+  'Appointment Set': { color: 'text-indigo-700', bg: 'bg-indigo-100' },
+  'In-Transit': { color: 'text-orange-700', bg: 'bg-orange-100' },
+  'Pending QC': { color: 'text-yellow-700', bg: 'bg-yellow-100' },
+  'Cancelled': { color: 'text-red-700', bg: 'bg-red-100' },
+  'Closed (Lost)': { color: 'text-red-700', bg: 'bg-red-100' },
+};
+
+// ==========================================
+// Job Card (for jobs on calendar)
+// ==========================================
+
+const JobCard = ({ entry }: { entry: CalendarEntry }) => {
+  const statusColors = JOB_STATUS_COLORS[entry.jobStatus || ''] || { color: 'text-gray-700', bg: 'bg-gray-100' };
+
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-3 sm:p-4 space-y-1.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {entry.pickupType === 'instant' ? (
+              <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                <Zap size={10} /> ขายด่วน
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                <CalendarDays size={10} /> นัดล่วงหน้า
+              </span>
+            )}
+            {entry.jobStatus && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.color}`}>
+                {entry.jobStatus}
+              </span>
+            )}
+          </div>
+          <h4 className="font-bold text-sm mt-1.5 truncate">{entry.title}</h4>
+          {entry.ref_no && <p className="text-[10px] text-gray-400 font-mono">{entry.ref_no}</p>}
+        </div>
+        {entry.price != null && entry.price > 0 && (
+          <span className="text-sm font-black text-emerald-600 shrink-0">
+            ฿{entry.price.toLocaleString()}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-500 flex-wrap">
+        <span className="flex items-center gap-1">
+          <Clock size={12} /> {entry.time}
+          {entry.pickupType === 'instant' && <span className="text-orange-500 font-bold">(+1-2 ชม.)</span>}
+        </span>
+        <span className="flex items-center gap-1"><User size={12} /> {entry.customer_name}</span>
+        {entry.customer_phone && <span className="flex items-center gap-1"><Phone size={12} /> {entry.customer_phone}</span>}
+        {entry.receive_method && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 rounded">{entry.receive_method}</span>}
+      </div>
+    </div>
+  );
+};
 
 // ==========================================
 // Form Modal
@@ -303,9 +396,11 @@ const AppointmentCard = ({ appt, onEdit, onDelete, onStatusChange }: {
 // ==========================================
 
 export const AppointmentCalendar = () => {
-  const { data: appointments, loading } = useDatabase('appointments');
+  const { data: appointments, loading: loadingAppts } = useDatabase('appointments');
+  const { data: jobs, loading: loadingJobs } = useDatabase('jobs');
   const { currentUser } = useAuth();
   const toast = useToast();
+  const loading = loadingAppts || loadingJobs;
 
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -314,34 +409,99 @@ export const AppointmentCalendar = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [view, setView] = useState<'month' | 'list'>('month');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'jobs' | 'appointments'>('all');
 
   const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
 
-  // Group appointments by date
-  const appointmentsByDate = useMemo(() => {
-    const map: Record<string, Appointment[]> = {};
-    appointments.forEach((appt: Appointment) => {
-      if (!appt.date) return;
-      if (!map[appt.date]) map[appt.date] = [];
-      map[appt.date].push(appt);
+  // Convert jobs to calendar entries
+  const jobEntries = useMemo<CalendarEntry[]>(() => {
+    return jobs
+      .filter((j: any) => j.created_at && j.receive_method === 'Pickup')
+      .map((j: any) => {
+        const ps = j.pickup_schedule;
+        const isInstant = ps?.type?.toLowerCase() === 'instant';
+        const isScheduled = ps && !isInstant && ps.date && ps.date !== 'Instant';
+
+        // Determine date: scheduled uses pickup_schedule.date, instant uses created_at
+        let entryDate: string;
+        let entryTime: string;
+
+        if (isScheduled) {
+          // Parse scheduled date (could be ISO string)
+          const parsed = new Date(ps.date);
+          entryDate = !isNaN(parsed.getTime()) ? timestampToDateStr(parsed.getTime()) : timestampToDateStr(j.created_at);
+          entryTime = ps.time || timestampToTimeStr(j.created_at);
+        } else {
+          entryDate = timestampToDateStr(j.created_at);
+          entryTime = timestampToTimeStr(j.created_at);
+        }
+
+        return {
+          id: `job_${j.id}`,
+          title: j.model || 'ไม่ระบุรุ่น',
+          customer_name: j.cust_name || 'ไม่ระบุชื่อ',
+          customer_phone: j.cust_phone,
+          date: entryDate,
+          time: entryTime,
+          source: 'job' as const,
+          jobStatus: j.status,
+          price: j.price ? Number(j.price) : undefined,
+          receive_method: j.receive_method,
+          pickupType: isInstant ? 'instant' : isScheduled ? 'scheduled' : null,
+          ref_no: j.ref_no,
+        };
+      });
+  }, [jobs]);
+
+  // Convert manual appointments to calendar entries
+  const appointmentEntries = useMemo<CalendarEntry[]>(() => {
+    return appointments
+      .filter((a: Appointment) => a.date)
+      .map((a: Appointment) => ({
+        id: a.id,
+        title: a.title,
+        customer_name: a.customer_name,
+        customer_phone: a.customer_phone,
+        date: a.date,
+        time: a.time,
+        source: 'appointment' as const,
+        type: a.type,
+        status: a.status,
+        notes: a.notes,
+      }));
+  }, [appointments]);
+
+  // Merge all entries
+  const allEntries = useMemo(() => {
+    if (sourceFilter === 'jobs') return jobEntries;
+    if (sourceFilter === 'appointments') return appointmentEntries;
+    return [...jobEntries, ...appointmentEntries];
+  }, [jobEntries, appointmentEntries, sourceFilter]);
+
+  // Group entries by date
+  const entriesByDate = useMemo(() => {
+    const map: Record<string, CalendarEntry[]> = {};
+    allEntries.forEach(entry => {
+      if (!map[entry.date]) map[entry.date] = [];
+      map[entry.date].push(entry);
     });
-    // Sort each day's appointments by time
     Object.values(map).forEach(list => list.sort((a, b) => a.time.localeCompare(b.time)));
     return map;
-  }, [appointments]);
+  }, [allEntries]);
 
   // Stats
   const stats = useMemo(() => {
     const monthStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
-    const monthAppts = appointments.filter((a: Appointment) => a.date?.startsWith(monthStr));
+    const monthEntries = allEntries.filter(e => e.date?.startsWith(monthStr));
+    const monthJobs = monthEntries.filter(e => e.source === 'job');
     return {
-      total: monthAppts.length,
-      scheduled: monthAppts.filter((a: Appointment) => a.status === AppointmentStatus.SCHEDULED).length,
-      confirmed: monthAppts.filter((a: Appointment) => a.status === AppointmentStatus.CONFIRMED).length,
-      completed: monthAppts.filter((a: Appointment) => a.status === AppointmentStatus.COMPLETED).length,
-      cancelled: monthAppts.filter((a: Appointment) => a.status === AppointmentStatus.CANCELLED || a.status === AppointmentStatus.NO_SHOW).length,
+      total: monthEntries.length,
+      instant: monthJobs.filter(e => e.pickupType === 'instant').length,
+      scheduled: monthJobs.filter(e => e.pickupType === 'scheduled').length,
+      manualAppts: monthEntries.filter(e => e.source === 'appointment').length,
+      cancelled: monthJobs.filter(e => ['Cancelled', 'Closed (Lost)'].includes(e.jobStatus || '')).length,
     };
-  }, [appointments, viewYear, viewMonth]);
+  }, [allEntries, viewYear, viewMonth]);
 
   // Calendar grid
   const calendarDays = useMemo(() => {
@@ -432,16 +592,16 @@ export const AppointmentCalendar = () => {
     }
   }, [toast]);
 
-  // Selected date appointments
-  const selectedAppointments = selectedDate ? (appointmentsByDate[selectedDate] || []) : [];
+  // Selected date entries
+  const selectedEntries = selectedDate ? (entriesByDate[selectedDate] || []) : [];
 
   // Upcoming list (for list view)
-  const upcomingAppointments = useMemo(() => {
-    return [...appointments]
-      .filter((a: Appointment) => a.date >= todayStr && a.status !== AppointmentStatus.CANCELLED)
-      .sort((a: Appointment, b: Appointment) => a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date))
+  const upcomingEntries = useMemo(() => {
+    return [...allEntries]
+      .filter(e => e.date >= todayStr && !['Cancelled', 'Closed (Lost)'].includes(e.jobStatus || ''))
+      .sort((a, b) => a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date))
       .slice(0, 50);
-  }, [appointments, todayStr]);
+  }, [allEntries, todayStr]);
 
   if (loading) {
     return (
@@ -484,15 +644,30 @@ export const AppointmentCalendar = () => {
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3">
         {[
           { label: 'ทั้งหมด', value: stats.total, color: 'text-slate-800', bg: 'bg-white' },
-          { label: 'รอดำเนินการ', value: stats.scheduled, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'ยืนยันแล้ว', value: stats.confirmed, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'เสร็จสิ้น', value: stats.completed, color: 'text-gray-500', bg: 'bg-gray-50' },
-          { label: 'ยกเลิก/ไม่มา', value: stats.cancelled, color: 'text-red-500', bg: 'bg-red-50' },
+          { label: 'ขายด่วน', value: stats.instant, color: 'text-orange-600', bg: 'bg-orange-50' },
+          { label: 'นัดล่วงหน้า', value: stats.scheduled, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'นัดหมายเอง', value: stats.manualAppts, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { label: 'ยกเลิก', value: stats.cancelled, color: 'text-red-500', bg: 'bg-red-50' },
         ].map(s => (
           <div key={s.label} className={`${s.bg} rounded-xl border p-2.5 sm:p-4`}>
             <div className={`text-lg sm:text-2xl font-black ${s.color}`}>{s.value}</div>
             <div className="text-[10px] sm:text-xs font-bold text-gray-400 mt-0.5">{s.label}</div>
           </div>
+        ))}
+      </div>
+
+      {/* Source Filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter size={14} className="text-gray-400" />
+        {[
+          { key: 'all' as const, label: 'ทั้งหมด' },
+          { key: 'jobs' as const, label: 'งานจากหน้าบ้าน' },
+          { key: 'appointments' as const, label: 'นัดหมายเอง' },
+        ].map(f => (
+          <button key={f.key} onClick={() => setSourceFilter(f.key)}
+            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${sourceFilter === f.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            {f.label}
+          </button>
         ))}
       </div>
 
@@ -531,7 +706,7 @@ export const AppointmentCalendar = () => {
             {/* Day Cells */}
             <div className="grid grid-cols-7">
               {calendarDays.map((cell, idx) => {
-                const dayAppts = appointmentsByDate[cell.dateStr] || [];
+                const dayEntries = entriesByDate[cell.dateStr] || [];
                 const isToday = cell.dateStr === todayStr;
                 const isSelected = cell.dateStr === selectedDate;
                 const isCurrentMonth = cell.month === 'current';
@@ -553,29 +728,30 @@ export const AppointmentCalendar = () => {
                       {cell.day}
                     </span>
 
-                    {/* Appointment indicators - dots on mobile, labels on desktop */}
-                    {dayAppts.length > 0 && (
+                    {/* Entry indicators */}
+                    {dayEntries.length > 0 && (
                       <>
                         {/* Mobile: colored dots */}
-                        <div className="flex gap-0.5 mt-0.5 flex-wrap sm:hidden">
-                          {dayAppts.slice(0, 3).map(a => {
-                            const tc = TYPE_CONFIG[a.type] || TYPE_CONFIG[AppointmentType.OTHER];
-                            return <div key={a.id} className={`w-1.5 h-1.5 rounded-full ${tc.bg.replace('100', '500')}`} />;
-                          })}
-                          {dayAppts.length > 3 && <span className="text-[8px] text-gray-400">+{dayAppts.length - 3}</span>}
+                        <div className="flex items-center gap-0.5 mt-0.5 flex-wrap sm:hidden">
+                          {dayEntries.slice(0, 3).map(e => (
+                            <div key={e.id} className={`w-1.5 h-1.5 rounded-full ${e.pickupType === 'instant' ? 'bg-orange-500' : e.pickupType === 'scheduled' ? 'bg-blue-500' : 'bg-purple-500'}`} />
+                          ))}
+                          {dayEntries.length > 3 && <span className="text-[8px] text-gray-400">+{dayEntries.length - 3}</span>}
                         </div>
                         {/* Desktop: text labels */}
                         <div className="mt-0.5 space-y-0.5 hidden sm:block">
-                          {dayAppts.slice(0, 3).map(a => {
-                            const tc = TYPE_CONFIG[a.type] || TYPE_CONFIG[AppointmentType.OTHER];
+                          {dayEntries.slice(0, 3).map(e => {
+                            const colors = e.source === 'job'
+                              ? (e.pickupType === 'instant' ? { bg: 'bg-orange-100', color: 'text-orange-700' } : { bg: 'bg-blue-100', color: 'text-blue-700' })
+                              : { bg: 'bg-purple-100', color: 'text-purple-700' };
                             return (
-                              <div key={a.id} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tc.bg} ${tc.color} truncate`}>
-                                {a.time} {a.title}
+                              <div key={e.id} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${colors.bg} ${colors.color} truncate`}>
+                                {e.time} {e.title}
                               </div>
                             );
                           })}
-                          {dayAppts.length > 3 && (
-                            <div className="text-[9px] font-bold text-gray-400 px-1.5">+{dayAppts.length - 3} อื่นๆ</div>
+                          {dayEntries.length > 3 && (
+                            <div className="text-[9px] font-bold text-gray-400 px-1.5">+{dayEntries.length - 3} อื่นๆ</div>
                           )}
                         </div>
                       </>
@@ -596,7 +772,7 @@ export const AppointmentCalendar = () => {
                   {selectedDate ? formatThaiDate(selectedDate) : 'เลือกวันที่'}
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {selectedAppointments.length} นัดหมาย
+                  {selectedEntries.length} รายการ
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -632,21 +808,25 @@ export const AppointmentCalendar = () => {
                   <CalendarDays size={48} />
                   <p className="text-sm font-bold mt-3">กดเลือกวันที่บนปฏิทิน</p>
                 </div>
-              ) : selectedAppointments.length === 0 ? (
+              ) : selectedEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-32 sm:h-40 text-gray-300">
                   <CalendarDays size={36} />
-                  <p className="text-xs font-bold mt-2">ไม่มีนัดหมายในวันนี้</p>
+                  <p className="text-xs font-bold mt-2">ไม่มีรายการในวันนี้</p>
                 </div>
               ) : (
-                selectedAppointments.map(appt => (
-                  <AppointmentCard
-                    key={appt.id}
-                    appt={appt}
-                    onEdit={() => { setEditingAppointment(appt); setFormOpen(true); }}
-                    onDelete={() => handleDelete(appt.id)}
-                    onStatusChange={(status) => handleStatusChange(appt.id, status)}
-                  />
-                ))
+                selectedEntries.map(entry =>
+                  entry.source === 'appointment' ? (
+                    <AppointmentCard
+                      key={entry.id}
+                      appt={appointments.find((a: Appointment) => a.id === entry.id)!}
+                      onEdit={() => { setEditingAppointment(appointments.find((a: Appointment) => a.id === entry.id)!); setFormOpen(true); }}
+                      onDelete={() => handleDelete(entry.id)}
+                      onStatusChange={(s) => handleStatusChange(entry.id, s)}
+                    />
+                  ) : (
+                    <JobCard key={entry.id} entry={entry} />
+                  )
+                )
               )}
             </div>
           </div>
@@ -660,31 +840,35 @@ export const AppointmentCalendar = () => {
         /* List View */
         <div className="bg-white rounded-2xl border shadow-sm">
           <div className="px-6 py-4 border-b">
-            <h3 className="font-black text-sm">นัดหมายที่กำลังจะมาถึง</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{upcomingAppointments.length} รายการ</p>
+            <h3 className="font-black text-sm">รายการที่กำลังจะมาถึง</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{upcomingEntries.length} รายการ</p>
           </div>
           <div className="p-4 space-y-3">
-            {upcomingAppointments.length === 0 ? (
+            {upcomingEntries.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-gray-300">
                 <CalendarDays size={36} />
-                <p className="text-xs font-bold mt-2">ยังไม่มีนัดหมาย</p>
+                <p className="text-xs font-bold mt-2">ยังไม่มีรายการ</p>
               </div>
             ) : (
-              upcomingAppointments.map((appt: Appointment) => (
-                <div key={appt.id} className="flex items-start gap-4">
+              upcomingEntries.map(entry => (
+                <div key={entry.id} className="flex items-start gap-4">
                   <div className="text-center shrink-0 w-14">
-                    <div className="text-lg font-black text-slate-800">{appt.date.split('-')[2]}</div>
+                    <div className="text-lg font-black text-slate-800">{entry.date.split('-')[2]}</div>
                     <div className="text-[10px] font-bold text-gray-400">
-                      {MONTHS_TH[parseInt(appt.date.split('-')[1]) - 1]?.slice(0, 3)}
+                      {MONTHS_TH[parseInt(entry.date.split('-')[1]) - 1]?.slice(0, 3)}
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <AppointmentCard
-                      appt={appt}
-                      onEdit={() => { setEditingAppointment(appt); setFormOpen(true); }}
-                      onDelete={() => handleDelete(appt.id)}
-                      onStatusChange={(status) => handleStatusChange(appt.id, status)}
-                    />
+                    {entry.source === 'appointment' ? (
+                      <AppointmentCard
+                        appt={appointments.find((a: Appointment) => a.id === entry.id)!}
+                        onEdit={() => { setEditingAppointment(appointments.find((a: Appointment) => a.id === entry.id)!); setFormOpen(true); }}
+                        onDelete={() => handleDelete(entry.id)}
+                        onStatusChange={(s) => handleStatusChange(entry.id, s)}
+                      />
+                    ) : (
+                      <JobCard entry={entry} />
+                    )}
                   </div>
                 </div>
               ))
