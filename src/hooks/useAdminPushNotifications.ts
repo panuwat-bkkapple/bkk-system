@@ -5,34 +5,13 @@ import { ref, set } from 'firebase/database';
 import { db } from '../api/firebase';
 
 /**
- * แปลง base64url string เป็น Uint8Array โดยไม่ใช้ atob()
- * หลีกเลี่ยง InvalidCharacterError ที่เกิดกับ atob ใน browser บางตัว
+ * Safe atob ที่รองรับ base64url (ไม่มี padding, ใช้ -_ แทน +/)
+ * ป้องกัน InvalidCharacterError ที่ Firebase SDK เรียก atob() ภายใน
  */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-
-  const lookup = new Uint8Array(128);
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
-
-  const len = base64.length;
-  let bufLen = (len * 3) >> 2;
-  if (base64[len - 1] === '=') bufLen--;
-  if (base64[len - 2] === '=') bufLen--;
-
-  const bytes = new Uint8Array(bufLen);
-  let p = 0;
-  for (let i = 0; i < len; i += 4) {
-    const a = lookup[base64.charCodeAt(i)];
-    const b = lookup[base64.charCodeAt(i + 1)];
-    const c = lookup[base64.charCodeAt(i + 2)];
-    const d = lookup[base64.charCodeAt(i + 3)];
-    bytes[p++] = (a << 2) | (b >> 4);
-    if (p < bufLen) bytes[p++] = ((b & 15) << 4) | (c >> 2);
-    if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
-  }
-  return bytes;
+function safeAtob(str: string): string {
+  const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
+  const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+  return atob(base64);
 }
 
 /**
@@ -77,22 +56,30 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           return;
         }
 
-        // Subscribe push ด้วย applicationServerKey ตรงๆ (bypass atob ของ Firebase SDK)
-        if (swRegistration) {
-          const existingSub = await swRegistration.pushManager.getSubscription();
-          if (!existingSub) {
-            await swRegistration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
-            });
-            console.log('[Push] PushManager subscribed with VAPID key');
+        // Patch window.atob ชั่วคราว เพื่อให้ Firebase SDK decode VAPID key ได้
+        // Firebase SDK ใช้ atob() ภายใน getToken() แต่ VAPID key เป็น base64url ไม่มี padding
+        const originalAtob = window.atob.bind(window);
+        (window as any).atob = (str: string) => {
+          try {
+            return originalAtob(str);
+          } catch {
+            // Fallback: เติม padding + แปลง base64url → base64
+            const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
+            const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+            return originalAtob(base64);
           }
-        }
+        };
 
-        // getToken ไม่ต้องส่ง vapidKey อีก เพราะ subscribe ไปแล้ว
-        const token = await getToken(messaging, {
-          serviceWorkerRegistration: swRegistration,
-        });
+        let token: string | null = null;
+        try {
+          token = await getToken(messaging, {
+            vapidKey,
+            serviceWorkerRegistration: swRegistration,
+          });
+        } finally {
+          // Restore original atob
+          window.atob = originalAtob;
+        }
 
         if (token) {
           const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
