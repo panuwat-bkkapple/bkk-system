@@ -22,26 +22,49 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [inboxUnread, setInboxUnread] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
+  const [notifCount, setNotifCount] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
 
-  // Count new/unread tickets + pending payouts
+  // Count new/unread tickets + pending payouts + notifications
   useEffect(() => {
     const jobsRef = ref(db, 'jobs');
     const unsub = onValue(jobsRef, (snap) => {
       if (!snap.exists()) return;
       let count = 0;
       let payoutCount = 0;
+      let nCount = 0;
+      const now = Date.now();
       snap.forEach((child) => {
         const j = child.val();
-        if (j.status === 'New Lead' || j.status === 'New B2B Lead') count++;
+        if (j.status === 'New Lead' || j.status === 'New B2B Lead') {
+          count++;
+          nCount++; // new ticket notification
+        }
         const s = String(j.status || '').trim().toLowerCase();
         if (!j.slip_url && !j.payment_slip &&
             (s === 'payout processing' || s === 'pending finance approval' || s === 'waiting for finance' || s === 'price accepted')) {
           payoutCount++;
         }
+        // Pending jobs stuck > 2 hours
+        const pendingStatuses = ['Pending QC', 'Being Inspected', 'Payout Processing'];
+        if (pendingStatuses.includes(j.status)) {
+          const age = now - (j.updated_at || j.created_at || now);
+          if (age > 2 * 3600000) nCount++;
+        }
+        // Dead stock > 14 days
+        if (['In Stock', 'Ready to Sell'].includes(j.status)) {
+          const age = now - (j.updated_at || j.created_at || now);
+          if (age > 14 * 86400000) nCount++;
+        }
+        // Status changes within 24 hours
+        const alertStatuses = ['Cancelled', 'Closed (Lost)', 'Returned', 'Negotiation', 'Revised Offer', 'Price Accepted', 'Withdrawal Requested'];
+        if (alertStatuses.includes(j.status) && j.updated_at && (now - j.updated_at) < 24 * 3600000) {
+          nCount++;
+        }
       });
       setNewTicketCount(count);
       setPendingPayouts(payoutCount);
+      setNotifCount(nCount);
     });
     return () => unsub();
   }, []);
@@ -70,7 +93,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
     { key: '/mobile/finance', label: 'โอนเงิน', icon: Banknote, badge: pendingPayouts },
     ...(isManager ? [{ key: '/mobile/pricing', label: 'ราคา', icon: DollarSign, badge: 0 }] : []),
     { key: '/mobile/inbox', label: 'แชท', icon: Inbox, badge: inboxUnread },
-    { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: 0 },
+    { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: notifCount },
   ];
 
   return (
