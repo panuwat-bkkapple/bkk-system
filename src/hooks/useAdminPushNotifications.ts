@@ -5,16 +5,6 @@ import { ref, set } from 'firebase/database';
 import { db } from '../api/firebase';
 
 /**
- * Safe atob ที่รองรับ base64url (ไม่มี padding, ใช้ -_ แทน +/)
- * ป้องกัน InvalidCharacterError ที่ Firebase SDK เรียก atob() ภายใน
- */
-function safeAtob(str: string): string {
-  const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
-  const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
-  return atob(base64);
-}
-
-/**
  * Hook สำหรับลงทะเบียน FCM token ของแอดมิน
  * เก็บ token ไว้ที่ admin_fcm_tokens/{staffId}/{tokenKey}
  * รับ foreground messages แล้วแสดง Browser Notification
