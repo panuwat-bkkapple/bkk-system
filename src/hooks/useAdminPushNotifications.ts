@@ -53,7 +53,8 @@ export const useAdminPushNotifications = (staffId: string | null) => {
 
         if (token) {
           const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-          const tokenKey = btoa(token).slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_');
+          // สร้าง key จาก token โดยเอาเฉพาะตัวอักษร alphanumeric (หลีกเลี่ยง btoa ที่ crash กับ non-Latin1)
+          const tokenKey = token.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
           await set(ref(db, `admin_fcm_tokens/${staffId}/${tokenKey}`), {
             token,
             device: isMobile ? 'mobile' : 'desktop',
