@@ -8,7 +8,7 @@ import {
   Smartphone, Upload, FileText, Loader2,
   RefreshCw, Banknote, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { ref, update, push, child } from 'firebase/database';
+import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -155,7 +155,13 @@ export const MobileFinancePage = () => {
 
       await update(ref(db), updates);
 
-      toast.success('บันทึกการโอนเงินสำเร็จ!');
+      // Post-payment verification: ตรวจสอบว่า transaction ถูกสร้างจริง
+      const verifySnapshot = await get(ref(db, `transactions/${debitKey}`));
+      if (!verifySnapshot.exists()) {
+        toast.warning('⚠️ โอนเงินสำเร็จแต่ Transaction อาจไม่ถูกบันทึก — กรุณาตรวจสอบที่แท็บ "ซ่อม Transaction"');
+      } else {
+        toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
+      }
       setSelectedTx(null);
       setSlipFile(null);
     } catch (e) {
