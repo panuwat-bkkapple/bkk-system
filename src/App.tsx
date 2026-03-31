@@ -39,6 +39,7 @@ const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(m =>
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
 const BranchManager = lazy(() => import('./pages/admin/BranchManager'));
 const ReviewManager = lazy(() => import('./pages/admin/ReviewManager'));
+const AppointmentCalendar = lazy(() => import('./pages/appointments/AppointmentCalendar').then(m => ({ default: m.AppointmentCalendar })));
 const InboxPage = lazy(() => import('./pages/inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').then(m => ({ default: m.MobileTicketsPage })));
 const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
@@ -144,6 +145,7 @@ export default function App() {
               <Route path="/mobile/inbox" element={<InboxPage />} />
               <Route path="/mobile/finance" element={<MobileFinancePage />} />
               <Route path="/mobile/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
+              <Route path="/mobile/appointments" element={<AppointmentCalendar />} />
               <Route path="/mobile/notifications" element={<MobileNotificationsPage />} />
             </Route>
 
@@ -174,6 +176,7 @@ export default function App() {
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
               <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/appointments" element={<AppointmentCalendar />} />
               <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
             </Route>
           </>

@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox
+  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -159,6 +159,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
                 <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
+                <NavButton collapsed={isCollapsed} to="/appointments" icon={<CalendarDays size={18} />} label="ปฏิทินนัดหมาย" />
               </div>
             </div>
           )}

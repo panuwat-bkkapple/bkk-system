@@ -188,6 +188,24 @@ export enum ReviewStatus {
   REJECTED = 'rejected',
 }
 
+/** ประเภทนัดหมาย */
+export enum AppointmentType {
+  TRADE_IN = 'trade-in',
+  PICKUP = 'pickup',
+  DELIVERY = 'delivery',
+  CONSULTATION = 'consultation',
+  OTHER = 'other',
+}
+
+/** สถานะนัดหมาย */
+export enum AppointmentStatus {
+  SCHEDULED = 'scheduled',
+  CONFIRMED = 'confirmed',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  NO_SHOW = 'no-show',
+}
+
 /** ประเภทคูปอง */
 export enum CouponType {
   FIXED = 'fixed',
@@ -429,6 +447,42 @@ export interface DiscrepancyReport {
   resolved_at?: number | null;
   /** ผู้แก้ไข */
   resolved_by?: string;
+}
+
+/** นัดหมาย */
+export interface Appointment {
+  /** รหัสนัดหมาย (Firebase key) */
+  id: string;
+  /** หัวข้อนัดหมาย */
+  title: string;
+  /** ชื่อลูกค้า */
+  customer_name: string;
+  /** เบอร์โทรลูกค้า */
+  customer_phone?: string;
+  /** วันที่นัด (YYYY-MM-DD) */
+  date: string;
+  /** เวลาเริ่ม (HH:mm) */
+  time: string;
+  /** เวลาสิ้นสุด (HH:mm) */
+  end_time?: string;
+  /** ประเภทนัดหมาย */
+  type: AppointmentType;
+  /** สถานะ */
+  status: AppointmentStatus;
+  /** หมายเหตุ */
+  notes?: string;
+  /** รหัส job ที่เกี่ยวข้อง */
+  job_id?: string;
+  /** ผู้สร้างนัดหมาย */
+  created_by: string;
+  /** เวลาสร้าง (timestamp) */
+  created_at: number;
+  /** เวลาอัปเดตล่าสุด (timestamp) */
+  updated_at?: number;
+  /** สาขา */
+  branch?: string;
+  /** พนักงานที่รับผิดชอบ */
+  assigned_to?: string;
 }
 
 /** ธุรกรรมทางการเงิน */
