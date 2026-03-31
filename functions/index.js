@@ -101,133 +101,153 @@ exports.onNewTicketCreated = onValueCreated(
     region: "asia-southeast1",
   },
   async (event) => {
-    const job = event.data.val();
-    if (!job) return;
+    try {
+      const job = event.data.val();
+      if (!job) return;
 
-    // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Leads จาก Instant Sell)
-    const newStatuses = ["New Lead", "New B2B Lead", "Active Leads"];
-    if (!newStatuses.includes(job.status)) return;
+      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Leads จาก Instant Sell)
+      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads"];
+      if (!newStatuses.includes(job.status)) {
+        console.log(`[onNewTicket] Skipped: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
+        return;
+      }
 
-    const jobId = event.params.jobId;
-    const model = job.model || "ไม่ระบุรุ่น";
-    const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
-    const method = job.receive_method || "";
-    const custName = job.cust_name || "";
-    const isB2B = job.status === "New B2B Lead";
+      const jobId = event.params.jobId;
+      const model = job.model || "ไม่ระบุรุ่น";
+      const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
+      const method = job.receive_method || "";
+      const custName = job.cust_name || "";
+      const isB2B = job.status === "New B2B Lead";
 
-    const title = isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!";
-    const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
+      const title = isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!";
+      const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
 
-    // ดึง FCM tokens ของ admin ทุกคน
-    const db = getDatabase();
-    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-    if (!tokensSnap.exists()) return;
+      console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
 
-    const tokens = [];
-    tokensSnap.forEach((staffSnap) => {
-      staffSnap.forEach((tokenSnap) => {
-        const data = tokenSnap.val();
-        if (data && data.token) {
-          tokens.push(data.token);
-        }
+      // ดึง FCM tokens ของ admin ทุกคน
+      const db = getDatabase();
+      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+      if (!tokensSnap.exists()) {
+        console.warn("[onNewTicket] No tokens in admin_fcm_tokens — nobody to notify");
+        return;
+      }
+
+      const tokens = [];
+      const tokenMeta = []; // เก็บ staffId+tokenKey สำหรับ cleanup
+      tokensSnap.forEach((staffSnap) => {
+        staffSnap.forEach((tokenSnap) => {
+          const data = tokenSnap.val();
+          if (data && data.token) {
+            tokens.push(data.token);
+            tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
+          }
+        });
       });
-    });
 
-    if (tokens.length === 0) return;
+      if (tokens.length === 0) {
+        console.warn("[onNewTicket] Found token entries but all empty — nobody to notify");
+        return;
+      }
 
-    // ส่ง FCM multicast
-    const messaging = getMessaging();
-    const message = {
-      notification: { title, body },
-      data: {
-        jobId,
-        type: "new_ticket",
-        model,
-        price: String(job.price || ""),
-        status: job.status,
-        click_action: `/tickets`,
-      },
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "new_tickets",
+      console.log(`[onNewTicket] Found ${tokens.length} token(s) to notify`);
+
+      // ส่ง FCM multicast
+      const messaging = getMessaging();
+      const message = {
+        notification: { title, body },
+        data: {
+          jobId,
+          type: "new_ticket",
+          model,
+          price: String(job.price || ""),
+          status: job.status,
+          click_action: `/tickets`,
+        },
+        android: {
           priority: "high",
-          defaultSound: true,
-          defaultVibrateTimings: true,
-        },
-      },
-      apns: {
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert",
-        },
-        payload: {
-          aps: {
-            alert: { title, body },
-            sound: "default",
-            badge: 1,
+          notification: {
+            channelId: "new_tickets",
+            priority: "high",
+            defaultSound: true,
+            defaultVibrateTimings: true,
           },
         },
-      },
-      webpush: {
-        headers: {
-          Urgency: "high",
-          TTL: "86400",
+        apns: {
+          headers: {
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: "default",
+              badge: 1,
+            },
+          },
         },
-        notification: {
-          icon: "/icons/icon-192.png",
-          badge: "/icons/icon-192.png",
-          vibrate: [200, 100, 200, 100, 200],
-          requireInteraction: true,
-          renotify: true,
-          actions: [
-            { action: "open", title: "เปิดดู" },
-            { action: "dismiss", title: "ปิด" },
-          ],
+        webpush: {
+          headers: {
+            Urgency: "high",
+            TTL: "86400",
+          },
+          notification: {
+            icon: "/icons/icon-192.png",
+            badge: "/icons/icon-192.png",
+            vibrate: [200, 100, 200, 100, 200],
+            requireInteraction: true,
+            renotify: true,
+            actions: [
+              { action: "open", title: "เปิดดู" },
+              { action: "dismiss", title: "ปิด" },
+            ],
+          },
+          fcmOptions: {
+            link: `/tickets`,
+          },
         },
-        fcmOptions: {
-          link: `/tickets`,
-        },
-      },
-    };
+      };
 
-    // ส่งทีละ batch (FCM limit 500 tokens/batch)
-    const batches = [];
-    for (let i = 0; i < tokens.length; i += 500) {
-      const batch = tokens.slice(i, i + 500);
-      batches.push(
-        messaging.sendEachForMulticast({ ...message, tokens: batch })
-      );
-    }
+      // ส่งทีละ batch (FCM limit 500 tokens/batch)
+      const batches = [];
+      for (let i = 0; i < tokens.length; i += 500) {
+        const batch = tokens.slice(i, i + 500);
+        batches.push(
+          messaging.sendEachForMulticast({ ...message, tokens: batch })
+        );
+      }
 
-    const results = await Promise.all(batches);
+      const results = await Promise.all(batches);
 
-    // ลบ tokens ที่ใช้ไม่ได้แล้ว
-    for (const result of results) {
-      result.responses.forEach((resp, idx) => {
-        if (
-          resp.error &&
-          (resp.error.code === "messaging/registration-token-not-registered" ||
-            resp.error.code === "messaging/invalid-registration-token")
-        ) {
-          // Token หมดอายุ → ลบออก
-          const badToken = tokens[idx];
-          tokensSnap.forEach((staffSnap) => {
-            staffSnap.forEach((tokenSnap) => {
-              if (tokenSnap.val()?.token === badToken) {
-                db.ref(`admin_fcm_tokens/${staffSnap.key}/${tokenSnap.key}`).remove();
+      // Log + cleanup tokens ที่ใช้ไม่ได้
+      let tokenIdx = 0;
+      for (const result of results) {
+        result.responses.forEach((resp, idx) => {
+          const actualIdx = tokenIdx + idx;
+          if (resp.error) {
+            const meta = tokenMeta[actualIdx];
+            console.error(
+              `[onNewTicket] Token FAILED: staff=${meta?.staffId}, error=${resp.error.code || resp.error.message}`
+            );
+            if (
+              resp.error.code === "messaging/registration-token-not-registered" ||
+              resp.error.code === "messaging/invalid-registration-token"
+            ) {
+              if (meta) {
+                db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
+                console.log(`[onNewTicket] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
               }
-            });
-          });
-        }
-      });
-    }
+            }
+          }
+        });
+        tokenIdx += result.responses.length;
+      }
 
-    const successCount = results.reduce(
-      (acc, r) => acc + r.successCount,
-      0
-    );
-    console.log(`Sent new ticket notification to ${successCount}/${tokens.length} devices`);
+      const successCount = results.reduce((acc, r) => acc + r.successCount, 0);
+      const failCount = tokens.length - successCount;
+      console.log(`[onNewTicket] Done: ${successCount} success, ${failCount} failed, ${tokens.length} total`);
+    } catch (err) {
+      console.error("[onNewTicket] Unhandled error:", err);
+    }
   }
 );
 
@@ -402,6 +422,124 @@ exports.notifyChatMessage = onRequest(
   (req, res) => {
     // No-op: notification is now handled by onChatMessageCreated database trigger
     res.json({ success: true, message: "Handled by database trigger" });
+  }
+);
+
+// =============================================================================
+// Debug: ทดสอบ Push Notification + ดู tokens ที่อยู่ใน database
+// =============================================================================
+
+/**
+ * HTTP Cloud Function: ดู admin FCM tokens ที่อยู่ใน database + ส่ง test push
+ * เรียก: https://<region>-<project>.cloudfunctions.net/debugPush
+ * Query params:
+ *   ?send=true  → ส่ง test push ไปยังทุก token
+ */
+exports.debugPush = onRequest(
+  { region: "asia-southeast1", cors: true },
+  async (req, res) => {
+    const db = getDatabase();
+    const messaging = getMessaging();
+    const shouldSend = req.query.send === "true";
+
+    // 1. อ่าน tokens ทั้งหมด
+    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+    if (!tokensSnap.exists()) {
+      return res.json({
+        success: false,
+        message: "No tokens found in admin_fcm_tokens",
+        tokenCount: 0,
+      });
+    }
+
+    const tokenDetails = [];
+    const allTokens = [];
+    tokensSnap.forEach((staffSnap) => {
+      staffSnap.forEach((tokenSnap) => {
+        const data = tokenSnap.val();
+        if (data && data.token) {
+          allTokens.push(data.token);
+          tokenDetails.push({
+            staffId: staffSnap.key,
+            tokenKey: tokenSnap.key,
+            device: data.device || "unknown",
+            updated_at: data.updated_at
+              ? new Date(data.updated_at).toISOString()
+              : "N/A",
+            tokenPreview: data.token.slice(0, 20) + "...",
+          });
+        }
+      });
+    });
+
+    if (!shouldSend) {
+      return res.json({
+        success: true,
+        message: `Found ${allTokens.length} token(s). Add ?send=true to send test push.`,
+        tokenCount: allTokens.length,
+        tokens: tokenDetails,
+      });
+    }
+
+    // 2. ส่ง test push
+    const title = "🔔 Test Push from Cloud Function";
+    const body = `ทดสอบ push ${new Date().toLocaleString("th-TH")}`;
+
+    const results = [];
+    for (let i = 0; i < allTokens.length; i++) {
+      try {
+        await messaging.send({
+          token: allTokens[i],
+          notification: { title, body },
+          data: { type: "test", timestamp: String(Date.now()) },
+          webpush: {
+            headers: { Urgency: "high", TTL: "86400" },
+            notification: {
+              icon: "/icons/icon-192.png",
+              badge: "/icons/icon-192.png",
+              vibrate: [200, 100, 200],
+              tag: "test-push",
+              renotify: true,
+            },
+          },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { alert: { title, body }, sound: "default", badge: 1 } },
+          },
+        });
+        results.push({
+          ...tokenDetails[i],
+          status: "SUCCESS",
+          error: null,
+        });
+      } catch (err) {
+        results.push({
+          ...tokenDetails[i],
+          status: "FAILED",
+          error: err.code || err.message || String(err),
+        });
+
+        // ลบ token ที่หมดอายุ
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          await db
+            .ref(
+              `admin_fcm_tokens/${tokenDetails[i].staffId}/${tokenDetails[i].tokenKey}`
+            )
+            .remove();
+          results[results.length - 1].cleaned = true;
+        }
+      }
+    }
+
+    const successCount = results.filter((r) => r.status === "SUCCESS").length;
+    res.json({
+      success: true,
+      message: `Sent test push: ${successCount}/${allTokens.length} succeeded`,
+      results,
+    });
   }
 );
 
