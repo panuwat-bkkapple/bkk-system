@@ -4,7 +4,7 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   ClipboardList, Inbox, Bell, User, LogOut,
-  ChevronLeft, Banknote
+  ChevronLeft, Banknote, DollarSign
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 
@@ -63,9 +63,12 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
 
   const isDetailPage = location.pathname.match(/^\/mobile\/job\/.+/);
 
+  const isManager = currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER';
+
   const tabs = [
     { key: '/mobile', label: 'งาน', icon: ClipboardList, badge: newTicketCount },
     { key: '/mobile/finance', label: 'โอนเงิน', icon: Banknote, badge: pendingPayouts },
+    ...(isManager ? [{ key: '/mobile/pricing', label: 'ราคา', icon: DollarSign, badge: 0 }] : []),
     { key: '/mobile/inbox', label: 'แชท', icon: Inbox, badge: inboxUnread },
     { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: 0 },
   ];
