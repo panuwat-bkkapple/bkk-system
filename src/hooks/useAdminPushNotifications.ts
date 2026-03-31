@@ -46,8 +46,12 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           return;
         }
 
+        // VAPID key ต้องเป็น base64 ที่ถูกต้อง (ความยาวหารด้วย 4 ลงตัว)
+        // Firebase Console ให้ key แบบ base64url ไม่มี padding → ต้องเติม '=' ให้ครบ
+        const paddedVapidKey = vapidKey + '='.repeat((4 - (vapidKey.length % 4)) % 4);
+
         const token = await getToken(messaging, {
-          vapidKey,
+          vapidKey: paddedVapidKey,
           serviceWorkerRegistration: swRegistration
         });
 
