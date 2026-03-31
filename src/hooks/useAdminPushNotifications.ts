@@ -83,7 +83,7 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           if (!existingSub) {
             await swRegistration.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(vapidKey),
+              applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
             });
             console.log('[Push] PushManager subscribed with VAPID key');
           }
