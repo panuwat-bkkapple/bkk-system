@@ -413,133 +413,121 @@ exports.onChatMessageCreated = onValueCreated(
 );
 
 /**
- * HTTP Cloud Function: notifyChatMessage (backward-compatible)
- * เปลี่ยนเป็น no-op เพราะ onChatMessageCreated จัดการแล้ว
- * คงไว้เพื่อไม่ให้ client เก่าที่ยังเรียก HTTP endpoint เกิด error
+ * HTTP Cloud Function: notifyChatMessage
+ * เดิมเป็น no-op (onChatMessageCreated จัดการแทน)
+ * เพิ่ม ?debug=true เพื่อดู admin FCM tokens + ทดสอบ push
+ * เรียก:
+ *   /notifyChatMessage?debug=true        → ดู tokens ใน database
+ *   /notifyChatMessage?debug=true&send=true → ส่ง test push ไปทุก token
  */
 exports.notifyChatMessage = onRequest(
   { region: "asia-southeast1", cors: true },
-  (req, res) => {
-    // No-op: notification is now handled by onChatMessageCreated database trigger
-    res.json({ success: true, message: "Handled by database trigger" });
-  }
-);
-
-// =============================================================================
-// Debug: ทดสอบ Push Notification + ดู tokens ที่อยู่ใน database
-// =============================================================================
-
-/**
- * HTTP Cloud Function: ดู admin FCM tokens ที่อยู่ใน database + ส่ง test push
- * เรียก: https://<region>-<project>.cloudfunctions.net/debugPush
- * Query params:
- *   ?send=true  → ส่ง test push ไปยังทุก token
- */
-exports.debugPush = onRequest(
-  { region: "asia-southeast1", cors: true },
   async (req, res) => {
-    const db = getDatabase();
-    const messaging = getMessaging();
-    const shouldSend = req.query.send === "true";
+    // Debug mode: ดู tokens + ทดสอบ push
+    if (req.query.debug === "true") {
+      const db = getDatabase();
+      const messaging = getMessaging();
+      const shouldSend = req.query.send === "true";
 
-    // 1. อ่าน tokens ทั้งหมด
-    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-    if (!tokensSnap.exists()) {
-      return res.json({
-        success: false,
-        message: "No tokens found in admin_fcm_tokens",
-        tokenCount: 0,
+      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+      if (!tokensSnap.exists()) {
+        return res.json({
+          success: false,
+          message: "No tokens found in admin_fcm_tokens",
+          tokenCount: 0,
+        });
+      }
+
+      const tokenDetails = [];
+      const allTokens = [];
+      tokensSnap.forEach((staffSnap) => {
+        staffSnap.forEach((tokenSnap) => {
+          const data = tokenSnap.val();
+          if (data && data.token) {
+            allTokens.push(data.token);
+            tokenDetails.push({
+              staffId: staffSnap.key,
+              tokenKey: tokenSnap.key,
+              device: data.device || "unknown",
+              updated_at: data.updated_at
+                ? new Date(data.updated_at).toISOString()
+                : "N/A",
+              tokenPreview: data.token.slice(0, 20) + "...",
+            });
+          }
+        });
       });
-    }
 
-    const tokenDetails = [];
-    const allTokens = [];
-    tokensSnap.forEach((staffSnap) => {
-      staffSnap.forEach((tokenSnap) => {
-        const data = tokenSnap.val();
-        if (data && data.token) {
-          allTokens.push(data.token);
-          tokenDetails.push({
-            staffId: staffSnap.key,
-            tokenKey: tokenSnap.key,
-            device: data.device || "unknown",
-            updated_at: data.updated_at
-              ? new Date(data.updated_at).toISOString()
-              : "N/A",
-            tokenPreview: data.token.slice(0, 20) + "...",
-          });
-        }
-      });
-    });
+      if (!shouldSend) {
+        return res.json({
+          success: true,
+          message: `Found ${allTokens.length} token(s). Add &send=true to send test push.`,
+          tokenCount: allTokens.length,
+          tokens: tokenDetails,
+        });
+      }
 
-    if (!shouldSend) {
-      return res.json({
-        success: true,
-        message: `Found ${allTokens.length} token(s). Add ?send=true to send test push.`,
-        tokenCount: allTokens.length,
-        tokens: tokenDetails,
-      });
-    }
+      // ส่ง test push
+      const title = "🔔 Test Push from Cloud Function";
+      const body = `ทดสอบ push ${new Date().toLocaleString("th-TH")}`;
 
-    // 2. ส่ง test push
-    const title = "🔔 Test Push from Cloud Function";
-    const body = `ทดสอบ push ${new Date().toLocaleString("th-TH")}`;
-
-    const results = [];
-    for (let i = 0; i < allTokens.length; i++) {
-      try {
-        await messaging.send({
-          token: allTokens[i],
-          notification: { title, body },
-          data: { type: "test", timestamp: String(Date.now()) },
-          webpush: {
-            headers: { Urgency: "high", TTL: "86400" },
-            notification: {
-              icon: "/icons/icon-192.png",
-              badge: "/icons/icon-192.png",
-              vibrate: [200, 100, 200],
-              tag: "test-push",
-              renotify: true,
+      const results = [];
+      for (let i = 0; i < allTokens.length; i++) {
+        try {
+          await messaging.send({
+            token: allTokens[i],
+            notification: { title, body },
+            data: { type: "test", timestamp: String(Date.now()) },
+            webpush: {
+              headers: { Urgency: "high", TTL: "86400" },
+              notification: {
+                icon: "/icons/icon-192.png",
+                badge: "/icons/icon-192.png",
+                vibrate: [200, 100, 200],
+                tag: "test-push",
+                renotify: true,
+              },
             },
-          },
-          apns: {
-            headers: { "apns-priority": "10", "apns-push-type": "alert" },
-            payload: { aps: { alert: { title, body }, sound: "default", badge: 1 } },
-          },
-        });
-        results.push({
-          ...tokenDetails[i],
-          status: "SUCCESS",
-          error: null,
-        });
-      } catch (err) {
-        results.push({
-          ...tokenDetails[i],
-          status: "FAILED",
-          error: err.code || err.message || String(err),
-        });
-
-        // ลบ token ที่หมดอายุ
-        if (
-          err.code === "messaging/registration-token-not-registered" ||
-          err.code === "messaging/invalid-registration-token"
-        ) {
-          await db
-            .ref(
-              `admin_fcm_tokens/${tokenDetails[i].staffId}/${tokenDetails[i].tokenKey}`
-            )
-            .remove();
-          results[results.length - 1].cleaned = true;
+            apns: {
+              headers: { "apns-priority": "10", "apns-push-type": "alert" },
+              payload: {
+                aps: { alert: { title, body }, sound: "default", badge: 1 },
+              },
+            },
+          });
+          results.push({ ...tokenDetails[i], status: "SUCCESS", error: null });
+        } catch (err) {
+          results.push({
+            ...tokenDetails[i],
+            status: "FAILED",
+            error: err.code || err.message || String(err),
+          });
+          if (
+            err.code === "messaging/registration-token-not-registered" ||
+            err.code === "messaging/invalid-registration-token"
+          ) {
+            await db
+              .ref(
+                `admin_fcm_tokens/${tokenDetails[i].staffId}/${tokenDetails[i].tokenKey}`
+              )
+              .remove();
+            results[results.length - 1].cleaned = true;
+          }
         }
       }
+
+      const successCount = results.filter(
+        (r) => r.status === "SUCCESS"
+      ).length;
+      return res.json({
+        success: true,
+        message: `Sent test push: ${successCount}/${allTokens.length} succeeded`,
+        results,
+      });
     }
 
-    const successCount = results.filter((r) => r.status === "SUCCESS").length;
-    res.json({
-      success: true,
-      message: `Sent test push: ${successCount}/${allTokens.length} succeeded`,
-      results,
-    });
+    // Default: no-op (backward-compatible)
+    res.json({ success: true, message: "Handled by database trigger" });
   }
 );
 
