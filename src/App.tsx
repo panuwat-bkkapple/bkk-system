@@ -143,6 +143,7 @@ export default function App() {
               <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
               <Route path="/mobile/inbox" element={<InboxPage />} />
               <Route path="/mobile/finance" element={<MobileFinancePage />} />
+              <Route path="/mobile/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
               <Route path="/mobile/notifications" element={<MobileNotificationsPage />} />
             </Route>
 
