@@ -104,8 +104,9 @@ exports.onNewTicketCreated = onValueCreated(
     const job = event.data.val();
     if (!job) return;
 
-    // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead)
-    if (job.status !== "New Lead" && job.status !== "New B2B Lead") return;
+    // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Leads จาก Instant Sell)
+    const newStatuses = ["New Lead", "New B2B Lead", "Active Leads"];
+    if (!newStatuses.includes(job.status)) return;
 
     const jobId = event.params.jobId;
     const model = job.model || "ไม่ระบุรุ่น";

@@ -34,8 +34,8 @@ export const MobileNotificationsPage = () => {
         const job = child.val();
         const jobId = child.key!;
 
-        // New tickets
-        if (job.status === 'New Lead' || job.status === 'New B2B Lead') {
+        // New tickets (รวม Active Leads จาก Instant Sell)
+        if (job.status === 'New Lead' || job.status === 'New B2B Lead' || job.status === 'Active Leads') {
           const isB2B = job.status === 'New B2B Lead';
           notifs.push({
             id: `new-${jobId}`,
