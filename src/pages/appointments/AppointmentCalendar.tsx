@@ -100,14 +100,18 @@ const AppointmentForm = ({ appointment, initialDate, onSave, onClose }: Appointm
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="font-black text-lg">{appointment ? 'แก้ไขนัดหมาย' : 'สร้างนัดหมายใหม่'}</h2>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[95vh] sm:max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Drag handle on mobile */}
+        <div className="flex justify-center pt-2 sm:hidden">
+          <div className="w-10 h-1 bg-gray-200 rounded-full" />
+        </div>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b">
+          <h2 className="font-black text-base sm:text-lg">{appointment ? 'แก้ไขนัดหมาย' : 'สร้างนัดหมายใหม่'}</h2>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg transition-colors"><X size={20} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
           {/* Title */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">หัวข้อนัดหมาย *</label>
@@ -139,7 +143,7 @@ const AppointmentForm = ({ appointment, initialDate, onSave, onClose }: Appointm
           </div>
 
           {/* Date & Time */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">วันที่ *</label>
               <input
@@ -259,7 +263,7 @@ const AppointmentCard = ({ appt, onEdit, onDelete, onStatusChange }: {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 text-xs text-gray-500">
+      <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-500 flex-wrap">
         <span className="flex items-center gap-1"><Clock size={12} /> {appt.time}{appt.end_time ? ` - ${appt.end_time}` : ''}</span>
         <span className="flex items-center gap-1"><User size={12} /> {appt.customer_name}</span>
         {appt.customer_phone && <span className="flex items-center gap-1"><Phone size={12} /> {appt.customer_phone}</span>}
@@ -448,36 +452,36 @@ export const AppointmentCalendar = () => {
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
+    <div className="p-3 sm:p-6 max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-            <CalendarDays className="text-blue-600" size={28} /> ปฏิทินนัดหมาย
+          <h1 className="text-lg sm:text-2xl font-black text-slate-800 flex items-center gap-2">
+            <CalendarDays className="text-blue-600" size={24} /> ปฏิทินนัดหมาย
           </h1>
-          <p className="text-sm text-gray-400 mt-1">จัดการนัดหมายจากลูกค้าทุกช่องทาง</p>
+          <p className="text-xs sm:text-sm text-gray-400 mt-0.5">จัดการนัดหมายจากลูกค้าทุกช่องทาง</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* View Toggle */}
           <div className="flex bg-gray-100 rounded-xl p-1">
             <button onClick={() => setView('month')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
               ปฏิทิน
             </button>
             <button onClick={() => setView('list')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'list' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'list' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
               รายการ
             </button>
           </div>
           <button onClick={() => { setEditingAppointment(null); setFormOpen(true); }}
-            className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100">
-            <Plus size={16} /> สร้างนัดหมาย
+            className="flex items-center gap-1.5 sm:gap-2 bg-blue-600 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100">
+            <Plus size={16} /> <span className="hidden sm:inline">สร้าง</span>นัดหมาย
           </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3">
         {[
           { label: 'ทั้งหมด', value: stats.total, color: 'text-slate-800', bg: 'bg-white' },
           { label: 'รอดำเนินการ', value: stats.scheduled, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -485,9 +489,9 @@ export const AppointmentCalendar = () => {
           { label: 'เสร็จสิ้น', value: stats.completed, color: 'text-gray-500', bg: 'bg-gray-50' },
           { label: 'ยกเลิก/ไม่มา', value: stats.cancelled, color: 'text-red-500', bg: 'bg-red-50' },
         ].map(s => (
-          <div key={s.label} className={`${s.bg} rounded-xl border p-4`}>
-            <div className={`text-2xl font-black ${s.color}`}>{s.value}</div>
-            <div className="text-xs font-bold text-gray-400 mt-0.5">{s.label}</div>
+          <div key={s.label} className={`${s.bg} rounded-xl border p-2.5 sm:p-4`}>
+            <div className={`text-lg sm:text-2xl font-black ${s.color}`}>{s.value}</div>
+            <div className="text-[10px] sm:text-xs font-bold text-gray-400 mt-0.5">{s.label}</div>
           </div>
         ))}
       </div>
@@ -497,19 +501,19 @@ export const AppointmentCalendar = () => {
           {/* Calendar Grid */}
           <div className="lg:col-span-2 bg-white rounded-2xl border shadow-sm">
             {/* Month Navigation */}
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <button onClick={goToPrevMonth} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b">
+              <button onClick={goToPrevMonth} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-colors">
                 <ChevronLeft size={20} />
               </button>
               <div className="text-center">
-                <h2 className="font-black text-lg">{MONTHS_TH[viewMonth]} {viewYear + 543}</h2>
+                <h2 className="font-black text-sm sm:text-lg">{MONTHS_TH[viewMonth]} {viewYear + 543}</h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <button onClick={goToToday}
-                  className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
+                  className="text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
                   วันนี้
                 </button>
-                <button onClick={goToNextMonth} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <button onClick={goToNextMonth} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-colors">
                   <ChevronRight size={20} />
                 </button>
               </div>
@@ -518,7 +522,7 @@ export const AppointmentCalendar = () => {
             {/* Day Headers */}
             <div className="grid grid-cols-7 border-b">
               {DAYS_TH.map((d, i) => (
-                <div key={d} className={`text-center py-2.5 text-xs font-black ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>
+                <div key={d} className={`text-center py-2 text-[10px] sm:text-xs font-black ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>
                   {d}
                 </div>
               ))}
@@ -536,12 +540,12 @@ export const AppointmentCalendar = () => {
                   <button
                     key={idx}
                     onClick={() => setSelectedDate(cell.dateStr)}
-                    className={`relative min-h-[80px] p-1.5 border-b border-r text-left transition-colors
+                    className={`relative min-h-[48px] sm:min-h-[80px] p-1 sm:p-1.5 border-b border-r text-left transition-colors
                       ${isCurrentMonth ? '' : 'opacity-30'}
                       ${isSelected ? 'bg-blue-50 ring-2 ring-blue-400 ring-inset' : 'hover:bg-gray-50'}
                     `}
                   >
-                    <span className={`inline-flex items-center justify-center w-7 h-7 text-xs font-bold rounded-full
+                    <span className={`inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 text-[10px] sm:text-xs font-bold rounded-full
                       ${isToday ? 'bg-blue-600 text-white' : ''}
                       ${!isToday && idx % 7 === 0 ? 'text-red-400' : ''}
                       ${!isToday && idx % 7 === 6 ? 'text-blue-400' : ''}
@@ -549,21 +553,32 @@ export const AppointmentCalendar = () => {
                       {cell.day}
                     </span>
 
-                    {/* Appointment dots */}
+                    {/* Appointment indicators - dots on mobile, labels on desktop */}
                     {dayAppts.length > 0 && (
-                      <div className="mt-0.5 space-y-0.5">
-                        {dayAppts.slice(0, 3).map(a => {
-                          const tc = TYPE_CONFIG[a.type] || TYPE_CONFIG[AppointmentType.OTHER];
-                          return (
-                            <div key={a.id} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tc.bg} ${tc.color} truncate`}>
-                              {a.time} {a.title}
-                            </div>
-                          );
-                        })}
-                        {dayAppts.length > 3 && (
-                          <div className="text-[9px] font-bold text-gray-400 px-1.5">+{dayAppts.length - 3} อื่นๆ</div>
-                        )}
-                      </div>
+                      <>
+                        {/* Mobile: colored dots */}
+                        <div className="flex gap-0.5 mt-0.5 flex-wrap sm:hidden">
+                          {dayAppts.slice(0, 3).map(a => {
+                            const tc = TYPE_CONFIG[a.type] || TYPE_CONFIG[AppointmentType.OTHER];
+                            return <div key={a.id} className={`w-1.5 h-1.5 rounded-full ${tc.bg.replace('100', '500')}`} />;
+                          })}
+                          {dayAppts.length > 3 && <span className="text-[8px] text-gray-400">+{dayAppts.length - 3}</span>}
+                        </div>
+                        {/* Desktop: text labels */}
+                        <div className="mt-0.5 space-y-0.5 hidden sm:block">
+                          {dayAppts.slice(0, 3).map(a => {
+                            const tc = TYPE_CONFIG[a.type] || TYPE_CONFIG[AppointmentType.OTHER];
+                            return (
+                              <div key={a.id} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tc.bg} ${tc.color} truncate`}>
+                                {a.time} {a.title}
+                              </div>
+                            );
+                          })}
+                          {dayAppts.length > 3 && (
+                            <div className="text-[9px] font-bold text-gray-400 px-1.5">+{dayAppts.length - 3} อื่นๆ</div>
+                          )}
+                        </div>
+                      </>
                     )}
                   </button>
                 );
@@ -571,9 +586,11 @@ export const AppointmentCalendar = () => {
             </div>
           </div>
 
-          {/* Day Detail Panel */}
-          <div className="bg-white rounded-2xl border shadow-sm flex flex-col">
-            <div className="px-6 py-4 border-b flex items-center justify-between">
+          {/* Day Detail Panel - side panel on desktop, bottom sheet on mobile */}
+          <div className={`bg-white rounded-2xl border shadow-sm flex flex-col
+            ${selectedDate ? 'fixed inset-x-0 bottom-0 z-30 rounded-b-none max-h-[60vh] lg:static lg:max-h-none lg:rounded-2xl lg:z-auto' : 'hidden lg:flex'}
+          `}>
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b flex items-center justify-between">
               <div>
                 <h3 className="font-black text-sm">
                   {selectedDate ? formatThaiDate(selectedDate) : 'เลือกวันที่'}
@@ -582,25 +599,41 @@ export const AppointmentCalendar = () => {
                   {selectedAppointments.length} นัดหมาย
                 </p>
               </div>
-              {selectedDate && (
-                <button
-                  onClick={() => { setEditingAppointment(null); setFormOpen(true); }}
-                  className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
-                  title="เพิ่มนัดหมาย"
-                >
-                  <Plus size={16} />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedDate && (
+                  <button
+                    onClick={() => { setEditingAppointment(null); setFormOpen(true); }}
+                    className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                    title="เพิ่มนัดหมาย"
+                  >
+                    <Plus size={16} />
+                  </button>
+                )}
+                {/* Close button on mobile */}
+                {selectedDate && (
+                  <button
+                    onClick={() => setSelectedDate(null)}
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-colors lg:hidden"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Drag handle on mobile */}
+            <div className="flex justify-center py-1.5 lg:hidden">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
               {!selectedDate ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-300">
                   <CalendarDays size={48} />
                   <p className="text-sm font-bold mt-3">กดเลือกวันที่บนปฏิทิน</p>
                 </div>
               ) : selectedAppointments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-gray-300">
+                <div className="flex flex-col items-center justify-center h-32 sm:h-40 text-gray-300">
                   <CalendarDays size={36} />
                   <p className="text-xs font-bold mt-2">ไม่มีนัดหมายในวันนี้</p>
                 </div>
@@ -617,6 +650,11 @@ export const AppointmentCalendar = () => {
               )}
             </div>
           </div>
+
+          {/* Mobile backdrop when bottom sheet is open */}
+          {selectedDate && (
+            <div className="fixed inset-0 bg-black/20 z-20 lg:hidden" onClick={() => setSelectedDate(null)} />
+          )}
         </div>
       ) : (
         /* List View */
