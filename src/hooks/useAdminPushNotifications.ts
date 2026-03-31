@@ -15,8 +15,17 @@ export const useAdminPushNotifications = (staffId: string | null) => {
 
     const setupPush = async () => {
       try {
+        // ตรวจสอบ browser รองรับ notification หรือไม่
+        if (!('Notification' in window)) {
+          console.warn('[Push] Browser does not support notifications');
+          return;
+        }
+
         const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
+        if (permission !== 'granted') {
+          console.warn('[Push] Notification permission denied');
+          return;
+        }
 
         // Register unified service worker (handles both push + caching)
         let swRegistration: ServiceWorkerRegistration | undefined;
@@ -26,10 +35,19 @@ export const useAdminPushNotifications = (staffId: string | null) => {
         }
 
         const messaging = await getFirebaseMessaging();
-        if (!messaging) return;
+        if (!messaging) {
+          console.warn('[Push] Firebase Messaging not supported on this browser');
+          return;
+        }
+
+        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+        if (!vapidKey) {
+          console.error('[Push] VITE_FIREBASE_VAPID_KEY is not set! Push notifications will not work.');
+          return;
+        }
 
         const token = await getToken(messaging, {
-          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY || undefined,
+          vapidKey,
           serviceWorkerRegistration: swRegistration
         });
 
@@ -41,6 +59,9 @@ export const useAdminPushNotifications = (staffId: string | null) => {
             device: isMobile ? 'mobile' : 'desktop',
             updated_at: Date.now()
           });
+          console.log(`[Push] FCM token registered (${isMobile ? 'mobile' : 'desktop'})`);
+        } else {
+          console.warn('[Push] Failed to get FCM token');
         }
 
         // Handle foreground messages from Cloud Functions
@@ -62,8 +83,8 @@ export const useAdminPushNotifications = (staffId: string | null) => {
             });
           }
         });
-      } catch {
-        // silently handled
+      } catch (err) {
+        console.error('[Push] Failed to setup push notifications:', err);
       }
     };
 
