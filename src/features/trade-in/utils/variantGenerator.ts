@@ -231,9 +231,7 @@ export function detectModifiersFromLegacyVariants(
   const baseUsedPrice = usedPrices.length > 0 ? Math.min(...usedPrices) : 0;
   const baseNewPrice = newPrices.length > 0 ? Math.min(...newPrices) : 0;
 
-  // ---- Step 4: คำนวณ modifier ด้วยวิธี pairwise comparison ----
-  // สำหรับแต่ละ attribute: หา pairs ที่ต่างกันแค่ attribute นั้น
-  // แล้ว average ผลต่างราคา → ได้ relative modifier ต่อ value
+  // ---- Step 4: คำนวณ modifier ด้วย direct comparison กับ base value ----
   const modifiers: Record<string, ModifierGroup> = {};
 
   for (const attr of schema) {
@@ -243,84 +241,82 @@ export function detectModifiersFromLegacyVariants(
       continue;
     }
 
-    // สะสม delta ต่อ value pair
-    const deltas: Record<string, { newDeltas: number[]; usedDeltas: number[] }> = {};
-    for (const val of values) deltas[val] = { newDeltas: [], usedDeltas: [] };
-
-    // เปรียบเทียบทุกคู่ variant ที่ต่างกันแค่ attribute นี้
-    for (let i = 0; i < parsed.length; i++) {
-      for (let j = i + 1; j < parsed.length; j++) {
-        const a = parsed[i];
-        const b = parsed[j];
-
-        // เช็คว่าต่างกันแค่ attribute นี้หรือเปล่า
-        let diffCount = 0;
-        let diffKey = '';
-        for (const s of schema) {
-          if ((a.attrs[s.key] || '') !== (b.attrs[s.key] || '')) {
-            diffCount++;
-            diffKey = s.key;
-          }
-        }
-
-        if (diffCount === 1 && diffKey === attr.key) {
-          // ได้คู่ที่ต่างแค่ attribute นี้ → บันทึก delta ระหว่าง 2 values
-          const valA = a.attrs[attr.key];
-          const valB = b.attrs[attr.key];
-
-          // เก็บ price difference: B เทียบกับ A
-          deltas[valB].newDeltas.push(b.newPrice - a.newPrice);
-          deltas[valB].usedDeltas.push(b.usedPrice - a.usedPrice);
-          // A เทียบกับ B (กลับเครื่องหมาย)
-          deltas[valA].newDeltas.push(a.newPrice - b.newPrice);
-          deltas[valA].usedDeltas.push(a.usedPrice - b.usedPrice);
-        }
-      }
+    // Sort values: size-based ตามขนาดจริง, อื่นๆ ตาม average price
+    const sizeKeys = ['storage', 'ram', 'size'];
+    let sortedValues: string[];
+    if (sizeKeys.includes(attr.key)) {
+      sortedValues = [...values].sort((a, b) => parseStorageSize(a) - parseStorageSize(b));
+    } else {
+      // sort ตาม average used price ของ variants ที่มีค่านี้
+      sortedValues = [...values].sort((a, b) => {
+        const matchA = parsed.filter(p => p.attrs[attr.key] === a);
+        const matchB = parsed.filter(p => p.attrs[attr.key] === b);
+        const avgA = matchA.reduce((s, p) => s + p.usedPrice, 0) / (matchA.length || 1);
+        const avgB = matchB.reduce((s, p) => s + p.usedPrice, 0) / (matchB.length || 1);
+        return avgA - avgB;
+      });
     }
 
-    // คำนวณ modifier ต่อ value
-    // ใช้ pairwise deltas ถ้ามี (แม่นยำกว่า), fallback เป็น average price
-    const valueMods: { value: string; newMod: number; usedMod: number }[] = values.map(val => {
-      const d = deltas[val];
-      const hasPairwise = d.usedDeltas.length > 0;
+    const baseValue = sortedValues[0]; // ค่าเล็กสุด = base
 
-      if (hasPairwise) {
-        // ใช้ median ของ pairwise deltas (robust กว่า average)
-        const sortedNew = [...d.newDeltas].sort((a, b) => a - b);
-        const sortedUsed = [...d.usedDeltas].sort((a, b) => a - b);
-        const mid = Math.floor(sortedNew.length / 2);
+    // สำหรับแต่ละ value: หา direct delta เทียบกับ baseValue
+    // โดยหาคู่ variant ที่ต่างกันแค่ attribute นี้ และอันหนึ่งมี baseValue
+    const options: ModifierOption[] = sortedValues.map(val => {
+      if (val === baseValue) return { value: val, newPriceMod: 0, usedPriceMod: 0 };
+
+      const newDeltas: number[] = [];
+      const usedDeltas: number[] = [];
+
+      // หาคู่ที่ต่างกันแค่ attribute นี้: หนึ่งมี baseValue อีกอันมี val
+      for (const a of parsed) {
+        if (a.attrs[attr.key] !== baseValue) continue;
+        for (const b of parsed) {
+          if (b.attrs[attr.key] !== val) continue;
+
+          // เช็คว่า attributes อื่นเหมือนกัน
+          let othersSame = true;
+          for (const s of schema) {
+            if (s.key === attr.key) continue;
+            if ((a.attrs[s.key] || '') !== (b.attrs[s.key] || '')) {
+              othersSame = false;
+              break;
+            }
+          }
+
+          if (othersSame) {
+            newDeltas.push(b.newPrice - a.newPrice);
+            usedDeltas.push(b.usedPrice - a.usedPrice);
+          }
+        }
+      }
+
+      if (newDeltas.length > 0) {
+        // ใช้ median ของ direct deltas
+        newDeltas.sort((a, b) => a - b);
+        usedDeltas.sort((a, b) => a - b);
+        const mid = Math.floor(newDeltas.length / 2);
         return {
           value: val,
-          newMod: sortedNew[mid],
-          usedMod: sortedUsed[mid],
+          newPriceMod: Math.round(newDeltas[mid]),
+          usedPriceMod: Math.round(usedDeltas[mid]),
         };
       }
 
-      // Fallback: ใช้ average price ของ variants ที่มี value นี้
-      const matching = parsed.filter(p => p.attrs[attr.key] === val);
-      const avgNew = matching.reduce((s, p) => s + p.newPrice, 0) / matching.length;
-      const avgUsed = matching.reduce((s, p) => s + p.usedPrice, 0) / matching.length;
-      return { value: val, newMod: avgNew, usedMod: avgUsed };
+      // Fallback: ไม่มี direct pair กับ base → ใช้ chain ผ่าน intermediate values
+      // (เช่น base→256GB→512GB: ใช้ผลรวมของ 2 deltas)
+      // Simplified: ใช้ average price difference
+      const matchBase = parsed.filter(p => p.attrs[attr.key] === baseValue);
+      const matchVal = parsed.filter(p => p.attrs[attr.key] === val);
+      const avgBaseNew = matchBase.reduce((s, p) => s + p.newPrice, 0) / (matchBase.length || 1);
+      const avgBaseUsed = matchBase.reduce((s, p) => s + p.usedPrice, 0) / (matchBase.length || 1);
+      const avgValNew = matchVal.reduce((s, p) => s + p.newPrice, 0) / (matchVal.length || 1);
+      const avgValUsed = matchVal.reduce((s, p) => s + p.usedPrice, 0) / (matchVal.length || 1);
+      return {
+        value: val,
+        newPriceMod: Math.round(avgValNew - avgBaseNew),
+        usedPriceMod: Math.round(avgValUsed - avgBaseUsed),
+      };
     });
-
-    // Sort: ถ้าเป็น size-based (ram, storage, size) → sort ตามขนาดจริง
-    // ถ้าไม่ใช่ → sort ตาม usedMod ascending
-    const sizeKeys = ['storage', 'ram', 'size'];
-    if (sizeKeys.includes(attr.key)) {
-      valueMods.sort((a, b) => parseStorageSize(a.value) - parseStorageSize(b.value));
-    } else {
-      valueMods.sort((a, b) => a.usedMod - b.usedMod);
-    }
-
-    // Normalize: ค่าแรก (base) = 0, ที่เหลือ = delta จาก base
-    const baseNew = valueMods[0].newMod;
-    const baseUsed = valueMods[0].usedMod;
-
-    const options: ModifierOption[] = valueMods.map(({ value, newMod, usedMod }) => ({
-      value,
-      newPriceMod: Math.round(newMod - baseNew),
-      usedPriceMod: Math.round(usedMod - baseUsed),
-    }));
 
     modifiers[attr.key] = { options };
   }
