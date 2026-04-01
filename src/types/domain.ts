@@ -367,6 +367,67 @@ export interface ProductVariant {
   stock: number;
 }
 
+// ==========================================
+// Attribute-Based Pricing (Modifier Mode)
+// ==========================================
+
+/** Schema attribute สำหรับ category (เช่น processor, ram, storage) */
+export interface AttributeSchemaItem {
+  key: string;
+  label: string;
+  type: 'text' | 'select';
+  options?: string[];
+}
+
+/** ตัวเลือกแต่ละค่าของ attribute พร้อม price modifier */
+export interface AttributeOptionModifier {
+  value: string;
+  newPriceMod: number;
+  usedPriceMod: number;
+}
+
+/** Modifier data ของ attribute หนึ่งตัว */
+export interface AttributeModifier {
+  options: AttributeOptionModifier[];
+}
+
+/** โหมดการตั้งราคา */
+export type PricingMode = 'legacy' | 'modifier';
+
+/** Model ฉบับเต็มสำหรับ PriceEditor (ใช้กับ Firebase /models/) */
+export interface PricingModel {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  series: string;
+  imageUrl: string;
+  isActive: boolean;
+  isFeatured: boolean;
+  inStore: boolean;
+  pickup: boolean;
+  mailIn: boolean;
+  conditionSetId: string;
+  attributesSchema: AttributeSchemaItem[];
+  updatedAt: number;
+
+  /** โหมดราคา: 'legacy' = กรอกทีละ variant, 'modifier' = base + modifiers */
+  pricingMode: PricingMode;
+
+  /** ราคาฐานสำหรับ modifier mode */
+  baseNewPrice?: number;
+  baseUsedPrice?: number;
+
+  /** Price modifiers ต่อ attribute key */
+  attributeModifiers?: Record<string, AttributeModifier>;
+
+  /** Override ราคาสำหรับ combination พิเศษ (key = "val1|val2|val3") */
+  priceOverrides?: Record<string, { newPrice: number; usedPrice: number }>;
+
+  /** Flat variants (generated จาก modifiers หรือกรอกมือ) */
+  variants: any[];
+}
+
 /** สินค้า */
 export interface Product {
   /** รหัสสินค้า */
