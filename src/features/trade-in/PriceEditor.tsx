@@ -153,6 +153,7 @@ export const PriceEditor = () => {
       // เก็บ modifier data เฉพาะ modifier mode
       if (pricingMode === 'modifier') {
         payload.baseRetailPrice = editingItem.baseRetailPrice || 0;
+        payload.baseSellPrice = editingItem.baseSellPrice || 0;
         payload.baseNewPrice = editingItem.baseNewPrice || 0;
         payload.baseUsedPrice = editingItem.baseUsedPrice || 0;
         payload.attributeModifiers = editingItem.attributeModifiers || {};
