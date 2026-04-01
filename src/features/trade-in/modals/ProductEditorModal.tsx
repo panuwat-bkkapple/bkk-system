@@ -10,7 +10,9 @@ import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS } from '../constants/categorySchemas';
 import { ModifierPricingEditor } from '../components/pricing/ModifierPricingEditor';
 import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
+import { UpgradePreviewPanel } from '../components/pricing/UpgradePreviewPanel';
 import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
+import type { DetectResult } from '../utils/variantGenerator';
 
 interface ProductEditorModalProps {
   isOpen: boolean;
@@ -80,6 +82,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
 }) => {
   const [isAddingSeries, setIsAddingSeries] = useState(false);
   const [newSeriesName, setNewSeriesName] = useState('');
+  const [upgradePreview, setUpgradePreview] = useState<DetectResult | null>(null);
 
   if (!isOpen || !editingItem) return null;
 
@@ -102,25 +105,37 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
 
   const handleSwitchToModifier = () => {
     const schema = editingItem.attributesSchema || categorySchemas[editingItem.category] || categorySchemas['Smartphones'];
-    const { baseNewPrice, baseUsedPrice, modifiers } = detectModifiersFromLegacyVariants(
-      editingItem.variants || [],
-      schema
-    );
+    const hasVariants = (editingItem.variants || []).some((v: any) => v.attributes && Object.keys(v.attributes).length > 0);
 
-    // Initialize modifiers for all schema attributes
+    if (hasVariants) {
+      // มี variants เดิม → แสดง preview ก่อน
+      const result = detectModifiersFromLegacyVariants(editingItem.variants || [], schema);
+      setUpgradePreview(result);
+    } else {
+      // ไม่มี variants → switch ตรง
+      const mods: Record<string, { options: any[] }> = {};
+      for (const attr of schema) mods[attr.key] = { options: [] };
+      onEditingItemChange({ ...editingItem, pricingMode: 'modifier', baseNewPrice: 0, baseUsedPrice: 0, attributeModifiers: mods });
+      toast.success('เปลี่ยนเป็น Modifier Mode');
+    }
+  };
+
+  const handleConfirmUpgrade = () => {
+    if (!upgradePreview) return;
+    const schema = editingItem.attributesSchema || categorySchemas[editingItem.category] || categorySchemas['Smartphones'];
     const fullModifiers: Record<string, { options: any[] }> = {};
     for (const attr of schema) {
-      fullModifiers[attr.key] = modifiers[attr.key] || { options: [] };
+      fullModifiers[attr.key] = upgradePreview.modifiers[attr.key] || { options: [] };
     }
-
     onEditingItemChange({
       ...editingItem,
       pricingMode: 'modifier',
-      baseNewPrice,
-      baseUsedPrice,
+      baseNewPrice: upgradePreview.baseNewPrice,
+      baseUsedPrice: upgradePreview.baseUsedPrice,
       attributeModifiers: fullModifiers,
     });
-    toast.success('เปลี่ยนเป็น Modifier Mode แล้ว กรุณาตั้งค่า price modifiers');
+    setUpgradePreview(null);
+    toast.success(`อัพเกรดสำเร็จ! ตรง ${upgradePreview.matchedCount}/${upgradePreview.totalCount} variants`);
   };
 
   const handleSwitchToLegacy = () => {
@@ -328,7 +343,13 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
 
                 {/* Pricing Content */}
                 <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-200 flex-1 overflow-y-auto">
-                  {isModifier ? (
+                  {upgradePreview ? (
+                    <UpgradePreviewPanel
+                      result={upgradePreview}
+                      onConfirm={handleConfirmUpgrade}
+                      onCancel={() => setUpgradePreview(null)}
+                    />
+                  ) : isModifier ? (
                     <ModifierPricingEditor
                       editingItem={editingItem}
                       onEditingItemChange={onEditingItemChange}
