@@ -25,6 +25,7 @@ export interface ModifierOption {
   value: string;
   retailPriceMod?: number;
   sellPriceMod?: number;
+  sellUsedPriceMod?: number;
   newPriceMod: number;
   usedPriceMod: number;
 }
