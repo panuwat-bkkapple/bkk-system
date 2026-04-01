@@ -7,6 +7,20 @@
 
 import type { AttributeSchemaItem } from '../../../types/domain';
 
+/** แปลงค่า size string เป็นตัวเลข GB เพื่อเปรียบเทียบ (เช่น "16GB"→16, "1TB"→1024, "512GB"→512) */
+function parseStorageSize(s: string): number {
+  if (!s) return 0;
+  const cleaned = s.toUpperCase().trim();
+  const match = cleaned.match(/^(\d+(?:\.\d+)?)\s*(TB|GB|MB|MM)?/);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = match[2] || 'GB';
+  if (unit === 'TB') return num * 1024;
+  if (unit === 'MB') return num / 1024;
+  if (unit === 'MM') return num; // for watch size
+  return num;
+}
+
 export interface ModifierOption {
   value: string;
   newPriceMod: number;
@@ -250,40 +264,62 @@ export function detectModifiersFromLegacyVariants(
         }
 
         if (diffCount === 1 && diffKey === attr.key) {
-          // ได้คู่ที่ต่างแค่ attribute นี้ → บันทึก delta
+          // ได้คู่ที่ต่างแค่ attribute นี้ → บันทึก delta ระหว่าง 2 values
           const valA = a.attrs[attr.key];
           const valB = b.attrs[attr.key];
-          const newDiff = b.newPrice - a.newPrice;
-          const usedDiff = b.usedPrice - a.usedPrice;
 
-          // สะสม relative delta (A→B = +diff, B→A = -diff)
-          deltas[valB].newDeltas.push(a.newPrice + newDiff);
-          deltas[valB].usedDeltas.push(a.usedPrice + usedDiff);
-          deltas[valA].newDeltas.push(b.newPrice - newDiff);
-          deltas[valA].usedDeltas.push(b.usedPrice - usedDiff);
+          // เก็บ price difference: B เทียบกับ A
+          deltas[valB].newDeltas.push(b.newPrice - a.newPrice);
+          deltas[valB].usedDeltas.push(b.usedPrice - a.usedPrice);
+          // A เทียบกับ B (กลับเครื่องหมาย)
+          deltas[valA].newDeltas.push(a.newPrice - b.newPrice);
+          deltas[valA].usedDeltas.push(a.usedPrice - b.usedPrice);
         }
       }
     }
 
-    // คำนวณ average price ต่อ value → แปลงเป็น modifier (ลบ base ของ value ต่ำสุด)
-    const avgPrices: { value: string; avgNew: number; avgUsed: number }[] = values.map(val => {
+    // คำนวณ modifier ต่อ value
+    // ใช้ pairwise deltas ถ้ามี (แม่นยำกว่า), fallback เป็น average price
+    const valueMods: { value: string; newMod: number; usedMod: number }[] = values.map(val => {
       const d = deltas[val];
-      // ถ้ามี pairwise data ใช้ average, ถ้าไม่มีใช้ average ของ variants ที่มี value นี้
+      const hasPairwise = d.usedDeltas.length > 0;
+
+      if (hasPairwise) {
+        // ใช้ median ของ pairwise deltas (robust กว่า average)
+        const sortedNew = [...d.newDeltas].sort((a, b) => a - b);
+        const sortedUsed = [...d.usedDeltas].sort((a, b) => a - b);
+        const mid = Math.floor(sortedNew.length / 2);
+        return {
+          value: val,
+          newMod: sortedNew[mid],
+          usedMod: sortedUsed[mid],
+        };
+      }
+
+      // Fallback: ใช้ average price ของ variants ที่มี value นี้
       const matching = parsed.filter(p => p.attrs[attr.key] === val);
       const avgNew = matching.reduce((s, p) => s + p.newPrice, 0) / matching.length;
       const avgUsed = matching.reduce((s, p) => s + p.usedPrice, 0) / matching.length;
-      return { value: val, avgNew, avgUsed };
+      return { value: val, newMod: avgNew, usedMod: avgUsed };
     });
 
-    // Sort by avgUsed ascending → value แรกคือ base (modifier = 0)
-    avgPrices.sort((a, b) => a.avgUsed - b.avgUsed);
-    const lowestNew = avgPrices[0].avgNew;
-    const lowestUsed = avgPrices[0].avgUsed;
+    // Sort: ถ้าเป็น size-based (ram, storage, size) → sort ตามขนาดจริง
+    // ถ้าไม่ใช่ → sort ตาม usedMod ascending
+    const sizeKeys = ['storage', 'ram', 'size'];
+    if (sizeKeys.includes(attr.key)) {
+      valueMods.sort((a, b) => parseStorageSize(a.value) - parseStorageSize(b.value));
+    } else {
+      valueMods.sort((a, b) => a.usedMod - b.usedMod);
+    }
 
-    const options: ModifierOption[] = avgPrices.map(({ value, avgNew, avgUsed }) => ({
+    // Normalize: ค่าแรก (base) = 0, ที่เหลือ = delta จาก base
+    const baseNew = valueMods[0].newMod;
+    const baseUsed = valueMods[0].usedMod;
+
+    const options: ModifierOption[] = valueMods.map(({ value, newMod, usedMod }) => ({
       value,
-      newPriceMod: Math.round(avgNew - lowestNew),
-      usedPriceMod: Math.round(avgUsed - lowestUsed),
+      newPriceMod: Math.round(newMod - baseNew),
+      usedPriceMod: Math.round(usedMod - baseUsed),
     }));
 
     modifiers[attr.key] = { options };
