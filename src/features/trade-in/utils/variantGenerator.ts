@@ -23,6 +23,7 @@ function parseStorageSize(s: string): number {
 
 export interface ModifierOption {
   value: string;
+  retailPriceMod?: number;
   newPriceMod: number;
   usedPriceMod: number;
 }
