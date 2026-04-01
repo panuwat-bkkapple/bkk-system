@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Plus, Trash2, Calculator, ArrowUpDown, TrendingUp } from 'lucide-react';
+import { Plus, Trash2, Calculator, ArrowUpDown, Tag, TrendingUp } from 'lucide-react';
 import { countCombinations, getPriceRange } from '../../utils/variantGenerator';
-import { getMarginGuideline, getMarginStatus } from '../../constants/marginGuidelines';
 import type { ModifierGroup, ModifierOption } from '../../utils/variantGenerator';
 
 interface ModifierPricingEditorProps {
@@ -13,20 +12,23 @@ interface ModifierPricingEditorProps {
 
 const fmt = (n: number) => n.toLocaleString('th-TH');
 
-/** Margin badge component */
-const MarginBadge: React.FC<{ sellPrice: number; buyPrice: number; category: string; series?: string; type: 'sealed' | 'used' }> = ({
-  sellPrice, buyPrice, category, series, type,
+/** แสดงกำไรจริง (ราคาขาย - ราคารับซื้อ) */
+const ProfitBadge: React.FC<{ sellPrice: number; buyPrice: number; label: string }> = ({
+  sellPrice, buyPrice, label,
 }) => {
-  if (!sellPrice || !buyPrice || sellPrice <= 0) return null;
-  const margin = sellPrice - buyPrice;
-  const marginPct = (margin / sellPrice) * 100;
-  const guide = getMarginGuideline(category, series);
-  const status = getMarginStatus(marginPct, guide, type);
+  if (!sellPrice || !buyPrice) return null;
+  const profit = sellPrice - buyPrice;
+  const profitPct = sellPrice > 0 ? (profit / sellPrice) * 100 : 0;
+  const color = profit < 0
+    ? 'text-red-600 bg-red-50 border-red-200'
+    : profit < 1000
+      ? 'text-amber-600 bg-amber-50 border-amber-200'
+      : 'text-emerald-600 bg-emerald-50 border-emerald-200';
 
   return (
-    <div className={`mt-1.5 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border ${status.color}`}>
+    <div className={`mt-1.5 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border ${color}`}>
       <TrendingUp size={10} />
-      กำไร ฿{fmt(margin)} ({marginPct.toFixed(0)}%) — {status.label}
+      {label}: ฿{fmt(profit)} ({profitPct.toFixed(0)}%)
     </div>
   );
 };
@@ -38,6 +40,7 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
   const schema = editingItem.attributesSchema || [];
   const modifiers: Record<string, ModifierGroup> = editingItem.attributeModifiers || {};
   const baseRetail = editingItem.baseRetailPrice || 0;
+  const baseSell = editingItem.baseSellPrice || 0;
   const baseNew = editingItem.baseNewPrice || 0;
   const baseUsed = editingItem.baseUsedPrice || 0;
 
@@ -68,7 +71,7 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
     updateModifiers(current);
   };
 
-  const handleOptionChange = (attrKey: string, optIdx: number, field: keyof ModifierOption, value: string | number) => {
+  const handleOptionChange = (attrKey: string, optIdx: number, field: string, value: string | number) => {
     const current = { ...modifiers };
     if (!current[attrKey]) current[attrKey] = { options: [] };
     const opts = [...current[attrKey].options];
@@ -89,54 +92,57 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Base Prices: Retail → Sealed → Used */}
-      <div className="bg-gradient-to-r from-orange-50 via-emerald-50 to-blue-50 p-5 rounded-2xl border border-orange-100">
+      {/* Base Prices */}
+      <div className="bg-gradient-to-r from-orange-50 via-violet-50 to-blue-50 p-5 rounded-2xl border border-slate-200">
         <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
           <Calculator size={14} className="text-orange-500" />
           Base Price (สเปคเริ่มต้น)
         </h5>
-        <div className="grid grid-cols-3 gap-4">
-          {/* Retail */}
+
+        {/* Row 1: Retail + Sell */}
+        <div className="grid grid-cols-2 gap-4 mb-3">
           <div>
-            <label className="text-[9px] font-black uppercase text-orange-600 tracking-wider block mb-1">ราคา Retail (มือ1)</label>
+            <label className="text-[9px] font-black uppercase text-orange-600 tracking-wider block mb-1">
+              <Tag size={10} className="inline" /> ราคา Retail (อ้างอิง Apple Store)
+            </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold text-sm">฿</span>
-              <input
-                type="number"
-                placeholder="ราคาทางการ"
-                className="w-full pl-8 pr-3 py-3 bg-white rounded-xl text-base font-black text-orange-700 border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none"
-                value={baseRetail || ''}
-                onChange={(e) => onEditingItemChange({ ...editingItem, baseRetailPrice: Number(e.target.value) })}
-              />
+              <input type="number" placeholder="ราคาทางการ" className="w-full pl-8 pr-3 py-2.5 bg-white rounded-xl text-sm font-black text-orange-700 border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none" value={baseRetail || ''} onChange={(e) => onEditingItemChange({ ...editingItem, baseRetailPrice: Number(e.target.value) })} />
             </div>
           </div>
-          {/* Sealed */}
+          <div>
+            <label className="text-[9px] font-black uppercase text-violet-600 tracking-wider block mb-1">
+              <TrendingUp size={10} className="inline" /> ราคาขาย (ของเรา)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 font-bold text-sm">฿</span>
+              <input type="number" placeholder="ราคาที่เราจะขาย" className="w-full pl-8 pr-3 py-2.5 bg-white rounded-xl text-sm font-black text-violet-700 border border-violet-200 focus:ring-2 focus:ring-violet-500 outline-none" value={baseSell || ''} onChange={(e) => onEditingItemChange({ ...editingItem, baseSellPrice: Number(e.target.value) })} />
+            </div>
+            {baseRetail > 0 && baseSell > 0 && (
+              <div className="mt-1 text-[10px] font-bold text-slate-400">
+                ต่ำกว่า Retail ฿{fmt(baseRetail - baseSell)} ({((baseRetail - baseSell) / baseRetail * 100).toFixed(0)}%)
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Buy prices + profit */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-[9px] font-black uppercase text-emerald-600 tracking-wider block mb-1">ราคาซีล (รับซื้อ)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold text-sm">฿</span>
-              <input
-                type="number"
-                className="w-full pl-8 pr-3 py-3 bg-white rounded-xl text-base font-black text-emerald-700 border border-emerald-200 focus:ring-2 focus:ring-emerald-500 outline-none"
-                value={baseNew || ''}
-                onChange={(e) => onEditingItemChange({ ...editingItem, baseNewPrice: Number(e.target.value) })}
-              />
+              <input type="number" className="w-full pl-8 pr-3 py-2.5 bg-white rounded-xl text-sm font-black text-emerald-700 border border-emerald-200 focus:ring-2 focus:ring-emerald-500 outline-none" value={baseNew || ''} onChange={(e) => onEditingItemChange({ ...editingItem, baseNewPrice: Number(e.target.value) })} />
             </div>
-            <MarginBadge sellPrice={baseRetail} buyPrice={baseNew} category={editingItem.category} series={editingItem.series} type="sealed" />
+            <ProfitBadge sellPrice={baseSell} buyPrice={baseNew} label="กำไรซีล" />
           </div>
-          {/* Used */}
           <div>
             <label className="text-[9px] font-black uppercase text-blue-600 tracking-wider block mb-1">ราคามือสอง (รับซื้อ)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 font-bold text-sm">฿</span>
-              <input
-                type="number"
-                className="w-full pl-8 pr-3 py-3 bg-white rounded-xl text-base font-black text-blue-700 border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                value={baseUsed || ''}
-                onChange={(e) => onEditingItemChange({ ...editingItem, baseUsedPrice: Number(e.target.value) })}
-              />
+              <input type="number" className="w-full pl-8 pr-3 py-2.5 bg-white rounded-xl text-sm font-black text-blue-700 border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none" value={baseUsed || ''} onChange={(e) => onEditingItemChange({ ...editingItem, baseUsedPrice: Number(e.target.value) })} />
             </div>
-            <MarginBadge sellPrice={baseRetail} buyPrice={baseUsed} category={editingItem.category} series={editingItem.series} type="used" />
+            <ProfitBadge sellPrice={baseSell} buyPrice={baseUsed} label="กำไรมือสอง" />
           </div>
         </div>
       </div>
@@ -160,21 +166,20 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
               <div className="px-5 py-3">
                 <div className="grid grid-cols-12 gap-2 mb-2 px-1">
                   <div className="col-span-3 text-[9px] font-black text-slate-400 uppercase tracking-wider">ค่า / ชื่อ</div>
-                  <div className="col-span-2 text-[9px] font-black text-orange-500 uppercase tracking-wider">Retail +/-</div>
+                  <div className="col-span-2 text-[9px] font-black text-violet-500 uppercase tracking-wider">ขาย +/-</div>
                   <div className="col-span-2 text-[9px] font-black text-emerald-500 uppercase tracking-wider">ซีล +/-</div>
                   <div className="col-span-2 text-[9px] font-black text-blue-500 uppercase tracking-wider">มือสอง +/-</div>
-                  <div className="col-span-1 text-[9px] font-black text-slate-400 uppercase text-center">Margin</div>
+                  <div className="col-span-1 text-[9px] font-black text-slate-400 uppercase text-center">กำไร</div>
                   <div className="col-span-2"></div>
                 </div>
 
                 <div className="space-y-2">
                   {mod.options.map((opt: ModifierOption, idx: number) => {
-                    // คำนวณ margin ของ option นี้
-                    const optRetail = baseRetail + (opt.retailPriceMod || 0);
+                    const optSell = baseSell + (opt.sellPriceMod || 0);
                     const optNew = baseNew + opt.newPriceMod;
                     const optUsed = baseUsed + opt.usedPriceMod;
-                    const sealedMarginPct = optRetail > 0 ? ((optRetail - optNew) / optRetail * 100) : 0;
-                    const usedMarginPct = optRetail > 0 ? ((optRetail - optUsed) / optRetail * 100) : 0;
+                    const sealedProfit = optSell > 0 ? optSell - optNew : 0;
+                    const usedProfit = optSell > 0 ? optSell - optUsed : 0;
 
                     return (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-center group">
@@ -190,8 +195,8 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
                         </div>
                         <div className="col-span-2">
                           <div className="relative">
-                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-orange-400 font-bold text-[10px]">+฿</span>
-                            <input type="number" className="w-full pl-7 pr-1 py-2 bg-orange-50/50 rounded-lg text-xs font-black text-orange-600 border border-orange-100 focus:ring-2 focus:ring-orange-500 outline-none" value={opt.retailPriceMod || ''} onChange={(e) => handleOptionChange(attr.key, idx, 'retailPriceMod' as any, Number(e.target.value))} />
+                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-violet-400 font-bold text-[10px]">+฿</span>
+                            <input type="number" className="w-full pl-7 pr-1 py-2 bg-violet-50/50 rounded-lg text-xs font-black text-violet-600 border border-violet-100 focus:ring-2 focus:ring-violet-500 outline-none" value={opt.sellPriceMod || ''} onChange={(e) => handleOptionChange(attr.key, idx, 'sellPriceMod', Number(e.target.value))} />
                           </div>
                         </div>
                         <div className="col-span-2">
@@ -207,20 +212,16 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
                           </div>
                         </div>
                         <div className="col-span-1 text-center">
-                          {optRetail > 0 && (
+                          {optSell > 0 && (
                             <div className="text-[9px] font-bold leading-tight">
-                              <div className="text-emerald-600">{sealedMarginPct.toFixed(0)}%</div>
-                              <div className="text-blue-600">{usedMarginPct.toFixed(0)}%</div>
+                              <div className={sealedProfit < 0 ? 'text-red-500' : 'text-emerald-600'}>฿{fmt(sealedProfit)}</div>
+                              <div className={usedProfit < 0 ? 'text-red-500' : 'text-blue-600'}>฿{fmt(usedProfit)}</div>
                             </div>
                           )}
                         </div>
                         <div className="col-span-2 flex justify-end gap-0.5">
-                          <button onClick={() => handleMoveOption(attr.key, idx, 'up')} disabled={idx === 0} className="p-1 text-slate-300 hover:text-slate-600 disabled:opacity-30 transition">
-                            <ArrowUpDown size={12} />
-                          </button>
-                          <button onClick={() => handleRemoveOption(attr.key, idx)} className="p-1 text-slate-300 hover:text-red-500 transition">
-                            <Trash2 size={14} />
-                          </button>
+                          <button onClick={() => handleMoveOption(attr.key, idx, 'up')} disabled={idx === 0} className="p-1 text-slate-300 hover:text-slate-600 disabled:opacity-30 transition"><ArrowUpDown size={12} /></button>
+                          <button onClick={() => handleRemoveOption(attr.key, idx)} className="p-1 text-slate-300 hover:text-red-500 transition"><Trash2 size={14} /></button>
                         </div>
                       </div>
                     );
@@ -252,11 +253,11 @@ export const ModifierPricingEditor: React.FC<ModifierPricingEditorProps> = ({
             </div>
             <div>
               <div className="text-sm font-black text-emerald-600">฿{fmt(stats.minNew)} - ฿{fmt(stats.maxNew)}</div>
-              <div className="text-[10px] text-slate-500 font-bold">ราคาซีล</div>
+              <div className="text-[10px] text-slate-500 font-bold">ราคารับซื้อซีล</div>
             </div>
             <div>
               <div className="text-sm font-black text-blue-600">฿{fmt(stats.minUsed)} - ฿{fmt(stats.maxUsed)}</div>
-              <div className="text-[10px] text-slate-500 font-bold">ราคามือสอง</div>
+              <div className="text-[10px] text-slate-500 font-bold">ราคารับซื้อมือสอง</div>
             </div>
           </div>
         </div>
