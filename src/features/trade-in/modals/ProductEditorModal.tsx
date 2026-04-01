@@ -2,11 +2,15 @@
 
 import React, { useState, useRef } from 'react';
 import {
-  Smartphone, X, Image as ImageIcon, Plus, ClipboardList, Trash2, Save, Upload, Loader2
+  Smartphone, X, Image as ImageIcon, ClipboardList, Save, Upload, Loader2,
+  Zap, List, ArrowRightLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS } from '../constants/categorySchemas';
+import { ModifierPricingEditor } from '../components/pricing/ModifierPricingEditor';
+import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
+import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
 
 interface ProductEditorModalProps {
   isOpen: boolean;
@@ -79,24 +83,49 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
 
   if (!isOpen || !editingItem) return null;
 
+  const pricingMode = editingItem.pricingMode || 'legacy';
+  const isModifier = pricingMode === 'modifier';
+
   const handleCategoryChange = (newCat: string) => {
     const schema = categorySchemas[newCat] || categorySchemas['Smartphones'];
-    onEditingItemChange({ ...editingItem, category: newCat, attributesSchema: schema });
+    const newItem: any = { ...editingItem, category: newCat, attributesSchema: schema };
+    // Reset modifiers เมื่อเปลี่ยน category (initialize empty options per attribute)
+    if (isModifier) {
+      const mods: Record<string, { options: any[] }> = {};
+      for (const attr of schema) {
+        mods[attr.key] = editingItem.attributeModifiers?.[attr.key] || { options: [] };
+      }
+      newItem.attributeModifiers = mods;
+    }
+    onEditingItemChange(newItem);
   };
 
-  const handleAddVariant = () => {
-    onEditingItemChange({ ...editingItem, variants: [...(editingItem.variants || []), { id: Date.now().toString(), attributes: {}, name: '', newPrice: 0, usedPrice: 0 }] });
+  const handleSwitchToModifier = () => {
+    const schema = editingItem.attributesSchema || categorySchemas[editingItem.category] || categorySchemas['Smartphones'];
+    const { baseNewPrice, baseUsedPrice, modifiers } = detectModifiersFromLegacyVariants(
+      editingItem.variants || [],
+      schema
+    );
+
+    // Initialize modifiers for all schema attributes
+    const fullModifiers: Record<string, { options: any[] }> = {};
+    for (const attr of schema) {
+      fullModifiers[attr.key] = modifiers[attr.key] || { options: [] };
+    }
+
+    onEditingItemChange({
+      ...editingItem,
+      pricingMode: 'modifier',
+      baseNewPrice,
+      baseUsedPrice,
+      attributeModifiers: fullModifiers,
+    });
+    toast.success('เปลี่ยนเป็น Modifier Mode แล้ว กรุณาตั้งค่า price modifiers');
   };
 
-  const handleRemoveVariant = (id: string) => {
-    onEditingItemChange({ ...editingItem, variants: editingItem.variants.filter((v: any) => v.id !== id) });
-  };
-
-  const handleAttributeChange = (variantIndex: number, attrKey: string, value: string) => {
-    const newVariants = [...editingItem.variants];
-    if (!newVariants[variantIndex].attributes) newVariants[variantIndex].attributes = {};
-    newVariants[variantIndex].attributes[attrKey] = value;
-    onEditingItemChange({ ...editingItem, variants: newVariants });
+  const handleSwitchToLegacy = () => {
+    onEditingItemChange({ ...editingItem, pricingMode: 'legacy' });
+    toast.success('เปลี่ยนกลับเป็น Legacy Mode');
   };
 
   const handleAddNewSeries = async () => {
@@ -105,31 +134,52 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
       const { ref, push, update } = await import('firebase/database');
       const { db } = await import('../../../api/firebase');
       const newRef = push(ref(db, 'series'));
-      await update(newRef, { name: newSeriesName.trim(), brand: editingItem.brand || 'Apple', category: editingItem.category || 'Tablets', subcategory: '' });
+      await update(newRef, {
+        name: newSeriesName.trim(),
+        brand: editingItem.brand || 'Apple',
+        category: editingItem.category || 'Tablets',
+        subcategory: '',
+      });
       toast.success(`เพิ่ม Series: ${newSeriesName} สำเร็จ!`);
       onEditingItemChange({ ...editingItem, series: newSeriesName.trim() });
       setNewSeriesName('');
       setIsAddingSeries(false);
-    } catch (error) { toast.error('เกิดข้อผิดพลาดในการเพิ่ม Series'); }
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการเพิ่ม Series');
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4 lg:p-10">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] h-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
 
+        {/* Header */}
         <div className="px-8 py-5 border-b flex justify-between items-center bg-white shrink-0 z-10">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center"><Smartphone size={24} /></div>
-            <div><h3 className="font-black text-2xl text-slate-800">{editingItem.id.length > 15 ? 'Edit Model' : 'Add New Model'}</h3><p className="text-sm font-bold text-slate-400">Enterprise Database Structure</p></div>
+            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
+              <Smartphone size={24} />
+            </div>
+            <div>
+              <h3 className="font-black text-2xl text-slate-800">
+                {editingItem.id.length > 15 ? 'Edit Model' : 'Add New Model'}
+              </h3>
+              <p className="text-sm font-bold text-slate-400">
+                {isModifier ? 'Modifier-Based Pricing' : 'Legacy Variant Pricing'}
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-3 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-full transition"><X size={24} /></button>
+          <button onClick={onClose} className="p-3 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-full transition">
+            <X size={24} />
+          </button>
         </div>
 
+        {/* Body */}
         <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 max-w-7xl mx-auto w-full">
 
             {/* Left Column (Info & Settings) */}
             <div className="xl:col-span-4 space-y-6">
+              {/* General Info */}
               <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-200 space-y-5">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                   <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">1. General Info</h4>
@@ -154,12 +204,12 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   </div>
                 </div>
 
+                {/* Series */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-500 mb-1.5 flex justify-between items-center">
                     <span>Series (ตระกูล)</span>
                     <span className="text-[10px] text-slate-400 font-normal">Optional</span>
                   </label>
-
                   {!isAddingSeries ? (
                     <div className="flex gap-2">
                       <select value={editingItem.series || ''} onChange={(e) => onEditingItemChange({ ...editingItem, series: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-colors outline-none">
@@ -194,11 +244,13 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   )}
                 </div>
 
+                {/* Model Name */}
                 <div>
                   <label className="text-xs font-bold text-slate-500 mb-1.5 block">Model Name (ชื่อรุ่น)</label>
                   <input type="text" placeholder="เช่น MacBook Pro 14 นิ้ว..." className="w-full p-3 bg-white rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500" value={editingItem.name} onChange={(e) => onEditingItemChange({ ...editingItem, name: e.target.value })} />
                 </div>
 
+                {/* Image */}
                 <div>
                   <label className="text-xs font-bold text-slate-500 mb-1.5 block">รูปสินค้า</label>
                   <div className="flex gap-2">
@@ -213,9 +265,9 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                 </div>
               </div>
 
+              {/* Trade-in Settings */}
               <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-200 space-y-5">
                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-3">2. Trade-in Settings</h4>
-
                 <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={editingItem.inStore} onChange={(e) => onEditingItemChange({ ...editingItem, inStore: e.target.checked })} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
@@ -230,7 +282,6 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                     <span className="text-sm font-bold text-slate-700">ส่งพัสดุ (Mail-in)</span>
                   </label>
                 </div>
-
                 <div>
                   <label className="text-xs font-black text-indigo-600 mb-2 block flex items-center gap-1"><ClipboardList size={14} /> Assign Condition Item</label>
                   <select className="w-full p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingItem.conditionSetId} onChange={(e) => onEditingItemChange({ ...editingItem, conditionSetId: e.target.value })}>
@@ -241,86 +292,54 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
               </div>
             </div>
 
-            {/* Right Column (DYNAMIC SPEC BUILDER) */}
+            {/* Right Column - Pricing Mode */}
             <div className="xl:col-span-8">
               <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-200 h-full flex flex-col">
+                {/* Mode Switcher Header */}
                 <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
                   <div>
-                    <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">3. Dynamic Variants (Step-by-Step UI)</h4>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">โครงสร้างนี้รองรับการสร้าง UI แบบทีละสเต็ปบนหน้าเว็บ (Progressive Disclosure)</p>
+                    <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400">
+                      3. {isModifier ? 'Attribute-Based Pricing' : 'Variant Pricing (Legacy)'}
+                    </h4>
+                    <p className="text-[10px] text-emerald-500 font-bold mt-1">
+                      {isModifier
+                        ? 'ตั้งราคาฐาน + ส่วนต่างแต่ละ option → ระบบคำนวณทุก combination อัตโนมัติ'
+                        : 'กรอกราคาแต่ละ variant ทีละตัว'}
+                    </p>
                   </div>
-                  <button onClick={handleAddVariant} className="text-sm font-bold text-blue-600 border-2 border-blue-100 bg-blue-50 px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-sm"><Plus size={16} /> Add Variant</button>
+
+                  {/* Mode Toggle */}
+                  <button
+                    onClick={isModifier ? handleSwitchToLegacy : handleSwitchToModifier}
+                    className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm border-2 ${
+                      isModifier
+                        ? 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        : 'text-violet-600 bg-violet-50 border-violet-100 hover:bg-violet-600 hover:text-white hover:border-violet-600'
+                    }`}
+                  >
+                    {isModifier ? (
+                      <><List size={14} /> Legacy Mode</>
+                    ) : (
+                      <><Zap size={14} /> Modifier Mode</>
+                    )}
+                    <ArrowRightLeft size={12} />
+                  </button>
                 </div>
 
-                <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-200 flex-1 overflow-y-auto space-y-4">
-                  {editingItem.variants?.map((v: any, index: number) => {
-                    const currentSchema = editingItem.attributesSchema || categorySchemas['Smartphones'];
-
-                    return (
-                      <div key={v.id} className="grid grid-cols-12 gap-4 items-start bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group hover:border-blue-200 transition-colors pr-12">
-
-                        {/* Dynamic Inputs Based on Category Schema */}
-                        <div className="col-span-12 xl:col-span-7">
-                           <div className="grid grid-cols-2 gap-3">
-                              {currentSchema.map((attr: any) => (
-                                 <div key={attr.key}>
-                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                                      {attr.label}
-                                    </label>
-
-                                    {attr.type === 'select' ? (
-                                       <select
-                                          className="w-full p-2.5 bg-slate-50 rounded-lg text-sm font-bold border border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                          value={v.attributes?.[attr.key] || ''}
-                                          onChange={(e) => handleAttributeChange(index, attr.key, e.target.value)}
-                                       >
-                                          <option value="">-- เลือก --</option>
-                                          {attr.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                                       </select>
-                                    ) : (
-                                       <input
-                                          type="text"
-                                          placeholder={`e.g. ${attr.key === 'ram' ? '8GB' : attr.key === 'storage' ? '256GB' : '...'}`}
-                                          className="w-full p-2.5 bg-slate-50 rounded-lg text-sm font-bold border border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                          value={v.attributes?.[attr.key] || ''}
-                                          onChange={(e) => handleAttributeChange(index, attr.key, e.target.value)}
-                                       />
-                                    )}
-                                 </div>
-                              ))}
-                              <div className="col-span-2 text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                                <span className="font-bold text-slate-500">ผลลัพธ์ที่จะโชว์ในฐานข้อมูลเก่า:</span>
-                                {currentSchema.map((a: any) => v.attributes?.[a.key]).filter(Boolean).join(' | ') || '...'}
-                              </div>
-                           </div>
-                        </div>
-
-                        {/* Pricing Inputs */}
-                        <div className="col-span-12 xl:col-span-5 grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-[9px] font-black uppercase text-emerald-500 tracking-wider block mb-1">ราคาเครื่องซีล</label>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">฿</span>
-                              <input type="number" className="w-full pl-8 pr-3 py-3 bg-emerald-50/50 rounded-lg text-sm font-black text-emerald-600 border border-emerald-100 focus:ring-2 focus:ring-emerald-500 outline-none" value={v.newPrice || ''} onChange={(e) => { const newV = [...editingItem.variants]; newV[index].newPrice = Number(e.target.value); onEditingItemChange({ ...editingItem, variants: newV }); }} />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[9px] font-black uppercase text-blue-500 tracking-wider block mb-1">ราคาเครื่องมือสอง (รับซื้อ)</label>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 font-bold">฿</span>
-                              <input type="number" className="w-full pl-8 pr-3 py-3 bg-blue-50/50 rounded-lg text-sm font-black text-blue-600 border border-blue-100 focus:ring-2 focus:ring-blue-500 outline-none" value={v.usedPrice || v.price || ''} onChange={(e) => { const newV = [...editingItem.variants]; newV[index].usedPrice = Number(e.target.value); onEditingItemChange({ ...editingItem, variants: newV }); }} />
-                            </div>
-                          </div>
-                        </div>
-
-                        {editingItem.variants.length > 1 && (
-                          <button onClick={() => handleRemoveVariant(v.id)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                {/* Pricing Content */}
+                <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-200 flex-1 overflow-y-auto">
+                  {isModifier ? (
+                    <ModifierPricingEditor
+                      editingItem={editingItem}
+                      onEditingItemChange={onEditingItemChange}
+                    />
+                  ) : (
+                    <LegacyVariantEditor
+                      editingItem={editingItem}
+                      categorySchemas={categorySchemas}
+                      onEditingItemChange={onEditingItemChange}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -328,10 +347,11 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
           </div>
         </div>
 
+        {/* Footer */}
         <div className="px-8 py-5 border-t bg-white flex justify-end gap-4 shrink-0 shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.1)] z-10">
           <button onClick={onClose} className="px-8 py-3 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition">Cancel</button>
           <button onClick={onSave} className="px-10 py-3 rounded-xl text-sm font-black text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95 flex items-center gap-2">
-            <Save size={18} /> Save & Apply Schema
+            <Save size={18} /> Save & Apply
           </button>
         </div>
       </div>

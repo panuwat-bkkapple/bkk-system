@@ -16,6 +16,7 @@ import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { generateVariantsFromModifiers } from './utils/variantGenerator';
 
 export const PriceEditor = () => {
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
@@ -103,21 +104,32 @@ export const PriceEditor = () => {
       const auth = getAuth(app);
       const adminUser = auth.currentUser?.email || 'System Admin';
       const originalModel = modelsData.find(m => m.id === editingItem.id);
+      const schema = editingItem.attributesSchema || CATEGORY_SCHEMAS[editingItem.category] || CATEGORY_SCHEMAS['Smartphones'];
+      const pricingMode = editingItem.pricingMode || 'legacy';
 
-      // แปลง Attributes กลับเป็น String ยาวๆ เพื่อให้ระบบเก่า (เช่น Statement) ทำงานได้ปกติ
-      const processedVariants = editingItem.variants.map((v: any) => {
-          const schema = editingItem.attributesSchema || CATEGORY_SCHEMAS[editingItem.category] || CATEGORY_SCHEMAS['Smartphones'];
+      let processedVariants: any[];
+
+      if (pricingMode === 'modifier') {
+        // Modifier Mode: generate flat variants จาก base price + modifiers
+        const generated = generateVariantsFromModifiers(
+          schema,
+          editingItem.attributeModifiers || {},
+          editingItem.baseNewPrice || 0,
+          editingItem.baseUsedPrice || 0,
+          editingItem.priceOverrides
+        );
+        processedVariants = generated;
+      } else {
+        // Legacy Mode: แปลง Attributes กลับเป็น String ยาวๆ
+        processedVariants = (editingItem.variants || []).map((v: any) => {
           const orderedValues = schema
             .map((schemaAttr: any) => v.attributes?.[schemaAttr.key])
             .filter(Boolean);
+          return { ...v, name: orderedValues.join(' | ') || v.name };
+        });
+      }
 
-          return {
-             ...v,
-             name: orderedValues.join(' | ') || v.name
-          };
-      });
-
-      const payload = {
+      const payload: any = {
         brand: editingItem.brand,
         category: editingItem.category,
         series: editingItem.series || '',
@@ -130,9 +142,20 @@ export const PriceEditor = () => {
         mailIn: editingItem.mailIn ?? true,
         conditionSetId: editingItem.conditionSetId,
         attributesSchema: editingItem.attributesSchema,
+        pricingMode,
         variants: processedVariants,
         updatedAt: Date.now()
       };
+
+      // เก็บ modifier data เฉพาะ modifier mode
+      if (pricingMode === 'modifier') {
+        payload.baseNewPrice = editingItem.baseNewPrice || 0;
+        payload.baseUsedPrice = editingItem.baseUsedPrice || 0;
+        payload.attributeModifiers = editingItem.attributeModifiers || {};
+        if (editingItem.priceOverrides) {
+          payload.priceOverrides = editingItem.priceOverrides;
+        }
+      }
 
       let finalModelId = editingItem.id;
 
@@ -259,8 +282,12 @@ export const PriceEditor = () => {
       });
       setEditingItem(editingObj);
     } else {
-      // ของใหม่
+      // ของใหม่ → default เป็น modifier mode
       const schema = CATEGORY_SCHEMAS[activeCategory] || CATEGORY_SCHEMAS['Smartphones'];
+      const initialModifiers: Record<string, { options: any[] }> = {};
+      for (const attr of schema) {
+        initialModifiers[attr.key] = { options: [] };
+      }
       setEditingItem({
         id: Date.now().toString(),
         brand: activeBrand === 'All' ? 'Apple' : activeBrand,
@@ -268,7 +295,11 @@ export const PriceEditor = () => {
         series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
         conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
         attributesSchema: schema,
-        variants: [{ id: 'v1', attributes: {}, name: '', newPrice: 0, usedPrice: 0 }]
+        pricingMode: 'modifier',
+        baseNewPrice: 0,
+        baseUsedPrice: 0,
+        attributeModifiers: initialModifiers,
+        variants: []
       });
     }
     setIsModalOpen(true);
