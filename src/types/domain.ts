@@ -417,6 +417,7 @@ export interface PricingModel {
   /** ราคาฐานสำหรับ modifier mode */
   baseRetailPrice?: number;
   baseSellPrice?: number;
+  baseSellUsedPrice?: number;
   baseNewPrice?: number;
   baseUsedPrice?: number;
 
