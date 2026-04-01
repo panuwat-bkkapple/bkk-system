@@ -16,6 +16,7 @@ import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
 import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
 
@@ -347,6 +348,15 @@ export const PriceEditor = () => {
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
         </div>
       </div>
+
+      {/* --- Anomaly Banner --- */}
+      <PriceAnomalyBanner
+        models={filteredModels}
+        onEditModel={(modelId) => {
+          const model = modelsData.find(m => m.id === modelId);
+          if (model) handleOpenModal(model);
+        }}
+      />
 
       {/* --- Main Table --- */}
       <ModelsTable
