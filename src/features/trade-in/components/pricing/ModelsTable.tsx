@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   ToggleLeft, ToggleRight, Pencil, Trash2, Star, ClipboardList, Layers, Copy,
-  ChevronDown, ChevronRight, FolderOpen, Zap
+  ChevronDown, ChevronRight, FolderOpen, Zap, TrendingDown
 } from 'lucide-react';
 
 interface ModelsTableProps {
@@ -15,6 +15,7 @@ interface ModelsTableProps {
   onDuplicate: (item: any) => void;
   onToggleStatus: (item: any) => void;
   onToggleFeatured: (item: any) => void;
+  onBatchAdjust?: (seriesName: string, models: any[]) => void;
 }
 
 const StatusToggle = ({ isActive, onToggle }: { isActive: boolean; onToggle: () => void }) => (
@@ -153,6 +154,7 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
   onDuplicate,
   onToggleStatus,
   onToggleFeatured,
+  onBatchAdjust,
 }) => {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
@@ -222,6 +224,14 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
                             {totalVariants} variants
                           </span>
                         </div>
+                        {onBatchAdjust && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onBatchAdjust(group.seriesName, group.models); }}
+                            className="text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-violet-600 hover:text-white hover:border-violet-600 transition-all"
+                          >
+                            <TrendingDown size={12} /> ปรับราคาทั้ง Series
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

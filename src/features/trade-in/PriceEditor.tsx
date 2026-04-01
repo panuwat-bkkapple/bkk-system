@@ -16,6 +16,7 @@ import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
 
 export const PriceEditor = () => {
@@ -32,6 +33,7 @@ export const PriceEditor = () => {
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
   const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
   const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
+  const [batchAdjust, setBatchAdjust] = useState<{ seriesName: string; models: any[] } | null>(null);
 
   const categories = [
     { id: 'Smartphones', icon: <Smartphone size={18} /> },
@@ -356,6 +358,7 @@ export const PriceEditor = () => {
         onDuplicate={handleDuplicateModel}
         onToggleStatus={handleToggleStatus}
         onToggleFeatured={handleToggleFeatured}
+        onBatchAdjust={(seriesName, models) => setBatchAdjust({ seriesName, models })}
       />
 
       <EngineSettingsModal
@@ -388,6 +391,13 @@ export const PriceEditor = () => {
         categorySchemas={CATEGORY_SCHEMAS}
         onSave={handleSaveModel}
         onEditingItemChange={setEditingItem}
+      />
+
+      <BatchPriceAdjustModal
+        isOpen={!!batchAdjust}
+        onClose={() => setBatchAdjust(null)}
+        seriesName={batchAdjust?.seriesName || ''}
+        models={batchAdjust?.models || []}
       />
     </div>
   );
