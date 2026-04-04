@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   User, Phone, MapPin, Store, Bike, Truck, Navigation, Map,
-  Pencil, Save, PackageOpen
+  Pencil, Save, PackageOpen, X
 } from 'lucide-react';
+import { ref, update } from 'firebase/database';
+import { db } from '@/api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
 interface CustomerInfoCardProps {
@@ -18,6 +20,31 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
   job, isEditing, editData, onSave, onToggleEdit, onEditChange
 }) => {
   const toast = useToast();
+  const [isEditingTracking, setIsEditingTracking] = useState(false);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [courierInput, setCourierInput] = useState('');
+  const [savingTracking, setSavingTracking] = useState(false);
+
+  const handleSaveTracking = async () => {
+    if (!trackingInput.trim()) {
+      toast.error('กรุณากรอกเลข Tracking');
+      return;
+    }
+    setSavingTracking(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        tracking_number: trackingInput.trim(),
+        courier_name: courierInput.trim() || '',
+      });
+      toast.success('อัพเดท Tracking Number เรียบร้อย');
+      setIsEditingTracking(false);
+    } catch {
+      toast.error('ไม่สามารถบันทึกได้ ลองใหม่อีกครั้ง');
+    } finally {
+      setSavingTracking(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('คัดลอกลิงก์เรียบร้อยแล้ว');
@@ -29,19 +56,75 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Logistics & Location</p>
 
         {job.receive_method === 'Mail-in' ? (
-          <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-start gap-3">
-            <Truck className="text-orange-500 shrink-0" size={20} />
-            <div>
-              <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-2">ส่งพัสดุ (Mail-in)</p>
-              {job.tracking_number ? (
-                <div className="mt-1">
-                  <p className="text-sm font-black text-orange-700 tracking-wider font-mono">{job.tracking_number}</p>
-                  <p className="text-[10px] font-bold text-slate-500 mt-0.5">ลูกค้าระบุเลขพัสดุแล้ว รอรับของ</p>
+          <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl">
+            {isEditingTracking ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-2">
+                    <Truck size={16} /> อัพเดท Tracking Number
+                  </p>
+                  <button onClick={() => setIsEditingTracking(false)} className="text-slate-400 hover:text-slate-600">
+                    <X size={16} />
+                  </button>
                 </div>
-              ) : (
-                <p className="text-[11px] font-bold text-slate-500 mt-1">รอลูกค้าส่งพัสดุและแจ้ง Tracking...</p>
-              )}
-            </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 ml-1">ขนส่ง (เช่น Kerry, Flash, J&T)</label>
+                  <input
+                    type="text"
+                    value={courierInput}
+                    onChange={e => setCourierInput(e.target.value)}
+                    placeholder="ชื่อขนส่ง"
+                    className="w-full text-sm font-bold border rounded-xl px-3 py-2 outline-none focus:border-orange-400 mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 ml-1">เลข Tracking</label>
+                  <input
+                    type="text"
+                    value={trackingInput}
+                    onChange={e => setTrackingInput(e.target.value)}
+                    placeholder="เลข Tracking Number"
+                    className="w-full text-sm font-bold border rounded-xl px-3 py-2 outline-none focus:border-orange-400 font-mono mt-1"
+                  />
+                </div>
+                <button
+                  onClick={handleSaveTracking}
+                  disabled={savingTracking}
+                  className="w-full text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 py-2.5 rounded-xl flex justify-center items-center gap-1 shadow-md transition-colors"
+                >
+                  <Save size={14} /> {savingTracking ? 'กำลังบันทึก...' : 'บันทึก Tracking'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3">
+                <Truck className="text-orange-500 shrink-0" size={20} />
+                <div className="flex-1">
+                  <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-2">ส่งพัสดุ (Mail-in)</p>
+                  {job.tracking_number ? (
+                    <div className="mt-1">
+                      {job.courier_name && (
+                        <p className="text-[10px] font-bold text-slate-500">{job.courier_name}</p>
+                      )}
+                      <p className="text-sm font-black text-orange-700 tracking-wider font-mono">{job.tracking_number}</p>
+                      <p className="text-[10px] font-bold text-slate-500 mt-0.5">เลขพัสดุถูกบันทึกแล้ว รอรับของ</p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] font-bold text-slate-500 mt-1">รอลูกค้าส่งพัสดุและแจ้ง Tracking...</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setTrackingInput(job.tracking_number || '');
+                    setCourierInput(job.courier_name || '');
+                    setIsEditingTracking(true);
+                  }}
+                  className="text-slate-400 hover:text-orange-500 p-1.5 bg-white rounded-lg shadow-sm border border-orange-200 transition-colors shrink-0"
+                  title="แก้ไข Tracking Number"
+                >
+                  <Pencil size={12} />
+                </button>
+              </div>
+            )}
           </div>
         ) : job.receive_method === 'Store-in' ? (
           <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl flex items-start gap-3">
