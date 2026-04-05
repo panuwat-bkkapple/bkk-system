@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Package, MapPin, CheckCircle2, Loader2, RefreshCw, AlertCircle, Truck } from 'lucide-react';
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '@/api/firebase';
+import { ref, onValue } from 'firebase/database';
+import { db } from '@/api/firebase';
 
 interface TrackingItem {
   status: string;
@@ -10,17 +10,15 @@ interface TrackingItem {
   location: string;
   postcode: string;
   delivery_status: string | null;
-  delivery_description: string | null;
   receiver_name: string | null;
 }
 
-interface TrackingResult {
+interface TrackingData {
   barcode: string;
   status: 'found' | 'not_found';
+  fetched_at: number;
   items: TrackingItem[];
 }
-
-const trackParcelFn = httpsCallable<{ barcode: string }, TrackingResult>(functions, 'trackParcel');
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   delivered: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: <CheckCircle2 size={14} className="text-emerald-500" /> },
@@ -44,26 +42,44 @@ function formatThaiDate(dateStr: string) {
   } catch { return dateStr; }
 }
 
-export const ThaiPostTracking: React.FC<{ trackingNumber: string }> = ({ trackingNumber }) => {
-  const [data, setData] = useState<TrackingResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+function timeAgo(timestamp: number) {
+  const mins = Math.floor((Date.now() - timestamp) / 60000);
+  if (mins < 1) return 'เมื่อสักครู่';
+  if (mins < 60) return `${mins} นาทีที่แล้ว`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} ชม.ที่แล้ว`;
+  return `${Math.floor(hrs / 24)} วันที่แล้ว`;
+}
 
-  const fetchTracking = useCallback(async () => {
-    if (!trackingNumber) return;
+export const ThaiPostTracking: React.FC<{ jobId: string; trackingNumber: string }> = ({ jobId, trackingNumber }) => {
+  const [data, setData] = useState<TrackingData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Listen to tracking_data from RTDB (real-time)
+  useEffect(() => {
+    if (!jobId) return;
     setLoading(true);
-    setError('');
-    try {
-      const result = await trackParcelFn({ barcode: trackingNumber });
-      setData(result.data);
-    } catch (err: any) {
-      setError(err.message || 'ไม่สามารถดึงข้อมูลได้');
-    } finally {
+    const trackingRef = ref(db, `jobs/${jobId}/tracking_data`);
+    const unsub = onValue(trackingRef, (snap) => {
+      setData(snap.val());
       setLoading(false);
-    }
-  }, [trackingNumber]);
+    });
+    return () => unsub();
+  }, [jobId]);
 
-  useEffect(() => { fetchTracking(); }, [fetchTracking]);
+  // Trigger refresh by re-writing tracking_number (fires the cloud function)
+  const handleRefresh = useCallback(async () => {
+    if (!trackingNumber || !jobId) return;
+    setLoading(true);
+    try {
+      const { update } = await import('firebase/database');
+      await update(ref(db, `jobs/${jobId}`), {
+        tracking_number: trackingNumber, // re-write same value triggers onValueWritten
+      });
+    } catch { /* ignore */ }
+    // Loading will be cleared by the onValue listener when tracking_data updates
+    setTimeout(() => setLoading(false), 5000); // fallback timeout
+  }, [jobId, trackingNumber]);
 
   if (!trackingNumber) return null;
 
@@ -73,14 +89,19 @@ export const ThaiPostTracking: React.FC<{ trackingNumber: string }> = ({ trackin
         <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1.5">
           <Package size={12} /> Thailand Post Tracking
         </p>
-        <button
-          onClick={fetchTracking}
-          disabled={loading}
-          className="text-orange-400 hover:text-orange-600 disabled:opacity-50 transition-colors p-1"
-          title="รีเฟรช"
-        >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          {data?.fetched_at && (
+            <span className="text-[8px] text-orange-300">{timeAgo(data.fetched_at)}</span>
+          )}
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="text-orange-400 hover:text-orange-600 disabled:opacity-50 transition-colors p-1"
+            title="รีเฟรช"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       <div className="px-3 py-2 bg-white max-h-[200px] overflow-y-auto no-scrollbar">
@@ -90,9 +111,9 @@ export const ThaiPostTracking: React.FC<{ trackingNumber: string }> = ({ trackin
           </div>
         )}
 
-        {error && (
-          <div className="flex items-center gap-2 py-3 text-xs text-red-500">
-            <AlertCircle size={14} /> {error}
+        {!loading && !data && (
+          <div className="flex items-center gap-2 py-3 text-xs text-slate-400">
+            <AlertCircle size={14} /> รอระบบดึงข้อมูลจากไปรษณีย์ไทย...
           </div>
         )}
 
@@ -100,7 +121,7 @@ export const ThaiPostTracking: React.FC<{ trackingNumber: string }> = ({ trackin
           <p className="text-xs text-slate-400 py-3 text-center">ไม่พบข้อมูลพัสดุ (อาจยังไม่เข้าระบบ)</p>
         )}
 
-        {data && data.items.length > 0 && (
+        {data && data.items && data.items.length > 0 && (
           <div className="space-y-0 relative before:absolute before:left-[6px] before:top-2 before:bottom-2 before:w-[1.5px] before:bg-slate-100">
             {data.items.map((item, i) => {
               const style = getStatusStyle(item);
