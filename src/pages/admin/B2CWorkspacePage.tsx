@@ -33,8 +33,8 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const [isQCModalOpen, setIsQCModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
-  const [modelsData, setModelsData] = useState([]);
-  const [conditionSets, setConditionSets] = useState([]);
+  const [modelsData, setModelsData] = useState<any[]>([]);
+  const [conditionSets, setConditionSets] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
