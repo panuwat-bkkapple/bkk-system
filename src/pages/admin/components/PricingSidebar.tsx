@@ -45,6 +45,7 @@ interface PricingCalculations {
   netPayout: number;
   isCancelled: boolean;
   isNew: boolean;
+  isLogistics: boolean;
   isQC: boolean;
   isNegotiation: boolean;
   isProcessingPayment: boolean;
@@ -80,7 +81,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
   const {
     basePrice, pickupFee, couponValue, netPayout,
-    isCancelled, isNew, isQC, isNegotiation,
+    isCancelled, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
 
@@ -258,6 +259,38 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               className={`w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2 ${statusLower === 'new lead' ? 'opacity-80' : ''}`}
             >
               {job.receive_method === 'Store-in' ? 'ลูกค้ายืนยันเข้าสาขา (รอเข้าตรวจสอบ)' : (statusLower === 'new lead' ? '2. จ่ายงานให้ไรเดอร์ (Dispatch)' : 'จ่ายงานให้ไรเดอร์ (Dispatch Rider)')}
+            </button>
+          </div>
+        )}
+
+        {/* Rider Logistics Phase (Assigned / Accepted / Arrived) */}
+        {!isCancelled && isLogistics && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Rider Logistics</p>
+            <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+              <p className="text-[10px] font-bold text-blue-600 flex items-center gap-2">
+                <Truck size={14} />
+                {statusLower === 'assigned' && 'รอไรเดอร์กดรับงาน'}
+                {statusLower === 'accepted' && 'ไรเดอร์รับงานแล้ว กำลังเดินทาง'}
+                {statusLower === 'arrived' && 'ไรเดอร์ถึงจุดนัดหมายแล้ว'}
+              </p>
+              {job.assigned_rider_name && (
+                <p className="text-[9px] font-bold text-blue-400 mt-1">Rider: {job.assigned_rider_name}</p>
+              )}
+            </div>
+            {statusLower !== 'arrived' && (
+              <button
+                onClick={() => handleUpdateStatus('Arrived', 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+              >
+                <Truck size={16} /> ไรเดอร์ถึงแล้ว (Mark Arrived)
+              </button>
+            )}
+            <button
+              onClick={() => handleUpdateStatus('Being Inspected', 'เริ่มตรวจสอบสภาพเครื่อง')}
+              className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+            >
+              <ListChecks size={16} /> เริ่มตรวจสภาพเครื่อง (Start QC)
             </button>
           </div>
         )}
