@@ -137,7 +137,7 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
                 </button>
               </div>
             )}
-            {job.tracking_number && <ThaiPostTracking trackingNumber={job.tracking_number} />}
+            {job.tracking_number && <ThaiPostTracking jobId={job.id} trackingNumber={job.tracking_number} />}
           </div>
         ) : job.receive_method === 'Store-in' ? (
           <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl flex items-start gap-3">

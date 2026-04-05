@@ -1,5 +1,5 @@
-const { onValueCreated, onValueUpdated } = require("firebase-functions/v2/database");
-const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onValueCreated, onValueUpdated, onValueWritten } = require("firebase-functions/v2/database");
+const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
@@ -652,99 +652,107 @@ exports.onJobStatusChanged = onValueUpdated(
 );
 
 // =============================================================================
-// Thailand Post Tracking API Proxy
+// Thailand Post Tracking — Database Trigger (ไม่ต้องใช้ HTTPS = ไม่ต้อง IAM)
 // =============================================================================
 
 /**
- * trackParcel — เรียก Thailand Post API เพื่อดึงสถานะพัสดุ
- * callable: { barcode: "ED123456789TH" }
+ * ฟังก์ชันกลางสำหรับดึงข้อมูล tracking จาก Thailand Post API
  */
-exports.trackParcel = onCall(
-  { region: "asia-southeast1" },
-  async (request) => {
-    const barcode = request.data?.barcode;
-    if (!barcode) {
-      throw new HttpsError("invalid-argument", "Missing barcode parameter");
-    }
+async function fetchThaiPostTracking(barcode) {
+  const apiKey = process.env.THAILAND_POST_API_KEY;
+  if (!apiKey) {
+    console.error("THAILAND_POST_API_KEY not configured");
+    return null;
+  }
 
-    const apiKey = process.env.THAILAND_POST_API_KEY;
-    if (!apiKey) {
-      throw new HttpsError("failed-precondition", "Thailand Post API key not configured");
-    }
-
-    try {
-      // Step 1: Get token
-      const tokenRes = await fetch(
-        "https://trackapi.thailandpost.co.th/post/security/getToken?grant_type=client_credentials",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Token ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.error("Token error:", tokenRes.status, errText);
-        throw new HttpsError("unavailable", "Failed to get Thailand Post token");
+  try {
+    // Step 1: Get token
+    const tokenRes = await fetch(
+      "https://trackapi.thailandpost.co.th/post/security/getToken?grant_type=client_credentials",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${apiKey}`,
+          "Content-Type": "application/json",
+        },
       }
-
-      const tokenData = await tokenRes.json();
-      const token = tokenData.token;
-
-      // Step 2: Track by barcode
-      const trackRes = await fetch(
-        "https://trackapi.thailandpost.co.th/post/api/v1/track",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Token ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            status: "all",
-            language: "TH",
-            barcode: [barcode],
-          }),
-        }
-      );
-
-      if (!trackRes.ok) {
-        const errText = await trackRes.text();
-        console.error("Track error:", trackRes.status, errText);
-        throw new HttpsError("unavailable", "Failed to track parcel");
-      }
-
-      const trackData = await trackRes.json();
-
-      // Extract tracking items from response
-      const items =
-        trackData?.response?.items?.[barcode] ||
-        trackData?.response?.items?.[barcode.toUpperCase()] ||
-        [];
-
-      return {
-        barcode,
-        status: trackData?.response?.track_count?.count_number > 0 ? "found" : "not_found",
-        items: items.map((item) => ({
-          status: item.status_description || item.status,
-          status_code: item.status,
-          date: item.status_date,
-          location: item.location || "",
-          postcode: item.postcode || "",
-          delivery_status: item.delivery_status || null,
-          delivery_description: item.delivery_description || null,
-          receiver_name: item.receiver_name || null,
-          signature: item.signature || null,
-        })),
-        track_count: trackData?.response?.track_count || {},
-      };
-    } catch (err) {
-      if (err instanceof HttpsError) throw err;
-      console.error("trackParcel error:", err);
-      throw new HttpsError("internal", "Internal server error");
+    );
+    if (!tokenRes.ok) {
+      console.error("Token error:", tokenRes.status, await tokenRes.text());
+      return null;
     }
+    const { token } = await tokenRes.json();
+
+    // Step 2: Track by barcode
+    const trackRes = await fetch(
+      "https://trackapi.thailandpost.co.th/post/api/v1/track",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: "all",
+          language: "TH",
+          barcode: [barcode],
+        }),
+      }
+    );
+    if (!trackRes.ok) {
+      console.error("Track error:", trackRes.status, await trackRes.text());
+      return null;
+    }
+    const trackData = await trackRes.json();
+
+    const items =
+      trackData?.response?.items?.[barcode] ||
+      trackData?.response?.items?.[barcode.toUpperCase()] ||
+      [];
+
+    return {
+      barcode,
+      status: items.length > 0 ? "found" : "not_found",
+      fetched_at: Date.now(),
+      items: items.map((item) => ({
+        status: item.status_description || item.status,
+        status_code: item.status,
+        date: item.status_date,
+        location: item.location || "",
+        postcode: item.postcode || "",
+        delivery_status: item.delivery_status || null,
+        receiver_name: item.receiver_name || null,
+      })),
+    };
+  } catch (err) {
+    console.error("fetchThaiPostTracking error:", err);
+    return null;
+  }
+}
+
+/**
+ * onTrackingNumberUpdated — เมื่อบันทึก tracking_number ใหม่ ดึงข้อมูลจาก Thailand Post
+ * แล้วเก็บผลลัพธ์ไว้ที่ jobs/{jobId}/tracking_data
+ */
+exports.onTrackingNumberUpdated = onValueWritten(
+  {
+    ref: "/jobs/{jobId}/tracking_number",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const after = event.data.after.val();
+    if (!after) return; // tracking ถูกลบ
+
+    const jobId = event.params.jobId;
+    console.log(`Tracking number updated for job ${jobId}: ${after}`);
+
+    const trackingData = await fetchThaiPostTracking(after);
+    if (!trackingData) return;
+
+    const db = getDatabase();
+    await db.ref(`jobs/${jobId}/tracking_data`).set(trackingData);
+    console.log(
+      `Saved tracking data for job ${jobId}: ${trackingData.items.length} items`
+    );
   }
 );
