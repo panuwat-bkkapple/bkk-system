@@ -47,8 +47,8 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
       setLoading(false);
     });
 
-    const unsubscribeModels = onValue(ref(db, 'models'), (snap) => setModelsData(snap.exists() ? Object.values(snap.val()) : []));
-    const unsubscribeConditions = onValue(ref(db, 'settings/condition_sets'), (snap) => setConditionSets(snap.exists() ? Object.values(snap.val()) : []));
+    const unsubscribeModels = onValue(ref(db, 'models'), (snap) => setModelsData(snap.exists() ? Object.entries(snap.val()).map(([id, v]: [string, any]) => ({ id, ...v })) : []));
+    const unsubscribeConditions = onValue(ref(db, 'settings/condition_sets'), (snap) => setConditionSets(snap.exists() ? Object.entries(snap.val()).map(([id, v]: [string, any]) => ({ id, ...v })) : []));
 
     return () => {
       unsubscribeJob();

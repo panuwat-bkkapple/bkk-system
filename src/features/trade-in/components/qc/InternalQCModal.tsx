@@ -24,7 +24,7 @@ const getDeviceDisplayName = (device: any) => {
     return `${device.model || 'Unknown Device'} ${cap ? `(${cap})` : ''}`.trim();
 };
 
-export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQCModalProps) => {
+export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSets }: InternalQCModalProps) => {
     const toast = useToast();
     const [activeDeviceIndex, setActiveDeviceIndex] = useState<number | null>(null);
     const [inspectedDevicesData, setInspectedDevicesData] = useState<Record<number, any>>({});
@@ -53,23 +53,43 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQC
         }];
     }, [job]);
 
-    // 🌟 THE FIX: Super Extractor ดึง Rules (t1, t2, t3) จาก Price Editor
+    // 🌟 THE FIX: ดึง Checklist จาก Condition Sets Engine ผ่าน conditionSetId ของ model
     const activeChecklist = useMemo(() => {
         if (activeDeviceIndex === null) return [];
         const activeDevice = devicesList[activeDeviceIndex];
-        
+
         // 1. พยายามดึง Rules จากตัวเครื่องก่อน (Snapshot ตอนลูกค้าทำรายการ)
         let rulesSource = activeDevice.rules || job.rules || job.assessment_details?.rules;
 
-        // 2. ถ้าไม่มี ให้ไปค้นหาแบบไดนามิกจาก modelsData (Price Editor)
+        // 2. ถ้าไม่มี ให้ไปค้นหา model จาก modelsData แล้วดึง conditionSetId
         if (!rulesSource && modelsData && modelsData.length > 0) {
             const cleanDeviceModel = (activeDevice.model || '').replace(/\s+\d+(GB|TB).*$/i, '').trim().toLowerCase();
             const targetModel = modelsData.find(m => {
                 const mName = (m.name || '').toLowerCase();
                 return mName === cleanDeviceModel || cleanDeviceModel.includes(mName) || mName.includes(cleanDeviceModel);
             });
+
+            // 2a. ถ้า model มี rules แบบเดิม ใช้ได้เลย
             if (targetModel && targetModel.rules) {
                 rulesSource = targetModel.rules;
+            }
+
+            // 2b. ถ้าไม่มี rules แต่มี conditionSetId → ดึงจาก conditionSets
+            if (!rulesSource && targetModel?.conditionSetId && conditionSets && conditionSets.length > 0) {
+                const matchedSet = conditionSets.find(cs => cs.id === targetModel.conditionSetId);
+                if (matchedSet?.groups && Array.isArray(matchedSet.groups)) {
+                    return matchedSet.groups
+                        .filter((g: any) => g && g.options && Array.isArray(g.options) && g.options.length > 0)
+                        .map((group: any) => ({
+                            id: group.id || `g_${Math.random().toString(36).slice(2, 8)}`,
+                            title: group.title || 'หัวข้อประเมิน',
+                            options: group.options.map((opt: any, idx: number) => ({
+                                id: opt.id || `${group.id}_opt_${idx}`,
+                                label: opt.label || opt.name || 'ไม่มีชื่อตำหนิ',
+                                deduction: Number(opt.t1 || 0) // ใช้ Tier 1 เป็นค่าเริ่มต้น
+                            }))
+                        }));
+                }
             }
         }
 
@@ -84,16 +104,14 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQC
         ];
 
         tiers.forEach(tier => {
-            // รองรับ Key ทั้งแบบตัวเล็ก (t1) และตัวใหญ่ (T1)
             const rulesInTier = rulesSource[tier.key] || rulesSource[tier.key.toUpperCase()];
             if (rulesInTier && Array.isArray(rulesInTier) && rulesInTier.length > 0) {
                 groups.push({
                     id: tier.key,
                     title: tier.title,
-                    options: rulesInTier.map((rule, idx) => ({
+                    options: rulesInTier.map((rule: any, idx: number) => ({
                         id: `${tier.key}_${idx}`,
-                        // ดักจับชื่อตัวแปรทุกรูปแบบที่เป็นไปได้
-                        label: rule.label || rule.name || rule.condition || rule.title || 'ไม่มีชื่อตำหนิ', 
+                        label: rule.label || rule.name || rule.condition || rule.title || 'ไม่มีชื่อตำหนิ',
                         deduction: Number(rule.deduction || rule.value || rule.price || rule.amount || 0)
                     }))
                 });
@@ -101,7 +119,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData }: InternalQC
         });
 
         return groups;
-    }, [activeDeviceIndex, devicesList, modelsData, job]);
+    }, [activeDeviceIndex, devicesList, modelsData, conditionSets, job]);
 
     if (!isOpen || !job) return null;
 
