@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Package, MapPin, CheckCircle2, Loader2, RefreshCw, AlertCircle, Truck } from 'lucide-react';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/api/firebase';
 
 interface TrackingItem {
   status: string;
@@ -18,7 +20,7 @@ interface TrackingResult {
   items: TrackingItem[];
 }
 
-const FUNCTION_URL = 'https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/trackParcel';
+const trackParcelFn = httpsCallable<{ barcode: string }, TrackingResult>(functions, 'trackParcel');
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   delivered: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: <CheckCircle2 size={14} className="text-emerald-500" /> },
@@ -52,14 +54,8 @@ export const ThaiPostTracking: React.FC<{ trackingNumber: string }> = ({ trackin
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(FUNCTION_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barcode: trackingNumber }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json();
-      setData(result);
+      const result = await trackParcelFn({ barcode: trackingNumber });
+      setData(result.data);
     } catch (err: any) {
       setError(err.message || 'ไม่สามารถดึงข้อมูลได้');
     } finally {

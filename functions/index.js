@@ -1,5 +1,5 @@
 const { onValueCreated, onValueUpdated } = require("firebase-functions/v2/database");
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
@@ -657,29 +657,19 @@ exports.onJobStatusChanged = onValueUpdated(
 
 /**
  * trackParcel — เรียก Thailand Post API เพื่อดึงสถานะพัสดุ
- * POST /trackParcel { barcode: "ED123456789TH" }
+ * callable: { barcode: "ED123456789TH" }
  */
-exports.trackParcel = onRequest(
-  {
-    region: "asia-southeast1",
-    cors: true,
-  },
-  async (req, res) => {
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "Method not allowed" });
-      return;
-    }
-
-    const { barcode } = req.body;
+exports.trackParcel = onCall(
+  { region: "asia-southeast1" },
+  async (request) => {
+    const barcode = request.data?.barcode;
     if (!barcode) {
-      res.status(400).json({ error: "Missing barcode parameter" });
-      return;
+      throw new HttpsError("invalid-argument", "Missing barcode parameter");
     }
 
     const apiKey = process.env.THAILAND_POST_API_KEY;
     if (!apiKey) {
-      res.status(500).json({ error: "Thailand Post API key not configured" });
-      return;
+      throw new HttpsError("failed-precondition", "Thailand Post API key not configured");
     }
 
     try {
@@ -698,8 +688,7 @@ exports.trackParcel = onRequest(
       if (!tokenRes.ok) {
         const errText = await tokenRes.text();
         console.error("Token error:", tokenRes.status, errText);
-        res.status(502).json({ error: "Failed to get Thailand Post token" });
-        return;
+        throw new HttpsError("unavailable", "Failed to get Thailand Post token");
       }
 
       const tokenData = await tokenRes.json();
@@ -725,8 +714,7 @@ exports.trackParcel = onRequest(
       if (!trackRes.ok) {
         const errText = await trackRes.text();
         console.error("Track error:", trackRes.status, errText);
-        res.status(502).json({ error: "Failed to track parcel" });
-        return;
+        throw new HttpsError("unavailable", "Failed to track parcel");
       }
 
       const trackData = await trackRes.json();
@@ -737,7 +725,7 @@ exports.trackParcel = onRequest(
         trackData?.response?.items?.[barcode.toUpperCase()] ||
         [];
 
-      res.json({
+      return {
         barcode,
         status: trackData?.response?.track_count?.count_number > 0 ? "found" : "not_found",
         items: items.map((item) => ({
@@ -752,10 +740,11 @@ exports.trackParcel = onRequest(
           signature: item.signature || null,
         })),
         track_count: trackData?.response?.track_count || {},
-      });
+      };
     } catch (err) {
+      if (err instanceof HttpsError) throw err;
       console.error("trackParcel error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      throw new HttpsError("internal", "Internal server error");
     }
   }
 );
