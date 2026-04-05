@@ -38,18 +38,10 @@ jobs:
       - name: Create Functions .env
         run: echo "THAILAND_POST_API_KEY=${{ secrets.THAILAND_POST_API_KEY }}" > functions/.env
 
-      - name: Delete old trackParcel function
-        uses: w9jds/firebase-action@master
-        with:
-          args: functions:delete trackParcel --region asia-southeast1 --force --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-        continue-on-error: true
-
       - name: Deploy Firebase Functions
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only functions --force --project bkk-apple-tradein
+          args: deploy --only functions --project bkk-apple-tradein
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
