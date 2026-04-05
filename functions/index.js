@@ -756,10 +756,3 @@ exports.onTrackingNumberUpdated = onValueWritten(
     );
   }
 );
-
-// Stub: คง trackParcel ไว้เพื่อไม่ให้ Firebase deploy error (function exists in cloud)
-// จะถูก update เป็น no-op แทนการลบ (ลบไม่ได้เพราะ IAM)
-exports.trackParcel = onRequest(
-  { region: "asia-southeast1", cors: true },
-  (_req, res) => res.json({ deprecated: true, message: "Use onTrackingNumberUpdated instead" })
-);
