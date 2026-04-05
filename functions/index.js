@@ -650,3 +650,112 @@ exports.onJobStatusChanged = onValueUpdated(
     );
   }
 );
+
+// =============================================================================
+// Thailand Post Tracking API Proxy
+// =============================================================================
+
+/**
+ * trackParcel — เรียก Thailand Post API เพื่อดึงสถานะพัสดุ
+ * POST /trackParcel { barcode: "ED123456789TH" }
+ */
+exports.trackParcel = onRequest(
+  {
+    region: "asia-southeast1",
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const { barcode } = req.body;
+    if (!barcode) {
+      res.status(400).json({ error: "Missing barcode parameter" });
+      return;
+    }
+
+    const apiKey = process.env.THAILAND_POST_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: "Thailand Post API key not configured" });
+      return;
+    }
+
+    try {
+      // Step 1: Get token
+      const tokenRes = await fetch(
+        "https://trackapi.thailandpost.co.th/post/security/getToken?grant_type=client_credentials",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.error("Token error:", tokenRes.status, errText);
+        res.status(502).json({ error: "Failed to get Thailand Post token" });
+        return;
+      }
+
+      const tokenData = await tokenRes.json();
+      const token = tokenData.token;
+
+      // Step 2: Track by barcode
+      const trackRes = await fetch(
+        "https://trackapi.thailandpost.co.th/post/api/v1/track",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "all",
+            language: "TH",
+            barcode: [barcode],
+          }),
+        }
+      );
+
+      if (!trackRes.ok) {
+        const errText = await trackRes.text();
+        console.error("Track error:", trackRes.status, errText);
+        res.status(502).json({ error: "Failed to track parcel" });
+        return;
+      }
+
+      const trackData = await trackRes.json();
+
+      // Extract tracking items from response
+      const items =
+        trackData?.response?.items?.[barcode] ||
+        trackData?.response?.items?.[barcode.toUpperCase()] ||
+        [];
+
+      res.json({
+        barcode,
+        status: trackData?.response?.track_count?.count_number > 0 ? "found" : "not_found",
+        items: items.map((item) => ({
+          status: item.status_description || item.status,
+          status_code: item.status,
+          date: item.status_date,
+          location: item.location || "",
+          postcode: item.postcode || "",
+          delivery_status: item.delivery_status || null,
+          delivery_description: item.delivery_description || null,
+          receiver_name: item.receiver_name || null,
+          signature: item.signature || null,
+        })),
+        track_count: trackData?.response?.track_count || {},
+      });
+    } catch (err) {
+      console.error("trackParcel error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);

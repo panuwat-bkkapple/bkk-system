@@ -6,6 +6,7 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { ThaiPostTracking } from './ThaiPostTracking';
 
 interface CustomerInfoCardProps {
   job: any;
@@ -136,6 +137,7 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
                 </button>
               </div>
             )}
+            {job.tracking_number && <ThaiPostTracking trackingNumber={job.tracking_number} />}
           </div>
         ) : job.receive_method === 'Store-in' ? (
           <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl flex items-start gap-3">
