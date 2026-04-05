@@ -6,14 +6,14 @@ export const SmartPipeline = ({ job }: { job: any }) => {
   let currentStep = 0;
 
   const hasBeenPaid = !!job?.paid_at || !!job?.payment_slip ||
-    ['paid', 'payment completed', 'deal closed', 'sent to qc lab', 'in stock', 'waiting for handover'].includes(s) ||
+    ['paid', 'payment completed', 'deal closed', 'sent to qc lab', 'in stock', 'waiting for handover', 'ready to sell', 'sold', 'completed'].includes(s) ||
     job?.qc_logs?.some((l: any) => ['paid', 'payment completed'].includes(l.action?.toLowerCase()));
 
   if (['cancelled', 'closed (lost)', 'returned'].includes(s)) currentStep = 0;
   else if (hasBeenPaid || ['payout processing', 'waiting for finance'].includes(s)) currentStep = 4;
   else if (['being inspected', 'pending qc', 'qc review', 'revised offer', 'negotiation'].includes(s)) currentStep = 3;
-  else if (['active leads', 'arrived', 'in-transit', 'accepted'].includes(s)) currentStep = 2;
-  else if (['new lead', 'following up', 'appointment set'].includes(s)) currentStep = 1;
+  else if (['active leads', 'assigned', 'arrived', 'in-transit', 'accepted'].includes(s)) currentStep = 2;
+  else if (['new lead', 'following up', 'appointment set', 'waiting drop-off'].includes(s)) currentStep = 1;
 
   const steps = [
     { num: 1, label: 'SALES & DEAL' },
