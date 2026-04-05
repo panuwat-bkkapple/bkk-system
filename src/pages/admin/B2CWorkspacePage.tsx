@@ -73,11 +73,11 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes(statusLower) || statusLower.includes('cancel');
-  const isNew = ['new lead', 'following up', 'appointment set', 'active leads'].includes(statusLower);
+  const isNew = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower);
   const isQC = ['being inspected', 'pending qc', 'qc review'].includes(statusLower);
   const isNegotiation = ['revised offer', 'negotiation'].includes(statusLower);
   const isProcessingPayment = statusLower === 'payout processing' || statusLower === 'waiting for finance';
-  const hasBeenPaid = !!job.paid_at || !!job.payment_slip || ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover'].includes(statusLower) || statusLower.includes('paid') || job.qc_logs?.some((log: any) => ['paid', 'payment completed'].includes(log.action?.toLowerCase()));
+  const hasBeenPaid = !!job.paid_at || !!job.payment_slip || ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover', 'ready to sell', 'sold'].includes(statusLower) || statusLower.includes('paid') || job.qc_logs?.some((log: any) => ['paid', 'payment completed'].includes(log.action?.toLowerCase()));
 
   const makeLog = (action: string, details: string) => ({ action, details, by: currentUser?.name || 'Admin', timestamp: Date.now() });
   const buildUpdatedDevices = (newBasePrice: number) => {
