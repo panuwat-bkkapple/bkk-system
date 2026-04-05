@@ -67,15 +67,16 @@ export const ThaiPostTracking: React.FC<{ jobId: string; trackingNumber: string 
     return () => unsub();
   }, [jobId]);
 
-  // Trigger refresh by re-writing tracking_number (fires the cloud function)
+  // Trigger refresh by appending a space then re-writing tracking_number
   const handleRefresh = useCallback(async () => {
     if (!trackingNumber || !jobId) return;
     setLoading(true);
     try {
       const { update } = await import('firebase/database');
-      await update(ref(db, `jobs/${jobId}`), {
-        tracking_number: trackingNumber, // re-write same value triggers onValueWritten
-      });
+      // Write a slightly different value then immediately write back to force onValueWritten trigger
+      const jobRef = ref(db, `jobs/${jobId}`);
+      await update(jobRef, { tracking_number: trackingNumber + ' ' });
+      await update(jobRef, { tracking_number: trackingNumber.trim() });
     } catch { /* ignore */ }
     // Loading will be cleared by the onValue listener when tracking_data updates
     setTimeout(() => setLoading(false), 5000); // fallback timeout
