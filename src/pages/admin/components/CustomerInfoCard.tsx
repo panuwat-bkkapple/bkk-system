@@ -32,11 +32,22 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
     }
     setSavingTracking(true);
     try {
-      await update(ref(db, `jobs/${job.id}`), {
+      const statusLower = String(job.status || '').trim().toLowerCase();
+      const shouldTransit = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower);
+      const payload: any = {
         tracking_number: trackingInput.trim(),
         courier_name: courierInput.trim() || '',
-      });
-      toast.success('อัพเดท Tracking Number เรียบร้อย');
+        updated_at: Date.now(),
+      };
+      if (shouldTransit) {
+        payload.status = 'In-Transit';
+        payload.qc_logs = [
+          { action: 'In-Transit', by: 'Admin', timestamp: Date.now(), details: `อัพเดทเลขพัสดุ: ${trackingInput.trim()} — สถานะเปลี่ยนเป็นกำลังจัดส่ง` },
+          ...(job.qc_logs || [])
+        ];
+      }
+      await update(ref(db, `jobs/${job.id}`), payload);
+      toast.success(shouldTransit ? 'บันทึก Tracking และอัพเดทสถานะเป็น In-Transit เรียบร้อย' : 'อัพเดท Tracking Number เรียบร้อย');
       setIsEditingTracking(false);
     } catch {
       toast.error('ไม่สามารถบันทึกได้ ลองใหม่อีกครั้ง');

@@ -199,7 +199,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         )}
 
         {/* Mail-in Receiving */}
-        {!isCancelled && job.receive_method === 'Mail-in' && statusLower === 'in-transit' && (
+        {!isCancelled && job.receive_method === 'Mail-in' && (statusLower === 'in-transit' || (job.tracking_number && ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower))) && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PackageOpen size={14} /> Mail-In Receiving</p>
             <button
