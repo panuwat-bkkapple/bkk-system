@@ -74,6 +74,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const statusLower = String(job.status || '').trim().toLowerCase();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes(statusLower) || statusLower.includes('cancel');
   const isNew = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower);
+  const isLogistics = ['assigned', 'accepted', 'arrived'].includes(statusLower);
   const isQC = ['being inspected', 'pending qc', 'qc review'].includes(statusLower);
   const isNegotiation = ['revised offer', 'negotiation'].includes(statusLower);
   const isProcessingPayment = statusLower === 'payout processing' || statusLower === 'waiting for finance';
@@ -215,7 +216,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
           job={job}
           handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
-          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isNew, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
+          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}
         />
       </div>

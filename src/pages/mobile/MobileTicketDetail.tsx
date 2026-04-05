@@ -23,6 +23,8 @@ const STATUS_COLORS: Record<string, string> = {
   'Appointment Set':   'bg-cyan-100 text-cyan-700',
   'Active Leads':      'bg-orange-100 text-orange-700',
   'Assigned':          'bg-violet-100 text-violet-700',
+  'Accepted':          'bg-blue-100 text-blue-700',
+  'Arrived':           'bg-teal-100 text-teal-700',
   'In-Transit':        'bg-yellow-100 text-yellow-700',
   'Being Inspected':   'bg-purple-100 text-purple-700',
   'Pending QC':        'bg-pink-100 text-pink-700',
@@ -46,7 +48,7 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
 // Pipeline steps
 const PIPELINE = [
   { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
-  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Arrived', 'In-Transit'] },
+  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Arrived', 'In-Transit'] },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
   { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
 ];
