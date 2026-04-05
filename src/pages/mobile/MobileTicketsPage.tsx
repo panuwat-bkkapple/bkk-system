@@ -44,7 +44,7 @@ const PHASE_FILTERS = [
 
 const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
 const LOGISTICS_STATUSES = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit', 'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'];
-const CLOSED_STATUSES = ['Paid', 'PAID', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
+const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {
   'Pickup':   <Truck size={12} />,

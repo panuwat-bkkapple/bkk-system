@@ -12,7 +12,7 @@ export const SmartPipeline = ({ job }: { job: any }) => {
   if (['cancelled', 'closed (lost)', 'returned'].includes(s)) currentStep = 0;
   else if (hasBeenPaid || ['payout processing', 'waiting for finance'].includes(s)) currentStep = 4;
   else if (['being inspected', 'pending qc', 'qc review', 'revised offer', 'negotiation'].includes(s)) currentStep = 3;
-  else if (['active leads', 'assigned', 'arrived', 'in-transit', 'accepted'].includes(s)) currentStep = 2;
+  else if (['active leads', 'assigned', 'arrived', 'in-transit'].includes(s)) currentStep = 2;
   else if (['new lead', 'following up', 'appointment set', 'waiting drop-off'].includes(s)) currentStep = 1;
 
   const steps = [

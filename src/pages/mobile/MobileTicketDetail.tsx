@@ -48,7 +48,7 @@ const PIPELINE = [
   { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
   { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Arrived', 'In-Transit'] },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
-  { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'In Stock', 'Completed'] },
+  { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
 ];
 
 // ---------------------------------------------------------------------------

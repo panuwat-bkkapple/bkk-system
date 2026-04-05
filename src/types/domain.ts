@@ -25,6 +25,7 @@ export enum JobStatusB2C {
   WAITING_FOR_HANDOVER = 'Waiting for Handover',
   PAID_UPPER = 'PAID',
   PAID = 'Paid',
+  SENT_TO_QC_LAB = 'Sent to QC Lab',
   IN_STOCK = 'In Stock',
   READY_TO_SELL = 'Ready to Sell',
   CANCELLED = 'Cancelled',
