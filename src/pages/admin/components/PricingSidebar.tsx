@@ -2,7 +2,7 @@ import React from 'react';
 import {
   CheckCircle2, Store, ListChecks, History, Wallet, MessageCircle,
   ExternalLink, Clock, AlertOctagon, XCircle, Send, PhoneCall, Archive,
-  Plus, X, PackageOpen, ShieldCheck
+  Plus, X, PackageOpen, ShieldCheck, Truck
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
@@ -198,6 +198,22 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
+        {/* Mail-in Operations */}
+        {!isCancelled && job.receive_method === 'Mail-in' && isNew && !job.tracking_number && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Mail-In Operations</p>
+            {statusLower === 'new lead' && (
+              <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
+                <PhoneCall size={16} /> โทรคอนเฟิร์มลูกค้า (Follow Up)
+              </button>
+            )}
+            <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl">
+              <p className="text-[10px] font-bold text-orange-600 flex items-center gap-2"><PackageOpen size={14} /> ขั้นตอนถัดไป: กรอกเลข Tracking Number ที่ส่วน Logistics ด้านซ้าย</p>
+              <p className="text-[9px] font-bold text-orange-400 mt-1">เมื่อบันทึก Tracking แล้ว สถานะจะเปลี่ยนเป็น In-Transit อัตโนมัติ</p>
+            </div>
+          </div>
+        )}
+
         {/* Mail-in Receiving */}
         {!isCancelled && job.receive_method === 'Mail-in' && (statusLower === 'in-transit' || (job.tracking_number && ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower))) && (
           <div className="space-y-3">
@@ -315,10 +331,18 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         )}
 
         {!isCancelled && statusLower === 'sent to qc lab' && (
-          <div className="p-6 bg-purple-50 border border-purple-100 rounded-[2rem] flex flex-col items-center justify-center gap-2 text-center animate-in zoom-in-95 mt-4">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-purple-500 mb-2"><Archive size={32} className="animate-pulse" /></div>
-            <p className="text-sm font-black uppercase text-purple-700 tracking-wider">รอแผนก QC LAB รับเครื่อง</p>
-            <p className="text-[10px] font-bold text-purple-500">แอดมินส่งเครื่องเข้าคลังเรียบร้อย</p>
+          <div className="space-y-3 mt-4">
+            <div className="p-6 bg-purple-50 border border-purple-100 rounded-[2rem] flex flex-col items-center justify-center gap-2 text-center animate-in zoom-in-95">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-purple-500 mb-2"><Archive size={32} className="animate-pulse" /></div>
+              <p className="text-sm font-black uppercase text-purple-700 tracking-wider">รอแผนก QC LAB รับเครื่อง</p>
+              <p className="text-[10px] font-bold text-purple-500">แอดมินส่งเครื่องเข้าคลังเรียบร้อย</p>
+            </div>
+            <button
+              onClick={() => handleUpdateStatus('In Stock', 'QC Lab ตรวจสอบเสร็จสิ้น นำเครื่องเข้าคลังสินค้า')}
+              className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2"
+            >
+              <PackageOpen size={18} /> QC Lab เสร็จสิ้น — นำเข้าคลัง (In Stock)
+            </button>
           </div>
         )}
 
