@@ -331,18 +331,11 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         )}
 
         {!isCancelled && statusLower === 'sent to qc lab' && (
-          <div className="space-y-3 mt-4">
-            <div className="p-6 bg-purple-50 border border-purple-100 rounded-[2rem] flex flex-col items-center justify-center gap-2 text-center animate-in zoom-in-95">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-purple-500 mb-2"><Archive size={32} className="animate-pulse" /></div>
-              <p className="text-sm font-black uppercase text-purple-700 tracking-wider">รอแผนก QC LAB รับเครื่อง</p>
-              <p className="text-[10px] font-bold text-purple-500">แอดมินส่งเครื่องเข้าคลังเรียบร้อย</p>
-            </div>
-            <button
-              onClick={() => handleUpdateStatus('In Stock', 'QC Lab ตรวจสอบเสร็จสิ้น นำเครื่องเข้าคลังสินค้า')}
-              className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2"
-            >
-              <PackageOpen size={18} /> QC Lab เสร็จสิ้น — นำเข้าคลัง (In Stock)
-            </button>
+          <div className="p-6 bg-purple-50 border border-purple-100 rounded-[2rem] flex flex-col items-center justify-center gap-2 text-center animate-in zoom-in-95 mt-4">
+            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-purple-500 mb-2"><Archive size={32} className="animate-pulse" /></div>
+            <p className="text-sm font-black uppercase text-purple-700 tracking-wider">รอแผนก QC LAB ตรวจสอบ</p>
+            <p className="text-[10px] font-bold text-purple-500">เครื่องอยู่ระหว่างการบันทึกรายการ คัดเกรด ระบุตำหนิ S/N, IMEI และล้างข้อมูล</p>
+            <p className="text-[9px] font-bold text-purple-400 mt-1">เมื่อ QC Lab ดำเนินการเสร็จ สถานะจะเปลี่ยนเป็น In Stock อัตโนมัติ</p>
           </div>
         )}
 
