@@ -11,6 +11,7 @@ import { withRetry } from '@/utils/firebaseRetry';
 import { JobTable } from './components/modal/TradeInUI';
 import { CreateTicketModal } from './components/CreateTicketModal';
 import { InstantSellModal } from './components/InstantSellModal';
+import { CreateB2BModal } from './components/CreateB2BModal';
 
 export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: string) => void }) => {
   const toast = useToast();
@@ -29,6 +30,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isInstantSellOpen, setIsInstantSellOpen] = useState(false);
+  const [isB2BCreateOpen, setIsB2BCreateOpen] = useState(false);
 
   // 🎯 2. อัปเดตการกรองข้อมูล (แยก B2C และ B2B เด็ดขาด)
   const displayJobs = useMemo(() => {
@@ -126,6 +128,44 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       toast.success('เปิดรับซื้อด่วนสำเร็จ!');
     } catch (error) {
       toast.error("เกิดข้อผิดพลาดในการสร้าง Ticket");
+    }
+  };
+
+  // ฟังก์ชันสร้าง B2B Deal
+  const handleCreateB2B = async (payload: any) => {
+    try {
+      const finalPayload = {
+        cust_name: payload.cust_name,
+        cust_phone: payload.cust_phone,
+        cust_email: payload.cust_email || '',
+        cust_address: payload.cust_address || '',
+        asset_details: payload.asset_details || '',
+        price: Number(payload.price) || 0,
+        type: 'B2B Trade-in',
+        status: 'New B2B Lead',
+        source: 'admin-b2b',
+        attached_file_name: payload.attached_file_name || '',
+        attached_file_url: payload.attached_file_url || '',
+        created_at: Date.now(),
+        created_by: currentUser?.name || 'Admin',
+        agent_name: currentUser?.name || 'Admin',
+        agent_id: currentUser?.id || 'admin_1',
+        is_read: true,
+        ref_no: `OID-${Math.floor(100000 + Math.random() * 900000)}`,
+        updated_at: Date.now(),
+        customer_id: payload.customer_id || '',
+        qc_logs: [{
+          action: 'New B2B Lead Created',
+          by: currentUser?.name || 'Admin',
+          timestamp: Date.now(),
+          details: `สร้างดีล B2B — ${payload.cust_name}${payload.notes ? ` (${payload.notes})` : ''}`
+        }]
+      };
+      await push(ref(db, 'jobs'), finalPayload);
+      setIsB2BCreateOpen(false);
+      toast.success('สร้างดีล B2B สำเร็จ!');
+    } catch (error) {
+      toast.error("เกิดข้อผิดพลาดในการสร้างดีล B2B");
     }
   };
 
@@ -308,7 +348,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
             )}
           </div>
           
-          {workspace === 'B2C' && (
+          {workspace === 'B2C' ? (
             <div className="flex items-center gap-2">
               <button onClick={() => setIsInstantSellOpen(true)} className="bg-amber-500 text-white px-5 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-amber-600 transition-colors text-sm shadow-sm">
                 <Zap size={16} /> Instant Sell
@@ -317,6 +357,10 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                 <PlusCircle size={18} /> New Ticket
               </button>
             </div>
+          ) : (
+            <button onClick={() => setIsB2BCreateOpen(true)} className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 hover:bg-black transition-colors text-sm">
+              <PlusCircle size={18} /> New B2B Deal
+            </button>
           )}
         </div>
       </div>
@@ -393,6 +437,13 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
           onClose={() => setIsInstantSellOpen(false)}
           onSubmit={handleInstantSell}
           jobs={jobs}
+        />
+      )}
+
+      {isB2BCreateOpen && (
+        <CreateB2BModal
+          onClose={() => setIsB2BCreateOpen(false)}
+          onSubmit={handleCreateB2B}
         />
       )}
     </div>
