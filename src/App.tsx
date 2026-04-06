@@ -29,6 +29,7 @@ const DailyExpenses = lazy(() => import('./pages/finance/DailyExpenses').then(m 
 const StockAudit = lazy(() => import('./pages/inventory/StockAudit').then(m => ({ default: m.StockAudit })));
 const Finance = lazy(() => import('./pages/finance/Finance').then(m => ({ default: m.Finance })));
 const B2BAuditorTool = lazy(() => import('./features/trade-in/components/b2b/B2BAuditorTool').then(m => ({ default: m.B2BAuditorTool })));
+const B2BDispatchQueue = lazy(() => import('./pages/admin/B2BDispatchQueue').then(m => ({ default: m.B2BDispatchQueue })));
 const CustomerCRM = lazy(() => import('./pages/crm/CustomerCRM').then(m => ({ default: m.CustomerCRM })));
 const RiderManagement = lazy(() => import('./pages/fleet/RiderManagement').then(m => ({ default: m.RiderManagement })));
 const DiscrepancyReports = lazy(() => import('./pages/fleet/DiscrepancyReports').then(m => ({ default: m.DiscrepancyReports })));
@@ -155,6 +156,7 @@ export default function App() {
               <Route path="/tickets" element={<TradeInDashboardWrapper />} />
               <Route path="/workspace/:id" element={<B2CWorkspacePageWrapper />} />
               <Route path="/qc-station" element={<QCStation />} />
+              <Route path="/b2b-dispatch" element={<B2BDispatchQueue />} />
               <Route path="/b2b-auditor" element={<B2BAuditorTool />} />
               <Route path="/analytics/trade-in" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="buying" /> : <Navigate to="/" replace />} />
               <Route path="/analytics/sales" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="sales" /> : <Navigate to="/" replace />} />

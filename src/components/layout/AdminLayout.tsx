@@ -133,6 +133,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/tickets" icon={<LayoutDashboard size={18} />} label="Tickets" />
               <NavButton collapsed={isCollapsed} to="/qc-station" icon={<ClipboardCheck size={18} />} label="QC Lab Station" />
+              <NavButton collapsed={isCollapsed} to="/b2b-dispatch" icon={<ClipboardCheck size={18} />} label="เตรียมงาน B2B (Dispatch)" />
               <NavButton collapsed={isCollapsed} to="/b2b-auditor" icon={<ScanLine size={18} />} label="สแกนหน้างาน (B2B)" />
             </div>
           </div>
