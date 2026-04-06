@@ -301,7 +301,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
         </div>
 
         {/* RIGHT SIDEBAR */}
-        <div className="w-[450px] bg-white border-l border-slate-200 flex flex-col shadow-2xl z-20 shrink-0">
+        <div className="w-full md:w-96 lg:w-[450px] bg-white border-l border-slate-200 flex flex-col shadow-2xl z-20 shrink-0">
 
           <div className="p-8 bg-slate-900 text-white relative shrink-0">
              <div className={`absolute top-0 right-0 w-40 h-40 blur-3xl rounded-full -mr-10 -mt-10 ${isCancelled ? 'bg-red-600/30' : 'bg-indigo-600/30'}`}></div>
