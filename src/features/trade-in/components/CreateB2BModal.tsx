@@ -58,8 +58,12 @@ export const CreateB2BModal = ({ onClose, onSubmit }: { onClose: () => void; onS
       await uploadBytes(fileRef, file);
       const url = await getDownloadURL(fileRef);
       setFormData(prev => ({ ...prev, attached_file_name: file.name, attached_file_url: url }));
-    } catch {
-      alert('อัปโหลดไฟล์ล้มเหลว');
+    } catch (error: any) {
+      const msg = error?.code === 'storage/unauthorized' ? 'ไม่มีสิทธิ์อัปโหลด'
+        : error?.code === 'storage/canceled' ? 'การอัปโหลดถูกยกเลิก'
+        : 'เครือข่ายขัดข้อง หรือไฟล์ใหญ่เกินไป';
+      alert(`อัปโหลดล้มเหลว: ${msg}`);
+      setFormData(prev => ({ ...prev, attached_file_name: '', attached_file_url: '' }));
     } finally {
       setUploading(false);
     }
