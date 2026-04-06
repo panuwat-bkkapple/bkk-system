@@ -68,9 +68,9 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       } 
       // 🏢 ตัวกรองสำหรับ B2B
       else {
-        const isB2BSales = ['New B2B Lead', 'Pre-Quote Sent', 'Site Visit & Grading', 'Final Quote Sent'].includes(j.status);
-        const isB2BLogistics = ['PO Issued', 'Waiting for Invoice/Tax Inv.', 'Payment Completed'].includes(j.status);
-        const isB2BClosed = ['In Stock', 'Cancelled'].includes(j.status);
+        const isB2BSales = ['New B2B Lead', 'Following Up', 'Pre-Quote Sent', 'Pre-Quote Accepted', 'Site Visit & Grading', 'Final Quote Sent', 'Final Quote Accepted', 'Negotiation'].includes(j.status);
+        const isB2BLogistics = ['PO Issued', 'Waiting for Invoice/Tax Inv.', 'Pending Finance Approval', 'Payment Completed'].includes(j.status);
+        const isB2BClosed = ['In Stock', 'Completed', 'Cancelled', 'Closed (Lost)'].includes(j.status);
 
         if (filterPhase === 'Sales' && !isB2BSales) return false;
         if (filterPhase === 'Logistics' && !isB2BLogistics) return false;
