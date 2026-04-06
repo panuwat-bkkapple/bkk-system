@@ -546,6 +546,16 @@ const NOTIFY_STATUS_MAP = {
   "Revised Offer": "เสนอราคาใหม่",
   Negotiation: "ลูกค้าต่อราคา",
   "Price Accepted": "ลูกค้ารับราคา",
+  // B2B Pipeline Statuses
+  "Pre-Quote Sent": "ส่งใบเสนอราคาเบื้องต้น (B2B)",
+  "Pre-Quote Accepted": "ลูกค้ายอมรับราคาเบื้องต้น (B2B)",
+  "Site Visit & Grading": "ส่งทีมประเมินหน้างาน (B2B)",
+  "Final Quote Sent": "ส่งใบเสนอราคาจริง (B2B)",
+  "Final Quote Accepted": "ลูกค้ายอมรับราคาจริง (B2B)",
+  "PO Issued": "ออก PO เรียบร้อย (B2B)",
+  "Waiting for Invoice/Tax Inv.": "รอใบกำกับภาษี (B2B)",
+  "Pending Finance Approval": "รอบัญชีตรวจสอบ (B2B)",
+  "Payment Completed": "ชำระเงินเสร็จ (B2B)",
 };
 
 exports.onJobStatusChanged = onValueUpdated(
