@@ -153,7 +153,7 @@ export const B2BAuditorTool = () => {
           >
             <option value="">-- เลือกล็อตงานที่กำลังประเมิน --</option>
             {activeB2BJobs.map(job => (
-              <option key={job.id} value={job.id}>{job.cust_name.split('(')[0]} ({job.ref_no})</option>
+              <option key={job.id} value={job.id}>{(job.cust_name || '').split('(')[0]} ({job.ref_no})</option>
             ))}
           </select>
         </div>

@@ -393,8 +393,8 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                       <div className="text-[10px] text-slate-400 font-black tracking-widest mt-1">{job.ref_no}</div>
                     </td>
                     <td className="p-4">
-                      <div className="font-black text-sm text-slate-900 flex items-center gap-2"><Building2 size={14} className="text-blue-500"/> {job.cust_name.split('(')[0]}</div>
-                      <div className="text-xs text-slate-500 font-bold mt-1">ติดต่อ: {job.cust_name.split('(')[1]?.replace(')','') || '-'}</div>
+                      <div className="font-black text-sm text-slate-900 flex items-center gap-2"><Building2 size={14} className="text-blue-500"/> {(job.cust_name || '').split('(')[0]}</div>
+                      <div className="text-xs text-slate-500 font-bold mt-1">ติดต่อ: {(job.cust_name || '').split('(')[1]?.replace(')','') || '-'}</div>
                     </td>
                     <td className="p-4">
                       <div className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{job.asset_details || 'ยกล็อต (ดูไฟล์แนบ)'}</div>

@@ -23,7 +23,7 @@ export const CertificatePrint = ({ job, printMode }: CertificatePrintProps) => {
          </div>
          {/* ข้อมูลลูกค้า */}
          <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center">
-           <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Corporate Client</p><h2 className="text-xl font-black text-slate-800">{job.cust_name.split('(')[0]}</h2><p className="text-xs font-bold text-slate-500 mt-1 flex items-center gap-2"><MapPin size={12} /> {job.cust_address || 'Head Office'}</p></div>
+           <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Corporate Client</p><h2 className="text-xl font-black text-slate-800">{(job.cust_name || '').split('(')[0]}</h2><p className="text-xs font-bold text-slate-500 mt-1 flex items-center gap-2"><MapPin size={12} /> {job.cust_address || 'Head Office'}</p></div>
            <div className="text-right"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Devices Processed</p><div className="text-3xl font-black text-indigo-600">{validItems.length} <span className="text-sm text-slate-500">Units</span></div></div>
          </div>
          {/* คำประกาศ */}

@@ -208,7 +208,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
             batchUpdates[`jobs/${childKey}`] = {
               ref_no: `${job.ref_no}-U${String(index + 1).padStart(3, '0')}`,
               type: 'B2B-Unpacked', model: item.model, price: item.price, pre_grade: item.grade,
-              status: 'Pending QC', receive_method: 'Corporate Bulk', cust_name: `[Corporate] ${job.cust_name.split('(')[0]}`,
+              status: 'Pending QC', receive_method: 'Corporate Bulk', cust_name: `[Corporate] ${(job.cust_name || '').split('(')[0]}`,
               imei: item.imei || '', serial: item.imei || '', created_at: Date.now(), updated_at: Date.now(),
               agent_name: job.agent_name || 'Admin', parent_b2b_id: job.id,
               qc_logs: [{ action: 'Sent to QC Lab', details: `ระเบิดกล่องจากล็อต B2B (${job.ref_no}) รอกระบวนการ Test & Data Wipe`, timestamp: Date.now(), by: 'System' }]
@@ -247,7 +247,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
         </div>
         <div className="flex items-center gap-3 bg-slate-50 px-5 py-2 rounded-full border border-slate-100">
            <Building2 size={16} className="text-indigo-500" />
-           <span className="text-xs font-black text-slate-700">{job.cust_name.split('(')[0]}</span>
+           <span className="text-xs font-black text-slate-700">{(job.cust_name || '').split('(')[0]}</span>
         </div>
       </div>
 
