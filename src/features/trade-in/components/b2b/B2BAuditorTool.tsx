@@ -85,6 +85,12 @@ export const B2BAuditorTool = () => {
     if (!selectedJobId) { toast.warning('กรุณาเลือกล็อตงาน B2B ก่อนครับ'); return; }
     if (!imei || !selectedModel) { toast.warning('กรุณากรอก IMEI และเลือกรุ่น'); return; }
 
+    // ตรวจ IMEI ซ้ำ
+    if (gradedItems.some((i: any) => i.imei === imei)) {
+      toast.warning(`IMEI ${imei} ถูกสแกนไปแล้ว กรุณาตรวจสอบ`);
+      return;
+    }
+
     const newItem = {
       id: Date.now().toString(),
       imei,
@@ -99,12 +105,16 @@ export const B2BAuditorTool = () => {
     const totalPrice = updatedItems.reduce((sum: number, item: any) => sum + Number(item.price), 0);
 
     try {
-      await update(ref(db, `jobs/${selectedJobId}`), {
+      const updateData: any = {
         graded_items: updatedItems,
         price: totalPrice,
         summary: { total_qty: totalQty, total_price: totalPrice },
-        status: 'Site Visit & Grading'
-      });
+      };
+      // อัปเดต status เฉพาะครั้งแรกเท่านั้น
+      if (currentJob && !['Site Visit & Grading', 'Auditor Assigned'].includes(currentJob.status)) {
+        updateData.status = 'Site Visit & Grading';
+      }
+      await update(ref(db, `jobs/${selectedJobId}`), updateData);
       setImei('');
       document.getElementById('imei-input')?.focus();
     } catch (error) {
