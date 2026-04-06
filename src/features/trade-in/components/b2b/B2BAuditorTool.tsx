@@ -19,6 +19,8 @@ export const B2BAuditorTool = () => {
   const [selectedModel, setSelectedModel] = useState('');
   const [grade, setGrade] = useState<'A' | 'B' | 'C' | 'Reject'>('A');
   const [unitPrice, setUnitPrice] = useState<number>(0);
+  const [modelSearch, setModelSearch] = useState('');
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   // Flatten models → variants สำหรับ dropdown
   const flattenedModels = useMemo(() => {
@@ -42,8 +44,14 @@ export const B2BAuditorTool = () => {
         });
       }
     });
-    return items;
+    return items.sort((a, b) => a.name.localeCompare(b.name));
   }, [modelsData]);
+
+  const filteredModels = useMemo(() => {
+    if (!modelSearch) return flattenedModels;
+    const term = modelSearch.toLowerCase();
+    return flattenedModels.filter(m => m.name.toLowerCase().includes(term));
+  }, [flattenedModels, modelSearch]);
 
   const activeB2BJobs = useMemo(() => {
     if (!jobs) return [];
@@ -194,18 +202,45 @@ export const B2BAuditorTool = () => {
                     <input id="imei-input" type="text" value={imei} onChange={(e) => setImei(e.target.value)} placeholder="ยิงบาร์โค้ด หรือพิมพ์ IMEI..." className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-black text-slate-800 outline-none focus:border-blue-500 transition-all" autoFocus />
                   </div>
 
-                  <div>
+                  <div className="relative">
                     <label className="text-xs font-bold text-slate-500 block mb-1">รุ่นอุปกรณ์ (Model)</label>
-                    <select 
-                      value={selectedModel} 
-                      onChange={(e) => setSelectedModel(e.target.value)} 
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer"
-                    >
-                      <option value="">-- เลือกรุ่นและความจุ --</option>
-                      {flattenedModels.map(m => (
-                        <option key={m.id} value={m.name}>{m.name}</option>
-                      ))}
-                    </select>
+                    <input
+                      type="text"
+                      value={modelSearch || selectedModel}
+                      onChange={(e) => {
+                        setModelSearch(e.target.value);
+                        setSelectedModel('');
+                        setShowModelDropdown(true);
+                      }}
+                      onFocus={() => setShowModelDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowModelDropdown(false), 200)}
+                      placeholder="พิมพ์ค้นหารุ่น เช่น iPhone 15..."
+                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 outline-none focus:border-blue-500 transition-all"
+                    />
+                    {showModelDropdown && filteredModels.length > 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto no-scrollbar">
+                        {filteredModels.slice(0, 50).map(m => (
+                          <div
+                            key={m.id}
+                            onClick={() => {
+                              setSelectedModel(m.name);
+                              setModelSearch('');
+                              setShowModelDropdown(false);
+                            }}
+                            className={`px-4 py-2.5 cursor-pointer text-sm font-bold transition-colors hover:bg-blue-50 hover:text-blue-700 ${selectedModel === m.name ? 'bg-blue-100 text-blue-700' : 'text-slate-700'}`}
+                          >
+                            {m.name}
+                            {m.price > 0 && <span className="text-xs text-slate-400 ml-2">฿{m.price.toLocaleString()}</span>}
+                          </div>
+                        ))}
+                        {filteredModels.length > 50 && (
+                          <div className="px-4 py-2 text-xs text-slate-400 font-bold text-center">พิมพ์เพิ่มเพื่อกรอง ({filteredModels.length} รายการ)</div>
+                        )}
+                      </div>
+                    )}
+                    {showModelDropdown && modelSearch && filteredModels.length === 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl p-4 text-center text-sm text-slate-400 font-bold">ไม่พบรุ่นที่ค้นหา</div>
+                    )}
                   </div>
 
                   <div>
