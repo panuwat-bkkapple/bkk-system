@@ -67,7 +67,7 @@ export const CompanyInfoCard = ({ job, isEditing, editData, onSave, onToggleEdit
             <div className="col-span-3 bg-slate-50 p-5 rounded-2xl border border-slate-100"><label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">รายละเอียดทรัพย์สิน (แจ้งเบื้องต้น)</label><div className="text-sm font-bold text-slate-700">{job.asset_details || 'ระบุยกล็อต (ดูไฟล์แนบ)'}</div></div>
           </div>
           <div className="pt-2">
-            <button onClick={() => copyToClipboard(`http://localhost:3000/quote/${job.id}`)} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-indigo-500 uppercase tracking-widest transition-colors"><Copy size={14} /> คัดลอกลิงก์ให้ลูกค้าติดตามสถานะ (Tracking Link)</button>
+            <button onClick={() => copyToClipboard(`${window.location.origin}/quote/${job.id}`)} className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-indigo-500 uppercase tracking-widest transition-colors"><Copy size={14} /> คัดลอกลิงก์ให้ลูกค้าติดตามสถานะ (Tracking Link)</button>
           </div>
         </>
       )}
