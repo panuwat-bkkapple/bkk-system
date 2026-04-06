@@ -185,6 +185,8 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
         onUpdateStatus(job.id, 'Pending Finance Approval', `แอดมินส่งเรื่องตั้งเบิกยอด ฿${b2bGrandTotal.toLocaleString()} ให้ฝ่ายบัญชี (กำหนดจ่าย: ${paymentDueDate})`, { finance_status: 'Waiting for Transfer', payment_due_date: paymentDueDate, documents: { ...job.documents, po_number: poNumber, invoice_number: invoiceNumber, tax_invoice_number: taxInvoiceNumber } });
         break;
       case 'unpack_to_stock':
+        if (statusLower === 'completed' || statusLower === 'in stock') { toast.warning('ระบบล็อค: ดีลนี้ระเบิดกล่องไปแล้ว ไม่สามารถทำซ้ำได้'); return; }
+        if (statusLower !== 'payment completed') { toast.warning('ระบบล็อค: รอให้บัญชีชำระเงินก่อน'); return; }
         if (!taxInvoiceNumber) { toast.warning('ระบบล็อค: ไม่สามารถรับเข้าคลังได้หากไม่มีเลขใบกำกับภาษี (Tax Invoice)'); return; }
         if (validItems.length === 0) { toast.warning('ระบบล็อค: ไม่พบรายการเครื่องที่ประเมินไว้'); return; }
         if (!confirm(`ยืนยันการรับเครื่องเข้าคลัง? ระบบจะสร้างคิว QC จำนวน ${validItems.length} เครื่องอัตโนมัติ`)) return;
