@@ -14,7 +14,7 @@ export const CertificatePrint = ({ job, printMode }: CertificatePrintProps) => {
 
   return (
     <div className="fixed inset-0 bg-white z-[9999] flex justify-center items-start pt-10 print:pt-0 print:block print:static">
-      <style>{`@media print { @page { size: A4 portrait; margin: 15mm; } body { visibility: hidden; background: white; } .master-cert-container { visibility: visible; position: absolute; left: 0; top: 0; width: 100%; } }`}</style>
+      <style>{`@media print { @page { size: A4 portrait; margin: 15mm; } body { visibility: hidden; background: white; } .master-cert-container { visibility: visible; position: absolute; left: 0; top: 0; width: 100%; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } }`}</style>
       <div className="master-cert-container w-[190mm] min-h-[270mm] bg-white p-10 flex flex-col font-sans text-black">
          {/* หัวกระดาษ */}
          <div className="flex justify-between items-center border-b-4 border-slate-900 pb-6 mb-8">
