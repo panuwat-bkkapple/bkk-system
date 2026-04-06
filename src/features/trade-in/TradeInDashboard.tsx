@@ -379,12 +379,13 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Company & Contact</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset Details</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Est. Value (Ex-VAT)</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ผู้รับผิดชอบ</th>
                 <th className="p-4 pr-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Pipeline Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {displayJobs.length === 0 ? (
-                <tr><td colSpan={5} className="p-12 text-center text-slate-400 font-bold">ไม่มีรายการ B2B ในขณะนี้</td></tr>
+                <tr><td colSpan={6} className="p-12 text-center text-slate-400 font-bold">ไม่มีรายการ B2B ในขณะนี้</td></tr>
               ) : (
                 displayJobs.map((job) => (
                   <tr key={job.id} onClick={() => handleRowClick(job)} className="hover:bg-slate-50 transition-colors cursor-pointer group">
@@ -406,6 +407,9 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                     </td>
                     <td className="p-4 text-right">
                       <div className="text-lg font-black text-emerald-600">฿{(job.price || 0).toLocaleString()}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="text-xs font-bold text-slate-600">{job.agent_name || '-'}</div>
                     </td>
                     <td className="p-4 pr-6">
                       <div className="flex justify-center">
