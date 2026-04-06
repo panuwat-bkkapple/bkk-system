@@ -12,13 +12,38 @@ import { useToast } from '@/components/ui/ToastProvider';
 export const B2BAuditorTool = () => {
   const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
-  const { data: basePricing } = useDatabase('base_pricing');
+  const { data: modelsData } = useDatabase('models');
 
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const [imei, setImei] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [grade, setGrade] = useState<'A' | 'B' | 'C' | 'Reject'>('A');
   const [unitPrice, setUnitPrice] = useState<number>(0);
+
+  // Flatten models → variants สำหรับ dropdown
+  const flattenedModels = useMemo(() => {
+    const list = Array.isArray(modelsData) ? modelsData : [];
+    const items: { id: string; name: string; price: number }[] = [];
+    list.forEach((model: any) => {
+      if (!model.name) return;
+      if (model.isActive === false) return;
+      const rawVariants = model.variants;
+      const variants: any[] = !rawVariants ? [] : Array.isArray(rawVariants) ? rawVariants : Object.values(rawVariants);
+      if (variants.length === 0) {
+        items.push({ id: model.id, name: model.name, price: Number(model.price || 0) });
+      } else {
+        variants.forEach((v: any) => {
+          if (!v) return;
+          items.push({
+            id: `${model.id}_${v.id || v.name}`,
+            name: `${model.name} ${v.name || ''}`.trim(),
+            price: Number(v.usedPrice || v.price || v.newPrice || 0),
+          });
+        });
+      }
+    });
+    return items;
+  }, [modelsData]);
 
   const activeB2BJobs = useMemo(() => {
     if (!jobs) return [];
@@ -35,21 +60,18 @@ export const B2BAuditorTool = () => {
       setUnitPrice(0);
       return;
     }
-    const product = (basePricing as any[])?.find(p => {
-      const displayName = `${p.model || p.name} ${p.capacity || p.storage || ''}`.trim();
-      return displayName === selectedModel;
-    });
-    
+    const product = flattenedModels.find(p => p.name === selectedModel);
+
     if (product) {
-      const base = Number(product.basePrice || product.base_price || product.price || 0);
+      const base = product.price;
       let targetPrice = 0;
-      if (grade === 'A') targetPrice = base; 
-      else if (grade === 'B') targetPrice = base * 0.85; 
-      else if (grade === 'C') targetPrice = base * 0.70; 
-      
-      setUnitPrice(Math.round(targetPrice / 10) * 10); 
+      if (grade === 'A') targetPrice = base;
+      else if (grade === 'B') targetPrice = base * 0.85;
+      else if (grade === 'C') targetPrice = base * 0.70;
+
+      setUnitPrice(Math.round(targetPrice / 10) * 10);
     }
-  }, [selectedModel, grade, basePricing]);
+  }, [selectedModel, grade, flattenedModels]);
 
   const handleAddItem = async () => {
     if (!selectedJobId) { toast.warning('กรุณาเลือกล็อตงาน B2B ก่อนครับ'); return; }
@@ -180,10 +202,9 @@ export const B2BAuditorTool = () => {
                       className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer"
                     >
                       <option value="">-- เลือกรุ่นและความจุ --</option>
-                      {(basePricing as any[])?.map((p: any) => {
-                        const displayName = `${p.model || p.name} ${p.capacity || p.storage || ''}`.trim();
-                        return <option key={p.id} value={displayName}>{displayName}</option>;
-                      })}
+                      {flattenedModels.map(m => (
+                        <option key={m.id} value={m.name}>{m.name}</option>
+                      ))}
                     </select>
                   </div>
 
