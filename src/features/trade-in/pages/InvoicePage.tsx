@@ -33,6 +33,19 @@ export const InvoicePage = () => {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 font-bold text-slate-400">Loading Invoice...</div>;
   if (!job) return <div className="min-h-screen flex items-center justify-center bg-slate-50 font-bold text-red-400">Invoice not found.</div>;
 
+  // Detect B2B job and prepare line items
+  const isB2B = job.type === 'B2B Trade-in' || job.type === 'B2B';
+  const b2bItems = (job.graded_items || []).filter((i: any) => i.grade !== 'Reject');
+  const lineItems = isB2B
+    ? b2bItems.map((item: any) => ({
+        model: item.model,
+        imei: item.imei,
+        grade: item.grade,
+        final_price: item.price,
+        deductions: [`Grade ${item.grade}`],
+      }))
+    : (job.devices && job.devices.length > 0 ? job.devices : [job]);
+
   return (
     <div className="min-h-screen bg-slate-200 print:bg-white py-10 print:py-0 font-sans text-slate-800">
       
@@ -98,13 +111,16 @@ export const InvoicePage = () => {
               </tr>
             </thead>
             <tbody className="text-sm">
-              {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((device: any, idx: number) => (
+              {lineItems.map((device: any, idx: number) => (
                 <tr key={idx} className="border-b border-slate-200 align-top">
                   <td className="py-4 px-4 text-center font-bold text-slate-400 border-x border-slate-200">{idx + 1}</td>
                   <td className="py-4 px-4 border-x border-slate-200">
-                    <p className="font-black text-slate-800 text-base">{device.model}</p>
+                    <p className="font-black text-slate-800 text-base">{device.model || '-'}</p>
+                    {isB2B && device.imei && (
+                      <p className="text-[10px] font-mono font-bold text-slate-500 mt-0.5">IMEI: {device.imei}</p>
+                    )}
                     <div className="mt-2 space-y-1">
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">หมายเหตุสภาพเครื่อง:</p>
+                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">{isB2B ? 'เกรด:' : 'หมายเหตุสภาพเครื่อง:'}</p>
                       {device.isNewDevice ? (
                         <p className="text-[11px] text-slate-600 flex items-center gap-1">- เครื่องใหม่มือ 1 (ยังไม่แกะซีล)</p>
                       ) : (
@@ -118,7 +134,7 @@ export const InvoicePage = () => {
                     </div>
                   </td>
                   <td className="py-4 px-4 text-right font-black text-slate-800 border-x border-slate-200">
-                    {formatCurrency(device.final_price || device.estimated_price || job.price)}
+                    {formatCurrency(device.final_price || device.estimated_price || (isB2B ? 0 : job.price))}
                   </td>
                 </tr>
               ))}
