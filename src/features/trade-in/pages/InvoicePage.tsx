@@ -60,7 +60,7 @@ export const InvoicePage = () => {
       </div>
 
       {/* 📄 หน้ากระดาษ A4 */}
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white shadow-2xl print:shadow-none p-12 print:p-0 relative">
+      <div className={`max-w-[210mm] mx-auto bg-white shadow-2xl print:shadow-none p-12 print:p-0 relative ${isB2B ? '' : 'min-h-[297mm]'}`}>
         
         {/* CSS สำหรับซ่อน/แสดงตอนพรินต์ */}
         <style>{`
@@ -149,7 +149,8 @@ export const InvoicePage = () => {
           </table>
         </div>
 
-        {/* 💰 สรุปยอดเงิน */}
+        {/* 💰 สรุปยอดเงิน + ลายเซ็น (B2B แยกหน้า) */}
+        {isB2B && <div className="mt-16 pt-8 border-t border-slate-200 print:mt-0 print:pt-0 print:border-0" style={{ pageBreakBefore: 'always' }}></div>}
         <div className="flex justify-end mt-6">
           <div className="w-1/2">
             {job.applied_coupon && (
