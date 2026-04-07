@@ -55,7 +55,9 @@ export const B2BAuditorTool = () => {
 
   const activeB2BJobs = useMemo(() => {
     if (!jobs) return [];
-    return (jobs as any[]).filter(j => j.type === 'B2B Trade-in' && ['New B2B Lead', 'Pre-Quote Sent', 'Site Visit & Grading'].includes(j.status));
+    // อนุญาตให้แก้ไขได้จนกว่าดีลจะปิด/ชำระเงินจริง
+    const lockedStatuses = ['Pending Finance Approval', 'Payment Completed', 'In Stock', 'Completed', 'Cancelled', 'Closed (Lost)'];
+    return (jobs as any[]).filter(j => j.type === 'B2B Trade-in' && !lockedStatuses.includes(j.status));
   }, [jobs]);
 
   const currentJob = activeB2BJobs.find(j => j.id === selectedJobId);
