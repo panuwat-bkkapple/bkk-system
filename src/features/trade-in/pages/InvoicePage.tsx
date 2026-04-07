@@ -101,39 +101,46 @@ export const InvoicePage = () => {
         </div>
 
         {/* 📱 ตารางรายการสินค้า */}
-        <div className="min-h-[300px]">
+        <div className={isB2B ? '' : 'min-h-[300px]'}>
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-900 text-white text-xs uppercase tracking-widest">
-                <th className="py-3 px-4 w-12 text-center border border-slate-900">ลำดับ</th>
-                <th className="py-3 px-4 border border-slate-900">รายการสินค้า (Description)</th>
-                <th className="py-3 px-4 border border-slate-900 text-right w-32">ราคา (Price)</th>
+              <tr className="bg-slate-900 text-white text-[10px] uppercase tracking-widest">
+                <th className="py-2 px-3 w-10 text-center border border-slate-900">#</th>
+                <th className="py-2 px-3 border border-slate-900">{isB2B ? 'รุ่น / IMEI / เกรด' : 'รายการสินค้า (Description)'}</th>
+                <th className="py-2 px-3 border border-slate-900 text-right w-28">ราคา</th>
               </tr>
             </thead>
-            <tbody className="text-sm">
+            <tbody className={isB2B ? 'text-[11px]' : 'text-sm'}>
               {lineItems.map((device: any, idx: number) => (
                 <tr key={idx} className="border-b border-slate-200 align-top">
-                  <td className="py-4 px-4 text-center font-bold text-slate-400 border-x border-slate-200">{idx + 1}</td>
-                  <td className="py-4 px-4 border-x border-slate-200">
-                    <p className="font-black text-slate-800 text-base">{device.model || '-'}</p>
-                    {isB2B && device.imei && (
-                      <p className="text-[10px] font-mono font-bold text-slate-500 mt-0.5">IMEI: {device.imei}</p>
+                  <td className={`${isB2B ? 'py-1.5 px-3' : 'py-4 px-4'} text-center font-bold text-slate-400 border-x border-slate-200`}>{idx + 1}</td>
+                  <td className={`${isB2B ? 'py-1.5 px-3' : 'py-4 px-4'} border-x border-slate-200`}>
+                    {isB2B ? (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="font-black text-slate-800">{device.model || '-'}</span>
+                        {device.imei && <span className="text-[10px] font-mono text-slate-500">IMEI: {device.imei}</span>}
+                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${device.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : device.grade === 'B' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{device.grade}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="font-black text-slate-800 text-base">{device.model || '-'}</p>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">หมายเหตุสภาพเครื่อง:</p>
+                          {device.isNewDevice ? (
+                            <p className="text-[11px] text-slate-600 flex items-center gap-1">- เครื่องใหม่มือ 1 (ยังไม่แกะซีล)</p>
+                          ) : (
+                            (device.deductions || job.deductions || []).map((d: string, i: number) => (
+                              <p key={i} className="text-[11px] text-slate-600">- {d.replace(/^\[(.*?)\]\s*(.*)$/, '$1: $2')}</p>
+                            ))
+                          )}
+                          {!(device.deductions || job.deductions || [])?.length && !device.isNewDevice && (
+                            <p className="text-[11px] text-emerald-600 font-bold">- สภาพสมบูรณ์ 100%</p>
+                          )}
+                        </div>
+                      </>
                     )}
-                    <div className="mt-2 space-y-1">
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">{isB2B ? 'เกรด:' : 'หมายเหตุสภาพเครื่อง:'}</p>
-                      {device.isNewDevice ? (
-                        <p className="text-[11px] text-slate-600 flex items-center gap-1">- เครื่องใหม่มือ 1 (ยังไม่แกะซีล)</p>
-                      ) : (
-                        (device.deductions || job.deductions || []).map((d: string, i: number) => (
-                          <p key={i} className="text-[11px] text-slate-600">- {d.replace(/^\[(.*?)\]\s*(.*)$/, '$1: $2')}</p>
-                        ))
-                      )}
-                      {!(device.deductions || job.deductions || [])?.length && !device.isNewDevice && (
-                        <p className="text-[11px] text-emerald-600 font-bold">- สภาพสมบูรณ์ 100%</p>
-                      )}
-                    </div>
                   </td>
-                  <td className="py-4 px-4 text-right font-black text-slate-800 border-x border-slate-200">
+                  <td className={`${isB2B ? 'py-1.5 px-3' : 'py-4 px-4'} text-right font-black text-slate-800 border-x border-slate-200`}>
                     {formatCurrency(device.final_price || device.estimated_price || (isB2B ? 0 : job.price))}
                   </td>
                 </tr>
