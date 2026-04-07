@@ -175,8 +175,8 @@ export const InvoicePage = () => {
           </div>
         )}
 
-        {/* 📝 ลายเซ็น (วางชิดล่างเสมอ) */}
-        <div className="absolute bottom-12 left-12 right-12 flex justify-between pt-10 border-t-2 border-slate-100">
+        {/* 📝 ลายเซ็น */}
+        <div className={`${isB2B ? 'mt-12' : 'absolute bottom-12 left-12 right-12'} flex justify-between pt-10 border-t-2 border-slate-100`}>
           <div className="text-center w-56">
             <p className="text-[10px] text-slate-400 mb-12">ลงชื่อผู้ขาย (Seller)</p>
             <div className="border-b border-slate-400 w-full mb-2"></div>
