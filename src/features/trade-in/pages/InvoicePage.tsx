@@ -72,14 +72,20 @@ export const InvoicePage = () => {
 
         {/* 🏢 Header บริษัท */}
         <div className="flex justify-between items-start border-b-2 border-slate-900 pb-6 mb-8">
-          <div className="flex items-center gap-3">
-            <ShieldCheck size={40} className="text-blue-600" />
+          <div className="flex items-start gap-3">
+            <ShieldCheck size={40} className="text-blue-600 shrink-0" />
             <div>
               <h1 className="text-3xl font-black tracking-tighter uppercase text-slate-900">BKK APPLE</h1>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Corporate Trade-in & Recommerce</p>
+              <div className="mt-2 text-[10px] text-slate-600 leading-relaxed">
+                <p className="font-bold">บริษัท เก็ทโมบี้ จำกัด <span className="font-normal text-slate-500">(0105565094088)</span></p>
+                <p>เลขที่ 596/163 อารียา ทูบี ถนนลาดปลาเค้า</p>
+                <p>แขวงจรเข้บัว เขตลาดพร้าว กรุงเทพฯ 10230</p>
+                <p>โทร. 083-495-6556</p>
+              </div>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-widest">ใบรับซื้อสินค้า</h2>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Purchase Receipt</p>
           </div>
