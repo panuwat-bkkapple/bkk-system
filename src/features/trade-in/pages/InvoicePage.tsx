@@ -149,9 +149,9 @@ export const InvoicePage = () => {
           </table>
         </div>
 
-        {/* 💰 สรุปยอดเงิน + ลายเซ็น (B2B แยกหน้า) */}
-        {isB2B && <div className="mt-16 pt-8 border-t border-slate-200 print:mt-0 print:pt-0 print:border-0" style={{ pageBreakBefore: 'always' }}></div>}
-        <div className="flex justify-end mt-6">
+        {/* 💰 สรุปยอดเงิน + ลายเซ็น (ไม่ให้แตกหน้ากลางคัน) */}
+        {isB2B && <div className="mt-12 pt-6 border-t border-slate-200 print:mt-6 print:pt-4"></div>}
+        <div className="flex justify-end mt-6" style={isB2B ? { pageBreakInside: 'avoid', breakInside: 'avoid' } : undefined}>
           <div className="w-1/2">
             {job.applied_coupon && (
               <div className="flex justify-between items-center py-2 border-b border-slate-100 text-sm">
@@ -177,7 +177,10 @@ export const InvoicePage = () => {
         )}
 
         {/* 📝 ลายเซ็น */}
-        <div className={`${isB2B ? 'mt-12' : 'absolute bottom-12 left-12 right-12'} flex justify-between pt-10 border-t-2 border-slate-100`}>
+        <div
+          className={`${isB2B ? 'mt-12' : 'absolute bottom-12 left-12 right-12'} flex justify-between pt-10 border-t-2 border-slate-100`}
+          style={isB2B ? { pageBreakInside: 'avoid', breakInside: 'avoid' } : undefined}
+        >
           <div className="text-center w-56">
             <p className="text-[10px] text-slate-400 mb-12">ลงชื่อผู้ขาย (Seller)</p>
             <div className="border-b border-slate-400 w-full mb-2"></div>
