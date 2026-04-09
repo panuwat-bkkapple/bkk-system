@@ -159,6 +159,19 @@ export const InvoicePage = () => {
           </table>
         </div>
 
+        {/* 📖 คำอธิบายเกรดสินค้า (B2B เท่านั้น) */}
+        {isB2B && (
+          <div className="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50 text-[9px] leading-relaxed" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+            <div className="font-black text-slate-700 uppercase tracking-widest mb-1.5">เกณฑ์การจัดเกรดสินค้า (Grading Criteria)</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-600">
+              <div><span className="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-black mr-1">A</span> สภาพดีเยี่ยม — ไม่พบตำหนิภายนอก แบตเตอรี่ ≥ 85%</div>
+              <div><span className="inline-block px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-black mr-1">B</span> สภาพดี — ตำหนิเล็กน้อย แบตเตอรี่ 81–84%</div>
+              <div><span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-black mr-1">C</span> สภาพพอใช้ — รอยขีดข่วนชัดเจน แบตเตอรี่ ≤ 80%</div>
+              <div><span className="inline-block px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-black mr-1">D</span> สภาพชำรุด — จอ/ฝาหลังแตก หรือมีรอยตกกระแทก</div>
+            </div>
+          </div>
+        )}
+
         {/* 💰 สรุปยอดเงิน + ลายเซ็น (ไม่ให้แตกหน้ากลางคัน) */}
         <div className="flex justify-end mt-4" style={isB2B ? { pageBreakInside: 'avoid', breakInside: 'avoid' } : undefined}>
           <div className="w-1/2">

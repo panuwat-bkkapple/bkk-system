@@ -5,9 +5,38 @@ import { db } from "@/api/firebase";
 import {
   ScanLine, CheckCircle2, AlertCircle, Building2,
   Smartphone, Plus, Save, X, Trash2, Calculator,
-  ClipboardCheck, AlertTriangle
+  ClipboardCheck, AlertTriangle, Info
 } from 'lucide-react';
 import { useToast } from '@/components/ui/ToastProvider';
+
+// เกณฑ์การจัดเกรดสินค้า B2B (Official Grading Criteria)
+const GRADE_CRITERIA: Record<string, { label: string; desc: string; boxClass: string }> = {
+  A: {
+    label: 'สภาพดีเยี่ยม (Like New)',
+    desc: 'ไม่พบตำหนิภายนอก สุขภาพแบตเตอรี่ ≥ 85% ฟังก์ชันการใช้งานสมบูรณ์',
+    boxClass: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+  },
+  B: {
+    label: 'สภาพดี (Good)',
+    desc: 'ตำหนิเล็กน้อยที่ผิวเครื่อง สุขภาพแบตเตอรี่ 81–84% ไม่กระทบการใช้งาน',
+    boxClass: 'bg-blue-50 border-blue-100 text-blue-700',
+  },
+  C: {
+    label: 'สภาพพอใช้ (Fair)',
+    desc: 'พบรอยขีดข่วนชัดเจน แบตเตอรี่เสื่อมสภาพ (≤ 80%) ใช้งานได้ปกติ',
+    boxClass: 'bg-amber-50 border-amber-100 text-amber-700',
+  },
+  D: {
+    label: 'สภาพชำรุด (Poor)',
+    desc: 'จอแตก ฝาหลังแตก หรือมีร่องรอยตกกระแทก ต้องซ่อมแซมก่อนจำหน่าย',
+    boxClass: 'bg-orange-50 border-orange-100 text-orange-700',
+  },
+  Reject: {
+    label: 'ไม่รับซื้อ (Rejected)',
+    desc: 'เครื่องไม่ผ่านเกณฑ์มาตรฐาน เช่น เมนบอร์ดเสีย, ติด iCloud/MDM หรือสูญหายอะไหล่สำคัญ',
+    boxClass: 'bg-red-50 border-red-100 text-red-700',
+  },
+};
 
 export const B2BAuditorTool = () => {
   const toast = useToast();
@@ -263,14 +292,23 @@ export const B2BAuditorTool = () => {
                     <label className="text-xs font-bold text-slate-500 block mb-1">เกรดสภาพ (Condition Grade)</label>
                     <div className="grid grid-cols-5 gap-2">
                       {['A', 'B', 'C', 'D', 'Reject'].map(g => (
-                        <button 
-                          key={g} 
+                        <button
+                          key={g}
                           onClick={() => setGrade(g as any)}
+                          title={`${GRADE_CRITERIA[g].label} — ${GRADE_CRITERIA[g].desc}`}
                           className={`py-3 rounded-xl font-black text-sm transition-all ${grade === g ? (g === 'Reject' ? 'bg-red-500 text-white' : 'bg-blue-600 text-white') : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
                         >
                           {g}
                         </button>
                       ))}
+                    </div>
+                    {/* 📖 คำอธิบายเกรดที่เลือก */}
+                    <div className={`mt-2 p-3 rounded-xl border text-[11px] leading-relaxed flex gap-2 ${GRADE_CRITERIA[grade].boxClass}`}>
+                      <Info size={14} className="shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-black">เกรด {grade} — {GRADE_CRITERIA[grade].label}</div>
+                        <div className="font-medium opacity-90 mt-0.5">{GRADE_CRITERIA[grade].desc}</div>
+                      </div>
                     </div>
                   </div>
 
