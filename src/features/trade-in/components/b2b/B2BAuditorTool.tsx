@@ -176,6 +176,24 @@ export const B2BAuditorTool = () => {
     }
   };
 
+  // แก้ไขหมายเหตุของรายการเดิม
+  const handleEditNote = async (itemId: string) => {
+    const existing = gradedItems.find((i: any) => i.id === itemId);
+    if (!existing) return;
+    const newNote = prompt('หมายเหตุสำหรับเครื่องนี้:', existing.note || '');
+    if (newNote === null) return; // cancelled
+    const updatedItems = gradedItems.map((i: any) =>
+      i.id === itemId ? { ...i, note: newNote.trim() } : i
+    );
+    try {
+      await update(ref(db, `jobs/${selectedJobId}`), { graded_items: updatedItems });
+      toast.success('บันทึกหมายเหตุเรียบร้อย');
+    } catch (error) {
+      console.error('Edit note failed:', error);
+      toast.error('บันทึกหมายเหตุล้มเหลว');
+    }
+  };
+
   // 📊 คำนวณความคืบหน้าแบบ O(n) แทน O(n*m) - รองรับ 1000+ เครื่อง
   const { reconciliation, unexpectedSummary, gradeSummary } = useMemo(() => {
     // นับจำนวนเครื่องตาม model ใน 1 รอบ (O(n))
@@ -425,7 +443,12 @@ export const B2BAuditorTool = () => {
                           <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                             <td className="p-4 font-mono text-xs font-bold text-slate-600">{item.imei}</td>
                             <td className="p-4 font-bold text-sm text-slate-800">
-                              <div>{item.model}</div>
+                              <div className="flex items-center gap-2">
+                                <span>{item.model}</span>
+                                <button onClick={() => handleEditNote(item.id)} className="text-[9px] font-bold text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded transition-colors">
+                                  {item.note ? '✏️ แก้หมายเหตุ' : '+ หมายเหตุ'}
+                                </button>
+                              </div>
                               {item.note && <div className="text-[10px] text-slate-500 font-normal mt-0.5 italic">📝 {item.note}</div>}
                             </td>
                             <td className="p-4 text-center">
