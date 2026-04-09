@@ -17,8 +17,9 @@ export const B2BAuditorTool = () => {
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const [imei, setImei] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [grade, setGrade] = useState<'A' | 'B' | 'C' | 'Reject'>('A');
+  const [grade, setGrade] = useState<'A' | 'B' | 'C' | 'D' | 'Reject'>('A');
   const [unitPrice, setUnitPrice] = useState<number>(0);
+  const [note, setNote] = useState('');
   const [modelSearch, setModelSearch] = useState('');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
 
@@ -78,6 +79,7 @@ export const B2BAuditorTool = () => {
       if (grade === 'A') targetPrice = base;
       else if (grade === 'B') targetPrice = base * 0.85;
       else if (grade === 'C') targetPrice = base * 0.70;
+      else if (grade === 'D') targetPrice = base * 0.55;
 
       setUnitPrice(Math.round(targetPrice / 10) * 10);
     }
@@ -99,6 +101,7 @@ export const B2BAuditorTool = () => {
       model: selectedModel,
       grade,
       price: grade === 'Reject' ? 0 : unitPrice,
+      note: note.trim() || '',
       timestamp: Date.now()
     };
 
@@ -118,6 +121,7 @@ export const B2BAuditorTool = () => {
       }
       await update(ref(db, `jobs/${selectedJobId}`), updateData);
       setImei('');
+      setNote('');
       document.getElementById('imei-input')?.focus();
     } catch (error) {
       console.error('Add item failed:', error);
@@ -147,7 +151,7 @@ export const B2BAuditorTool = () => {
   const { reconciliation, unexpectedSummary, gradeSummary } = useMemo(() => {
     // นับจำนวนเครื่องตาม model ใน 1 รอบ (O(n))
     const modelCounts: Record<string, number> = {};
-    const grades = { A: 0, B: 0, C: 0, Reject: 0 };
+    const grades = { A: 0, B: 0, C: 0, D: 0, Reject: 0 };
     const expectedModels = new Set(expectedItems.map((e: any) => e.model));
 
     for (const item of gradedItems) {
@@ -257,8 +261,8 @@ export const B2BAuditorTool = () => {
 
                   <div>
                     <label className="text-xs font-bold text-slate-500 block mb-1">เกรดสภาพ (Condition Grade)</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {['A', 'B', 'C', 'Reject'].map(g => (
+                    <div className="grid grid-cols-5 gap-2">
+                      {['A', 'B', 'C', 'D', 'Reject'].map(g => (
                         <button 
                           key={g} 
                           onClick={() => setGrade(g as any)}
@@ -280,6 +284,11 @@ export const B2BAuditorTool = () => {
                     </div>
                   )}
 
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block mb-1">หมายเหตุ (Note) <span className="text-slate-400 font-normal">— ระบุสภาพ/ตำหนิ (ถ้ามี)</span></label>
+                    <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น จอมีรอย, แบตเสื่อม, กล่องไม่ครบ..." className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-sm text-slate-700 outline-none focus:border-blue-500 transition-all" />
+                  </div>
+
                   <button onClick={handleAddItem} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm uppercase flex justify-center items-center gap-2 hover:bg-black transition-all shadow-lg mt-2">
                     <Plus size={18} /> บันทึกเข้ารายการ (Add Item)
                   </button>
@@ -291,10 +300,11 @@ export const B2BAuditorTool = () => {
                 <div className="text-[10px] font-black uppercase tracking-widest text-blue-200 mb-1">Live Summary (ยอดรวมหน้างาน)</div>
                 <div className="text-4xl font-black tracking-tighter mb-4">฿{(currentJob.summary?.total_price || 0).toLocaleString()}</div>
                 
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-5 gap-2 text-center">
                   <div className="bg-white/10 p-2 rounded-xl"><div className="text-[10px] font-bold text-blue-200">Grade A</div><div className="font-black">{gradeSummary.A}</div></div>
                   <div className="bg-white/10 p-2 rounded-xl"><div className="text-[10px] font-bold text-blue-200">Grade B</div><div className="font-black">{gradeSummary.B}</div></div>
                   <div className="bg-white/10 p-2 rounded-xl"><div className="text-[10px] font-bold text-blue-200">Grade C</div><div className="font-black">{gradeSummary.C}</div></div>
+                  <div className="bg-white/10 p-2 rounded-xl"><div className="text-[10px] font-bold text-blue-200">Grade D</div><div className="font-black">{gradeSummary.D}</div></div>
                   <div className="bg-red-500/80 p-2 rounded-xl"><div className="text-[10px] font-bold text-red-100">Reject</div><div className="font-black">{gradeSummary.Reject}</div></div>
                 </div>
               </div>
@@ -376,9 +386,12 @@ export const B2BAuditorTool = () => {
                         gradedItems.map((item: any) => (
                           <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                             <td className="p-4 font-mono text-xs font-bold text-slate-600">{item.imei}</td>
-                            <td className="p-4 font-bold text-sm text-slate-800">{item.model}</td>
+                            <td className="p-4 font-bold text-sm text-slate-800">
+                              <div>{item.model}</div>
+                              {item.note && <div className="text-[10px] text-slate-500 font-normal mt-0.5 italic">📝 {item.note}</div>}
+                            </td>
                             <td className="p-4 text-center">
-                              <span className={`px-3 py-1 rounded-lg text-xs font-black ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-blue-100 text-blue-700' : item.grade === 'C' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>
+                              <span className={`px-3 py-1 rounded-lg text-xs font-black ${item.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : item.grade === 'B' ? 'bg-blue-100 text-blue-700' : item.grade === 'C' ? 'bg-amber-100 text-amber-700' : item.grade === 'D' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-600'}`}>
                                 {item.grade}
                               </span>
                             </td>

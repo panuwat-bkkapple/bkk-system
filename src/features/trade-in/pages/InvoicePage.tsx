@@ -41,6 +41,7 @@ export const InvoicePage = () => {
         model: item.model,
         imei: item.imei,
         grade: item.grade,
+        note: item.note || '',
         final_price: item.price,
         deductions: [`Grade ${item.grade}`],
       }))
@@ -122,11 +123,14 @@ export const InvoicePage = () => {
                   <td className={`${isB2B ? 'py-1.5 px-3' : 'py-4 px-4'} text-center font-bold text-slate-400 border-x border-slate-200`}>{idx + 1}</td>
                   <td className={`${isB2B ? 'py-1.5 px-3' : 'py-4 px-4'} border-x border-slate-200`}>
                     {isB2B ? (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="font-black text-slate-800">{device.model || '-'}</span>
-                        {device.imei && <span className="text-[10px] font-mono text-slate-500">IMEI: {device.imei}</span>}
-                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${device.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : device.grade === 'B' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{device.grade}</span>
-                      </div>
+                      <>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="font-black text-slate-800">{device.model || '-'}</span>
+                          {device.imei && <span className="text-[10px] font-mono text-slate-500">IMEI: {device.imei}</span>}
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${device.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : device.grade === 'B' ? 'bg-blue-100 text-blue-700' : device.grade === 'C' ? 'bg-amber-100 text-amber-700' : device.grade === 'D' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{device.grade}</span>
+                        </div>
+                        {device.note && <div className="text-[9px] text-slate-500 italic mt-0.5">📝 {device.note}</div>}
+                      </>
                     ) : (
                       <>
                         <p className="font-black text-slate-800 text-base">{device.model || '-'}</p>
