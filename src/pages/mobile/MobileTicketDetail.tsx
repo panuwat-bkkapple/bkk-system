@@ -293,10 +293,24 @@ export const MobileTicketDetail = () => {
                   <span className="underline">{job.cust_phone}</span>
                 </button>
               )}
-              {(job.cust_address || job.store_branch) && (
-                <div className="flex items-center gap-2 text-sm">
-                  <MapPin size={14} className="text-slate-400 shrink-0" />
-                  <span className="text-slate-600">{job.cust_address || job.store_branch}</span>
+              {(job.cust_address || job.store_branch || (job.cust_lat != null && job.cust_lng != null)) && (
+                <div className="flex items-start gap-2 text-sm">
+                  <MapPin size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    {(job.cust_address || job.store_branch) && (
+                      <p className="text-slate-600 break-words">{job.cust_address || job.store_branch}</p>
+                    )}
+                    {job.cust_lat != null && job.cust_lng != null && (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${job.cust_lat},${job.cust_lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 mt-1 px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold hover:bg-blue-100"
+                      >
+                        <MapPin size={11} /> เปิดใน Google Maps ({job.cust_lat.toFixed(4)}, {job.cust_lng.toFixed(4)})
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
               {job.agent_name && (

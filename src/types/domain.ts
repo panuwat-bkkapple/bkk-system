@@ -304,6 +304,10 @@ export interface Job {
   cust_email?: string;
   /** ที่อยู่ลูกค้า */
   cust_address?: string;
+  /** พิกัดลูกค้า (latitude) */
+  cust_lat?: number;
+  /** พิกัดลูกค้า (longitude) */
+  cust_lng?: number;
 
   // การรับสินค้า
   /** วิธีการรับสินค้า */

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, Database, ArrowRight, ArrowLeft, CheckCircle2, MapPin, Store, Bike, Mail, Phone } from 'lucide-react';
+import { X, Search, Database, ArrowRight, ArrowLeft, CheckCircle2, MapPin, Store, Bike, Mail, Phone, Navigation } from 'lucide-react';
+import { GoogleMap, MarkerF, useJsApiLoader } from '@react-google-maps/api';
 import { formatCurrency } from '../../../utils/formatters';
 import { useDatabase } from '../../../hooks/useDatabase'; // 🌟 1. นำเข้า useDatabase
 
@@ -9,6 +10,29 @@ const RECEIVE_METHODS = [
   { id: 'Pickup', label: 'เรียกไรเดอร์ (Pickup)', icon: Bike },
   { id: 'Mail-in', label: 'ส่งพัสดุ (Mail-in)', icon: Mail }
 ];
+
+const MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry'];
+const DEFAULT_CENTER = { lat: 13.7563, lng: 100.5018 };
+
+// ดึงพิกัดออกจากลิงก์ Google Maps ที่ลูกค้าส่งมา (รองรับหลายรูปแบบ)
+const parseCoordsFromText = (text: string): { lat: number; lng: number } | null => {
+  if (!text) return null;
+  const patterns = [
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /[?&](?:q|ll|query|destination)=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,
+    /^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const lat = parseFloat(m[1]);
+      const lng = parseFloat(m[2]);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) return { lat, lng };
+    }
+  }
+  return null;
+};
 
 export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
   const [step, setStep] = useState(1);
@@ -21,12 +45,61 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     model: '', price: '', receive_method: 'Store-in', tier: '', category: '',
     cust_name: '', cust_phone: '', cust_id_card: '', cust_address: '',
+    cust_lat: null as number | null, cust_lng: null as number | null,
     bank_name: BANKS[0], bank_account: '', bank_holder: '', status: 'New Lead',
     customer_id: '' // 🌟 เก็บ ID อ้างอิงเวลาดึงจาก CRM
   });
+
+  const { isLoaded: isMapLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '',
+    libraries: MAP_LIBRARIES,
+  });
+
+  // ค้นหาพิกัดจากข้อความที่อยู่ (หรือแกะจากลิงก์ Google Maps)
+  const geocodeAddress = () => {
+    const text = formData.cust_address?.trim();
+    if (!text) return;
+    const parsed = parseCoordsFromText(text);
+    if (parsed) {
+      setFormData((prev: any) => ({ ...prev, cust_lat: parsed.lat, cust_lng: parsed.lng }));
+      return;
+    }
+    if (!(window as any).google?.maps) return;
+    const geocoder = new (window as any).google.maps.Geocoder();
+    geocoder.geocode({ address: text, region: 'th' }, (results: any, status: any) => {
+      if (status === 'OK' && results?.[0]) {
+        const loc = results[0].geometry.location;
+        setFormData((prev: any) => ({ ...prev, cust_lat: loc.lat(), cust_lng: loc.lng() }));
+      }
+    });
+  };
+
+  // อัปเดตข้อความที่อยู่จากพิกัด (reverse geocode) เมื่อคลิก/ลากหมุด
+  const reverseGeocode = (lat: number, lng: number) => {
+    if (!(window as any).google?.maps) return;
+    const geocoder = new (window as any).google.maps.Geocoder();
+    geocoder.geocode({ location: { lat, lng } }, (results: any, status: any) => {
+      if (status === 'OK' && results?.[0]) {
+        setFormData((prev: any) => ({
+          ...prev,
+          cust_address: prev.cust_address?.trim() ? prev.cust_address : results[0].formatted_address,
+        }));
+      }
+    });
+  };
+
+  // auto geocode เมื่อลูกค้าแปะลิงก์ Google Maps (เด้งหมุดทันที)
+  useEffect(() => {
+    const parsed = parseCoordsFromText(formData.cust_address || '');
+    if (parsed && (formData.cust_lat !== parsed.lat || formData.cust_lng !== parsed.lng)) {
+      setFormData((prev: any) => ({ ...prev, cust_lat: parsed.lat, cust_lng: parsed.lng }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.cust_address]);
 
   // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
   const flattenedProducts = useMemo(() => {
@@ -252,10 +325,72 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
                 </div>
               </div>
               
-              {formData.receive_method === 'Pickup' && (
-                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest"><MapPin size={14} className="text-red-500" /> พิกัดรับเครื่อง (Pickup Location) <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.cust_address} onChange={e => setFormData({ ...formData, cust_address: e.target.value })} className="w-full p-4 bg-blue-50/30 border border-blue-200 rounded-2xl font-bold outline-none text-sm focus:border-blue-500 focus:bg-white transition-all shadow-inner" placeholder="ระบุบ้านเลขที่, ถนน, แขวง/เขต หรือวางลิงก์ Google Maps..." />
+              {(formData.receive_method === 'Pickup' || formData.receive_method === 'Mail-in') && (
+                <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="flex justify-between items-end">
+                    <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <MapPin size={14} className="text-red-500" />
+                      {formData.receive_method === 'Pickup' ? 'พิกัดรับเครื่อง (Pickup Location)' : 'ที่อยู่ส่งพัสดุ (Mail-in Address)'}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={geocodeAddress}
+                      className="text-[11px] bg-blue-50 text-blue-600 px-2 py-1 rounded-md font-bold hover:bg-blue-100 transition-colors"
+                    >
+                      📍 ค้นหาพิกัดจากที่อยู่
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={formData.cust_address}
+                    onChange={e => setFormData({ ...formData, cust_address: e.target.value })}
+                    className="w-full p-4 bg-blue-50/30 border border-blue-200 rounded-2xl font-bold outline-none text-sm focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+                    placeholder="ระบุบ้านเลขที่, ถนน, แขวง/เขต หรือวางลิงก์ Google Maps..."
+                  />
+
+                  <div className="relative w-full h-60 rounded-2xl overflow-hidden border border-blue-200 bg-slate-100">
+                    {isMapLoaded ? (
+                      <GoogleMap
+                        mapContainerStyle={{ width: '100%', height: '100%' }}
+                        center={{
+                          lat: formData.cust_lat ?? DEFAULT_CENTER.lat,
+                          lng: formData.cust_lng ?? DEFAULT_CENTER.lng,
+                        }}
+                        zoom={formData.cust_lat ? 16 : 12}
+                        onClick={(e) => {
+                          if (!e.latLng) return;
+                          const lat = e.latLng.lat();
+                          const lng = e.latLng.lng();
+                          setFormData((prev: any) => ({ ...prev, cust_lat: lat, cust_lng: lng }));
+                          reverseGeocode(lat, lng);
+                        }}
+                        options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+                      >
+                        {formData.cust_lat != null && formData.cust_lng != null && (
+                          <MarkerF
+                            position={{ lat: formData.cust_lat, lng: formData.cust_lng }}
+                            draggable
+                            onDragEnd={(e) => {
+                              if (!e.latLng) return;
+                              const lat = e.latLng.lat();
+                              const lng = e.latLng.lng();
+                              setFormData((prev: any) => ({ ...prev, cust_lat: lat, cust_lng: lng }));
+                              reverseGeocode(lat, lng);
+                            }}
+                          />
+                        )}
+                      </GoogleMap>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-bold">กำลังโหลดแผนที่...</div>
+                    )}
+                    <div className="absolute top-3 left-3 bg-white/95 px-3 py-1.5 rounded-lg shadow text-[10px] font-bold text-slate-600 z-10 flex items-center gap-1.5">
+                      <Navigation size={12} className="text-blue-500" />
+                      {formData.cust_lat != null && formData.cust_lng != null
+                        ? `${formData.cust_lat.toFixed(5)}, ${formData.cust_lng.toFixed(5)}`
+                        : 'คลิกบนแผนที่เพื่อปักหมุด'}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -273,7 +408,12 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
 
               <div className="flex gap-4 pt-4">
                 <button onClick={() => setStep(2)} className="flex-1 py-5 font-bold text-slate-400 uppercase text-[10px]"><ArrowLeft size={16} className="inline mr-2" /> BACK</button>
-                <button onClick={() => onSubmit(formData)} className="flex-[2] bg-blue-600 text-white py-5 rounded-[2rem] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">CREATE TICKET</button>
+                <button onClick={() => {
+                  const clean: any = { ...formData };
+                  if (clean.cust_lat == null) delete clean.cust_lat;
+                  if (clean.cust_lng == null) delete clean.cust_lng;
+                  onSubmit(clean);
+                }} className="flex-[2] bg-blue-600 text-white py-5 rounded-[2rem] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">CREATE TICKET</button>
               </div>
             </div>
           )}
