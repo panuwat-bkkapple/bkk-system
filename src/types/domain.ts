@@ -304,12 +304,22 @@ export interface Job {
   cust_email?: string;
   /** ที่อยู่ลูกค้า */
   cust_address?: string;
+  /** พิกัดลูกค้า (latitude) — สำหรับ marketing / logistics ในอนาคต */
+  cust_lat?: number;
+  /** พิกัดลูกค้า (longitude) — สำหรับ marketing / logistics ในอนาคต */
+  cust_lng?: number;
 
   // การรับสินค้า
   /** วิธีการรับสินค้า */
   receive_method: ReceiveMethod;
   /** ค่าบริการรับสินค้า (บาท) */
   pickup_fee?: number;
+  /** ที่อยู่เฉพาะสำหรับไรเดอร์รับเครื่อง (Pickup method) — อาจต่างจาก cust_address */
+  pickup_address?: string;
+  /** พิกัด latitude สำหรับไรเดอร์รับเครื่อง */
+  pickup_lat?: number;
+  /** พิกัด longitude สำหรับไรเดอร์รับเครื่อง */
+  pickup_lng?: number;
 
   // คูปอง & QC
   /** คูปองที่ใช้ */
