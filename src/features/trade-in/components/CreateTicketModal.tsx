@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, Database, ArrowRight, ArrowLeft, CheckCircle2, MapPin, Store, Bike, Mail, Phone } from 'lucide-react';
+import { X, Search, Database, ArrowRight, ArrowLeft, CheckCircle2, MapPin, Store, Bike, Mail, Phone, Navigation, Loader2 } from 'lucide-react';
 import { formatCurrency } from '../../../utils/formatters';
 import { useDatabase } from '../../../hooks/useDatabase'; // 🌟 1. นำเข้า useDatabase
 
@@ -21,12 +21,41 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     model: '', price: '', receive_method: 'Store-in', tier: '', category: '',
     cust_name: '', cust_phone: '', cust_id_card: '', cust_address: '',
+    cust_lat: null as number | null, cust_lng: null as number | null,
+    pickup_address: '', pickup_lat: null as number | null, pickup_lng: null as number | null,
     bank_name: BANKS[0], bank_account: '', bank_holder: '', status: 'New Lead',
     customer_id: '' // 🌟 เก็บ ID อ้างอิงเวลาดึงจาก CRM
   });
+
+  const [geoLoading, setGeoLoading] = useState<null | 'customer' | 'pickup'>(null);
+  const [geoError, setGeoError] = useState<string>('');
+
+  const captureGeoLocation = (target: 'customer' | 'pickup') => {
+    if (!('geolocation' in navigator)) {
+      setGeoError('เบราว์เซอร์ไม่รองรับ Geolocation');
+      return;
+    }
+    setGeoError('');
+    setGeoLoading(target);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        setFormData((prev: any) => target === 'customer'
+          ? { ...prev, cust_lat: lat, cust_lng: lng }
+          : { ...prev, pickup_lat: lat, pickup_lng: lng });
+        setGeoLoading(null);
+      },
+      (err) => {
+        setGeoError(err.code === err.PERMISSION_DENIED ? 'ไม่ได้รับสิทธิ์เข้าถึงตำแหน่ง' : 'ไม่สามารถดึงตำแหน่งได้');
+        setGeoLoading(null);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
   const flattenedProducts = useMemo(() => {
@@ -89,6 +118,8 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
       cust_phone: cust.phone || '',
       cust_id_card: cust.tax_id || cust.id_card || '', // ใช้ Tax ID หรือบัตรประชาชน
       cust_address: cust.address || '',
+      cust_lat: typeof cust.lat === 'number' ? cust.lat : (typeof cust.cust_lat === 'number' ? cust.cust_lat : null),
+      cust_lng: typeof cust.lng === 'number' ? cust.lng : (typeof cust.cust_lng === 'number' ? cust.cust_lng : null),
       // ดึงข้อมูลธนาคารไปรอไว้ที่ Step 3 เลย!
       bank_name: cust.bank_name || prev.bank_name,
       bank_account: cust.bank_account || '',
@@ -108,7 +139,7 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
       const pastCustomer = Array.isArray(jobs) ? jobs.filter(j => j.cust_phone === formData.cust_phone && j.cust_name).sort((a, b) => b.created_at - a.created_at)[0] : null;
       if (pastCustomer) {
         setIsExistingCustomer(true);
-        setFormData((prev: any) => ({ ...prev, cust_name: prev.cust_name || pastCustomer.cust_name || '', cust_id_card: prev.cust_id_card || pastCustomer.cust_id_card || '', cust_address: prev.cust_address || pastCustomer.cust_address || '', bank_name: pastCustomer.bank_name || prev.bank_name, bank_account: pastCustomer.bank_account || prev.bank_account, bank_holder: pastCustomer.bank_holder || prev.bank_holder }));
+        setFormData((prev: any) => ({ ...prev, cust_name: prev.cust_name || pastCustomer.cust_name || '', cust_id_card: prev.cust_id_card || pastCustomer.cust_id_card || '', cust_address: prev.cust_address || pastCustomer.cust_address || '', cust_lat: prev.cust_lat ?? (typeof pastCustomer.cust_lat === 'number' ? pastCustomer.cust_lat : null), cust_lng: prev.cust_lng ?? (typeof pastCustomer.cust_lng === 'number' ? pastCustomer.cust_lng : null), bank_name: pastCustomer.bank_name || prev.bank_name, bank_account: pastCustomer.bank_account || prev.bank_account, bank_holder: pastCustomer.bank_holder || prev.bank_holder }));
       } else setIsExistingCustomer(false);
     } else if (!formData.customer_id) {
         setIsExistingCustomer(false);
@@ -229,6 +260,41 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
                   <input type="text" value={formData.cust_phone} onChange={e => setFormData({ ...formData, cust_phone: e.target.value })} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none" placeholder="เบอร์โทรศัพท์..." />
                   <input type="text" value={formData.cust_id_card} onChange={e => setFormData({ ...formData, cust_id_card: e.target.value })} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none" placeholder="เลขบัตร ปชช. / Tax ID" />
                 </div>
+
+                {/* 📍 ที่อยู่ลูกค้า + Geo location (เก็บทุก method เพื่อ CRM / การตลาด) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <MapPin size={14} className="text-blue-500" /> ที่อยู่ลูกค้า
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => captureGeoLocation('customer')}
+                      disabled={geoLoading === 'customer'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl text-[10px] font-black text-blue-600 uppercase tracking-widest transition-colors disabled:opacity-50"
+                    >
+                      {geoLoading === 'customer'
+                        ? <><Loader2 size={12} className="animate-spin" /> กำลังดึง...</>
+                        : <><Navigation size={12} /> ใช้ตำแหน่งปัจจุบัน</>}
+                    </button>
+                  </div>
+                  <textarea
+                    value={formData.cust_address}
+                    onChange={e => setFormData({ ...formData, cust_address: e.target.value })}
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none text-sm resize-none"
+                    rows={2}
+                    placeholder="บ้านเลขที่, ถนน, แขวง/เขต, จังหวัด..."
+                  />
+                  {typeof formData.cust_lat === 'number' && typeof formData.cust_lng === 'number' && (
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 px-2">
+                      <CheckCircle2 size={12} />
+                      <span>พิกัด: {formData.cust_lat.toFixed(5)}, {formData.cust_lng.toFixed(5)}</span>
+                    </div>
+                  )}
+                  {geoError && (
+                    <div className="text-[10px] font-bold text-red-500 px-2">{geoError}</div>
+                  )}
+                </div>
               </div>
 
               <div className="flex gap-4">
@@ -254,8 +320,78 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
               
               {formData.receive_method === 'Pickup' && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest"><MapPin size={14} className="text-red-500" /> พิกัดรับเครื่อง (Pickup Location) <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.cust_address} onChange={e => setFormData({ ...formData, cust_address: e.target.value })} className="w-full p-4 bg-blue-50/30 border border-blue-200 rounded-2xl font-bold outline-none text-sm focus:border-blue-500 focus:bg-white transition-all shadow-inner" placeholder="ระบุบ้านเลขที่, ถนน, แขวง/เขต หรือวางลิงก์ Google Maps..." />
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <MapPin size={14} className="text-red-500" /> พิกัดรับเครื่อง (Pickup Location) <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {formData.cust_address && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({
+                            ...formData,
+                            pickup_address: formData.cust_address,
+                            pickup_lat: formData.cust_lat,
+                            pickup_lng: formData.cust_lng,
+                          })}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-[10px] font-black text-slate-600 uppercase tracking-widest transition-colors"
+                        >
+                          ใช้ที่อยู่ลูกค้า
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => captureGeoLocation('pickup')}
+                        disabled={geoLoading === 'pickup'}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl text-[10px] font-black text-blue-600 uppercase tracking-widest transition-colors disabled:opacity-50"
+                      >
+                        {geoLoading === 'pickup'
+                          ? <><Loader2 size={12} className="animate-spin" /> กำลังดึง...</>
+                          : <><Navigation size={12} /> ตำแหน่งปัจจุบัน</>}
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={formData.pickup_address}
+                    onChange={e => setFormData({ ...formData, pickup_address: e.target.value })}
+                    className="w-full p-4 bg-blue-50/30 border border-blue-200 rounded-2xl font-bold outline-none text-sm focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+                    placeholder="ระบุบ้านเลขที่, ถนน, แขวง/เขต หรือวางลิงก์ Google Maps..."
+                  />
+                  {typeof formData.pickup_lat === 'number' && typeof formData.pickup_lng === 'number' && (
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-600 px-2">
+                      <CheckCircle2 size={12} />
+                      <span>พิกัด: {formData.pickup_lat.toFixed(5)}, {formData.pickup_lng.toFixed(5)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {formData.receive_method === 'Mail-in' && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <Mail size={14} className="text-amber-500" /> ที่อยู่สำหรับส่งคืน (ถ้า Reject)
+                  </label>
+                  {formData.cust_address ? (
+                    <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-2xl text-sm font-bold text-amber-800 whitespace-pre-wrap">
+                      {formData.cust_address}
+                      <div className="mt-2 text-[10px] font-bold text-amber-600/80">
+                        ใช้ที่อยู่ลูกค้าจากขั้นตอนก่อนหน้า — แก้ได้ที่ Step 2
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-sm font-bold text-red-600">
+                      ⚠️ ยังไม่มีที่อยู่ลูกค้า — กรุณากลับไปกรอกที่ Step 2
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {formData.receive_method === 'Store-in' && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-500 flex items-center gap-2">
+                    <Store size={14} /> ลูกค้ามาส่งเครื่องที่หน้าร้าน — ไม่ต้องระบุพิกัดเพิ่มเติม
+                  </div>
                 </div>
               )}
 
