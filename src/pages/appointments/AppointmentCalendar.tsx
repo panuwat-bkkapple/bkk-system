@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, Phone, User,
   X, Edit3, Trash2, CalendarDays, CheckCircle2, XCircle, AlertCircle,
@@ -79,6 +80,7 @@ interface CalendarEntry {
   time: string;
   source: 'job' | 'appointment';
   // Job-specific
+  jobId?: string;
   jobStatus?: string;
   price?: number;
   receive_method?: string;
@@ -106,11 +108,16 @@ const JOB_STATUS_COLORS: Record<string, { color: string; bg: string }> = {
 // Job Card (for jobs on calendar)
 // ==========================================
 
-const JobCard = ({ entry }: { entry: CalendarEntry }) => {
+const JobCard = ({ entry, onClick }: { entry: CalendarEntry; onClick?: () => void }) => {
   const statusColors = JOB_STATUS_COLORS[entry.jobStatus || ''] || { color: 'text-gray-700', bg: 'bg-gray-100' };
 
   return (
-    <div className="bg-white rounded-xl border shadow-sm p-3 sm:p-4 space-y-1.5">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className="w-full text-left bg-white rounded-xl border shadow-sm p-3 sm:p-4 space-y-1.5 enabled:hover:shadow-md enabled:hover:border-blue-300 enabled:active:scale-[0.99] transition disabled:cursor-default"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -147,7 +154,7 @@ const JobCard = ({ entry }: { entry: CalendarEntry }) => {
         {entry.customer_phone && <span className="flex items-center gap-1"><Phone size={12} /> {entry.customer_phone}</span>}
         {entry.receive_method && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 rounded">{entry.receive_method}</span>}
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -400,7 +407,15 @@ export const AppointmentCalendar = () => {
   const { data: jobs, loading: loadingJobs } = useDatabase('jobs');
   const { currentUser } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isMobile = location.pathname.startsWith('/mobile');
   const loading = loadingAppts || loadingJobs;
+
+  const openJob = useCallback((jobId?: string) => {
+    if (!jobId) return;
+    navigate(isMobile ? `/mobile/job/${jobId}` : `/workspace/${jobId}`);
+  }, [navigate, isMobile]);
 
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -438,6 +453,7 @@ export const AppointmentCalendar = () => {
 
         return {
           id: `job_${j.id}`,
+          jobId: j.id,
           title: j.model || 'ไม่ระบุรุ่น',
           customer_name: j.cust_name || 'ไม่ระบุชื่อ',
           customer_phone: j.cust_phone,
@@ -824,7 +840,7 @@ export const AppointmentCalendar = () => {
                       onStatusChange={(s) => handleStatusChange(entry.id, s)}
                     />
                   ) : (
-                    <JobCard key={entry.id} entry={entry} />
+                    <JobCard key={entry.id} entry={entry} onClick={() => openJob(entry.jobId)} />
                   )
                 )
               )}
@@ -867,7 +883,7 @@ export const AppointmentCalendar = () => {
                         onStatusChange={(s) => handleStatusChange(entry.id, s)}
                       />
                     ) : (
-                      <JobCard entry={entry} />
+                      <JobCard entry={entry} onClick={() => openJob(entry.jobId)} />
                     )}
                   </div>
                 </div>
