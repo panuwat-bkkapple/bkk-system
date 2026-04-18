@@ -314,6 +314,14 @@ export const MobileTicketDetail = () => {
                   </span>
                 </div>
               )}
+              {job.created_at && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-slate-600">
+                    สร้างเมื่อ: {new Date(job.created_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
