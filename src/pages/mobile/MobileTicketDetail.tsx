@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ref, onValue, update, push } from 'firebase/database';
+import { ref, onValue, update, push, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Phone, MapPin, Truck, Store, Mail, Clock, User, Package,
   MessageSquare, Send, ChevronDown, ChevronUp, DollarSign,
   ClipboardCheck, AlertTriangle, CheckCircle2, XCircle,
   Image as ImageIcon, RefreshCw, FileText, Camera,
-  ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info
+  ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info,
+  Edit3, Trash2, X as CloseIcon
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -71,6 +72,9 @@ export const MobileTicketDetail = () => {
   const [loading, setLoading] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
+  const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([]);
@@ -166,6 +170,59 @@ export const MobileTicketDetail = () => {
     toast.success(`อัพเดทเป็น ${newStatus}`);
   };
 
+  const openEditModal = () => {
+    setEditForm({
+      model: job.model || '',
+      price: String(job.price ?? ''),
+      cust_name: job.cust_name || '',
+      cust_phone: job.cust_phone || '',
+      cust_address: job.cust_address || '',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!job.id) return;
+    const priceNum = editForm.price === '' ? null : Number(editForm.price);
+    if (priceNum !== null && (isNaN(priceNum) || priceNum < 0)) {
+      toast.warning('ราคาต้องเป็นตัวเลข');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        model: editForm.model.trim() || null,
+        price: priceNum,
+        cust_name: editForm.cust_name.trim() || null,
+        cust_phone: editForm.cust_phone.trim() || null,
+        cust_address: editForm.cust_address.trim() || null,
+        qc_logs: [makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'), ...(job.qc_logs || [])],
+        updated_at: Date.now(),
+      });
+      toast.success('บันทึกการแก้ไขสำเร็จ');
+      setShowEditModal(false);
+    } catch {
+      toast.error('บันทึกไม่สำเร็จ');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!job.id) return;
+    if (!confirm(`ยืนยันลบงาน ${job.ref_no || job.id}? การลบจะไม่สามารถย้อนกลับได้`)) return;
+    try {
+      await remove(ref(db, `jobs/${job.id}`));
+      toast.success('ลบงานสำเร็จ');
+      navigate('/mobile');
+    } catch {
+      toast.error('ลบงานไม่สำเร็จ');
+    }
+  };
+
+  const canEdit = currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER';
+  const canDelete = currentUser?.role === 'CEO';
+
   // Chat handlers
   const handleSendChat = async () => {
     if (!chatInput.trim() || !id) return;
@@ -217,6 +274,24 @@ export const MobileTicketDetail = () => {
                     {METHOD_CONFIG[job.receive_method].icon}
                     {job.receive_method}
                   </span>
+                )}
+                {canEdit && (
+                  <button
+                    onClick={openEditModal}
+                    className="p-1.5 rounded-full bg-slate-100 text-slate-600 active:bg-slate-200"
+                    aria-label="แก้ไข"
+                  >
+                    <Edit3 size={14} />
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={handleDelete}
+                    className="p-1.5 rounded-full bg-red-50 text-red-500 active:bg-red-100"
+                    aria-label="ลบ"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 )}
               </div>
             </div>
@@ -633,6 +708,96 @@ export const MobileTicketDetail = () => {
               <span className="text-xs font-bold text-slate-500">แชทถูกปิดแล้ว (จบงาน)</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* === Edit Modal === */}
+      {showEditModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm sm:p-4"
+          onClick={() => !isSaving && setShowEditModal(false)}
+        >
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[95vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-2 sm:hidden">
+              <div className="w-10 h-1 bg-slate-200 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h2 className="font-black text-base">แก้ไขข้อมูลงาน</h2>
+              <button
+                onClick={() => !isSaving && setShowEditModal(false)}
+                className="p-1 hover:bg-slate-100 rounded-lg"
+              >
+                <CloseIcon size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">รุ่นสินค้า</label>
+                <input
+                  type="text"
+                  value={editForm.model}
+                  onChange={(e) => setEditForm({ ...editForm, model: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">ราคา (บาท)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={editForm.price}
+                  onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อลูกค้า</label>
+                <input
+                  type="text"
+                  value={editForm.cust_name}
+                  onChange={(e) => setEditForm({ ...editForm, cust_name: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร</label>
+                <input
+                  type="tel"
+                  value={editForm.cust_phone}
+                  onChange={(e) => setEditForm({ ...editForm, cust_phone: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">ที่อยู่</label>
+                <textarea
+                  value={editForm.cust_address}
+                  onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}
+                  rows={2}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 p-4 border-t bg-slate-50 rounded-b-2xl">
+              <button
+                onClick={() => !isSaving && setShowEditModal(false)}
+                disabled={isSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl border bg-white text-sm font-bold text-slate-600 active:bg-slate-100 disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={isSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-bold text-white active:bg-blue-700 disabled:opacity-50"
+              >
+                {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
