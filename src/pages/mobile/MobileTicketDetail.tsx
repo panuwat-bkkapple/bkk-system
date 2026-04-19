@@ -84,6 +84,7 @@ export const MobileTicketDetail = () => {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [rider, setRider] = useState<{ name: string; phone: string } | null>(null);
 
   // Load job
   useEffect(() => {
@@ -94,6 +95,20 @@ export const MobileTicketDetail = () => {
     });
     return () => unsub();
   }, [id]);
+
+  // Load rider profile when job has rider_id
+  useEffect(() => {
+    if (!job?.rider_id) { setRider(null); return; }
+    const unsub = onValue(ref(db, `riders/${job.rider_id}`), (snap) => {
+      if (!snap.exists()) { setRider(null); return; }
+      const raw = snap.val();
+      setRider({
+        name: raw.name || raw.fullName || raw.full_name || raw.displayName || raw.display_name || raw.rider_name || '',
+        phone: raw.phone || raw.phoneNumber || raw.phone_number || raw.tel || raw.mobile || '',
+      });
+    });
+    return () => unsub();
+  }, [job?.rider_id]);
 
   // Load chat messages
   useEffect(() => {
@@ -381,20 +396,25 @@ export const MobileTicketDetail = () => {
                   <span className="text-slate-600">ผู้รับผิดชอบ: <b>{job.agent_name}</b></span>
                 </div>
               )}
-              {(job.rider_name || job.assigned_rider_name) && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Truck size={14} className="text-blue-500 shrink-0" />
-                  <span className="text-slate-600">
-                    ไรเดอร์: <b>{job.rider_name || job.assigned_rider_name}</b>
-                    {job.rider_phone && (
-                      <>
-                        {' '}
-                        <a href={`tel:${job.rider_phone}`} className="text-blue-600 underline">{job.rider_phone}</a>
-                      </>
-                    )}
-                  </span>
-                </div>
-              )}
+              {(() => {
+                const riderName = job.rider_name || job.assigned_rider_name || rider?.name;
+                const riderPhone = job.rider_phone || rider?.phone;
+                if (!riderName && !riderPhone && !job.rider_id) return null;
+                return (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Truck size={14} className="text-blue-500 shrink-0" />
+                    <span className="text-slate-600">
+                      ไรเดอร์: <b>{riderName || job.rider_id}</b>
+                      {riderPhone && (
+                        <>
+                          {' '}
+                          <a href={`tel:${riderPhone}`} className="text-blue-600 underline">{riderPhone}</a>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
               {job.pickup_schedule && (
                 <div className="flex items-center gap-2 text-sm">
                   <Clock size={14} className="text-slate-400 shrink-0" />
