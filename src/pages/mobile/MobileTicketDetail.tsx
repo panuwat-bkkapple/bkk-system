@@ -206,7 +206,7 @@ export const MobileTicketDetail = () => {
     }
     setIsSaving(true);
     try {
-      await update(ref(db, `jobs/${job.id}`), {
+      const payload: any = {
         model: editForm.model.trim() || null,
         price: priceNum,
         cust_name: editForm.cust_name.trim() || null,
@@ -214,7 +214,32 @@ export const MobileTicketDetail = () => {
         cust_address: editForm.cust_address.trim() || null,
         qc_logs: [makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'), ...(job.qc_logs || [])],
         updated_at: Date.now(),
-      });
+      };
+
+      if (priceNum !== null) {
+        const oldBasePrice = Number(job.final_price || job.price || 0);
+        const feeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+        const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+        payload.final_price = priceNum;
+        payload.net_payout = Math.max(0, priceNum - feeNum + couponNum);
+
+        if (Array.isArray(job.devices) && job.devices.length > 0) {
+          const devs = [...job.devices];
+          if (devs.length === 1) {
+            devs[0] = { ...devs[0], price: priceNum, estimated_price: priceNum };
+          } else {
+            const diff = oldBasePrice - priceNum;
+            devs[0] = {
+              ...devs[0],
+              price: Math.max(0, Number(devs[0].price || 0) - diff),
+              estimated_price: Math.max(0, Number(devs[0].estimated_price || 0) - diff),
+            };
+          }
+          payload.devices = devs;
+        }
+      }
+
+      await update(ref(db, `jobs/${job.id}`), payload);
       toast.success('บันทึกการแก้ไขสำเร็จ');
       setShowEditModal(false);
     } catch {
