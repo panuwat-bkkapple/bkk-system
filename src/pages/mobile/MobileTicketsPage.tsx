@@ -19,6 +19,8 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   'Waiting Drop-off':   { bg: 'bg-teal-100',     text: 'text-teal-700',    dot: 'bg-teal-500' },
   'Active Leads':       { bg: 'bg-orange-100',   text: 'text-orange-700',  dot: 'bg-orange-500' },
   'Assigned':           { bg: 'bg-violet-100',   text: 'text-violet-700',  dot: 'bg-violet-500' },
+  'Accepted':           { bg: 'bg-blue-100',     text: 'text-blue-700',    dot: 'bg-blue-500' },
+  'Heading to Customer':{ bg: 'bg-sky-100',      text: 'text-sky-700',     dot: 'bg-sky-500' },
   'Arrived':            { bg: 'bg-lime-100',     text: 'text-lime-700',    dot: 'bg-lime-500' },
   'In-Transit':         { bg: 'bg-yellow-100',   text: 'text-yellow-700',  dot: 'bg-yellow-500' },
   'Being Inspected':    { bg: 'bg-purple-100',   text: 'text-purple-700',  dot: 'bg-purple-500' },
@@ -43,7 +45,7 @@ const PHASE_FILTERS = [
 ];
 
 const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
-const LOGISTICS_STATUSES = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit', 'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'];
+const LOGISTICS_STATUSES = ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit', 'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'];
 const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {

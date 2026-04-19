@@ -25,6 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
   'Active Leads':      'bg-orange-100 text-orange-700',
   'Assigned':          'bg-violet-100 text-violet-700',
   'Accepted':          'bg-blue-100 text-blue-700',
+  'Heading to Customer': 'bg-sky-100 text-sky-700',
   'Arrived':           'bg-teal-100 text-teal-700',
   'In-Transit':        'bg-yellow-100 text-yellow-700',
   'Being Inspected':   'bg-purple-100 text-purple-700',
@@ -49,7 +50,7 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
 // Pipeline steps
 const PIPELINE = [
   { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
-  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Arrived', 'In-Transit'] },
+  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit'] },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
   { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
 ];
@@ -378,6 +379,20 @@ export const MobileTicketDetail = () => {
                 <div className="flex items-center gap-2 text-sm">
                   <ClipboardCheck size={14} className="text-slate-400 shrink-0" />
                   <span className="text-slate-600">ผู้รับผิดชอบ: <b>{job.agent_name}</b></span>
+                </div>
+              )}
+              {(job.rider_name || job.assigned_rider_name) && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Truck size={14} className="text-blue-500 shrink-0" />
+                  <span className="text-slate-600">
+                    ไรเดอร์: <b>{job.rider_name || job.assigned_rider_name}</b>
+                    {job.rider_phone && (
+                      <>
+                        {' '}
+                        <a href={`tel:${job.rider_phone}`} className="text-blue-600 underline">{job.rider_phone}</a>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
               {job.pickup_schedule && (
@@ -852,8 +867,10 @@ function getQuickActions(status: string, isCancelled: boolean) {
       break;
     case 'Active Leads':
     case 'Assigned':
+    case 'Accepted':
       actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       break;
+    case 'Heading to Customer':
     case 'In-Transit':
     case 'Arrived':
       actions.push({ label: 'รับเครื่องแล้ว ตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'ได้รับเครื่องแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
