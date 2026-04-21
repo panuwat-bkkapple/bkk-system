@@ -8,6 +8,213 @@ const { getMessaging } = require("firebase-admin/messaging");
 initializeApp();
 
 // =============================================================================
+// Rider Fee Calculation: คำนวณค่าวิ่งไรเดอร์ตามระยะทางจริง
+// =============================================================================
+
+const DEFAULT_LOGISTICS_RATES = {
+  base_fee: 60,
+  per_km: 15,
+  min_fee: 100,
+  max_fee: 500,
+};
+
+/**
+ * ดึงระยะทาง driving จริงจาก Google Routes API (v2:computeRoutes)
+ * ต้องตั้งค่า GOOGLE_MAPS_API_KEY ใน Cloud Functions secrets/env
+ *
+ * ใช้ Routes API แทน Distance Matrix API เพราะ Google แนะนำเป็น successor
+ * (ราคาเท่ากัน, response เล็กกว่า, ใช้ field mask)
+ *
+ * คืน { distance_km, duration_min } หรือ { error } ถ้า fail
+ */
+async function fetchDrivingDistance(origin, destination) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    console.error("[routesApi] GOOGLE_MAPS_API_KEY not configured");
+    return { error: "api_key_missing" };
+  }
+
+  const url = "https://routes.googleapis.com/directions/v2:computeRoutes";
+  const body = {
+    origin: {
+      location: { latLng: { latitude: origin.lat, longitude: origin.lng } },
+    },
+    destination: {
+      location: {
+        latLng: { latitude: destination.lat, longitude: destination.lng },
+      },
+    },
+    travelMode: "DRIVE",
+    routingPreference: "TRAFFIC_AWARE",
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error(`[routesApi] HTTP ${res.status}: ${await res.text()}`);
+      return { error: `http_${res.status}` };
+    }
+    const data = await res.json();
+    const route = data.routes?.[0];
+    if (!route || typeof route.distanceMeters !== "number") {
+      console.error(
+        `[routesApi] No route in response: ${JSON.stringify(data).slice(0, 200)}`
+      );
+      return { error: "no_route" };
+    }
+    // duration มาเป็น string "900s" — ตัด "s" แล้วแปลงเป็นนาที
+    const durationSec = parseFloat(String(route.duration || "0").replace("s", ""));
+    return {
+      distance_km: route.distanceMeters / 1000,
+      duration_min: durationSec / 60,
+    };
+  } catch (err) {
+    console.error("[routesApi] Fetch failed:", err);
+    return { error: "fetch_exception" };
+  }
+}
+
+/**
+ * อ่านอัตราค่าวิ่งจาก settings/logistics_rates (configurable ผ่าน admin UI)
+ * คืนค่า default ถ้ายังไม่ได้ตั้งไว้
+ */
+async function getLogisticsRates(db) {
+  const snap = await db.ref("settings/logistics_rates").once("value");
+  const saved = snap.exists() ? snap.val() : {};
+  return {
+    base_fee: Number(saved.base_fee ?? DEFAULT_LOGISTICS_RATES.base_fee),
+    per_km: Number(saved.per_km ?? DEFAULT_LOGISTICS_RATES.per_km),
+    min_fee: Number(saved.min_fee ?? DEFAULT_LOGISTICS_RATES.min_fee),
+    max_fee: Number(saved.max_fee ?? DEFAULT_LOGISTICS_RATES.max_fee),
+  };
+}
+
+/**
+ * หาพิกัดสาขาปลายทางสำหรับ job หนึ่ง
+ * ลำดับ fallback:
+ *   1. job.branch_details.{lat,lng}  (ถูก populate ตอนสร้างงานฝั่ง frontend)
+ *   2. settings/branches/{job.branch_id}
+ *   3. settings/branches แรกที่ isActive
+ * คืน null ถ้าไม่พบ
+ */
+async function resolveBranchCoords(db, job) {
+  const bd = job && job.branch_details;
+  if (bd && typeof bd.lat === "number" && typeof bd.lng === "number") {
+    return { lat: bd.lat, lng: bd.lng, source: "job.branch_details" };
+  }
+
+  if (job && job.branch_id) {
+    const snap = await db
+      .ref(`settings/branches/${job.branch_id}`)
+      .once("value");
+    if (snap.exists()) {
+      const b = snap.val();
+      if (typeof b.lat === "number" && typeof b.lng === "number") {
+        return { lat: b.lat, lng: b.lng, source: `branches/${job.branch_id}` };
+      }
+    }
+  }
+
+  const allSnap = await db.ref("settings/branches").once("value");
+  if (allSnap.exists()) {
+    let fallback = null;
+    allSnap.forEach((child) => {
+      const b = child.val();
+      if (
+        !fallback &&
+        b &&
+        b.isActive !== false &&
+        typeof b.lat === "number" &&
+        typeof b.lng === "number"
+      ) {
+        fallback = { lat: b.lat, lng: b.lng, source: `branches/${child.key}` };
+      }
+    });
+    if (fallback) return fallback;
+  }
+
+  return null;
+}
+
+/**
+ * หาพิกัดจุดรับเครื่องของลูกค้า
+ * รองรับหลาย field name เพราะแต่ละ client เขียนไม่เหมือนกัน
+ * คืน null ถ้าไม่พบ (เช่นลูกค้าเลือก Store-in)
+ */
+function resolveCustomerCoords(job) {
+  if (!job) return null;
+  const candidates = [
+    [job.cust_lat, job.cust_lng],
+    [job.customer_lat, job.customer_lng],
+    [job.pickup_lat, job.pickup_lng],
+    job.pickup_location && [job.pickup_location.lat, job.pickup_location.lng],
+    job.customer && [job.customer.lat, job.customer.lng],
+  ];
+  for (const pair of candidates) {
+    if (!pair) continue;
+    const [lat, lng] = pair;
+    if (typeof lat === "number" && typeof lng === "number") {
+      return { lat, lng };
+    }
+  }
+  return null;
+}
+
+/**
+ * คำนวณค่าวิ่งไรเดอร์ (บาท, จำนวนเต็ม) จากระยะทาง driving จริง
+ * สูตร: clamp(base_fee + per_km × distance_km, min_fee, max_fee)
+ *
+ * Fallback เป็น min_fee (พร้อม reason) เมื่อ:
+ *   - ไม่มีพิกัดลูกค้า/สาขา (เช่น Store-in, ลูกค้าไม่ได้ปักหมุด)
+ *   - Distance Matrix API fail (network / quota / API key)
+ * ไม่คำนวณเส้นตรง (Haversine) เพื่อให้ยอดตรงกับระยะทางจริงเสมอ
+ */
+async function computeRiderFee(db, job) {
+  const rates = await getLogisticsRates(db);
+  const custCoords = resolveCustomerCoords(job);
+  const branchCoords = await resolveBranchCoords(db, job);
+
+  if (!custCoords || !branchCoords) {
+    return {
+      fee: rates.min_fee,
+      distance_km: null,
+      duration_min: null,
+      rates,
+      reason: !custCoords ? "missing_customer_coords" : "missing_branch_coords",
+    };
+  }
+
+  const route = await fetchDrivingDistance(custCoords, branchCoords);
+  if (route.error) {
+    return {
+      fee: rates.min_fee,
+      distance_km: null,
+      duration_min: null,
+      rates,
+      reason: `routes_api_${route.error}`,
+    };
+  }
+
+  const raw = rates.base_fee + rates.per_km * route.distance_km;
+  const clamped = Math.max(rates.min_fee, Math.min(rates.max_fee, raw));
+  return {
+    fee: Math.round(clamped),
+    distance_km: Math.round(route.distance_km * 100) / 100,
+    duration_min: Math.round(route.duration_min),
+    rates,
+    reason: "calculated",
+  };
+}
+
+// =============================================================================
 // Archive System: ย้ายงานที่จบแล้วไป jobs_archived เพื่อลด load
 // =============================================================================
 
@@ -105,6 +312,28 @@ exports.onNewTicketCreated = onValueCreated(
       const job = event.data.val();
       if (!job) return;
 
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+
+      // คำนวณ rider_fee_estimate ทันทีตอนสร้างงาน เพื่อให้ไรเดอร์เห็นก่อนรับงาน
+      try {
+        const result = await computeRiderFee(db, job);
+        await db.ref(`jobs/${jobId}`).update({
+          rider_fee_estimate: result.fee,
+          rider_fee_estimate_meta: {
+            distance_km: result.distance_km,
+            rates: result.rates,
+            reason: result.reason,
+            computed_at: Date.now(),
+          },
+        });
+        console.log(
+          `[onNewTicket] rider_fee_estimate for job ${jobId}: ฿${result.fee} (${result.reason}, ${result.distance_km ?? "n/a"} km)`
+        );
+      } catch (err) {
+        console.error(`[onNewTicket] Failed to compute rider_fee_estimate:`, err);
+      }
+
       // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Leads จาก Instant Sell)
       const newStatuses = ["New Lead", "New B2B Lead", "Active Leads"];
       if (!newStatuses.includes(job.status)) {
@@ -112,7 +341,6 @@ exports.onNewTicketCreated = onValueCreated(
         return;
       }
 
-      const jobId = event.params.jobId;
       const model = job.model || "ไม่ระบุรุ่น";
       const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
       const method = job.receive_method || "";
@@ -125,7 +353,6 @@ exports.onNewTicketCreated = onValueCreated(
       console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
 
       // ดึง FCM tokens ของ admin ทุกคน
-      const db = getDatabase();
       const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
       if (!tokensSnap.exists()) {
         console.warn("[onNewTicket] No tokens in admin_fcm_tokens — nobody to notify");
@@ -764,5 +991,69 @@ exports.onTrackingNumberUpdated = onValueWritten(
     console.log(
       `Saved tracking data for job ${jobId}: ${trackingData.items.length} items`
     );
+  }
+);
+
+// =============================================================================
+// Rider Fee: คำนวณค่าวิ่งจริงเมื่อไรเดอร์ส่งมอบเครื่อง (status = Pending QC)
+// =============================================================================
+
+/**
+ * เมื่อ job.status เปลี่ยนเป็น "Pending QC" แปลว่าไรเดอร์ส่งมอบเครื่องเข้าสาขาเรียบร้อย
+ * ดึงพิกัดลูกค้า + สาขา + rate card จาก settings/logistics_rates แล้วเขียน jobs/{id}/rider_fee
+ * เพื่อให้ Finance approve จ่ายเงินไรเดอร์ตามค่าวิ่งจริง ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า
+ */
+exports.onJobHandedOverCalcRiderFee = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+
+    if (before === after) return;
+    if (after !== "Pending QC") return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) {
+      console.warn(`[riderFee] Job ${jobId} not found`);
+      return;
+    }
+    const job = jobSnap.val();
+
+    // ถ้า rider_fee ถูก set แล้ว (เช่น admin ตั้งเอง) ไม่ override
+    if (typeof job.rider_fee === "number" && job.rider_fee > 0) {
+      console.log(
+        `[riderFee] Job ${jobId} already has rider_fee=${job.rider_fee}, skip`
+      );
+      return;
+    }
+
+    try {
+      const result = await computeRiderFee(db, job);
+      const updates = {
+        rider_fee: result.fee,
+        rider_fee_meta: {
+          distance_km: result.distance_km,
+          rates: result.rates,
+          reason: result.reason,
+          computed_at: Date.now(),
+        },
+      };
+      // ถ้ายังไม่มี rider_fee_status มาก่อน ตั้งเป็น Pending เพื่อเข้าคิว settlement
+      if (!job.rider_fee_status) {
+        updates.rider_fee_status = "Pending";
+      }
+      await db.ref(`jobs/${jobId}`).update(updates);
+      console.log(
+        `[riderFee] Job ${jobId}: ฿${result.fee} (${result.reason}, ${result.distance_km ?? "n/a"} km)`
+      );
+    } catch (err) {
+      console.error(`[riderFee] Failed to compute for ${jobId}:`, err);
+    }
   }
 );

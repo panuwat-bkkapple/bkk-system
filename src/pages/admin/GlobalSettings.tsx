@@ -4,8 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
-import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle } from 'lucide-react';
+import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
+
+const DEFAULT_RIDER_RATES = {
+  base_fee: 60,
+  per_km: 15,
+  min_fee: 100,
+  max_fee: 500,
+};
 
 export default function GlobalSettings() {
   const toast = useToast();
@@ -16,6 +23,11 @@ export default function GlobalSettings() {
     perKmRate: 10,     // ค่าบริการกิโลเมตรถัดไป (บาท/กม.)
     maxDistance: 50    // ระยะทางให้บริการสูงสุด (กม.)
   });
+
+  // 🏍️ อัตราค่าวิ่งไรเดอร์ — Cloud Function อ่านจาก settings/logistics_rates
+  const [riderRates, setRiderRates] = useState(DEFAULT_RIDER_RATES);
+  const [isSavingRider, setIsSavingRider] = useState(false);
+  const [showRiderSuccess, setShowRiderSuccess] = useState(false);
 
   const [testDistance, setTestDistance] = useState<number>(12); // สำหรับ Slider จำลองระยะทาง
   const [isSaving, setIsSaving] = useState(false);
@@ -31,6 +43,52 @@ export default function GlobalSettings() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const ratesRef = ref(db, 'settings/logistics_rates');
+    const unsubscribe = onValue(ratesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const v = snapshot.val() || {};
+        setRiderRates({
+          base_fee: Number(v.base_fee ?? DEFAULT_RIDER_RATES.base_fee),
+          per_km: Number(v.per_km ?? DEFAULT_RIDER_RATES.per_km),
+          min_fee: Number(v.min_fee ?? DEFAULT_RIDER_RATES.min_fee),
+          max_fee: Number(v.max_fee ?? DEFAULT_RIDER_RATES.max_fee),
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveRiderRates = async () => {
+    if (riderRates.min_fee > riderRates.max_fee) {
+      toast.warning('min_fee ต้องไม่มากกว่า max_fee');
+      return;
+    }
+    setIsSavingRider(true);
+    setShowRiderSuccess(false);
+    try {
+      await update(ref(db, 'settings/logistics_rates'), {
+        ...riderRates,
+        updated_at: Date.now(),
+      });
+      setShowRiderSuccess(true);
+      setTimeout(() => setShowRiderSuccess(false), 3000);
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการบันทึกอัตราค่าวิ่ง');
+    } finally {
+      setIsSavingRider(false);
+    }
+  };
+
+  const handleRiderRateChange = (field: keyof typeof riderRates, value: string) => {
+    setRiderRates(prev => ({ ...prev, [field]: Number(value) }));
+  };
+
+  const previewRiderFee = (km: number) => {
+    const raw = riderRates.base_fee + riderRates.per_km * km;
+    return Math.round(Math.max(riderRates.min_fee, Math.min(riderRates.max_fee, raw)));
+  };
 
   // บันทึกข้อมูลลง Firebase
   const handleSaveSettings = async () => {
@@ -77,8 +135,85 @@ export default function GlobalSettings() {
         <p className="text-slate-500 font-medium ml-12">กำหนดสมการคำนวณค่าบริการเข้ารับเครื่องตามระยะทาง (Distance-Based Pricing)</p>
       </div>
 
+      {/* 🏍️ อัตราค่าวิ่งไรเดอร์ (Rider Fee Rates) */}
+      <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
+        <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
+          <Bike className="text-emerald-600" /> อัตราค่าวิ่งไรเดอร์ (Rider Fee)
+        </h2>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-5">
+          ใช้คำนวณ <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">jobs/&#123;id&#125;/rider_fee</code> ตอนสถานะงานเปลี่ยนเป็น <strong>Pending QC</strong> โดย Cloud Function — บันทึกเป็น <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/logistics_rates</code>
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Base Fee</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">฿</span>
+              <input type="number" value={riderRates.base_fee} onChange={(e) => handleRiderRateChange('base_fee', e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Per KM</label>
+            <div className="relative">
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs">บาท/กม.</span>
+              <input type="number" value={riderRates.per_km} onChange={(e) => handleRiderRateChange('per_km', e.target.value)}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Min Fee</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">฿</span>
+              <input type="number" value={riderRates.min_fee} onChange={(e) => handleRiderRateChange('min_fee', e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Max Fee</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">฿</span>
+              <input type="number" value={riderRates.max_fee} onChange={(e) => handleRiderRateChange('max_fee', e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 flex items-start gap-3 text-xs text-emerald-800">
+          <Info size={16} className="shrink-0 mt-0.5 text-emerald-500" />
+          <div className="leading-relaxed font-medium">
+            <strong>สูตร:</strong> clamp(base_fee + per_km × distance_km, min_fee, max_fee)
+            <div className="mt-2 grid grid-cols-3 gap-3 text-[11px]">
+              <div className="bg-white/80 rounded-lg p-2 text-center">
+                <div className="text-slate-500">5 กม.</div>
+                <div className="font-black text-emerald-700">฿{previewRiderFee(5).toLocaleString()}</div>
+              </div>
+              <div className="bg-white/80 rounded-lg p-2 text-center">
+                <div className="text-slate-500">15 กม.</div>
+                <div className="font-black text-emerald-700">฿{previewRiderFee(15).toLocaleString()}</div>
+              </div>
+              <div className="bg-white/80 rounded-lg p-2 text-center">
+                <div className="text-slate-500">30 กม.</div>
+                <div className="font-black text-emerald-700">฿{previewRiderFee(30).toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 mt-5">
+          <button onClick={handleSaveRiderRates} disabled={isSavingRider} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black transition-all shadow-lg active:scale-95 disabled:bg-slate-300 flex items-center gap-2">
+            {isSavingRider ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} บันทึกอัตราค่าวิ่ง
+          </button>
+          {showRiderSuccess && (
+            <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2.5 rounded-xl animate-in fade-in text-sm">
+              <CheckCircle2 size={18} /> อัปเดตอัตราค่าวิ่งสำเร็จ!
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6">
-        
+
         {/* 🎛️ ฝั่งซ้าย: ฟอร์มตั้งค่าสมการ */}
         <div className="w-full lg:w-7/12 space-y-6">
           <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">

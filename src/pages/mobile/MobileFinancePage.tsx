@@ -107,7 +107,8 @@ export const MobileFinancePage = () => {
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`);
 
       const actualTransferAmount = getNetPayout(selectedTx);
-      const pickupFee = Number(selectedTx.pickup_fee || 0);
+      // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
+      const riderFee = Number(selectedTx.rider_fee || 0);
 
       const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
@@ -140,11 +141,11 @@ export const MobileFinancePage = () => {
         slip_url: slipUrl
       };
 
-      if (pickupFee > 0) {
+      if (riderFee > 0) {
         const creditKey = push(child(ref(db), 'transactions')).key;
         updates[`transactions/${creditKey}`] = {
           rider_id: selectedTx.rider_id || 'SYSTEM',
-          amount: pickupFee,
+          amount: riderFee,
           type: 'CREDIT',
           category: 'LOGISTICS_REVENUE',
           description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
