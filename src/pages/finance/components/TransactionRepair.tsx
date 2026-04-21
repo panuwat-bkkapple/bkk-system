@@ -56,9 +56,10 @@ export const TransactionRepair = () => {
     const isB2B = job.type === 'B2B Trade-in';
     const isWithdrawal = job.type === 'Withdrawal';
     const netPayout = isWithdrawal ? Number(job.withdraw_amount || 0) : getNetPayout(job);
-    const pickupFee = Number(job.pickup_fee || 0);
+    // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
+    const riderFee = Number(job.rider_fee || 0);
 
-    if (!confirm(`ยืนยันสร้าง transaction สำหรับ ${job.ref_no || job.id}?\n\nยอดจ่าย: ฿${netPayout.toLocaleString()}\nค่าไรเดอร์: ฿${pickupFee.toLocaleString()}`)) return;
+    if (!confirm(`ยืนยันสร้าง transaction สำหรับ ${job.ref_no || job.id}?\n\nยอดจ่าย: ฿${netPayout.toLocaleString()}\nค่าวิ่งไรเดอร์: ฿${riderFee.toLocaleString()}`)) return;
 
     setRepairing(job.id);
     try {
@@ -92,12 +93,12 @@ export const TransactionRepair = () => {
           slip_url: job.payment_slip || null
         };
 
-        // CREDIT (logistics revenue) ถ้ามีค่าไรเดอร์
-        if (pickupFee > 0) {
+        // CREDIT (logistics revenue) ถ้ามีค่าวิ่งไรเดอร์
+        if (riderFee > 0) {
           const creditKey = push(child(ref(db), 'transactions')).key;
           updates[`transactions/${creditKey}`] = {
             rider_id: job.rider_id || 'SYSTEM',
-            amount: pickupFee,
+            amount: riderFee,
             type: 'CREDIT',
             category: 'LOGISTICS_REVENUE',
             description: `[ซ่อม] รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${job.ref_no || job.id}`,
@@ -199,8 +200,8 @@ export const TransactionRepair = () => {
                     </td>
                     <td className="p-5 text-right">
                       <span className="font-black text-red-600">-฿{netPayout.toLocaleString()}</span>
-                      {!isWithdrawal && Number(job.pickup_fee || 0) > 0 && (
-                        <div className="text-[10px] text-emerald-600 font-bold">+฿{Number(job.pickup_fee).toLocaleString()} ค่าไรเดอร์</div>
+                      {!isWithdrawal && Number(job.rider_fee || 0) > 0 && (
+                        <div className="text-[10px] text-emerald-600 font-bold">+฿{Number(job.rider_fee).toLocaleString()} ค่าวิ่งไรเดอร์</div>
                       )}
                     </td>
                     <td className="p-5 text-xs font-bold text-slate-500">
