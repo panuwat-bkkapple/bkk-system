@@ -19,53 +19,65 @@ const DEFAULT_LOGISTICS_RATES = {
 };
 
 /**
- * ดึงระยะทาง driving จริงจาก Google Distance Matrix API
+ * ดึงระยะทาง driving จริงจาก Google Routes API (v2:computeRoutes)
  * ต้องตั้งค่า GOOGLE_MAPS_API_KEY ใน Cloud Functions secrets/env
  *
- * คืน { distance_km, duration_min } หรือ null ถ้า fail
- * (ไม่ fallback เป็น Haversine เพราะอยากได้ระยะทางจริงเท่านั้น)
+ * ใช้ Routes API แทน Distance Matrix API เพราะ Google แนะนำเป็น successor
+ * (ราคาเท่ากัน, response เล็กกว่า, ใช้ field mask)
+ *
+ * คืน { distance_km, duration_min } หรือ { error } ถ้า fail
  */
 async function fetchDrivingDistance(origin, destination) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
-    console.error("[distanceMatrix] GOOGLE_MAPS_API_KEY not configured");
+    console.error("[routesApi] GOOGLE_MAPS_API_KEY not configured");
     return { error: "api_key_missing" };
   }
 
-  const url =
-    `https://maps.googleapis.com/maps/api/distancematrix/json` +
-    `?origins=${origin.lat},${origin.lng}` +
-    `&destinations=${destination.lat},${destination.lng}` +
-    `&mode=driving&units=metric&key=${apiKey}`;
+  const url = "https://routes.googleapis.com/directions/v2:computeRoutes";
+  const body = {
+    origin: {
+      location: { latLng: { latitude: origin.lat, longitude: origin.lng } },
+    },
+    destination: {
+      location: {
+        latLng: { latitude: destination.lat, longitude: destination.lng },
+      },
+    },
+    travelMode: "DRIVE",
+    routingPreference: "TRAFFIC_AWARE",
+  };
 
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration",
+      },
+      body: JSON.stringify(body),
+    });
     if (!res.ok) {
-      console.error(
-        `[distanceMatrix] HTTP ${res.status}: ${await res.text()}`
-      );
-      return { error: "http_error" };
+      console.error(`[routesApi] HTTP ${res.status}: ${await res.text()}`);
+      return { error: `http_${res.status}` };
     }
     const data = await res.json();
-    if (data.status !== "OK") {
+    const route = data.routes?.[0];
+    if (!route || typeof route.distanceMeters !== "number") {
       console.error(
-        `[distanceMatrix] API status=${data.status}: ${data.error_message || ""}`
+        `[routesApi] No route in response: ${JSON.stringify(data).slice(0, 200)}`
       );
-      return { error: `api_status_${data.status}` };
+      return { error: "no_route" };
     }
-    const element = data.rows?.[0]?.elements?.[0];
-    if (!element || element.status !== "OK") {
-      console.error(
-        `[distanceMatrix] Element status=${element?.status || "missing"}`
-      );
-      return { error: `element_status_${element?.status || "missing"}` };
-    }
+    // duration มาเป็น string "900s" — ตัด "s" แล้วแปลงเป็นนาที
+    const durationSec = parseFloat(String(route.duration || "0").replace("s", ""));
     return {
-      distance_km: element.distance.value / 1000,
-      duration_min: element.duration.value / 60,
+      distance_km: route.distanceMeters / 1000,
+      duration_min: durationSec / 60,
     };
   } catch (err) {
-    console.error("[distanceMatrix] Fetch failed:", err);
+    console.error("[routesApi] Fetch failed:", err);
     return { error: "fetch_exception" };
   }
 }
@@ -187,7 +199,7 @@ async function computeRiderFee(db, job) {
       distance_km: null,
       duration_min: null,
       rates,
-      reason: `distance_matrix_${route.error}`,
+      reason: `routes_api_${route.error}`,
     };
   }
 
