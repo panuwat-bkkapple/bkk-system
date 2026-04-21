@@ -36,9 +36,14 @@ jobs:
         run: cd functions && npm ci
 
       - name: Create Functions .env
-        run: printf 'THAILAND_POST_API_KEY=%s\n' "$THAI_POST_KEY" > functions/.env
+        run: |
+          {
+            printf 'THAILAND_POST_API_KEY=%s\n' "$THAI_POST_KEY"
+            printf 'GOOGLE_MAPS_API_KEY=%s\n' "$GOOGLE_MAPS_KEY"
+          } > functions/.env
         env:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
+          GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
 
       - name: Deploy Firebase Functions
         uses: w9jds/firebase-action@master

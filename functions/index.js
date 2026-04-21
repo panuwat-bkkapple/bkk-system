@@ -19,19 +19,55 @@ const DEFAULT_LOGISTICS_RATES = {
 };
 
 /**
- * Haversine distance (km) ระหว่างสองพิกัด lat/lng
+ * ดึงระยะทาง driving จริงจาก Google Distance Matrix API
+ * ต้องตั้งค่า GOOGLE_MAPS_API_KEY ใน Cloud Functions secrets/env
+ *
+ * คืน { distance_km, duration_min } หรือ null ถ้า fail
+ * (ไม่ fallback เป็น Haversine เพราะอยากได้ระยะทางจริงเท่านั้น)
  */
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+async function fetchDrivingDistance(origin, destination) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    console.error("[distanceMatrix] GOOGLE_MAPS_API_KEY not configured");
+    return { error: "api_key_missing" };
+  }
+
+  const url =
+    `https://maps.googleapis.com/maps/api/distancematrix/json` +
+    `?origins=${origin.lat},${origin.lng}` +
+    `&destinations=${destination.lat},${destination.lng}` +
+    `&mode=driving&units=metric&key=${apiKey}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(
+        `[distanceMatrix] HTTP ${res.status}: ${await res.text()}`
+      );
+      return { error: "http_error" };
+    }
+    const data = await res.json();
+    if (data.status !== "OK") {
+      console.error(
+        `[distanceMatrix] API status=${data.status}: ${data.error_message || ""}`
+      );
+      return { error: `api_status_${data.status}` };
+    }
+    const element = data.rows?.[0]?.elements?.[0];
+    if (!element || element.status !== "OK") {
+      console.error(
+        `[distanceMatrix] Element status=${element?.status || "missing"}`
+      );
+      return { error: `element_status_${element?.status || "missing"}` };
+    }
+    return {
+      distance_km: element.distance.value / 1000,
+      duration_min: element.duration.value / 60,
+    };
+  } catch (err) {
+    console.error("[distanceMatrix] Fetch failed:", err);
+    return { error: "fetch_exception" };
+  }
 }
 
 /**
@@ -121,11 +157,13 @@ function resolveCustomerCoords(job) {
 }
 
 /**
- * คำนวณค่าวิ่งไรเดอร์ (บาท, จำนวนเต็ม)
+ * คำนวณค่าวิ่งไรเดอร์ (บาท, จำนวนเต็ม) จากระยะทาง driving จริง
  * สูตร: clamp(base_fee + per_km × distance_km, min_fee, max_fee)
  *
- * ถ้าหาพิกัดลูกค้าหรือสาขาไม่เจอ (เช่น Store-in) ถือว่าไม่มีค่าวิ่ง → คืน min_fee
- * เพื่อกันเคสประหลาดที่ไรเดอร์ไม่ได้รับอะไรเลย
+ * Fallback เป็น min_fee (พร้อม reason) เมื่อ:
+ *   - ไม่มีพิกัดลูกค้า/สาขา (เช่น Store-in, ลูกค้าไม่ได้ปักหมุด)
+ *   - Distance Matrix API fail (network / quota / API key)
+ * ไม่คำนวณเส้นตรง (Haversine) เพื่อให้ยอดตรงกับระยะทางจริงเสมอ
  */
 async function computeRiderFee(db, job) {
   const rates = await getLogisticsRates(db);
@@ -136,22 +174,29 @@ async function computeRiderFee(db, job) {
     return {
       fee: rates.min_fee,
       distance_km: null,
+      duration_min: null,
       rates,
       reason: !custCoords ? "missing_customer_coords" : "missing_branch_coords",
     };
   }
 
-  const distanceKm = haversineKm(
-    custCoords.lat,
-    custCoords.lng,
-    branchCoords.lat,
-    branchCoords.lng
-  );
-  const raw = rates.base_fee + rates.per_km * distanceKm;
+  const route = await fetchDrivingDistance(custCoords, branchCoords);
+  if (route.error) {
+    return {
+      fee: rates.min_fee,
+      distance_km: null,
+      duration_min: null,
+      rates,
+      reason: `distance_matrix_${route.error}`,
+    };
+  }
+
+  const raw = rates.base_fee + rates.per_km * route.distance_km;
   const clamped = Math.max(rates.min_fee, Math.min(rates.max_fee, raw));
   return {
     fee: Math.round(clamped),
-    distance_km: Math.round(distanceKm * 100) / 100,
+    distance_km: Math.round(route.distance_km * 100) / 100,
+    duration_min: Math.round(route.duration_min),
     rates,
     reason: "calculated",
   };
