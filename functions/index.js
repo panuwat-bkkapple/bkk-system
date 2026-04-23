@@ -479,11 +479,12 @@ exports.onNewTicketCreated = onValueCreated(
 );
 
 /**
- * Cloud Function: ส่ง Push Notification เมื่อมีข้อความแชทใหม่ในงาน
+ * Cloud Function: ส่ง Push Notification ให้ admin ทุกคน เมื่อ rider ส่งข้อความแชทในงาน
  * Trigger: เมื่อมีข้อมูลใหม่ถูกเขียนลง /jobs/{jobId}/chats/{chatId}
- * - ถ้า sender เป็น admin/customer → แจ้ง rider ที่ได้รับมอบหมาย
- * - ถ้า sender เป็น rider → แจ้ง admin ทุกคน
- * ใช้ collapseKey + apns-collapse-id เพื่อป้องกัน notification ซ้ำ
+ *
+ * หมายเหตุ: การแจ้ง rider เมื่อ admin/customer ส่งข้อความ จัดการใน bkk-rider-app
+ * (codebase rider-notifications → onNewChatMessage) เพื่อหลีกเลี่ยง push ซ้ำ
+ * และรองรับ rider ที่ login หลายเครื่อง (multi-device FCM tokens)
  */
 exports.onChatMessageCreated = onValueCreated(
   {
@@ -494,8 +495,10 @@ exports.onChatMessageCreated = onValueCreated(
     const chat = event.data.val();
     if (!chat) return;
 
-    const { jobId } = event.params;
     const sender = chat.sender || "";
+    if (sender !== "rider") return;
+
+    const { jobId } = event.params;
     const senderName = chat.senderName || sender;
     const text = chat.text || "";
     const imageUrl = chat.imageUrl || "";
@@ -503,139 +506,75 @@ exports.onChatMessageCreated = onValueCreated(
     const db = getDatabase();
     const messaging = getMessaging();
 
-    // ดึงข้อมูล job เพื่อหา rider_id และ model
-    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
-    if (!jobSnap.exists()) return;
-    const job = jobSnap.val();
+    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+    if (!tokensSnap.exists()) return;
 
-    if (sender === "rider") {
-      // Rider ส่งข้อความ → แจ้ง admin ทุกคน
-      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-      if (!tokensSnap.exists()) return;
-
-      const tokens = [];
-      tokensSnap.forEach((staffSnap) => {
-        staffSnap.forEach((tokenSnap) => {
-          const data = tokenSnap.val();
-          if (data && data.token) tokens.push(data.token);
-        });
+    const tokens = [];
+    tokensSnap.forEach((staffSnap) => {
+      staffSnap.forEach((tokenSnap) => {
+        const data = tokenSnap.val();
+        if (data && data.token) tokens.push(data.token);
       });
+    });
 
-      if (tokens.length === 0) return;
+    if (tokens.length === 0) return;
 
-      const title = `💬 ${senderName}`;
-      const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
-      const collapseKey = `chat-${jobId}`;
+    const title = `💬 ${senderName}`;
+    const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
+    const collapseKey = `chat-${jobId}`;
 
-      const message = {
-        notification: { title, body },
-        data: { jobId, type: "chat_message", sender },
-        android: {
+    const message = {
+      notification: { title, body },
+      data: { jobId, type: "chat_message", sender },
+      android: {
+        priority: "high",
+        collapseKey,
+        notification: {
+          channelId: "chat_messages",
           priority: "high",
-          collapseKey,
-          notification: {
-            channelId: "chat_messages",
-            priority: "high",
-            defaultSound: true,
+          defaultSound: true,
+        },
+      },
+      apns: {
+        headers: {
+          "apns-collapse-id": collapseKey,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: "default",
           },
         },
-        apns: {
-          headers: {
-            "apns-collapse-id": collapseKey,
-            "apns-priority": "10",
-            "apns-push-type": "alert",
-          },
-          payload: {
-            aps: {
-              alert: { title, body },
-              sound: "default",
-            },
-          },
+      },
+      webpush: {
+        headers: {
+          Urgency: "high",
+          TTL: "86400",
         },
-        webpush: {
-          headers: {
-            Urgency: "high",
-            TTL: "86400",
-          },
-          notification: {
-            icon: "/icons/icon-192.png",
-            badge: "/icons/icon-192.png",
-            tag: collapseKey,
-            vibrate: [200, 100, 200],
-            renotify: true,
-          },
+        notification: {
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: collapseKey,
+          vibrate: [200, 100, 200],
+          renotify: true,
         },
-      };
+      },
+    };
 
-      const batches = [];
-      for (let i = 0; i < tokens.length; i += 500) {
-        batches.push(
-          messaging.sendEachForMulticast({
-            ...message,
-            tokens: tokens.slice(i, i + 500),
-          })
-        );
-      }
-      const results = await Promise.all(batches);
-      const successCount = results.reduce((a, r) => a + r.successCount, 0);
-      console.log(`Chat notif (rider→admin): ${successCount}/${tokens.length} devices`);
-    } else {
-      // Admin หรือ Customer ส่งข้อความ → แจ้ง rider
-      const riderId = job.rider_id;
-      if (!riderId) return;
-
-      const riderSnap = await db.ref(`riders/${riderId}`).once("value");
-      if (!riderSnap.exists()) return;
-      const rider = riderSnap.val();
-      const riderToken = rider.fcm_token;
-      if (!riderToken) return;
-
-      const senderLabel = sender === "admin" ? "แอดมิน" : "ลูกค้า";
-      const title = `💬 ${senderLabel}`;
-      const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
-      const collapseKey = `chat-${jobId}`;
-
-      try {
-        await messaging.send({
-          token: riderToken,
-          notification: { title, body },
-          data: { jobId, type: "chat_message", sender },
-          android: {
-            priority: "high",
-            collapseKey,
-            notification: {
-              channelId: "chat_messages",
-              priority: "high",
-              defaultSound: true,
-            },
-          },
-          apns: {
-            headers: {
-              "apns-collapse-id": collapseKey,
-              "apns-priority": "10",
-              "apns-push-type": "alert",
-            },
-            payload: {
-              aps: {
-                alert: { title, body },
-                sound: "default",
-              },
-            },
-          },
-        });
-        console.log(`Chat notif (${sender}→rider ${riderId}): sent`);
-      } catch (err) {
-        if (
-          err.code === "messaging/registration-token-not-registered" ||
-          err.code === "messaging/invalid-registration-token"
-        ) {
-          await db.ref(`riders/${riderId}/fcm_token`).remove();
-          console.log(`Removed invalid FCM token for rider ${riderId}`);
-        } else {
-          console.error(`Failed to send chat notif to rider ${riderId}:`, err);
-        }
-      }
+    const batches = [];
+    for (let i = 0; i < tokens.length; i += 500) {
+      batches.push(
+        messaging.sendEachForMulticast({
+          ...message,
+          tokens: tokens.slice(i, i + 500),
+        })
+      );
     }
+    const results = await Promise.all(batches);
+    const successCount = results.reduce((a, r) => a + r.successCount, 0);
+    console.log(`Chat notif (rider→admin): ${successCount}/${tokens.length} devices`);
   }
 );
 
