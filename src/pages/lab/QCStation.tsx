@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { QC_STATION_STATUSES } from '../../constants/statusGroups';
 
 const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
 
@@ -361,7 +362,7 @@ export const QCStation = () => {
                         <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-4 shadow-2xl">
                            <button onClick={() => setSelectedJob(null)} className="px-6 py-4 rounded-xl font-bold text-slate-400 hover:bg-slate-50 uppercase text-xs tracking-widest">Cancel</button>
                            {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน */}
-                           {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (
+                           {(QC_STATION_STATUSES as readonly string[]).includes(selectedJob.status) && (
                               <button onClick={handleSubmitQC} className="px-8 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-700 active:scale-95 flex items-center gap-2 transition-all">
                                  <Save size={18} />
                                  {(() => {

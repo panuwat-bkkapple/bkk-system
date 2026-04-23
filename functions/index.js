@@ -218,10 +218,25 @@ async function computeRiderFee(db, job) {
 // Archive System: ย้ายงานที่จบแล้วไป jobs_archived เพื่อลด load
 // =============================================================================
 
+// Canonical terminal statuses. Mirrors bkk-frontend-next/app/constants/orderStatus.ts
+// `TERMINAL_STATUSES`. Add to this list only when the corresponding enum value is
+// added to src/types/domain.ts JobStatusB2C / JobStatusB2B and documented in
+// bkk-frontend-next/docs/order-status-flow.md.
+//
+// Prior version omitted `Paid` and `In Stock` so B2C orders that naturally end
+// at `Paid` or get cycled through `In Stock` never entered the 90-day archive
+// and grew the `/jobs` tree indefinitely. `Completed` remains for B2B parent
+// jobs. `Sold` for resold inventory. `Withdrawal Completed` kept for legacy
+// rider-withdrawal documents that were historically stored under /jobs.
 const TERMINAL_STATUSES = [
-  "Completed",
+  // B2C terminal
+  "Paid",
+  "In Stock",
   "Sold",
   "Cancelled",
+  // B2B terminal
+  "Completed",
+  // Legacy (Dual-read support during migration)
   "Closed (Lost)",
   "Returned",
   "Withdrawal Completed",

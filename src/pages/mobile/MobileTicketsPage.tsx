@@ -45,7 +45,17 @@ const PHASE_FILTERS = [
 ];
 
 const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
-const LOGISTICS_STATUSES = ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit', 'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'];
+// Logistics lane: jobs actively being worked on. Kept in sync with
+// src/constants/statusGroups.ts LOGISTICS_STATUSES; duplicated as a local
+// string array because this file mixes B2C + B2B and some literals here
+// (like 'In-Transit', 'PAID') are legacy dual-read only.
+const LOGISTICS_STATUSES = [
+  'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived',
+  'Shipping', 'Rider Returning', 'In-Transit',
+  'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer',
+  'Negotiation', 'Price Accepted', 'Payout Processing', 'Waiting for Handover',
+  'Package Received',
+];
 const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {

@@ -15,10 +15,23 @@ const mapContainerStyle = { width: '100%', height: '100%' };
 const center = { lat: 13.7563, lng: 100.5018 };
 const AREA_BOUNDS = { minLat: 13.45, maxLat: 14.10, minLng: 100.25, maxLng: 100.95 };
 
+// Active rider jobs shown on the dispatcher map. Kept local because the
+// dispatcher view cares specifically about rider-owned statuses and excludes
+// New Lead / Active Leads (pre-assignment) — which differs from
+// LOGISTICS_STATUSES in src/constants/statusGroups.ts.
 const ACTIVE_STATUSES = [
-  'Assigned', 'Accepted', 'Arrived', 'Being Inspected',
-  'Price Accepted', 'Revised Offer', 'Payout Processing',
-  'Waiting for Handover', 'In-Transit'
+  'Assigned',
+  'Accepted',
+  'Heading to Customer',
+  'Arrived',
+  'Being Inspected',
+  'Price Accepted',
+  'Revised Offer',
+  'Payout Processing',
+  'Waiting for Handover',
+  'Rider Returning',
+  'Shipping', // Mail-in parcels in transit are visible on the dispatch map for awareness
+  'In-Transit', // legacy — dual-read during migration
 ];
 
 const STATUS_COLORS: Record<string, string> = {

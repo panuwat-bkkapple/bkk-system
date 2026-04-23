@@ -6,32 +6,76 @@
 // Enums
 // -----------------------------------------------------------------------------
 
-/** สถานะงาน B2C */
+/**
+ * สถานะงาน B2C
+ *
+ * Canonical source: `bkk-frontend-next/app/constants/orderStatus.ts` +
+ * `bkk-frontend-next/docs/order-status-flow.md`. Any change here MUST be
+ * mirrored in the frontend module and `bkk-rider-app`.
+ *
+ * Always read in combination with `receive_method` (`Pickup` / `Store-in` /
+ * `Mail-in`). Values marked `@deprecated` remain only to parse legacy records
+ * during the migration window; do not write them.
+ */
 export enum JobStatusB2C {
+  // Pre-device (8 values)
   NEW_LEAD = 'New Lead',
   FOLLOWING_UP = 'Following Up',
   APPOINTMENT_SET = 'Appointment Set',
-  WAITING_DROP_OFF = 'Waiting Drop-off',
-  ACTIVE_LEADS = 'Active Leads',
   ASSIGNED = 'Assigned',
+  ACCEPTED = 'Accepted',
+  HEADING_TO_CUSTOMER = 'Heading to Customer',
   ARRIVED = 'Arrived',
-  IN_TRANSIT = 'In-Transit',
+  WAITING_DROP_OFF = 'Waiting Drop-off',
+
+  // Shipping / on-site (3 values)
+  SHIPPING = 'Shipping',
   BEING_INSPECTED = 'Being Inspected',
+  PACKAGE_RECEIVED = 'Package Received',
+
+  // Pickup payout (3 values — customer paid on-site before QC)
+  PAYOUT_PROCESSING = 'Payout Processing',
+  WAITING_FOR_HANDOVER = 'Waiting for Handover',
+  RIDER_RETURNING = 'Rider Returning',
+
+  // QC (3 values)
   PENDING_QC = 'Pending QC',
   QC_REVIEW = 'QC Review',
   REVISED_OFFER = 'Revised Offer',
+
+  // Price loop (2 values)
   NEGOTIATION = 'Negotiation',
-  PAYOUT_PROCESSING = 'Payout Processing',
-  WAITING_FOR_HANDOVER = 'Waiting for Handover',
-  PAID_UPPER = 'PAID',
+  PRICE_ACCEPTED = 'Price Accepted',
+
+  // Final payment (1 value)
   PAID = 'Paid',
-  SENT_TO_QC_LAB = 'Sent to QC Lab',
+
+  // Post-payment internal (2 values, customer does not see)
   IN_STOCK = 'In Stock',
-  READY_TO_SELL = 'Ready to Sell',
-  CANCELLED = 'Cancelled',
-  CLOSED_LOST = 'Closed (Lost)',
-  RETURNED = 'Returned',
   SOLD = 'Sold',
+
+  // Terminal (1 value)
+  CANCELLED = 'Cancelled',
+
+  // ---------------------------------------------------------------------------
+  // Legacy values — kept for dual-read during migration. Do NOT write these.
+  // Remove after Cloud Function migration + 30-day grace period.
+  // ---------------------------------------------------------------------------
+  /** @deprecated Use NEW_LEAD with receive_method='Pickup' */
+  ACTIVE_LEADS = 'Active Leads',
+  /** @deprecated Legacy overloaded status; split into SHIPPING (Mail-in) and RIDER_RETURNING (Pickup) */
+  IN_TRANSIT = 'In-Transit',
+  /** @deprecated Use PAID (Title Case) */
+  PAID_UPPER = 'PAID',
+  /** @deprecated Absorbed into QC_REVIEW */
+  SENT_TO_QC_LAB = 'Sent to QC Lab',
+  /** @deprecated Absorbed into IN_STOCK (inventory lifecycle is internal) */
+  READY_TO_SELL = 'Ready to Sell',
+  /** @deprecated Absorbed into CANCELLED; reason captured in cancel_reason field */
+  CLOSED_LOST = 'Closed (Lost)',
+  /** @deprecated Pre-payment Returned → CANCELLED. Post-payment returns live in a separate collection. */
+  RETURNED = 'Returned',
+  /** @deprecated B2C now terminates at PAID / IN_STOCK / SOLD; COMPLETED is B2B-only */
   COMPLETED = 'Completed',
 }
 

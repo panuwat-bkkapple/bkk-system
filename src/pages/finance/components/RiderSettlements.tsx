@@ -6,6 +6,7 @@ import { CheckCircle2, FileText, Zap } from 'lucide-react';
 import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { RIDER_SETTLEMENT_READ_STATUSES } from '../../../constants/statusGroups';
 
 export const RiderSettlements = () => {
   const toast = useToast();
@@ -15,11 +16,11 @@ export const RiderSettlements = () => {
   const pendingFees = useMemo(() => {
     const list = Array.isArray(jobs) ? jobs : [];
     return list
-      .filter(j => 
+      .filter(j =>
         // เช็คสถานะที่ถือว่างานจบ (ส่งเครื่องถึงมือร้าน)
-        (j.status === 'Pending QC' || j.status === 'Completed' || j.status === 'Waiting for Handover') && 
-        j.rider_fee_status === 'Pending' && 
-        j.type !== 'Withdrawal' && 
+        (RIDER_SETTLEMENT_READ_STATUSES as readonly string[]).includes(j.status) &&
+        j.rider_fee_status === 'Pending' &&
+        j.type !== 'Withdrawal' &&
         j.rider_id != null
       )
       .sort((a, b) => (b.completed_at || b.created_at || 0) - (a.completed_at || a.created_at || 0));

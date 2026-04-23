@@ -47,12 +47,14 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
   'Mail-in':  { icon: <Mail size={14} />, color: 'bg-orange-100 text-orange-600' },
 };
 
-// Pipeline steps
+// Pipeline steps. Mirrors customer-facing flow in
+// bkk-frontend-next/docs/order-status-flow.md. Dual-read values ('In-Transit',
+// 'PAID', 'Sent to QC Lab', 'Ready to Sell') stay until migration completes.
 const PIPELINE = [
   { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
-  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit'] },
+  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'Shipping', 'Rider Returning', 'Package Received', 'In-Transit'] },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
-  { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
+  { label: 'จ่ายเงิน', statuses: ['Price Accepted', 'Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
 ];
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import { RiderSettlements } from './components/RiderSettlements';
 import { FinanceAuditLog } from './components/FinanceAuditLog'
 import { TransactionRepair } from './components/TransactionRepair'
 import { DataCleanup } from './components/DataCleanup'
+import { POST_PAYMENT_READ_STATUSES } from '../../constants/statusGroups';
 
 export const Finance = () => {
   const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit' | 'repair' | 'cleanup'>('payouts');
@@ -22,7 +23,7 @@ export const Finance = () => {
     const txList = Array.isArray(transactions) ? transactions : [];
     const txJobIds = new Set(txList.map(t => t.ref_job_id).filter(Boolean));
     return jobList.filter(j => {
-      const isPaid = j.paid_at && (j.status === 'Waiting for Handover' || j.status === 'Sent to QC Lab' || j.status === 'Completed' || j.status === 'Payment Completed' || j.status === 'Pending QC');
+      const isPaid = j.paid_at && (POST_PAYMENT_READ_STATUSES as readonly string[]).includes(j.status);
       return isPaid && !txJobIds.has(j.id);
     }).length;
   }, [jobs, transactions]);

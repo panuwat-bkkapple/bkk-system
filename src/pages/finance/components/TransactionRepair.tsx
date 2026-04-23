@@ -6,6 +6,7 @@ import { Search, Wrench, AlertTriangle, CheckCircle2, FileText, ExternalLink } f
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { POST_PAYMENT_READ_STATUSES } from '../../../constants/statusGroups';
 
 const getNetPayout = (tx: any) => {
   if (tx.net_payout !== undefined && tx.net_payout !== null) return Number(tx.net_payout);
@@ -34,7 +35,7 @@ export const TransactionRepair = () => {
 
     return jobList.filter(j => {
       // เฉพาะ job ที่จ่ายแล้ว (มี paid_at) แต่ไม่มี transaction
-      const isPaid = j.paid_at && (j.status === 'Waiting for Handover' || j.status === 'Sent to QC Lab' || j.status === 'Completed' || j.status === 'Payment Completed' || j.status === 'Pending QC');
+      const isPaid = j.paid_at && (POST_PAYMENT_READ_STATUSES as readonly string[]).includes(j.status);
       const hasTransaction = txJobIds.has(j.id);
       return isPaid && !hasTransaction;
     }).sort((a: any, b: any) => (b.paid_at || 0) - (a.paid_at || 0));
