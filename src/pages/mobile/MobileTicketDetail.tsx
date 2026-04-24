@@ -225,14 +225,15 @@ export const MobileTicketDetail = () => {
 
         if (Array.isArray(job.devices) && job.devices.length > 0) {
           const devs = [...job.devices];
+          // อัปเดตเฉพาะ price (ราคาปัจจุบัน) — ไม่แตะ estimated_price ซึ่งเป็นราคาที่ลูกค้าประเมินตอนล็อก
+          // ใช้เป็นฐานของ Internal QC (ล็อค 7 วัน) ถ้าเขียนทับจะทำให้ประเมินซ้ำแล้วค่าตกทบ
           if (devs.length === 1) {
-            devs[0] = { ...devs[0], price: priceNum, estimated_price: priceNum };
+            devs[0] = { ...devs[0], price: priceNum };
           } else {
             const diff = oldBasePrice - priceNum;
             devs[0] = {
               ...devs[0],
               price: Math.max(0, Number(devs[0].price || 0) - diff),
-              estimated_price: Math.max(0, Number(devs[0].estimated_price || 0) - diff),
             };
           }
           payload.devices = devs;

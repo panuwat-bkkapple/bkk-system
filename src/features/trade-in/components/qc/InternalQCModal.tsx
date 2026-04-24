@@ -212,13 +212,19 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                 totalFinalPrice += Number(updatedDevices[i].final_price || updatedDevices[i].estimated_price || 0);
             }
 
+            // Sync net_payout ให้ตรงกับ final_price ใหม่ — กันค่าเก่าค้างใน DB ที่หน้า Finance จะไปหยิบไปแสดง
+            const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+            const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+            const newNetPayout = Math.max(0, totalFinalPrice - pickupFee + couponValue);
+
             const updatePayload = {
                 status: 'QC Review',
                 devices: updatedDevices,
                 final_price: totalFinalPrice,
+                net_payout: newNetPayout,
                 inspected_at: Date.now(),
                 updated_at: Date.now(),
-                deductions: updatedDevices[0].deductions || [], 
+                deductions: updatedDevices[0].deductions || [],
                 inspection_status: "Inspected",
                 qc_logs: [
                     { action: 'Internal QC Completed', by: 'Admin/QC', timestamp: Date.now(), details: 'ตรวจสอบสภาพเครื่องและหักราคาตำหนิเสร็จสิ้น เข้าสู่ขั้นตอนการสรุปราคา' },

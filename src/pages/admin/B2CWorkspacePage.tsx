@@ -83,10 +83,12 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const makeLog = (action: string, details: string) => ({ action, details, by: currentUser?.name || 'Admin', timestamp: Date.now() });
   const buildUpdatedDevices = (newBasePrice: number) => {
     const devs = job.devices ? [...job.devices] : [];
-    if (devs.length === 1) devs[0] = { ...devs[0], estimated_price: newBasePrice, price: newBasePrice };
+    // อัปเดตเฉพาะ price (ราคาปัจจุบัน) — ไม่แตะ estimated_price ซึ่งเป็นราคาที่ลูกค้าประเมินตอนล็อก
+    // ใช้เป็นฐานของ Internal QC (ล็อค 7 วัน) ถ้าเขียนทับจะทำให้ประเมินซ้ำแล้วค่าตกทบ
+    if (devs.length === 1) devs[0] = { ...devs[0], price: newBasePrice };
     else if (devs.length > 1) {
       const diff = basePrice - newBasePrice;
-      devs[0] = { ...devs[0], estimated_price: Math.max(0, Number(devs[0].estimated_price || 0) - diff), price: Math.max(0, Number(devs[0].price || 0) - diff) };
+      devs[0] = { ...devs[0], price: Math.max(0, Number(devs[0].price || 0) - diff) };
     }
     return devs;
   };
