@@ -7,12 +7,13 @@ import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 
+// คำนวณยอดโอนสุทธิสดจาก final_price ตลอด — ไม่ใช้ net_payout ที่เก็บใน DB เพราะอาจล้าสมัย
+// (เช่น QC รอบหลังไม่ได้ sync) และต้องครอบด้วย Math.max(0, ...) ป้องกันยอดติดลบ
 const getNetPayout = (tx: any) => {
-  if (tx.net_payout !== undefined && tx.net_payout !== null) return Number(tx.net_payout);
   const base = Number(tx.final_price || tx.price || 0);
-  const fee = Number(tx.pickup_fee || 0);
+  const pickupFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
   const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
-  return base - fee + coupon;
+  return Math.max(0, base - pickupFee + coupon);
 };
 
 export const TransactionRepair = () => {

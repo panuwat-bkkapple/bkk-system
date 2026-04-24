@@ -170,7 +170,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   <p className="text-sm font-black text-emerald-800">{job.applied_coupon.code}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <p className="text-sm font-black text-emerald-600">+{job.applied_coupon.value} ฿</p>
+                  <p className="text-sm font-black text-emerald-600">+{job.applied_coupon.actual_value || job.applied_coupon.value} ฿</p>
                   <button onClick={handleRemoveCoupon} className="p-1.5 bg-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="นำคูปองออก"><X size={14} /></button>
                 </div>
               </div>
