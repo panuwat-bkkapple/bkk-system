@@ -30,14 +30,13 @@ export const MobileFinancePage = () => {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // คำนวณยอดโอนสุทธิจาก final_price ทุกครั้ง — ไม่ใช้ net_payout ที่เก็บใน DB เพราะบาง path
+  // (เช่น Internal QC เก่า) อัปเดต final_price โดยไม่ sync net_payout ทำให้ค่าค้าง
   const getNetPayout = (tx: any) => {
-    if (tx.net_payout !== undefined && tx.net_payout !== null) {
-      return Number(tx.net_payout);
-    }
     const base = Number(tx.final_price || tx.price || 0);
-    const fee = Number(tx.pickup_fee || 0);
+    const pickupFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
     const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
-    return base - fee + coupon;
+    return Math.max(0, base - pickupFee + coupon);
   };
 
   const pendingPayouts = useMemo(() => {
