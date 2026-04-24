@@ -69,7 +69,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
 
   const basePrice = Number(job.final_price || job.price || 0);
   const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
-  const couponValue = Number(job.applied_coupon?.value || 0);
+  const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes(statusLower) || statusLower.includes('cancel');
@@ -114,7 +114,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     if (!adminCouponCode || !adminCouponValue) { toast.warning('กรุณาระบุชื่อโค้ดและจำนวนเงิน'); return; }
     const val = Number(adminCouponValue);
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val },
+      applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val, actual_value: val },
       net_payout: Math.max(0, basePrice - pickupFee + val), qc_logs: [makeLog('Admin Top-up', `แอดมินเพิ่มคูปองพิเศษ: ${adminCouponCode} (+${val}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
     setIsAddingCoupon(false); setAdminCouponCode(''); setAdminCouponValue('');

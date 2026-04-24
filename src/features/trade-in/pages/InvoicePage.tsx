@@ -178,7 +178,7 @@ export const InvoicePage = () => {
             {job.applied_coupon && (
               <div className="flex justify-between items-center py-2 border-b border-slate-100 text-sm">
                 <span className="font-bold text-slate-500">คูปองเพิ่มมูลค่า ({job.applied_coupon.code})</span>
-                <span className="font-black text-emerald-600">+{formatCurrency(job.applied_coupon.value)}</span>
+                <span className="font-black text-emerald-600">+{formatCurrency(job.applied_coupon.actual_value || job.applied_coupon.value)}</span>
               </div>
             )}
             <div className="flex justify-between items-center py-4 text-xl">
