@@ -2,11 +2,40 @@
 // BKK System - Domain Types & Enums
 // =============================================================================
 
+// Re-export the canonical status surface so new code can write
+//   import { JOB_STATUS, normalizeStatus } from '../types/domain';
+// without learning the file split. The source-of-truth lives in
+// ./job-statuses.ts and is mirrored byte-for-byte to the other two repos.
+export {
+  JOB_STATUS,
+  PHASE,
+  CANCEL_CATEGORY,
+  CANCEL_CATEGORY_LABEL_TH,
+  RECEIVE_METHOD,
+  getPhase,
+  isTerminal,
+  normalizeStatus,
+} from './job-statuses';
+export type {
+  JobStatus,
+  Phase,
+  CancelCategory,
+  ReceiveMethod,
+} from './job-statuses';
+
 // -----------------------------------------------------------------------------
 // Enums
 // -----------------------------------------------------------------------------
 
-/** สถานะงาน B2C */
+/**
+ * @deprecated Use `JOB_STATUS` from `./job-statuses` instead. Kept here so
+ * existing imports keep compiling; new code should import the const map.
+ * Note that several values in this enum overlap or have been renamed in the
+ * canonical map (e.g. `IN_TRANSIT` is split into `RIDER_RETURNING` /
+ * `PARCEL_IN_TRANSIT`, `PAID_UPPER` collapses into `PAID`). Use
+ * `normalizeStatus(legacyValue, receiveMethod)` when comparing values read
+ * from the database.
+ */
 export enum JobStatusB2C {
   NEW_LEAD = 'New Lead',
   FOLLOWING_UP = 'Following Up',
