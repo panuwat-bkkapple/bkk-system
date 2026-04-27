@@ -510,10 +510,14 @@ exports.onChatMessageCreated = onValueCreated(
     if (!tokensSnap.exists()) return;
 
     const tokens = [];
+    const tokenMeta = [];
     tokensSnap.forEach((staffSnap) => {
       staffSnap.forEach((tokenSnap) => {
         const data = tokenSnap.val();
-        if (data && data.token) tokens.push(data.token);
+        if (data && data.token) {
+          tokens.push(data.token);
+          tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
+        }
       });
     });
 
@@ -573,6 +577,25 @@ exports.onChatMessageCreated = onValueCreated(
       );
     }
     const results = await Promise.all(batches);
+
+    let tokenIdx = 0;
+    for (const result of results) {
+      result.responses.forEach((resp, idx) => {
+        if (resp.error) {
+          const meta = tokenMeta[tokenIdx + idx];
+          if (
+            (resp.error.code === "messaging/registration-token-not-registered" ||
+              resp.error.code === "messaging/invalid-registration-token") &&
+            meta
+          ) {
+            db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
+            console.log(`[onChatMessageCreated] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
+          }
+        }
+      });
+      tokenIdx += result.responses.length;
+    }
+
     const successCount = results.reduce((a, r) => a + r.successCount, 0);
     console.log(`Chat notif (rider→admin): ${successCount}/${tokens.length} devices`);
   }
@@ -758,10 +781,14 @@ exports.onJobStatusChanged = onValueUpdated(
     if (!tokensSnap.exists()) return;
 
     const tokens = [];
+    const tokenMeta = [];
     tokensSnap.forEach((staffSnap) => {
       staffSnap.forEach((tokenSnap) => {
         const data = tokenSnap.val();
-        if (data && data.token) tokens.push(data.token);
+        if (data && data.token) {
+          tokens.push(data.token);
+          tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
+        }
       });
     });
 
@@ -820,6 +847,25 @@ exports.onJobStatusChanged = onValueUpdated(
       );
     }
     const results = await Promise.all(batches);
+
+    let tokenIdx = 0;
+    for (const result of results) {
+      result.responses.forEach((resp, idx) => {
+        if (resp.error) {
+          const meta = tokenMeta[tokenIdx + idx];
+          if (
+            (resp.error.code === "messaging/registration-token-not-registered" ||
+              resp.error.code === "messaging/invalid-registration-token") &&
+            meta
+          ) {
+            db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
+            console.log(`[onJobStatusChanged] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
+          }
+        }
+      });
+      tokenIdx += result.responses.length;
+    }
+
     const successCount = results.reduce((a, r) => a + r.successCount, 0);
     console.log(
       `Status change notif (${before}→${after}) job ${jobId}: ${successCount}/${tokens.length} devices`

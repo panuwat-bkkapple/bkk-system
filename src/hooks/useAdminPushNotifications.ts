@@ -4,9 +4,24 @@ import { getToken, onMessage } from 'firebase/messaging';
 import { ref, set } from 'firebase/database';
 import { db } from '../api/firebase';
 
+// Stable per-browser identifier so token refreshes overwrite the same DB entry
+// instead of creating new ones. Without this each Service Worker reinstall left
+// the old token entry behind and admin received duplicate push per order.
+const getDeviceId = (): string => {
+  const KEY = 'bkk_admin_fcm_device_id';
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 20);
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+};
+
 /**
  * Hook สำหรับลงทะเบียน FCM token ของแอดมิน
- * เก็บ token ไว้ที่ admin_fcm_tokens/{staffId}/{tokenKey}
+ * เก็บ token ไว้ที่ admin_fcm_tokens/{staffId}/{deviceId}
  * รับ foreground messages แล้วแสดง Browser Notification
  */
 export const useAdminPushNotifications = (staffId: string | null) => {
@@ -73,8 +88,8 @@ export const useAdminPushNotifications = (staffId: string | null) => {
 
         if (token) {
           const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-          const tokenKey = token.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
-          await set(ref(db, `admin_fcm_tokens/${staffId}/${tokenKey}`), {
+          const deviceId = getDeviceId();
+          await set(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`), {
             token,
             device: isMobile ? 'mobile' : 'desktop',
             updated_at: Date.now()
