@@ -20,14 +20,16 @@ const messaging = firebase.messaging();
 // =============================================================================
 
 messaging.onBackgroundMessage((payload) => {
+  // Cloud Functions send data-only messages (no top-level `notification`)
+  // so iOS PWA does not auto-display a duplicate alongside this handler.
   const data = payload.data || {};
   const isNewTicket = data.type === 'new_ticket';
   const isStatusChange = data.type === 'status_change';
   const isChatMessage = data.type === 'chat_message';
 
-  const notificationTitle = payload.notification?.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
+  const notificationTitle = data.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
   const notificationOptions = {
-    body: payload.notification?.body || '',
+    body: data.body || '',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : isChatMessage ? `chat-${data.jobId}` : 'bkk-admin',
@@ -46,39 +48,9 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// Fallback: หาก Firebase SDK ไม่จัดการ push event ให้ service worker จับเอง
-self.addEventListener('push', (event) => {
-  // ถ้า Firebase SDK จัดการแล้ว จะไม่เข้าที่นี่
-  // แต่เป็น safety net สำหรับกรณีที่ SDK มีปัญหา
-  if (event.__handled) return;
-
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch (e) {
-    return;
-  }
-
-  // ถ้ามี notification payload จาก FCM ปกติ ให้ Firebase SDK จัดการ
-  if (data.notification) return;
-
-  // จัดการ data-only messages
-  if (data.data) {
-    const d = data.data;
-    const title = d.title || 'BKK Admin';
-    const body = d.body || '';
-    event.waitUntil(
-      self.registration.showNotification(title, {
-        body,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
-        data: d,
-        vibrate: [200, 100, 200],
-        tag: d.jobId ? `${d.type}-${d.jobId}` : 'bkk-admin',
-      })
-    );
-  }
-});
+// Note: do not register a custom 'push' listener here. Firebase Messaging
+// SDK already handles the push event and dispatches to onBackgroundMessage
+// above. Adding a second listener risks showing a duplicate notification.
 
 // Handle notification click - focus or open the app
 self.addEventListener('notificationclick', (event) => {
