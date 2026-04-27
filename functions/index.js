@@ -381,10 +381,15 @@ exports.onNewTicketCreated = onValueCreated(
       // ส่ง FCM multicast
       const messaging = getMessaging();
       const message = {
-        notification: { title, body },
+        // Data-only message: SW builds the notification from `data` so iOS
+        // PWA shows it once. Including a top-level `notification` field would
+        // cause iOS/FCM to auto-display ON TOP of the SW's showNotification
+        // call, producing two identical alerts per push.
         data: {
           jobId,
           type: "new_ticket",
+          title,
+          body,
           model,
           price: String(job.price || ""),
           status: job.status,
@@ -406,7 +411,7 @@ exports.onNewTicketCreated = onValueCreated(
           },
           payload: {
             aps: {
-              alert: { title, body },
+              "mutable-content": 1,
               sound: "default",
               badge: 1,
             },
@@ -416,17 +421,6 @@ exports.onNewTicketCreated = onValueCreated(
           headers: {
             Urgency: "high",
             TTL: "86400",
-          },
-          notification: {
-            icon: "/icons/icon-192.png",
-            badge: "/icons/icon-192.png",
-            vibrate: [200, 100, 200, 100, 200],
-            requireInteraction: true,
-            renotify: true,
-            actions: [
-              { action: "open", title: "เปิดดู" },
-              { action: "dismiss", title: "ปิด" },
-            ],
           },
           fcmOptions: {
             link: `/tickets`,
@@ -527,9 +521,10 @@ exports.onChatMessageCreated = onValueCreated(
     const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
     const collapseKey = `chat-${jobId}`;
 
+    // Data-only — SW builds the notification (see onNewTicketCreated for
+    // why a top-level `notification` field is not used).
     const message = {
-      notification: { title, body },
-      data: { jobId, type: "chat_message", sender },
+      data: { jobId, type: "chat_message", title, body, sender },
       android: {
         priority: "high",
         collapseKey,
@@ -547,7 +542,7 @@ exports.onChatMessageCreated = onValueCreated(
         },
         payload: {
           aps: {
-            alert: { title, body },
+            "mutable-content": 1,
             sound: "default",
           },
         },
@@ -556,13 +551,6 @@ exports.onChatMessageCreated = onValueCreated(
         headers: {
           Urgency: "high",
           TTL: "86400",
-        },
-        notification: {
-          icon: "/icons/icon-192.png",
-          badge: "/icons/icon-192.png",
-          tag: collapseKey,
-          vibrate: [200, 100, 200],
-          renotify: true,
         },
       },
     };
@@ -795,11 +783,14 @@ exports.onJobStatusChanged = onValueUpdated(
     if (tokens.length === 0) return;
 
     const messaging = getMessaging();
+    // Data-only — SW builds the notification (see onNewTicketCreated for
+    // why a top-level `notification` field is not used).
     const message = {
-      notification: { title, body },
       data: {
         jobId,
         type: "status_change",
+        title,
+        body,
         oldStatus: String(before || ""),
         newStatus: after,
         model,
@@ -820,20 +811,13 @@ exports.onJobStatusChanged = onValueUpdated(
         },
         payload: {
           aps: {
-            alert: { title, body },
+            "mutable-content": 1,
             sound: "default",
           },
         },
       },
       webpush: {
         headers: { Urgency: "high", TTL: "86400" },
-        notification: {
-          icon: "/icons/icon-192.png",
-          badge: "/icons/icon-192.png",
-          tag: `status-${jobId}`,
-          vibrate: [200, 100, 200],
-          renotify: true,
-        },
       },
     };
 
