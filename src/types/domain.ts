@@ -304,6 +304,8 @@ export interface Job {
   cust_email?: string;
   /** ที่อยู่ลูกค้า */
   cust_address?: string;
+  /** หมายเหตุจากลูกค้า (กรอกตอน checkout) */
+  cust_notes?: string;
 
   // การรับสินค้า
   /** วิธีการรับสินค้า */

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   User, Phone, MapPin, Store, Bike, Truck, Navigation, Map,
-  Pencil, Save, PackageOpen, X
+  Pencil, Save, PackageOpen, X, MessageSquareText
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
@@ -231,6 +231,15 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
                 {job.cust_email && <p className="text-xs font-medium text-slate-500 mt-1">{job.cust_email}</p>}
               </div>
             </div>
+            {job.cust_notes && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-2.5">
+                <MessageSquareText size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">หมายเหตุจากลูกค้า</p>
+                  <p className="text-xs font-medium text-amber-900 leading-relaxed whitespace-pre-wrap break-words">{job.cust_notes}</p>
+                </div>
+              </div>
+            )}
             {!isEditing && (
               <button onClick={() => copyToClipboard(`https://bkk-apple.com/track/${job.ref_no || job.id}`)} className="w-full text-[10px] bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-600 px-3 py-2.5 rounded-xl font-bold transition-all flex justify-center items-center gap-2 border border-slate-200 shadow-sm active:scale-95 mt-5">
                 <MapPin size={12} /> คัดลอกลิงก์ให้ลูกค้า (TRACKING LINK)
