@@ -1,0 +1,92 @@
+name: Sync status enum across repos
+
+# Asserts that src/types/job-statuses.ts in this repo (the source of truth)
+# matches its byte-for-byte duplicates in:
+#   - panuwat-bkkapple/bkk-frontend-next  → app/types/job-statuses.ts
+#   - panuwat-bkkapple/bkk-rider-app      → src/types/job-statuses.ts
+#
+# Runs on push/PR targeting main. Fails if any copy has drifted. When you
+# update the enum here, copy this file verbatim into the other two repos in
+# the same change cycle.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/types/job-statuses.ts'
+      - '.github/workflows/sync-status-enum.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/types/job-statuses.ts'
+      - '.github/workflows/sync-status-enum.yml'
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch sibling repos at default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/peers
+          # Tolerate 404 — peer file may not exist yet during the staged
+          # rollout; the compare step will note it instead of failing.
+          curl -sSL --fail-with-body \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/panuwat-bkkapple/bkk-frontend-next/contents/app/types/job-statuses.ts" \
+            -o /tmp/peers/frontend.ts || rm -f /tmp/peers/frontend.ts
+          curl -sSL --fail-with-body \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/panuwat-bkkapple/bkk-rider-app/contents/src/types/job-statuses.ts" \
+            -o /tmp/peers/rider.ts || rm -f /tmp/peers/rider.ts
+
+      - name: Compare hashes
+        run: |
+          set -euo pipefail
+          src_hash=$(sha256sum src/types/job-statuses.ts | awk '{print $1}')
+          echo "bkk-system          $src_hash"
+
+          missing=0
+          drift=0
+
+          if [ -f /tmp/peers/frontend.ts ]; then
+            fe_hash=$(sha256sum /tmp/peers/frontend.ts | awk '{print $1}')
+            echo "bkk-frontend-next   $fe_hash"
+            if [ "$src_hash" != "$fe_hash" ]; then
+              echo "::error::bkk-frontend-next/app/types/job-statuses.ts is out of sync"
+              diff -u src/types/job-statuses.ts /tmp/peers/frontend.ts || true
+              drift=1
+            fi
+          else
+            echo "::warning::bkk-frontend-next does not yet have app/types/job-statuses.ts"
+            missing=1
+          fi
+
+          if [ -f /tmp/peers/rider.ts ]; then
+            ri_hash=$(sha256sum /tmp/peers/rider.ts | awk '{print $1}')
+            echo "bkk-rider-app       $ri_hash"
+            if [ "$src_hash" != "$ri_hash" ]; then
+              echo "::error::bkk-rider-app/src/types/job-statuses.ts is out of sync"
+              diff -u src/types/job-statuses.ts /tmp/peers/rider.ts || true
+              drift=1
+            fi
+          else
+            echo "::warning::bkk-rider-app does not yet have src/types/job-statuses.ts"
+            missing=1
+          fi
+
+          if [ $drift -ne 0 ]; then
+            echo "::error::Status enum has drifted between repos."
+            exit 1
+          fi
+          if [ $missing -ne 0 ]; then
+            echo "Some peer files are missing (staged rollout in progress) — passing without drift check on those."
+          else
+            echo "All three copies match."
+          fi
