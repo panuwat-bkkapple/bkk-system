@@ -8,6 +8,70 @@ const { getMessaging } = require("firebase-admin/messaging");
 initializeApp();
 
 // =============================================================================
+// Admin push helper: collect tokens, multicast send, prune dead tokens
+// Three trigger functions used to repeat this block; centralizing it keeps
+// the cleanup-on-failure rule the same everywhere.
+// =============================================================================
+
+async function dispatchAdminPush(message, tag) {
+  const db = getDatabase();
+  const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+  if (!tokensSnap.exists()) {
+    console.warn(`[${tag}] No tokens in admin_fcm_tokens — nobody to notify`);
+    return { successCount: 0, failureCount: 0, total: 0 };
+  }
+
+  const tokens = [];
+  const tokenMeta = [];
+  tokensSnap.forEach((staffSnap) => {
+    staffSnap.forEach((tokenSnap) => {
+      const data = tokenSnap.val();
+      if (data && data.token) {
+        tokens.push(data.token);
+        tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
+      }
+    });
+  });
+
+  if (tokens.length === 0) {
+    console.warn(`[${tag}] Found token entries but all empty — nobody to notify`);
+    return { successCount: 0, failureCount: 0, total: 0 };
+  }
+
+  const messaging = getMessaging();
+  const batches = [];
+  for (let i = 0; i < tokens.length; i += 500) {
+    batches.push(
+      messaging.sendEachForMulticast({ ...message, tokens: tokens.slice(i, i + 500) })
+    );
+  }
+  const results = await Promise.all(batches);
+
+  let tokenIdx = 0;
+  for (const result of results) {
+    result.responses.forEach((resp, idx) => {
+      if (resp.error) {
+        const meta = tokenMeta[tokenIdx + idx];
+        if (
+          (resp.error.code === "messaging/registration-token-not-registered" ||
+            resp.error.code === "messaging/invalid-registration-token") &&
+          meta
+        ) {
+          db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
+          console.log(`[${tag}] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
+        }
+      }
+    });
+    tokenIdx += result.responses.length;
+  }
+
+  const successCount = results.reduce((acc, r) => acc + r.successCount, 0);
+  const failureCount = tokens.length - successCount;
+  console.log(`[${tag}] Done: ${successCount} success, ${failureCount} failed, ${tokens.length} total`);
+  return { successCount, failureCount, total: tokens.length };
+}
+
+// =============================================================================
 // Rider Fee Calculation: คำนวณค่าวิ่งไรเดอร์ตามระยะทางจริง
 // =============================================================================
 
@@ -352,120 +416,56 @@ exports.onNewTicketCreated = onValueCreated(
 
       console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
 
-      // ดึง FCM tokens ของ admin ทุกคน
-      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-      if (!tokensSnap.exists()) {
-        console.warn("[onNewTicket] No tokens in admin_fcm_tokens — nobody to notify");
-        return;
-      }
-
-      const tokens = [];
-      const tokenMeta = []; // เก็บ staffId+tokenKey สำหรับ cleanup
-      tokensSnap.forEach((staffSnap) => {
-        staffSnap.forEach((tokenSnap) => {
-          const data = tokenSnap.val();
-          if (data && data.token) {
-            tokens.push(data.token);
-            tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
-          }
-        });
-      });
-
-      if (tokens.length === 0) {
-        console.warn("[onNewTicket] Found token entries but all empty — nobody to notify");
-        return;
-      }
-
-      console.log(`[onNewTicket] Found ${tokens.length} token(s) to notify`);
-
-      // ส่ง FCM multicast
-      const messaging = getMessaging();
-      const message = {
-        // Data-only message: SW builds the notification from `data` so iOS
-        // PWA shows it once. Including a top-level `notification` field would
-        // cause iOS/FCM to auto-display ON TOP of the SW's showNotification
-        // call, producing two identical alerts per push.
-        data: {
-          jobId,
-          type: "new_ticket",
-          title,
-          body,
-          model,
-          price: String(job.price || ""),
-          status: job.status,
-          click_action: `/tickets`,
-        },
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "new_tickets",
+      // Data-only message: SW builds the notification from `data` so iOS
+      // PWA shows it once. Including a top-level `notification` field would
+      // cause iOS/FCM to auto-display ON TOP of the SW's showNotification
+      // call, producing two identical alerts per push.
+      await dispatchAdminPush(
+        {
+          data: {
+            jobId,
+            type: "new_ticket",
+            title,
+            body,
+            model,
+            price: String(job.price || ""),
+            status: job.status,
+            click_action: `/tickets`,
+          },
+          android: {
             priority: "high",
-            defaultSound: true,
-            defaultVibrateTimings: true,
+            notification: {
+              channelId: "new_tickets",
+              priority: "high",
+              defaultSound: true,
+              defaultVibrateTimings: true,
+            },
           },
-        },
-        apns: {
-          headers: {
-            "apns-priority": "10",
-            "apns-push-type": "alert",
+          apns: {
+            headers: {
+              "apns-priority": "10",
+              "apns-push-type": "alert",
+            },
+            payload: {
+              aps: {
+                "mutable-content": 1,
+                sound: "default",
+                badge: 1,
+              },
+            },
           },
-          payload: {
-            aps: {
-              "mutable-content": 1,
-              sound: "default",
-              badge: 1,
+          webpush: {
+            headers: {
+              Urgency: "high",
+              TTL: "86400",
+            },
+            fcmOptions: {
+              link: `/tickets`,
             },
           },
         },
-        webpush: {
-          headers: {
-            Urgency: "high",
-            TTL: "86400",
-          },
-          fcmOptions: {
-            link: `/tickets`,
-          },
-        },
-      };
-
-      // ส่งทีละ batch (FCM limit 500 tokens/batch)
-      const batches = [];
-      for (let i = 0; i < tokens.length; i += 500) {
-        const batch = tokens.slice(i, i + 500);
-        batches.push(
-          messaging.sendEachForMulticast({ ...message, tokens: batch })
-        );
-      }
-
-      const results = await Promise.all(batches);
-
-      // Log + cleanup tokens ที่ใช้ไม่ได้
-      let tokenIdx = 0;
-      for (const result of results) {
-        result.responses.forEach((resp, idx) => {
-          const actualIdx = tokenIdx + idx;
-          if (resp.error) {
-            const meta = tokenMeta[actualIdx];
-            console.error(
-              `[onNewTicket] Token FAILED: staff=${meta?.staffId}, error=${resp.error.code || resp.error.message}`
-            );
-            if (
-              resp.error.code === "messaging/registration-token-not-registered" ||
-              resp.error.code === "messaging/invalid-registration-token"
-            ) {
-              if (meta) {
-                db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
-                console.log(`[onNewTicket] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
-              }
-            }
-          }
-        });
-        tokenIdx += result.responses.length;
-      }
-
-      const successCount = results.reduce((acc, r) => acc + r.successCount, 0);
-      const failCount = tokens.length - successCount;
-      console.log(`[onNewTicket] Done: ${successCount} success, ${failCount} failed, ${tokens.length} total`);
+        "onNewTicket"
+      );
     } catch (err) {
       console.error("[onNewTicket] Unhandled error:", err);
     }
@@ -497,95 +497,46 @@ exports.onChatMessageCreated = onValueCreated(
     const text = chat.text || "";
     const imageUrl = chat.imageUrl || "";
 
-    const db = getDatabase();
-    const messaging = getMessaging();
-
-    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-    if (!tokensSnap.exists()) return;
-
-    const tokens = [];
-    const tokenMeta = [];
-    tokensSnap.forEach((staffSnap) => {
-      staffSnap.forEach((tokenSnap) => {
-        const data = tokenSnap.val();
-        if (data && data.token) {
-          tokens.push(data.token);
-          tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
-        }
-      });
-    });
-
-    if (tokens.length === 0) return;
-
     const title = `💬 ${senderName}`;
     const body = imageUrl ? "📷 ส่งรูปภาพ" : text;
     const collapseKey = `chat-${jobId}`;
 
     // Data-only — SW builds the notification (see onNewTicketCreated for
     // why a top-level `notification` field is not used).
-    const message = {
-      data: { jobId, type: "chat_message", title, body, sender },
-      android: {
-        priority: "high",
-        collapseKey,
-        notification: {
-          channelId: "chat_messages",
+    await dispatchAdminPush(
+      {
+        data: { jobId, type: "chat_message", title, body, sender },
+        android: {
           priority: "high",
-          defaultSound: true,
+          collapseKey,
+          notification: {
+            channelId: "chat_messages",
+            priority: "high",
+            defaultSound: true,
+          },
         },
-      },
-      apns: {
-        headers: {
-          "apns-collapse-id": collapseKey,
-          "apns-priority": "10",
-          "apns-push-type": "alert",
+        apns: {
+          headers: {
+            "apns-collapse-id": collapseKey,
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
+          payload: {
+            aps: {
+              "mutable-content": 1,
+              sound: "default",
+            },
+          },
         },
-        payload: {
-          aps: {
-            "mutable-content": 1,
-            sound: "default",
+        webpush: {
+          headers: {
+            Urgency: "high",
+            TTL: "86400",
           },
         },
       },
-      webpush: {
-        headers: {
-          Urgency: "high",
-          TTL: "86400",
-        },
-      },
-    };
-
-    const batches = [];
-    for (let i = 0; i < tokens.length; i += 500) {
-      batches.push(
-        messaging.sendEachForMulticast({
-          ...message,
-          tokens: tokens.slice(i, i + 500),
-        })
-      );
-    }
-    const results = await Promise.all(batches);
-
-    let tokenIdx = 0;
-    for (const result of results) {
-      result.responses.forEach((resp, idx) => {
-        if (resp.error) {
-          const meta = tokenMeta[tokenIdx + idx];
-          if (
-            (resp.error.code === "messaging/registration-token-not-registered" ||
-              resp.error.code === "messaging/invalid-registration-token") &&
-            meta
-          ) {
-            db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
-            console.log(`[onChatMessageCreated] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
-          }
-        }
-      });
-      tokenIdx += result.responses.length;
-    }
-
-    const successCount = results.reduce((a, r) => a + r.successCount, 0);
-    console.log(`Chat notif (rider→admin): ${successCount}/${tokens.length} devices`);
+      "onChatMessageCreated"
+    );
   }
 );
 
@@ -764,95 +715,45 @@ exports.onJobStatusChanged = onValueUpdated(
     const title = `🔔 ${statusLabel}`;
     const body = `${model}${custName ? ` - ${custName}` : ""}${reason}`.trim();
 
-    // ดึง FCM tokens ของ admin ทุกคน
-    const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
-    if (!tokensSnap.exists()) return;
-
-    const tokens = [];
-    const tokenMeta = [];
-    tokensSnap.forEach((staffSnap) => {
-      staffSnap.forEach((tokenSnap) => {
-        const data = tokenSnap.val();
-        if (data && data.token) {
-          tokens.push(data.token);
-          tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
-        }
-      });
-    });
-
-    if (tokens.length === 0) return;
-
-    const messaging = getMessaging();
     // Data-only — SW builds the notification (see onNewTicketCreated for
     // why a top-level `notification` field is not used).
-    const message = {
-      data: {
-        jobId,
-        type: "status_change",
-        title,
-        body,
-        oldStatus: String(before || ""),
-        newStatus: after,
-        model,
-      },
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "status_changes",
+    await dispatchAdminPush(
+      {
+        data: {
+          jobId,
+          type: "status_change",
+          title,
+          body,
+          oldStatus: String(before || ""),
+          newStatus: after,
+          model,
+        },
+        android: {
           priority: "high",
-          defaultSound: true,
-          tag: `status-${jobId}`,
-        },
-      },
-      apns: {
-        headers: {
-          "apns-priority": "10",
-          "apns-push-type": "alert",
-        },
-        payload: {
-          aps: {
-            "mutable-content": 1,
-            sound: "default",
+          notification: {
+            channelId: "status_changes",
+            priority: "high",
+            defaultSound: true,
+            tag: `status-${jobId}`,
           },
         },
+        apns: {
+          headers: {
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
+          payload: {
+            aps: {
+              "mutable-content": 1,
+              sound: "default",
+            },
+          },
+        },
+        webpush: {
+          headers: { Urgency: "high", TTL: "86400" },
+        },
       },
-      webpush: {
-        headers: { Urgency: "high", TTL: "86400" },
-      },
-    };
-
-    const batches = [];
-    for (let i = 0; i < tokens.length; i += 500) {
-      batches.push(
-        messaging.sendEachForMulticast({
-          ...message,
-          tokens: tokens.slice(i, i + 500),
-        })
-      );
-    }
-    const results = await Promise.all(batches);
-
-    let tokenIdx = 0;
-    for (const result of results) {
-      result.responses.forEach((resp, idx) => {
-        if (resp.error) {
-          const meta = tokenMeta[tokenIdx + idx];
-          if (
-            (resp.error.code === "messaging/registration-token-not-registered" ||
-              resp.error.code === "messaging/invalid-registration-token") &&
-            meta
-          ) {
-            db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
-            console.log(`[onJobStatusChanged] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
-          }
-        }
-      });
-      tokenIdx += result.responses.length;
-    }
-
-    const successCount = results.reduce((a, r) => a + r.successCount, 0);
-    console.log(
-      `Status change notif (${before}→${after}) job ${jobId}: ${successCount}/${tokens.length} devices`
+      `onJobStatusChanged(${before}→${after})`
     );
   }
 );
