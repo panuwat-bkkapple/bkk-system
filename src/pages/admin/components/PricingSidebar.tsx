@@ -7,6 +7,8 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
+import type { CancelCategory } from '@/types/job-statuses';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -133,11 +135,21 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         </div>
 
         {isCancelled ? (
-          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 relative z-10">
-            <div className="p-2 bg-red-500 rounded-lg text-white"><XCircle size={16} /></div>
-            <div>
+          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 relative z-10">
+            <div className="p-2 bg-red-500 rounded-lg text-white shrink-0"><XCircle size={16} /></div>
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] font-black uppercase text-red-500 tracking-wider">ออเดอร์ถูกยกเลิก</p>
-              <p className="text-[9px] font-bold text-red-400/80 mt-0.5">{job.cancel_reason}</p>
+              {job.cancel_category && (
+                <p className="text-[10px] font-black text-red-600 mt-0.5">
+                  {CANCEL_CATEGORY_LABEL_TH[job.cancel_category as CancelCategory] || job.cancel_category}
+                </p>
+              )}
+              {job.cancel_reason && (
+                <p className="text-[9px] font-bold text-red-400/80 mt-0.5 break-words">{job.cancel_reason}</p>
+              )}
+              {!job.cancel_category && !job.cancel_reason && (
+                <p className="text-[9px] font-bold text-red-400/80 mt-0.5">ไม่มีเหตุผลที่บันทึกไว้</p>
+              )}
             </div>
           </div>
         ) : isProcessingPayment ? (

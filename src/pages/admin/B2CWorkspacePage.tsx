@@ -8,6 +8,8 @@ import { InternalQCModal } from '@/features/trade-in/components/qc/InternalQCMod
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
 import { useToast } from '@/components/ui/ToastProvider';
+import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
+import type { CancelCategory } from '@/types/job-statuses';
 
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
@@ -148,8 +150,21 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     });
   };
 
-  const handleCancelTicket = async (reason: string) => {
-    await update(ref(db, `jobs/${job.id}`), { status: 'Cancelled', cancel_reason: reason, qc_logs: [makeLog('Cancelled', `ยกเลิกออเดอร์ เหตุผล: ${reason}`), ...(job.qc_logs || [])], updated_at: Date.now() });
+  const handleCancelTicket = async (category: CancelCategory, detail: string) => {
+    const categoryLabel = CANCEL_CATEGORY_LABEL_TH[category];
+    // Free text is the operator's words; combine with the category label
+    // only for the human-readable qc_logs entry. Structured analytics read
+    // cancel_category directly.
+    const fullReason = detail ? `${categoryLabel} — ${detail}` : categoryLabel;
+    await update(ref(db, `jobs/${job.id}`), {
+      status: 'Cancelled',
+      cancel_category: category,
+      cancel_reason: detail || null,
+      cancelled_by: `staff:${currentUser?.id || 'admin'}`,
+      cancelled_at: Date.now(),
+      qc_logs: [makeLog('Cancelled', `ยกเลิกออเดอร์ เหตุผล: ${fullReason}`), ...(job.qc_logs || [])],
+      updated_at: Date.now()
+    });
     setIsCancelModalOpen(false);
   };
   const handleSaveNotes = async () => {
