@@ -6,6 +6,11 @@
 //   import { JOB_STATUS, normalizeStatus } from '../types/domain';
 // without learning the file split. The source-of-truth lives in
 // ./job-statuses.ts and is mirrored byte-for-byte to the other two repos.
+//
+// `JobStatus` and `ReceiveMethod` are intentionally NOT re-exported here:
+// this file already defines its own (legacy) types under those names, and
+// re-exporting would clash (TS2484). Code that needs the canonical types
+// imports them directly from `./job-statuses`.
 export {
   JOB_STATUS,
   PHASE,
@@ -16,12 +21,7 @@ export {
   isTerminal,
   normalizeStatus,
 } from './job-statuses';
-export type {
-  JobStatus,
-  Phase,
-  CancelCategory,
-  ReceiveMethod,
-} from './job-statuses';
+export type { Phase, CancelCategory } from './job-statuses';
 
 // -----------------------------------------------------------------------------
 // Enums
