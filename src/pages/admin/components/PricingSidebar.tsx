@@ -310,15 +310,16 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl">
               <p className="text-[10px] font-bold text-blue-600 flex items-center gap-2">
                 <Truck size={14} />
-                {statusLower === 'assigned' && 'รอไรเดอร์กดรับงาน'}
-                {statusLower === 'accepted' && 'ไรเดอร์รับงานแล้ว กำลังเดินทาง'}
-                {statusLower === 'arrived' && 'ไรเดอร์ถึงจุดนัดหมายแล้ว'}
+                {(statusLower === 'assigned' || statusLower === 'rider assigned') && 'รอไรเดอร์กดรับงาน'}
+                {(statusLower === 'accepted' || statusLower === 'rider accepted') && 'ไรเดอร์รับงานแล้ว'}
+                {statusLower === 'rider en route' && 'ไรเดอร์กำลังเดินทางไปลูกค้า'}
+                {(statusLower === 'arrived' || statusLower === 'rider arrived') && 'ไรเดอร์ถึงจุดนัดหมายแล้ว'}
               </p>
               {job.assigned_rider_name && (
                 <p className="text-[9px] font-bold text-blue-400 mt-1">Rider: {job.assigned_rider_name}</p>
               )}
             </div>
-            {statusLower !== 'arrived' && (
+            {statusLower !== 'arrived' && statusLower !== 'rider arrived' && (
               <button
                 onClick={() => handleUpdateStatus(JOB_STATUS.RIDER_ARRIVED, 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
