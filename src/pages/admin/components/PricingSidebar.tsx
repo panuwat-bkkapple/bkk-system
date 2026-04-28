@@ -228,7 +228,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         )}
 
         {/* Mail-in Receiving */}
-        {!isCancelled && job.receive_method === 'Mail-in' && (statusLower === 'in-transit' || (job.tracking_number && ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower))) && (
+        {!isCancelled && job.receive_method === 'Mail-in' && (statusLower === 'in-transit' || statusLower === 'parcel in transit' || (job.tracking_number && ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'awaiting shipping', 'active leads', 'active lead'].includes(statusLower))) && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PackageOpen size={14} /> Mail-In Receiving</p>
             <button
@@ -246,7 +246,35 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               }}
               className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
-              <PackageOpen size={18} /> ยืนยันได้รับพัสดุแล้ว (Mark as Received)
+              <PackageOpen size={18} /> ยืนยันได้รับพัสดุ + พร้อมตรวจ
+            </button>
+            <button
+              onClick={async () => {
+                await update(ref(db, `jobs/${job.id}`), {
+                  status: 'Parcel Received',
+                  qc_logs: [
+                    { action: 'Parcel Received', by: currentUserName, timestamp: Date.now(), details: 'รับพัสดุที่หน้างาน รอเปิดและตรวจ' },
+                    ...(job.qc_logs || [])
+                  ],
+                  updated_at: Date.now()
+                });
+              }}
+              className="w-full py-3 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
+            >
+              รับพัสดุไว้ก่อน (ยังไม่เปิด)
+            </button>
+          </div>
+        )}
+
+        {/* Parcel received — opened + ready for QC */}
+        {!isCancelled && statusLower === 'parcel received' && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PackageOpen size={14} /> รอเปิดพัสดุ + ตรวจสภาพ</p>
+            <button
+              onClick={() => handleUpdateStatus('Pending QC', 'เปิดพัสดุและพร้อมเข้ากระบวนการ QC')}
+              className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+            >
+              <PackageOpen size={18} /> เปิดพัสดุ + พร้อมตรวจ (Pending QC)
             </button>
           </div>
         )}
@@ -308,14 +336,33 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         )}
 
         {/* Store-in appointment confirmed */}
-        {!isCancelled && statusLower === 'appointment set' && job.receive_method === 'Store-in' && (
+        {!isCancelled && (statusLower === 'appointment set' || statusLower === 'waiting drop-off') && job.receive_method === 'Store-in' && (
           <div className="space-y-3 mt-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Store size={14} /> Store Operations</p>
             <button
               onClick={() => handleUpdateStatus('Being Inspected', 'ลูกค้ามาถึงสาขา แอดมินเริ่มประเมินสภาพเครื่อง')}
               className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
-              <Store size={18} /> ลูกค้ามาถึงสาขา (เริ่มตรวจสภาพ QC)
+              <Store size={18} /> ลูกค้ามาถึงสาขา + เริ่มตรวจสภาพ
+            </button>
+            <button
+              onClick={() => handleUpdateStatus('Drop-off Received', 'รับเครื่องที่เคาน์เตอร์ รอตรวจ')}
+              className="w-full py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
+            >
+              รับเครื่องไว้ก่อน (ยังไม่ตรวจ)
+            </button>
+          </div>
+        )}
+
+        {/* Drop-off received — device on counter, ready for QC */}
+        {!isCancelled && statusLower === 'drop-off received' && (
+          <div className="space-y-3 mt-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Store size={14} /> รับเครื่องแล้ว — รอตรวจ</p>
+            <button
+              onClick={() => handleUpdateStatus('Being Inspected', 'เริ่มประเมินสภาพเครื่องที่รับไว้แล้ว')}
+              className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+            >
+              <Store size={18} /> เริ่มตรวจสภาพ QC
             </button>
           </div>
         )}
