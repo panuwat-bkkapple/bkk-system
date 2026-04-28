@@ -349,18 +349,127 @@ exports.archiveOldJobs = onSchedule(
 /**
  * HTTP Function: เรียกด้วยมือเพื่อ migrate งานเก่าทันที
  * ใช้สำหรับการ migrate ครั้งแรก หรือเรียกเมื่อต้องการ archive ทันที
+ *
+ * Two modes via ?action= query param:
+ *   - default / 'archive'      → runArchive() (the original behavior)
+ *   - 'rename-statuses'        → runStatusMigration()
+ *   - 'rename-statuses-dry'    → runStatusMigration({ dryRun: true })
+ *
+ * The status rename mode is the Phase 2D-4 one-time DB migration. Reusing
+ * this existing HTTP endpoint instead of adding a new one avoids the
+ * cloudfunctions.functions.setIamPolicy permission gap that blocked
+ * runSlaExpire (#101) and expireStaleJobs (#102).
  */
 exports.migrateOldJobs = onRequest(
   { region: "asia-southeast1", cors: true },
   async (req, res) => {
+    const action = String(req.query.action || "archive");
+
+    if (action === "rename-statuses" || action === "rename-statuses-dry") {
+      const result = await runStatusMigration({ dryRun: action === "rename-statuses-dry" });
+      return res.json({
+        success: true,
+        action,
+        message: `${action === "rename-statuses-dry" ? "DRY RUN — would rename" : "Renamed"} ${result.renamed} job statuses`,
+        ...result,
+      });
+    }
+
     const result = await runArchive();
     res.json({
       success: true,
+      action: "archive",
       message: `Archived ${result.archived} old jobs`,
       ...result,
     });
   }
 );
+
+// =============================================================================
+// Status migration (Phase 2D-4)
+//
+// One-time DB migration: rename legacy status strings in /jobs/* to the
+// canonical names from src/types/job-statuses.ts. Phase 2A landed tolerant
+// readers that accept both spellings; Phase 2D-1/2/3 flipped writers to
+// emit canonical names. After this migration runs, the LEGACY_STATUS_MAP
+// half of those readers can be deleted (in a follow-up PR).
+//
+// Trigger by hand once production has settled:
+//   GET https://<region>-<project>.cloudfunctions.net/migrateOldJobs?action=rename-statuses-dry
+//   GET https://<region>-<project>.cloudfunctions.net/migrateOldJobs?action=rename-statuses
+//
+// Run the dry mode first to see counts before committing.
+// =============================================================================
+
+// Mirror of LEGACY_ALIAS in src/types/job-statuses.ts. Kept inline because
+// functions/ has its own rootDir and cannot import the TS enum.
+const LEGACY_STATUS_RENAME = {
+  PAID: "Paid",
+  "Payment Completed": "Paid",
+  "Active Leads": "Active Lead",
+  Assigned: "Rider Assigned",
+  Accepted: "Rider Accepted",
+  "Heading to Customer": "Rider En Route",
+  Arrived: "Rider Arrived",
+  Returned: "Return Confirmed",
+};
+
+function resolveCanonical(legacy, receiveMethod) {
+  if (!legacy) return null;
+  if (legacy === "In-Transit") {
+    return receiveMethod === "Pickup" ? "Rider Returning" : "Parcel In Transit";
+  }
+  return LEGACY_STATUS_RENAME[legacy] || null;
+}
+
+async function runStatusMigration({ dryRun = false } = {}) {
+  const db = getDatabase();
+  const jobsSnap = await db.ref("jobs").once("value");
+  if (!jobsSnap.exists()) return { renamed: 0, scanned: 0, breakdown: {}, dryRun };
+
+  const updates = {};
+  const breakdown = {};
+  let renamed = 0;
+  let scanned = 0;
+
+  jobsSnap.forEach((child) => {
+    const job = child.val();
+    const jobId = child.key;
+    scanned++;
+
+    const canonical = resolveCanonical(job.status, job.receive_method);
+    if (!canonical || canonical === job.status) return;
+
+    const key = `${job.status} → ${canonical}`;
+    breakdown[key] = (breakdown[key] || 0) + 1;
+    renamed++;
+
+    if (!dryRun) {
+      updates[`jobs/${jobId}/status`] = canonical;
+      // Record the migration in qc_logs so the audit trail is intact.
+      const existingLogs = Array.isArray(job.qc_logs) ? job.qc_logs : [];
+      updates[`jobs/${jobId}/qc_logs`] = [
+        {
+          action: "Status Migrated",
+          by: "System (Phase 2D-4)",
+          timestamp: Date.now(),
+          details: `Renamed legacy status "${job.status}" → "${canonical}"`,
+        },
+        ...existingLogs,
+      ];
+      updates[`jobs/${jobId}/updated_at`] = Date.now();
+    }
+  });
+
+  if (!dryRun && renamed > 0) {
+    await db.ref().update(updates);
+  }
+
+  console.log(
+    `Status migration ${dryRun ? "(DRY RUN) " : ""}complete: scanned ${scanned}, renamed ${renamed}, breakdown ${JSON.stringify(breakdown)}`
+  );
+  return { renamed, scanned, breakdown, dryRun };
+}
 
 // =============================================================================
 // SLA Timeouts: auto-expire stale Store-in / Mail-in jobs
