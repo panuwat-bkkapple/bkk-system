@@ -496,20 +496,13 @@ exports.expireStaleJobs = onSchedule(
   }
 );
 
-/**
- * HTTP Function: เรียกด้วยมือเพื่อรัน SLA expire ทันที (debug/recovery)
- */
-exports.runSlaExpire = onRequest(
-  { region: "asia-southeast1", cors: true },
-  async (req, res) => {
-    const result = await runExpireStaleJobs();
-    res.json({
-      success: true,
-      message: `Drop-off expired: ${result.dropOffExpired}, Shipping expired: ${result.shippingExpired}`,
-      ...result,
-    });
-  }
-);
+// Note: a manual HTTP companion (runSlaExpire) was considered but
+// dropped — deploying a NEW HTTPS function in this project requires
+// `cloudfunctions.functions.setIamPolicy` on the CI service account,
+// which is not granted. The scheduled function above runs hourly and
+// covers the production need. If a debug trigger is ever required,
+// add it as a Realtime DB trigger (e.g. write to /sla_expire_now to
+// fire once) instead of HTTPS.
 
 /**
  * Cloud Function: ส่ง Push Notification ให้ admin ทุกคนเมื่อมี ticket ใหม่
