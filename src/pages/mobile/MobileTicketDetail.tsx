@@ -416,6 +416,15 @@ export const MobileTicketDetail = () => {
                   <span className="text-slate-600">{job.cust_address || job.store_branch}</span>
                 </div>
               )}
+              {job.cust_notes && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-100 rounded-xl flex items-start gap-2">
+                  <ClipboardCheck size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-wider mb-0.5">หมายเหตุจากลูกค้า</p>
+                    <p className="text-xs text-amber-900 leading-relaxed whitespace-pre-wrap break-words">{job.cust_notes}</p>
+                  </div>
+                </div>
+              )}
               {job.agent_name && (
                 <div className="flex items-center gap-2 text-sm">
                   <ClipboardCheck size={14} className="text-slate-400 shrink-0" />

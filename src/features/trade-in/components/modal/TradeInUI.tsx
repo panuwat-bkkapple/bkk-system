@@ -24,36 +24,80 @@ export const StatusBadge = ({ status }: { status: string }) => {
     'Following Up': 'bg-blue-50 text-blue-600 border-blue-200',
     'Appointment Set': 'bg-emerald-100 text-emerald-700 border-emerald-300 shadow-sm',
     'Waiting Drop-off': 'bg-indigo-100 text-indigo-700 border-indigo-200 border-dashed',
-    // Logistics & Inspection
+    'Awaiting Shipping': 'bg-indigo-50 text-indigo-600 border-indigo-200 border-dashed',
+    // Logistics & Inspection (legacy + canonical)
     'Active Leads': 'bg-purple-50 text-purple-600 border-purple-200 border-dashed',
+    'Active Lead': 'bg-purple-50 text-purple-600 border-purple-200 border-dashed',
+    'Assigned': 'bg-violet-100 text-violet-700 border-violet-200',
+    'Rider Assigned': 'bg-violet-100 text-violet-700 border-violet-200',
+    'Accepted': 'bg-blue-100 text-blue-700 border-blue-200',
+    'Rider Accepted': 'bg-blue-100 text-blue-700 border-blue-200',
+    'Heading to Customer': 'bg-sky-100 text-sky-700 border-sky-200',
+    'Rider En Route': 'bg-sky-100 text-sky-700 border-sky-200',
+    'Arrived': 'bg-teal-100 text-teal-700 border-teal-200',
+    'Rider Arrived': 'bg-teal-100 text-teal-700 border-teal-200',
+    'Drop-off Received': 'bg-purple-100 text-purple-700 border-purple-200',
+    'Parcel In Transit': 'bg-blue-100 text-blue-700 border-blue-300',
+    'Parcel Received': 'bg-orange-100 text-orange-700 border-orange-200',
     'In-Transit': 'bg-blue-100 text-blue-700 border-blue-300 shadow-sm',
+    'Rider Returning': 'bg-blue-100 text-blue-700 border-blue-300 shadow-sm',
     'Pending QC': 'bg-amber-100 text-amber-700 border-amber-200',
+    'Being Inspected': 'bg-purple-100 text-purple-700 border-purple-200',
     'QC Review': 'bg-amber-100 text-amber-700 border-amber-200',
+    'Discrepancy Reported': 'bg-rose-100 text-rose-700 border-rose-300 ring-2 ring-rose-500/20',
     'Revised Offer': 'bg-purple-100 text-purple-700 border-purple-200',
-    'Negotiation': 'bg-orange-100 text-orange-700 border-orange-300 ring-2 ring-orange-500/20 shadow-md', // 🟢 สถานะเจรจา
+    'Negotiation': 'bg-orange-100 text-orange-700 border-orange-300 ring-2 ring-orange-500/20 shadow-md',
+    'Price Accepted': 'bg-emerald-50 text-emerald-700 border-emerald-200',
     // Finance & Inventory
     'Payout Processing': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    'Waiting For Handover': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    'Paid': 'bg-green-100 text-green-700 border-green-200',
+    'PAID': 'bg-green-100 text-green-700 border-green-200',
     'In Stock': 'bg-slate-100 text-slate-700 border-slate-200',
     // Closed / Cancelled
     'Cancelled': 'bg-red-50 text-red-500 border-red-100',
     'Closed (Lost)': 'bg-slate-800 text-slate-300 border-slate-700',
-    'Returned': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner', // 🟢 สถานะตีของกลับ
+    'Drop-off Expired': 'bg-slate-100 text-slate-500 border-slate-200',
+    'Shipping Expired': 'bg-slate-100 text-slate-500 border-slate-200',
+    'Returned': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
+    'Return Confirmed': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
   };
   return <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${styles[status] || 'bg-slate-50 text-slate-400 border-slate-100'}`}>{status}</span>;
 };
 
 export const TicketPipeline = ({ status }: { status: string }) => {
-  // 🟢 รวม Returned ไว้ในกลุ่มยกเลิก
-  const isCancelled = ['Cancelled', 'Closed (Lost)', 'Returned'].includes(status);
-  
-  const phase1_Sales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
-  const phase2_Logistics = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit'];
-  
-  // 🟢 เอา Pending QC ออกจากสเตปที่ 3
-  const phase3_Inspection = ['Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation'];
-  
-  // 🟢 นำ Pending QC มาใส่สเตป 4 และเพิ่มคำว่า 'Paid' ให้ครอบคลุมการพิมพ์เล็ก/ใหญ่
-  const phase4_Finance = ['Payout Processing', 'Waiting for Handover', 'PAID', 'Paid', 'Pending QC', 'In Stock', 'Ready to Sell'];
+  // Tolerant matching: each phase array carries both the legacy DB strings
+  // and the canonical names from src/types/job-statuses.ts so the pipeline
+  // keeps lighting up correctly through the Phase 2D writer rename. New
+  // statuses from Phase 2B (Drop-off Received, Parcel Received, Awaiting
+  // Shipping, Discrepancy Reported, ...) get bucketed too.
+  const isCancelled = [
+    'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed',
+    'Drop-off Expired', 'Shipping Expired', 'Parcel Lost',
+  ].includes(status);
+
+  const phase1_Sales = [
+    'New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off',
+    'Awaiting Shipping',
+  ];
+  const phase2_Logistics = [
+    // legacy
+    'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit',
+    // canonical
+    'Active Lead', 'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
+    'Rider Returning', 'Parcel In Transit',
+    // new intermediates
+    'Drop-off Received', 'Parcel Received',
+  ];
+  const phase3_Inspection = [
+    'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation',
+    'Price Accepted', 'Discrepancy Reported',
+  ];
+  const phase4_Finance = [
+    'Payout Processing', 'Waiting for Handover', 'Waiting For Handover',
+    'PAID', 'Paid', 'Pending QC', 'Sent to QC Lab', 'In Stock', 'Ready to Sell',
+    'Sold', 'Completed',
+  ];
 
   const phases = [
     { id: 1, name: 'Sales & Deal', active: phase1_Sales.includes(status), done: (phase2_Logistics.includes(status) || phase3_Inspection.includes(status) || phase4_Finance.includes(status)) && !isCancelled },
