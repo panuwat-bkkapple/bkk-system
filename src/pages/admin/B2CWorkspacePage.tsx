@@ -74,13 +74,28 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
-  const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes(statusLower) || statusLower.includes('cancel');
-  const isNew = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads'].includes(statusLower);
-  const isLogistics = ['assigned', 'accepted', 'arrived'].includes(statusLower);
-  const isQC = ['being inspected', 'pending qc', 'qc review'].includes(statusLower);
+  const isCancelled = ['cancelled', 'closed (lost)', 'returned', 'return confirmed', 'drop-off expired', 'shipping expired', 'parcel lost'].includes(statusLower) || statusLower.includes('cancel');
+  // Tolerant matching: each bucket carries both legacy DB strings and the
+  // canonical names from src/types/job-statuses.ts so the workspace lights
+  // up the right action panel regardless of which writer touched the job.
+  const isNew = [
+    // legacy
+    'new lead', 'following up', 'appointment set', 'waiting drop-off', 'active leads',
+    // canonical
+    'awaiting shipping', 'active lead',
+  ].includes(statusLower);
+  const isLogistics = [
+    // legacy
+    'assigned', 'accepted', 'arrived',
+    // canonical
+    'rider assigned', 'rider accepted', 'rider en route', 'rider arrived',
+  ].includes(statusLower);
+  const isQC = [
+    'being inspected', 'pending qc', 'qc review', 'discrepancy reported',
+  ].includes(statusLower);
   const isNegotiation = ['revised offer', 'negotiation'].includes(statusLower);
-  const isProcessingPayment = statusLower === 'payout processing' || statusLower === 'waiting for finance';
-  const hasBeenPaid = !!job.paid_at || !!job.payment_slip || ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover', 'ready to sell', 'sold'].includes(statusLower) || statusLower.includes('paid') || job.qc_logs?.some((log: any) => ['paid', 'payment completed'].includes(log.action?.toLowerCase()));
+  const isProcessingPayment = statusLower === 'payout processing' || statusLower === 'waiting for finance' || statusLower === 'waiting for handover';
+  const hasBeenPaid = !!job.paid_at || !!job.payment_slip || ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover', 'ready to sell', 'sold', 'rider returning'].includes(statusLower) || statusLower.includes('paid') || job.qc_logs?.some((log: any) => ['paid', 'payment completed'].includes(log.action?.toLowerCase()));
 
   const makeLog = (action: string, details: string) => ({ action, details, by: currentUser?.name || 'Admin', timestamp: Date.now() });
   const buildUpdatedDevices = (newBasePrice: number) => {
