@@ -366,6 +366,46 @@ export interface Job {
   assigned_staff?: string;
   /** หมายเหตุเพิ่มเติม */
   notes?: string;
+
+  // Cancellation taxonomy (PR-5B)
+  // ----------------------------
+  // Why both? `cancel_category` is a closed enum that is cheap to filter,
+  // group, and feed into analytics dashboards. `cancel_reason` is the free
+  // text the rider/admin actually typed; it captures the specifics that
+  // don't fit into a category. We ask for both at the cancel UI:
+  // category is required, free text is optional unless category === 'other'.
+  /** หมวดเหตุผลที่ยกเลิก (สำหรับ analytics) */
+  cancel_category?: import('./job-statuses').CancelCategory;
+  /** เหตุผลเสริม (พิมพ์เองโดยไรเดอร์/แอดมิน) */
+  cancel_reason?: string;
+  /** UID/staffId/riderId ของผู้กดยกเลิก */
+  cancelled_by?: string;
+  /** เวลาที่กดยกเลิก (epoch ms) */
+  cancelled_at?: number;
+
+  // Optimistic-lock metadata (PR-5B)
+  // --------------------------------
+  // status_version increments by one on every status transition. Writers
+  // that need to guard against concurrent updates can read the current
+  // version, set status_version: previous + 1, and rely on the RTDB rules
+  // (or a runTransaction) to reject stale writes. Old jobs without this
+  // field behave as version 0.
+  /** เวอร์ชันของสถานะ — เพิ่มทุกครั้งที่เปลี่ยน status */
+  status_version?: number;
+
+  /** ประวัติการเปลี่ยน status (audit trail แบบ structured) */
+  status_history?: Array<{
+    /** สถานะก่อนเปลี่ยน */
+    from: string | null;
+    /** สถานะหลังเปลี่ยน */
+    to: string;
+    /** เวลาที่เปลี่ยน (epoch ms) */
+    at: number;
+    /** ผู้เปลี่ยน — staffId / riderId / 'system' / 'customer' */
+    by: string;
+    /** ข้อความเสริม เช่น เหตุผลยกเลิก, log ของ QC */
+    reason?: string;
+  }>;
 }
 
 /** ซีรีส์สินค้า */
