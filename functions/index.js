@@ -398,8 +398,11 @@ exports.onNewTicketCreated = onValueCreated(
         console.error(`[onNewTicket] Failed to compute rider_fee_estimate:`, err);
       }
 
-      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Leads จาก Instant Sell)
-      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads"];
+      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Lead).
+      // Accept both legacy "Active Leads" (plural) and the canonical
+      // "Active Lead" so the trigger keeps firing through Phase 2D's
+      // writer rename. functions/ can't import the canonical TS enum.
+      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
       if (!newStatuses.includes(job.status)) {
         console.log(`[onNewTicket] Skipped: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
         return;
@@ -665,11 +668,19 @@ exports.notifyChatMessage = onRequest(
 
 /**
  * สถานะที่ต้องแจ้งเตือน admin พร้อม label ภาษาไทย
+ *
+ * Each notable transition is keyed by every spelling that may appear in
+ * the DB so the trigger keeps firing while writers gradually adopt the
+ * canonical names from src/types/job-statuses.ts (Phase 2D). The
+ * functions/ entry point can't import the TS enum directly, so legacy
+ * and canonical strings live side-by-side here and resolve to the same
+ * Thai label.
  */
 const NOTIFY_STATUS_MAP = {
   Cancelled: "ยกเลิกงาน",
   "Closed (Lost)": "ปิดงาน (Lost)",
   Returned: "ตีเครื่องกลับ",
+  "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
   "Withdrawal Requested": "ขอถอนเงิน",
   "Revised Offer": "เสนอราคาใหม่",
   Negotiation: "ลูกค้าต่อราคา",
