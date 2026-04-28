@@ -3,6 +3,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
 import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
+import { JOB_STATUS } from '@/types/job-statuses';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
 import { withRetry } from '@/utils/firebaseRetry';
@@ -107,7 +108,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         price: Number(payload.price),
         type: 'Trade-in',
         source: 'instant-sell',
-        status: 'Active Leads',
+        status: JOB_STATUS.ACTIVE_LEAD,
         receive_method: 'Store-in',
         created_at: Date.now(),
         created_by: currentUser?.name || 'Admin',
