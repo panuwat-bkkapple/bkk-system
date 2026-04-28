@@ -211,15 +211,15 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
-        {/* Mail-in Operations */}
-        {!isCancelled && job.receive_method === 'Mail-in' && isNew && !job.tracking_number && (
+        {/* Mail-in Operations — gated past New Lead so admin must claim
+            (อ่าน / รับเคส button at the workspace header) before any
+            method-specific action. Option B of the status redesign. */}
+        {!isCancelled && job.receive_method === 'Mail-in' && isNew && statusLower !== 'new lead' && !job.tracking_number && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Mail-In Operations</p>
-            {statusLower === 'new lead' && (
-              <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
-                <PhoneCall size={16} /> โทรคอนเฟิร์มลูกค้า (Follow Up)
-              </button>
-            )}
+            <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
+              <PhoneCall size={16} /> โทรแนะนำขนส่ง (Follow Up)
+            </button>
             <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl">
               <p className="text-[10px] font-bold text-orange-600 flex items-center gap-2"><PackageOpen size={14} /> ขั้นตอนถัดไป: กรอกเลข Tracking Number ที่ส่วน Logistics ด้านซ้าย</p>
               <p className="text-[9px] font-bold text-orange-400 mt-1">เมื่อบันทึก Tracking แล้ว สถานะจะเปลี่ยนเป็น In-Transit อัตโนมัติ</p>
@@ -279,27 +279,41 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
-        {/* New Lead buttons (Pickup/Store-in) */}
-        {!isCancelled && isNew && job.receive_method !== 'Mail-in' && (
+        {/* Pickup / Store-in dispatch operations — gated past New Lead so
+            admin must claim (อ่าน / รับเคส button at the workspace
+            header) before any method-specific action. Option B of the
+            status redesign. */}
+        {!isCancelled && isNew && job.receive_method !== 'Mail-in' && statusLower !== 'new lead' && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Send size={14} /> Dispatch Operations</p>
-            {statusLower === 'new lead' && (
-              <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
-                <PhoneCall size={16} /> 1. โทรคอนเฟิร์มลูกค้า (Follow Up)
-              </button>
-            )}
+            <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
+              <PhoneCall size={16} /> โทรคอนเฟิร์มลูกค้า (Follow Up)
+            </button>
             <button
               onClick={() => {
                 if (job.receive_method === 'Store-in') {
                   handleUpdateStatus(JOB_STATUS.APPOINTMENT_SET, 'ลูกค้ายืนยันวันเวลาเข้าสาขาเรียบร้อยแล้ว');
                 } else {
+                  // Pickup: re-broadcast (status already Active Lead after
+                  // claim — this button is the explicit "re-dispatch"
+                  // when a rider rejected and the job came back).
                   handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
                 }
               }}
-              className={`w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2 ${statusLower === 'new lead' ? 'opacity-80' : ''}`}
+              className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
-              {job.receive_method === 'Store-in' ? 'ลูกค้ายืนยันเข้าสาขา (รอเข้าตรวจสอบ)' : (statusLower === 'new lead' ? '2. จ่ายงานให้ไรเดอร์ (Dispatch)' : 'จ่ายงานให้ไรเดอร์ (Dispatch Rider)')}
+              {job.receive_method === 'Store-in' ? 'ลูกค้ายืนยันเข้าสาขา (รอเข้าตรวจสอบ)' : 'จ่ายงานให้ไรเดอร์ (Dispatch Rider)'}
             </button>
+          </div>
+        )}
+
+        {/* New Lead — prompt admin to claim first */}
+        {!isCancelled && statusLower === 'new lead' && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+            <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest mb-1">รอแอดมินรับเคส</p>
+            <p className="text-[10px] font-bold text-amber-600 leading-relaxed">
+              กดปุ่ม <strong>+ รับเคสนี้ (Claim Ticket)</strong> ที่หัวหน้าจอเพื่อเริ่มดำเนินการ — สถานะจะเปลี่ยนเป็น <strong>Active Lead</strong>
+            </p>
           </div>
         )}
 
