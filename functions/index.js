@@ -483,18 +483,33 @@ async function runExpireStaleJobs() {
  * Scheduled Function: รันทุก 1 ชั่วโมง
  * ตรวจ Store-in ที่ค้าง > 7 วัน → Drop-off Expired
  * ตรวจ Mail-in ที่ไม่มี tracking_number > 14 วัน → Shipping Expired
+ *
+ * ⚠ DISABLED FOR CI DEPLOY. Both #100 and #101 attempts failed at the
+ * IAM step:
+ *   Failed to set the IAM Policy on the Service projects/*\/locations/
+ *   asia-southeast1/services/expirestalejobs
+ * The CI service account has roles/functions.developer (can update
+ * existing functions) but lacks roles/functions.admin needed to create
+ * a new function and bind its invoker. Granting that role is an
+ * operations task outside this session.
+ *
+ * Until then, the helper above (runExpireStaleJobs) stays exported as
+ * a regular module function. Re-enable this scheduled trigger by
+ * un-commenting the block below once IAM is sorted, OR deploy this
+ * single function once locally with admin credentials:
+ *   firebase deploy --only functions:expireStaleJobs --project bkk-apple-tradein
  */
-exports.expireStaleJobs = onSchedule(
-  {
-    schedule: "every 1 hours",
-    timeZone: "Asia/Bangkok",
-    region: "asia-southeast1",
-  },
-  async () => {
-    const result = await runExpireStaleJobs();
-    console.log("Scheduled SLA expire completed:", result);
-  }
-);
+// exports.expireStaleJobs = onSchedule(
+//   {
+//     schedule: "every 1 hours",
+//     timeZone: "Asia/Bangkok",
+//     region: "asia-southeast1",
+//   },
+//   async () => {
+//     const result = await runExpireStaleJobs();
+//     console.log("Scheduled SLA expire completed:", result);
+//   }
+// );
 
 // Note: a manual HTTP companion (runSlaExpire) was considered but
 // dropped — deploying a NEW HTTPS function in this project requires
