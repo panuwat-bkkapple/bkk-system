@@ -362,6 +362,155 @@ exports.migrateOldJobs = onRequest(
   }
 );
 
+// =============================================================================
+// SLA Timeouts: auto-expire stale Store-in / Mail-in jobs
+//
+// The status redesign session flagged that jobs can sit in "Waiting Drop-off"
+// or "Following Up" indefinitely if the customer ghosts. Runbook:
+//   - Store-in: 7 days from creation without anyone marking the device
+//     received → set status to "Drop-off Expired".
+//   - Mail-in: 14 days from creation without a tracking_number entered →
+//     set status to "Shipping Expired".
+// Both flip the canonical status and write the cancel taxonomy
+// (cancel_category='sla_timeout', cancelled_by='system') so the analytics
+// dashboard can split system-cancelled jobs from human-cancelled ones.
+// =============================================================================
+
+const STORE_IN_TIMEOUT_DAYS = 7;
+const MAIL_IN_TIMEOUT_DAYS = 14;
+
+// Source statuses for each timeout. Includes both legacy and canonical
+// spellings so the trigger keeps matching through the Phase 2D writer
+// rename. Drop-off Received and Parcel Received intentionally NOT here —
+// once received, the SLA stops counting.
+const STORE_IN_PENDING_STATUSES = new Set([
+  "New Lead",
+  "Following Up",
+  "Appointment Set",
+  "Waiting Drop-off",
+]);
+const MAIL_IN_PENDING_STATUSES = new Set([
+  "New Lead",
+  "Following Up",
+  "Awaiting Shipping",
+]);
+
+async function runExpireStaleJobs() {
+  const db = getDatabase();
+  const jobsSnap = await db.ref("jobs").once("value");
+  if (!jobsSnap.exists()) return { dropOffExpired: 0, shippingExpired: 0 };
+
+  const now = Date.now();
+  const storeInThresholdMs = STORE_IN_TIMEOUT_DAYS * 24 * 60 * 60 * 1000;
+  const mailInThresholdMs = MAIL_IN_TIMEOUT_DAYS * 24 * 60 * 60 * 1000;
+  const updates = {};
+  let dropOffExpired = 0;
+  let shippingExpired = 0;
+
+  jobsSnap.forEach((child) => {
+    const job = child.val();
+    const jobId = child.key;
+    const createdAt = job.created_at || 0;
+    if (createdAt <= 0) return;
+
+    const age = now - createdAt;
+    const status = String(job.status || "");
+
+    if (
+      job.receive_method === "Store-in" &&
+      STORE_IN_PENDING_STATUSES.has(status) &&
+      age > storeInThresholdMs
+    ) {
+      const ageDays = Math.floor(age / (24 * 60 * 60 * 1000));
+      updates[`jobs/${jobId}/status`] = "Drop-off Expired";
+      updates[`jobs/${jobId}/cancel_category`] = "sla_timeout";
+      updates[`jobs/${jobId}/cancel_reason`] =
+        `ลูกค้าไม่มาส่งเครื่องภายใน ${STORE_IN_TIMEOUT_DAYS} วัน (ระบบยกเลิกอัตโนมัติ)`;
+      updates[`jobs/${jobId}/cancelled_by`] = "system";
+      updates[`jobs/${jobId}/cancelled_at`] = now;
+      updates[`jobs/${jobId}/updated_at`] = now;
+      updates[`jobs/${jobId}/qc_logs`] = [
+        {
+          action: "Drop-off Expired",
+          by: "System (SLA)",
+          timestamp: now,
+          details: `งาน Store-in ค้างเกิน ${STORE_IN_TIMEOUT_DAYS} วัน (อายุ ${ageDays} วัน) — ระบบยกเลิกอัตโนมัติ`,
+        },
+        ...(job.qc_logs || []),
+      ];
+      dropOffExpired++;
+      return;
+    }
+
+    if (
+      job.receive_method === "Mail-in" &&
+      MAIL_IN_PENDING_STATUSES.has(status) &&
+      !job.tracking_number &&
+      age > mailInThresholdMs
+    ) {
+      const ageDays = Math.floor(age / (24 * 60 * 60 * 1000));
+      updates[`jobs/${jobId}/status`] = "Shipping Expired";
+      updates[`jobs/${jobId}/cancel_category`] = "sla_timeout";
+      updates[`jobs/${jobId}/cancel_reason`] =
+        `ลูกค้าไม่ได้ส่งพัสดุภายใน ${MAIL_IN_TIMEOUT_DAYS} วัน (ระบบยกเลิกอัตโนมัติ)`;
+      updates[`jobs/${jobId}/cancelled_by`] = "system";
+      updates[`jobs/${jobId}/cancelled_at`] = now;
+      updates[`jobs/${jobId}/updated_at`] = now;
+      updates[`jobs/${jobId}/qc_logs`] = [
+        {
+          action: "Shipping Expired",
+          by: "System (SLA)",
+          timestamp: now,
+          details: `งาน Mail-in ไม่มี tracking_number เกิน ${MAIL_IN_TIMEOUT_DAYS} วัน (อายุ ${ageDays} วัน) — ระบบยกเลิกอัตโนมัติ`,
+        },
+        ...(job.qc_logs || []),
+      ];
+      shippingExpired++;
+    }
+  });
+
+  if (dropOffExpired + shippingExpired > 0) {
+    await db.ref().update(updates);
+  }
+
+  console.log(
+    `SLA expire complete: ${dropOffExpired} drop-off, ${shippingExpired} shipping`
+  );
+  return { dropOffExpired, shippingExpired };
+}
+
+/**
+ * Scheduled Function: รันทุก 1 ชั่วโมง
+ * ตรวจ Store-in ที่ค้าง > 7 วัน → Drop-off Expired
+ * ตรวจ Mail-in ที่ไม่มี tracking_number > 14 วัน → Shipping Expired
+ */
+exports.expireStaleJobs = onSchedule(
+  {
+    schedule: "every 1 hours",
+    timeZone: "Asia/Bangkok",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const result = await runExpireStaleJobs();
+    console.log("Scheduled SLA expire completed:", result);
+  }
+);
+
+/**
+ * HTTP Function: เรียกด้วยมือเพื่อรัน SLA expire ทันที (debug/recovery)
+ */
+exports.runSlaExpire = onRequest(
+  { region: "asia-southeast1", cors: true },
+  async (req, res) => {
+    const result = await runExpireStaleJobs();
+    res.json({
+      success: true,
+      message: `Drop-off expired: ${result.dropOffExpired}, Shipping expired: ${result.shippingExpired}`,
+      ...result,
+    });
+  }
+);
+
 /**
  * Cloud Function: ส่ง Push Notification ให้ admin ทุกคนเมื่อมี ticket ใหม่
  * Trigger: เมื่อมีข้อมูลใหม่ถูกเขียนลง /jobs/{jobId}
