@@ -10,6 +10,7 @@ import { ref, update, onValue, set } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { AdminChatBox } from '../../components/Fleet/AdminChatBox';
 import { useToast } from '../../components/ui/ToastProvider';
+import { JOB_STATUS } from '../../types/job-statuses';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 const center = { lat: 13.7563, lng: 100.5018 };
@@ -104,7 +105,7 @@ export const DispatcherPage = () => {
 
   const handleAssignJob = async (riderId: string, jobId: string) => {
     try {
-      await update(ref(db, `jobs/${jobId}`), { status: 'Assigned', rider_id: riderId, assigned_at: Date.now() });
+      await update(ref(db, `jobs/${jobId}`), { status: JOB_STATUS.RIDER_ASSIGNED, rider_id: riderId, assigned_at: Date.now() });
       setSelectedJobId(null);
     } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
   };
@@ -113,7 +114,7 @@ export const DispatcherPage = () => {
     if (window.confirm('ต้องการดึงงานนี้กลับเข้าคิว (Unassign) ใช่หรือไม่?')) {
       try {
         await update(ref(db, `jobs/${jobId}`), {
-          status: 'Active Leads',
+          status: JOB_STATUS.ACTIVE_LEAD,
           rider_id: null,
           assigned_at: null
         });

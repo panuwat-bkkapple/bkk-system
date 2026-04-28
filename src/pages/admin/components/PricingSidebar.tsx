@@ -7,7 +7,7 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 
 interface PricingSidebarHandlers {
@@ -291,9 +291,9 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <button
               onClick={() => {
                 if (job.receive_method === 'Store-in') {
-                  handleUpdateStatus('Appointment Set', 'ลูกค้ายืนยันวันเวลาเข้าสาขาเรียบร้อยแล้ว');
+                  handleUpdateStatus(JOB_STATUS.APPOINTMENT_SET, 'ลูกค้ายืนยันวันเวลาเข้าสาขาเรียบร้อยแล้ว');
                 } else {
-                  handleUpdateStatus('Active Leads', 'ส่งงานให้พนักงานเข้ารับเครื่อง');
+                  handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
                 }
               }}
               className={`w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2 ${statusLower === 'new lead' ? 'opacity-80' : ''}`}
@@ -320,7 +320,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             </div>
             {statusLower !== 'arrived' && (
               <button
-                onClick={() => handleUpdateStatus('Arrived', 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
+                onClick={() => handleUpdateStatus(JOB_STATUS.RIDER_ARRIVED, 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <Truck size={16} /> ไรเดอร์ถึงแล้ว (Mark Arrived)
