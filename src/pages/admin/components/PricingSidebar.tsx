@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle2, Store, ListChecks, History, Wallet, MessageCircle,
   ExternalLink, Clock, AlertOctagon, XCircle, Send, PhoneCall, Archive,
-  Plus, X, PackageOpen, ShieldCheck, Truck
+  Plus, X, PackageOpen, ShieldCheck, Truck, CalendarClock
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
@@ -88,6 +88,49 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   } = pricing;
 
   const statusLower = String(job.status || '').trim().toLowerCase();
+
+  // Store-in appointment scheduler. Reuses the `pickup_schedule` field
+  // (same shape as Pickup) so the calendar/list code paths don't need a
+  // separate field. Customers picking Store-in at /sell don't get a time
+  // slot, so admin has to set it themselves; without this scheduler the
+  // job had no calendar entry and admin had no way to add one.
+  const ps = job.pickup_schedule;
+  const existingApptDate = ps?.date && ps.date !== 'Instant' ? ps.date : '';
+  const existingApptTime = ps?.time && ps.time !== 'Instant' ? ps.time : '';
+  const [apptDate, setApptDate] = useState(existingApptDate);
+  const [apptTime, setApptTime] = useState(existingApptTime);
+  const [savingAppt, setSavingAppt] = useState(false);
+
+  const handleSaveAppointment = async () => {
+    if (!apptDate || !apptTime) return;
+    setSavingAppt(true);
+    try {
+      const isReschedule = !!existingApptDate;
+      const updates: Record<string, unknown> = {
+        pickup_schedule: { type: 'scheduled', date: apptDate, time: apptTime },
+        qc_logs: [
+          {
+            action: isReschedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            by: currentUserName,
+            timestamp: Date.now(),
+            details: `${isReschedule ? 'แก้ไขเวลานัด' : 'นัดหมาย'}เข้าสาขา ${apptDate} ${apptTime}`,
+          },
+          ...(job.qc_logs || []),
+        ],
+        updated_at: Date.now(),
+      };
+      // Only flip the status when we're setting an appointment for the
+      // first time on a New Lead / Following Up — don't regress a job
+      // that's already moved past Appointment Set.
+      const lower = (job.status || '').trim().toLowerCase();
+      if (lower === 'new lead' || lower === 'following up') {
+        updates.status = JOB_STATUS.APPOINTMENT_SET;
+      }
+      await update(ref(db, `jobs/${job.id}`), updates);
+    } finally {
+      setSavingAppt(false);
+    }
+  };
 
   return (
     <div className="w-[450px] bg-white border-l border-slate-200 flex flex-col shadow-2xl z-20 shrink-0">
@@ -283,7 +326,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             broadcast (Pickup → Active Lead) or set the appointment
             (Store-in → Appointment Set). Active Lead is the trigger
             that broadcasts the job to riders' incoming list. */}
-        {!isCancelled && isNew && job.receive_method !== 'Mail-in' && (
+        {!isCancelled && isNew && job.receive_method === 'Pickup' && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Send size={14} /> Dispatch Operations</p>
             <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
@@ -291,19 +334,62 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             </button>
             <button
               onClick={() => {
-                if (job.receive_method === 'Store-in') {
-                  handleUpdateStatus(JOB_STATUS.APPOINTMENT_SET, 'ลูกค้ายืนยันวันเวลาเข้าสาขาเรียบร้อยแล้ว');
-                } else {
-                  // Pickup: broadcast to riders. Works from any pre-rider
-                  // status (New Lead, Following Up, Appointment Set) so
-                  // admin can dispatch as soon as they're ready.
-                  handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
-                }
+                // Pickup: broadcast to riders. Works from any pre-rider
+                // status (New Lead, Following Up, Appointment Set) so
+                // admin can dispatch as soon as they're ready.
+                handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
               }}
               className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
-              {job.receive_method === 'Store-in' ? 'ลูกค้ายืนยันเข้าสาขา (รอเข้าตรวจสอบ)' : 'จ่ายงานให้ไรเดอร์ (Dispatch Rider)'}
+              จ่ายงานให้ไรเดอร์ (Dispatch Rider)
             </button>
+          </div>
+        )}
+
+        {/* Store-in appointment scheduler — customers picking Store-in
+            at /sell don't get a time slot, so admin enters it here.
+            Also serves as a reschedule UI after Appointment Set. */}
+        {!isCancelled && isNew && job.receive_method === 'Store-in' && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Store Appointment</p>
+            <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
+              <PhoneCall size={16} /> โทรคอนเฟิร์มลูกค้า (Follow Up)
+            </button>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลานัดเข้าสาขา</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={apptDate}
+                  onChange={(e) => setApptDate(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptTime}
+                  onChange={(e) => setApptTime(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              {existingApptDate && (
+                <p className="text-[10px] font-bold text-emerald-600">
+                  นัดปัจจุบัน: {existingApptDate} เวลา {existingApptTime || '—'}
+                </p>
+              )}
+              <button
+                onClick={handleSaveAppointment}
+                disabled={!apptDate || !apptTime || savingAppt}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+              >
+                <CalendarClock size={16} />
+                {savingAppt
+                  ? 'กำลังบันทึก...'
+                  : existingApptDate
+                    ? 'อัปเดตเวลานัดหมาย'
+                    : 'ยืนยันนัดหมาย (Appointment Set)'}
+              </button>
+            </div>
           </div>
         )}
 
