@@ -78,6 +78,16 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             if (!rulesSource && targetModel?.conditionSetId && conditionSets && conditionSets.length > 0) {
                 const matchedSet = conditionSets.find(cs => cs.id === targetModel.conditionSetId);
                 if (matchedSet?.groups && Array.isArray(matchedSet.groups)) {
+                    // Match the customer-side tier ladder so admin's
+                    // deduction values agree with what the customer was
+                    // quoted (otherwise t1 always wins and devices priced
+                    // <30k get over-deducted at QC).
+                    const tierBase = Number(activeDevice.base_price || activeDevice.estimated_price || 0);
+                    const pickTier = (opt: any): number => {
+                        if (tierBase >= 30000) return Number(opt.t1 || 0);
+                        if (tierBase >= 15000) return Number(opt.t2 || 0);
+                        return Number(opt.t3 || 0);
+                    };
                     return matchedSet.groups
                         .filter((g: any) => g && g.options && Array.isArray(g.options) && g.options.length > 0)
                         .map((group: any) => ({
@@ -86,8 +96,8 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                             options: group.options.map((opt: any, idx: number) => ({
                                 id: opt.id || `${group.id}_opt_${idx}`,
                                 label: opt.label || opt.name || 'ไม่มีชื่อตำหนิ',
-                                deduction: Number(opt.t1 || 0) // ใช้ Tier 1 เป็นค่าเริ่มต้น
-                            }))
+                                deduction: pickTier(opt),
+                            })),
                         }));
                 }
             }
@@ -134,7 +144,18 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
     const saveDeviceInspection = () => {
         if (activeDeviceIndex === null) return;
         const activeDevice = devicesList[activeDeviceIndex];
-        let finalPrice = Number(activeDevice.estimated_price || 0);
+        // Used-device QC must start from base_price (the full pre-deduction
+        // price), not estimated_price (which is already net of the customer's
+        // self-assessed deductions). Subtracting admin's deductions on top of
+        // estimated_price double-counts every condition the customer also
+        // marked, dropping the final quote even when the conditions match.
+        // For new devices the customer flow only applies a small
+        // hasReceipt deduction, so estimated_price is the correct
+        // starting point — the new_status deductions below are an
+        // independent axis that doesn't overlap.
+        let finalPrice = activeDevice.isNewDevice
+            ? Number(activeDevice.estimated_price || activeDevice.base_price || 0)
+            : Number(activeDevice.base_price || activeDevice.estimated_price || 0);
         let deductionLabels: string[] = [];
 
         if (activeDevice.isNewDevice) {
