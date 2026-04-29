@@ -295,7 +295,7 @@ export const MobileTicketDetail = () => {
   };
 
   // Available quick actions based on status
-  const quickActions = getQuickActions(job.status, isCancelled);
+  const quickActions = getQuickActions(job.status, isCancelled, job.receive_method);
 
   return (
     <div className="h-full flex flex-col">
@@ -903,22 +903,36 @@ const getConditionIcon = (text: string) => {
 // Quick Actions by Status
 // ---------------------------------------------------------------------------
 
-function getQuickActions(status: string, isCancelled: boolean) {
+function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string) {
   if (isCancelled) return [];
 
   const actions: { label: string; status: string; log: string; style: string }[] = [];
+  const isPickup = receiveMethod === 'Pickup';
+  // The "ส่งให้ไรเดอร์ (Active Leads)" broadcast button is available
+  // through the whole sales phase for Pickup orders so admin can
+  // dispatch as soon as the customer confirms — no need to walk
+  // through every intermediate status.
+  const dispatchAction = {
+    label: 'ส่งให้ไรเดอร์ (Broadcast)',
+    status: 'Active Leads',
+    log: 'แอดมินส่งงานให้ไรเดอร์ (broadcast pool)',
+    style: 'bg-orange-500 text-white',
+  };
 
   switch (status) {
     case 'New Lead':
       actions.push({ label: 'เริ่มติดตาม (Following Up)', status: 'Following Up', log: 'เริ่มติดตามลูกค้า', style: 'bg-amber-500 text-white' });
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
+      if (isPickup) actions.push(dispatchAction);
       break;
     case 'Following Up':
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
+      if (isPickup) actions.push(dispatchAction);
       break;
     case 'Appointment Set':
     case 'Waiting Drop-off':
-      actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+      if (isPickup) actions.push(dispatchAction);
+      else actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       break;
     case 'Active Leads':
     case 'Assigned':

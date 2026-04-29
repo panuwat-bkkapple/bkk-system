@@ -211,10 +211,9 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
-        {/* Mail-in Operations — gated past New Lead so admin must claim
-            (อ่าน / รับเคส button at the workspace header) before any
-            method-specific action. Option B of the status redesign. */}
-        {!isCancelled && job.receive_method === 'Mail-in' && isNew && statusLower !== 'new lead' && !job.tracking_number && (
+        {/* Mail-in Operations — visible from New Lead so admin can act
+            on a fresh ticket without needing to claim first. */}
+        {!isCancelled && job.receive_method === 'Mail-in' && isNew && !job.tracking_number && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Mail-In Operations</p>
             <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
@@ -279,11 +278,12 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
-        {/* Pickup / Store-in dispatch operations — gated past New Lead so
-            admin must claim (อ่าน / รับเคส button at the workspace
-            header) before any method-specific action. Option B of the
-            status redesign. */}
-        {!isCancelled && isNew && job.receive_method !== 'Mail-in' && statusLower !== 'new lead' && (
+        {/* Pickup / Store-in dispatch operations — visible from New Lead
+            so admin can call the customer first, then explicitly
+            broadcast (Pickup → Active Lead) or set the appointment
+            (Store-in → Appointment Set). Active Lead is the trigger
+            that broadcasts the job to riders' incoming list. */}
+        {!isCancelled && isNew && job.receive_method !== 'Mail-in' && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Send size={14} /> Dispatch Operations</p>
             <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
@@ -294,9 +294,9 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 if (job.receive_method === 'Store-in') {
                   handleUpdateStatus(JOB_STATUS.APPOINTMENT_SET, 'ลูกค้ายืนยันวันเวลาเข้าสาขาเรียบร้อยแล้ว');
                 } else {
-                  // Pickup: re-broadcast (status already Active Lead after
-                  // claim — this button is the explicit "re-dispatch"
-                  // when a rider rejected and the job came back).
+                  // Pickup: broadcast to riders. Works from any pre-rider
+                  // status (New Lead, Following Up, Appointment Set) so
+                  // admin can dispatch as soon as they're ready.
                   handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
                 }
               }}
@@ -304,16 +304,6 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             >
               {job.receive_method === 'Store-in' ? 'ลูกค้ายืนยันเข้าสาขา (รอเข้าตรวจสอบ)' : 'จ่ายงานให้ไรเดอร์ (Dispatch Rider)'}
             </button>
-          </div>
-        )}
-
-        {/* New Lead — prompt admin to claim first */}
-        {!isCancelled && statusLower === 'new lead' && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-            <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest mb-1">รอแอดมินรับเคส</p>
-            <p className="text-[10px] font-bold text-amber-600 leading-relaxed">
-              กดปุ่ม <strong>+ รับเคสนี้ (Claim Ticket)</strong> ที่หัวหน้าจอเพื่อเริ่มดำเนินการ — สถานะจะเปลี่ยนเป็น <strong>Active Lead</strong>
-            </p>
           </div>
         )}
 
