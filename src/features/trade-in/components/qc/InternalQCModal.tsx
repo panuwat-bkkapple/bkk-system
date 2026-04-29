@@ -149,10 +149,14 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
         // self-assessed deductions). Subtracting admin's deductions on top of
         // estimated_price double-counts every condition the customer also
         // marked, dropping the final quote even when the conditions match.
-        // For new devices the customer flow only applies a small
-        // hasReceipt deduction, so estimated_price is the correct
-        // starting point — the new_status deductions below are an
-        // independent axis that doesn't overlap.
+        //
+        // For new devices the customer flow applies one small deduction
+        // (hasReceipt: 0/-500), and admin's newDeviceStatus
+        // (perfect/opened_not_act/opened_act_today/convert_to_used) is
+        // an independent axis that does not overlap with hasReceipt.
+        // Starting from estimated_price (which is newPrice − proofDeduct)
+        // and subtracting the new_status deduction is therefore correct
+        // and matches the customer-shown quote when admin picks "perfect".
         let finalPrice = activeDevice.isNewDevice
             ? Number(activeDevice.estimated_price || activeDevice.base_price || 0)
             : Number(activeDevice.base_price || activeDevice.estimated_price || 0);
@@ -232,11 +236,16 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                 delete updatedDevices[i].temp_photo_files;
                 totalFinalPrice += Number(updatedDevices[i].final_price || updatedDevices[i].estimated_price || 0);
             }
+            // Round to whole baht — Thai trade-in prices never have
+            // satang precision, and floating-point sum-of-deductions
+            // can introduce tiny .0001 / .9999 drift across multiple
+            // devices that confuses the audit log later.
+            totalFinalPrice = Math.round(totalFinalPrice);
 
             // Sync net_payout ให้ตรงกับ final_price ใหม่ — กันค่าเก่าค้างใน DB ที่หน้า Finance จะไปหยิบไปแสดง
             const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
             const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-            const newNetPayout = Math.max(0, totalFinalPrice - pickupFee + couponValue);
+            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - pickupFee + couponValue));
 
             const updatePayload = {
                 status: 'QC Review',
