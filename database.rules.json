@@ -158,8 +158,9 @@
     },
 
     "transactions": {
-      ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
-      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'"
+      ".read": "auth != null && (root.child('admins').child(auth.uid).child('role').val() === 'admin' || (query.orderByChild === 'rider_id' && query.equalTo === auth.uid))",
+      ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
+      ".indexOn": ["timestamp", "rider_id"]
     },
 
     "articles": {
