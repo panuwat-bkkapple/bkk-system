@@ -318,8 +318,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             "X parcels expected this Friday" so ops can plan QC slots.
             Saved into pickup_schedule (same shape as Pickup/Store-in)
             so calendar/list code paths stay uniform. Doesn't touch
-            status — Mail-in flips via tracking_number → In-Transit. */}
-        {!isCancelled && job.receive_method === 'Mail-in' && isNew && (
+            status — Mail-in flips via tracking_number → In-Transit.
+            Visible for any non-cancelled Mail-in so admin can also
+            back-fill the date on parcels already in QC. */}
+        {!isCancelled && job.receive_method === 'Mail-in' && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Expected Arrival</p>
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
@@ -399,8 +401,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
         {/* Store-in appointment scheduler — customers picking Store-in
             at /sell don't get a time slot, so admin enters it here.
-            Also serves as a reschedule UI after Appointment Set. */}
-        {!isCancelled && isNew && job.receive_method === 'Store-in' && (
+            Visible for any non-cancelled Store-in ticket so admin can:
+              - set an appointment on a fresh ticket (sales phase)
+              - reschedule after Appointment Set
+              - back-fill the appointment time on a same-day walk-in
+                that's already moved past sales (e.g. registered &
+                received today — picker would otherwise disappear and
+                the calendar would have no record). */}
+        {!isCancelled && job.receive_method === 'Store-in' && (
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Store Appointment</p>
             <button onClick={handleCallCustomer} className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-green-200 transition-all active:scale-95 flex justify-center items-center gap-2">
