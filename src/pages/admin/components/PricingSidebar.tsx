@@ -120,10 +120,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         updated_at: Date.now(),
       };
       // Only flip the status when we're setting an appointment for the
-      // first time on a New Lead / Following Up — don't regress a job
-      // that's already moved past Appointment Set.
+      // first time on a Store-in New Lead / Following Up — Mail-in
+      // flows via tracking_number → In-Transit → Pending QC and
+      // shouldn't get pulled into the Appointment Set branch.
       const lower = (job.status || '').trim().toLowerCase();
-      if (lower === 'new lead' || lower === 'following up') {
+      if (
+        job.receive_method === 'Store-in' &&
+        (lower === 'new lead' || lower === 'following up')
+      ) {
         updates.status = JOB_STATUS.APPOINTMENT_SET;
       }
       await update(ref(db, `jobs/${job.id}`), updates);
@@ -305,6 +309,53 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             >
               รับพัสดุไว้ก่อน (ยังไม่เปิด)
             </button>
+          </div>
+        )}
+
+        {/* Mail-in expected arrival — admin's best guess at when the
+            parcel will reach the branch, separate from Thai Post's
+            real-time tracking. Lets the appointment calendar show
+            "X parcels expected this Friday" so ops can plan QC slots.
+            Saved into pickup_schedule (same shape as Pickup/Store-in)
+            so calendar/list code paths stay uniform. Doesn't touch
+            status — Mail-in flips via tracking_number → In-Transit. */}
+        {!isCancelled && job.receive_method === 'Mail-in' && isNew && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Expected Arrival</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลาที่คาดว่าพัสดุจะถึง</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={apptDate}
+                  onChange={(e) => setApptDate(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptTime}
+                  onChange={(e) => setApptTime(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              {existingApptDate && (
+                <p className="text-[10px] font-bold text-emerald-600">
+                  คาดว่าจะถึง: {existingApptDate} เวลา {existingApptTime || '—'}
+                </p>
+              )}
+              <button
+                onClick={handleSaveAppointment}
+                disabled={!apptDate || !apptTime || savingAppt}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+              >
+                <CalendarClock size={16} />
+                {savingAppt
+                  ? 'กำลังบันทึก...'
+                  : existingApptDate
+                    ? 'อัปเดตวันคาดว่าจะถึง'
+                    : 'บันทึกวันคาดว่าจะถึง'}
+              </button>
+            </div>
           </div>
         )}
 
