@@ -8,7 +8,7 @@ import { InternalQCModal } from '@/features/trade-in/components/qc/InternalQCMod
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
 import { useToast } from '@/components/ui/ToastProvider';
-import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 
 import { SmartPipeline } from './components/SmartPipeline';
@@ -188,13 +188,11 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     setCallNotes('');
   };
   const handleClaimTicket = async () => {
-    // Option B of the status redesign: every method (Pickup, Store-in,
-    // Mail-in) now starts at "New Lead". Admin's claim action — the
-    // "อ่าน / รับเคส" button — flips it to "Active Lead". For Pickup
-    // that's also the trigger that broadcasts to riders (rider Cloud
-    // Function onBroadcastJob). For Store-in / Mail-in the admin then
-    // moves on to "Following Up" via the next button.
-    const nextStatus = job.status === 'New Lead' ? JOB_STATUS.ACTIVE_LEAD : job.status;
+    // Claim = "อ่านแล้ว / กำลังจะคุยกับลูกค้า" — flips New Lead to
+    // Following Up (matches mobile handleClaim). Active Lead is the
+    // separate broadcast trigger admin clicks AFTER the follow-up
+    // call. Mobile mirror lives at MobileTicketDetail.handleClaim.
+    const nextStatus = job.status === 'New Lead' ? 'Following Up' : job.status;
     await update(ref(db, `jobs/${job.id}`), {
       agent_name: currentUser?.name || 'Admin',
       agent_id: currentUser?.id || 'admin_1',
