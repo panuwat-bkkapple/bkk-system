@@ -430,15 +430,16 @@ export const AppointmentCalendar = () => {
 
   // Convert jobs to calendar entries.
   // Pickup orders appear on either the scheduled pickup time or the
-  // created_at fallback. Store-in orders appear ONLY when admin has
-  // entered an appointment time via PricingSidebar — until then there's
-  // no calendar slot to put them on.
+  // created_at fallback. Store-in / Mail-in orders appear ONLY when
+  // admin has entered a date via PricingSidebar (Store appointment for
+  // walk-in time, Mail-in for expected parcel arrival) — until then
+  // there's no calendar slot to put them on.
   const jobEntries = useMemo<CalendarEntry[]>(() => {
     return jobs
       .filter((j: any) => {
         if (!j.created_at) return false;
         if (j.receive_method === 'Pickup') return true;
-        if (j.receive_method === 'Store-in') {
+        if (j.receive_method === 'Store-in' || j.receive_method === 'Mail-in') {
           const d = j.pickup_schedule?.date;
           return !!(d && d !== 'Instant');
         }
