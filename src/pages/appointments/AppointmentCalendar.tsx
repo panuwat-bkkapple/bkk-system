@@ -428,10 +428,22 @@ export const AppointmentCalendar = () => {
 
   const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
 
-  // Convert jobs to calendar entries
+  // Convert jobs to calendar entries.
+  // Pickup orders appear on either the scheduled pickup time or the
+  // created_at fallback. Store-in orders appear ONLY when admin has
+  // entered an appointment time via PricingSidebar — until then there's
+  // no calendar slot to put them on.
   const jobEntries = useMemo<CalendarEntry[]>(() => {
     return jobs
-      .filter((j: any) => j.created_at && j.receive_method === 'Pickup')
+      .filter((j: any) => {
+        if (!j.created_at) return false;
+        if (j.receive_method === 'Pickup') return true;
+        if (j.receive_method === 'Store-in') {
+          const d = j.pickup_schedule?.date;
+          return !!(d && d !== 'Instant');
+        }
+        return false;
+      })
       .map((j: any) => {
         const ps = j.pickup_schedule;
         const isInstant = ps?.type?.toLowerCase() === 'instant';
