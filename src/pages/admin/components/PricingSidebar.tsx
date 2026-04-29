@@ -149,8 +149,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 <span className="line-through">{formatCurrency(job.initial_customer_price)}</span>
               </div>
             )}
+            {/* "Current Quote" instead of "Current Base" — this value is
+                job.final_price (already net of QC deductions / negotiation),
+                NOT the pre-deduction usedPrice. Calling it "Base" used to
+                mislead admin into Negotiation re-deducting from an
+                already-deducted number. Customer's pre-QC quote is shown
+                above as Initial Quote when it differs. */}
             <div className="flex justify-between items-center text-sm font-bold text-slate-200">
-              <span>ราคาเครื่องปัจจุบัน (Current Base)</span>
+              <span>ราคาประเมินปัจจุบัน (Current Quote)</span>
               <span>{formatCurrency(basePrice)}</span>
             </div>
 
