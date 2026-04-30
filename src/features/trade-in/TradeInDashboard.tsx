@@ -60,15 +60,16 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         if (filterAgent === 'Unassigned' && j.agent_name) return false;
         if (filterMethod !== 'All' && j.receive_method !== filterMethod) return false;
 
-        // KYC review filter — Review = ไรเดอร์เลือก fallback path (ไม่มีบัตรจริง);
-        // Missing = งาน Pickup ที่ rider arrived/inspecting แต่ยังไม่มี kyc record
+        // KYC review filter — uses non-sensitive flags on the parent job
+        // doc (kyc_method, kyc_verified_at). Actual KYC record lives at
+        // /jobs_kyc/{id} (locked read) and is fetched on detail view only.
         if (filterKyc !== 'All') {
           const j2: any = j;
           const status = String(j.status || '').toLowerCase();
           const expectKyc = (j.receive_method || '').toLowerCase() === 'pickup'
             && ['rider arrived', 'arrived', 'being inspected', 'qc review'].includes(status);
-          if (filterKyc === 'Review' && j2.kyc?.method !== 'typed_fallback') return false;
-          if (filterKyc === 'Missing' && (!expectKyc || j2.kyc)) return false;
+          if (filterKyc === 'Review' && j2.kyc_method !== 'typed_fallback') return false;
+          if (filterKyc === 'Missing' && (!expectKyc || j2.kyc_verified_at)) return false;
         }
 
         const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(j.status);

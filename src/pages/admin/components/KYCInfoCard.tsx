@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { ref, onValue } from 'firebase/database';
 import {
   ShieldCheck, AlertTriangle, IdCard, MapPin, Smartphone, User, PencilLine,
   ImageOff, Eye, EyeOff, Copy, Check, ExternalLink, Clock,
 } from 'lucide-react';
+import { db } from '@/api/firebase';
 import type { Job, KYCRecord } from '@/types/domain';
 import { KYC_AMLO_THRESHOLD, KYC_FALLBACK_REASON_LABEL_TH } from '@/types/domain';
 import { useToast } from '../../../components/ui/ToastProvider';
@@ -38,8 +40,26 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
   const [showFullNid, setShowFullNid] = useState(false);
   const [copiedNid, setCopiedNid] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // Loaded from /jobs_kyc/{jobId} — separate node from /jobs/{id} so RTDB
+  // read rules can lock down access (admin + assigned rider only) instead
+  // of inheriting the public-by-jobId rule used for customer tracking.
+  const [kyc, setKyc] = useState<KYCRecord | null>(null);
+  const [kycLoading, setKycLoading] = useState(true);
 
-  const kyc: KYCRecord | undefined = job.kyc;
+  useEffect(() => {
+    if (!job.id) return;
+    setKycLoading(true);
+    const unsubscribe = onValue(ref(db, `jobs_kyc/${job.id}`), (snap) => {
+      setKyc(snap.exists() ? (snap.val() as KYCRecord) : null);
+      setKycLoading(false);
+    }, (error) => {
+      console.error('[KYCInfoCard] read error:', error);
+      setKyc(null);
+      setKycLoading(false);
+    });
+    return () => unsubscribe();
+  }, [job.id]);
+
   const netPayout = Number((job as any).net_payout ?? job.final_price ?? job.price ?? 0);
   const amloApplies = netPayout >= KYC_AMLO_THRESHOLD;
   const isPickup = (job.receive_method || '').toLowerCase() === 'pickup';
@@ -54,6 +74,23 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
       toast.error('คัดลอกไม่สำเร็จ');
     }
   };
+
+  // ── Loading state ────────────────────────────────────────────────────
+  if (kycLoading) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+            <ShieldCheck size={20} className="text-slate-400 animate-pulse" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900">ยืนยันตัวตนลูกค้า (KYC)</h3>
+            <p className="text-xs text-slate-400">กำลังโหลด...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Empty state ─────────────────────────────────────────────────────
   if (!kyc) {

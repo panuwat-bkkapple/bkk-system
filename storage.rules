@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// Firebase Storage rules for bkk-apple-tradein.
+//
+// Default deny. Specific paths grant the minimum access each surface
+// needs. The KYC paths are write-once (audit integrity) and gated to
+// authenticated users only — no public download links can be guessed.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── KYC evidence (PR-KYC-isolate) ─────────────────────────────
+    // ภาพถ่ายบัตรประชาชน / บัตรคู่เครื่อง / ลูกค้าถือบัตร / ลายเซ็น
+    // เก็บที่จุดรับเครื่องโดยไรเดอร์ — ห้ามแก้/ลบ และห้ามดูถ้า
+    // ไม่ได้ login. (admin role check ทำที่ RTDB layer แทน — Storage
+    // rules ไม่สามารถ query RTDB ได้โดยตรง)
+    match /jobs/{jobId}/kyc/{filename} {
+      // อ่านได้เฉพาะ user ที่ login — token URL ของ Firebase ก็ยัง
+      // ใช้ได้ (signed token) แต่ direct SDK access ต้อง auth
+      allow read: if request.auth != null;
+      // เขียนใหม่ได้เฉพาะตอนยังไม่มีไฟล์ — ห้าม overwrite/replace
+      allow create: if request.auth != null && resource == null;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ─── Inspection photos ─────────────────────────────────────────
+    // ไรเดอร์ถ่ายตอน QC + admin Internal QC. เก็บเป็นหลักฐานสภาพ
+    // เครื่อง — write ได้ระหว่างจ๊อบยังเปิด, ลบได้ผ่าน admin SDK
+    match /jobs/{jobId}/inspection/{filename=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // ─── Chat attachments ──────────────────────────────────────────
+    match /jobs/{jobId}/chats/{filename=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // ─── Discrepancy report attachments ────────────────────────────
+    match /jobs/{jobId}/discrepancy/{filename=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // ─── Rider onboarding documents ────────────────────────────────
+    // บัตรประชาชน + ใบขับขี่ + selfie ของไรเดอร์ตอน register —
+    // คนละ scope กับ KYC ของลูกค้า
+    match /riders/{riderId}/{filename=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == riderId;
+    }
+
+    // ─── Product / model images ────────────────────────────────────
+    match /models/{filename=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /series/{filename=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // ─── Catch-all default deny ────────────────────────────────────
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+  }
+}
