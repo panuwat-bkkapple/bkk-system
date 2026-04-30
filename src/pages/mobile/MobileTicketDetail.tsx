@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
+import { KYCInfoCard } from '../admin/components/KYCInfoCard';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -469,6 +470,9 @@ export const MobileTicketDetail = () => {
               )}
             </div>
           </div>
+
+          {/* === KYC (rider-captured at pickup) === */}
+          <KYCInfoCard job={job} />
 
           {/* === Device Details (enhanced) === */}
           {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {
