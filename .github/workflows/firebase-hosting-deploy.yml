@@ -60,13 +60,17 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
-      # Deploy Storage Rules
-      - name: Deploy Firebase Storage Rules
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only storage --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+      # Deploy Storage Rules (disabled — service account missing
+      # firebasestorage.defaultBucket.get permission). Once the SA gets
+      # the "Firebase Storage Admin" or "Storage Admin" role in IAM,
+      # re-enable this step. Until then, run manually:
+      #   firebase deploy --only storage --project bkk-apple-tradein
+      # - name: Deploy Firebase Storage Rules
+      #   uses: w9jds/firebase-action@master
+      #   with:
+      #     args: deploy --only storage --project bkk-apple-tradein
+      #   env:
+      #     GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
       # Deploy Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
