@@ -27,6 +27,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const [filterAgent, setFilterAgent] = useState<'All' | 'Me' | 'Unassigned'>('All');
   const [filterPhase, setFilterPhase] = useState<'All' | 'Sales' | 'Logistics' | 'Closed'>('All');
   const [filterMethod, setFilterMethod] = useState<'All' | 'Store-in' | 'Pickup' | 'Mail-in'>('All');
+  const [filterKyc, setFilterKyc] = useState<'All' | 'Review' | 'Missing'>('All');
 
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -59,6 +60,17 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         if (filterAgent === 'Unassigned' && j.agent_name) return false;
         if (filterMethod !== 'All' && j.receive_method !== filterMethod) return false;
 
+        // KYC review filter — Review = ไรเดอร์เลือก fallback path (ไม่มีบัตรจริง);
+        // Missing = งาน Pickup ที่ rider arrived/inspecting แต่ยังไม่มี kyc record
+        if (filterKyc !== 'All') {
+          const j2: any = j;
+          const status = String(j.status || '').toLowerCase();
+          const expectKyc = (j.receive_method || '').toLowerCase() === 'pickup'
+            && ['rider arrived', 'arrived', 'being inspected', 'qc review'].includes(status);
+          if (filterKyc === 'Review' && j2.kyc?.method !== 'typed_fallback') return false;
+          if (filterKyc === 'Missing' && (!expectKyc || j2.kyc)) return false;
+        }
+
         const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(j.status);
         const isLogistics = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit', 'Pending QC', 'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'].includes(j.status);
         const isClosed = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned'].includes(j.status);
@@ -80,7 +92,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
       return true;
     }).sort((a, b) => b.created_at - a.created_at);
-  }, [jobs, searchTerm, filterAgent, filterPhase, filterMethod, currentUser, workspace]);
+  }, [jobs, searchTerm, filterAgent, filterPhase, filterMethod, filterKyc, currentUser, workspace]);
 
   // ฟังก์ชันสร้าง Ticket (B2C)
   const handleCreateTicket = async (payload: any) => {
@@ -344,6 +356,11 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                   <option value="Store-in">Store-in</option>
                   <option value="Pickup">Pickup</option>
                   <option value="Mail-in">Mail-in</option>
+                </select>
+                <select value={filterKyc} onChange={e => setFilterKyc(e.target.value as any)} className={`border text-xs font-black uppercase rounded-xl px-4 py-2.5 outline-none ${filterKyc !== 'All' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`} title="กรอง KYC">
+                  <option value="All">KYC: All</option>
+                  <option value="Review">KYC: รอตรวจสอบ (Fallback)</option>
+                  <option value="Missing">KYC: ขาดบันทึก</option>
                 </select>
               </>
             )}
