@@ -406,6 +406,57 @@ export interface Job {
     /** ข้อความเสริม เช่น เหตุผลยกเลิก, log ของ QC */
     reason?: string;
   }>;
+
+  // KYC capture (PR-KYC)
+  // -------------------
+  // ไรเดอร์บันทึก KYC ที่จุดรับเครื่อง (ดู bkk-rider-app KYCModal). schema sync กับ
+  // bkk-rider-app/src/types/index.ts:KYCRecord — ทุกครั้งที่แก้ที่นั่นต้องแก้ที่นี่ด้วย.
+  // เก็บที่อยู่ที่ลูกค้ากรอกล่วงหน้าใน checkout (ถ้ามี) แยกจาก kyc.id_address ที่ rider verify.
+  /** ที่อยู่ตามบัตรประชาชนที่ลูกค้ากรอกล่วงหน้าตอน checkout (optional pre-fill) */
+  cust_id_address?: string;
+  /** บันทึก KYC ที่ rider/สาขา capture ที่จุดรับเครื่อง */
+  kyc?: KYCRecord;
+  /** Mirror ของ kyc.verified_at — ใช้เป็น index/filter ใน dashboard */
+  kyc_verified_at?: number;
+}
+
+/** AMLO (พ.ร.บ.ฟอกเงิน) threshold — ออเดอร์ ≥ 50,000 ต้องเก็บภาพลูกค้าถือบัตร */
+export const KYC_AMLO_THRESHOLD = 50000;
+
+export type KYCMethod = 'photo' | 'typed_fallback';
+
+export type KYCFallbackReason =
+  | 'forgot_card'
+  | 'lost_card'
+  | 'awaiting_new_card'
+  | 'other';
+
+export const KYC_FALLBACK_REASON_LABEL_TH: Record<KYCFallbackReason, string> = {
+  forgot_card: 'ลืมบัตรประชาชน',
+  lost_card: 'ทำบัตรหาย',
+  awaiting_new_card: 'รอออกบัตรใหม่',
+  other: 'อื่น ๆ',
+};
+
+export interface KYCRecord {
+  method: KYCMethod;
+  /** เลขบัตรประชาชน 13 หลัก (ผ่าน checksum mod 11) */
+  id_number: string;
+  /** ที่อยู่บนหน้าบัตร (rider transcribe หรือ pre-filled จากลูกค้า แล้ว rider verify) */
+  id_address: string;
+  /** Storage URL: ภาพถ่ายบัตรประชาชนใบเดียว (Standard) */
+  id_card_url?: string | null;
+  /** Storage URL: ภาพถ่ายบัตรคู่กับเครื่อง โชว์ IMEI/Serial (Standard — มัดบุคคล↔เครื่อง) */
+  id_with_device_url?: string | null;
+  /** Storage URL: ภาพถ่ายลูกค้าถือบัตร — เฉพาะเมื่อ net_payout ≥ KYC_AMLO_THRESHOLD */
+  holder_url?: string | null;
+  /** Storage URL: ลายเซ็นดิจิทัล — เฉพาะ typed_fallback */
+  signature_url?: string | null;
+  fallback_reason?: KYCFallbackReason;
+  fallback_detail?: string;
+  verified_at: number;
+  verified_by_rider_uid: string;
+  verified_by_rider_name: string;
 }
 
 /** ซีรีส์สินค้า */
