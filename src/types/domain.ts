@@ -409,15 +409,17 @@ export interface Job {
 
   // KYC capture (PR-KYC)
   // -------------------
-  // ไรเดอร์บันทึก KYC ที่จุดรับเครื่อง (ดู bkk-rider-app KYCModal). schema sync กับ
-  // bkk-rider-app/src/types/index.ts:KYCRecord — ทุกครั้งที่แก้ที่นั่นต้องแก้ที่นี่ด้วย.
-  // เก็บที่อยู่ที่ลูกค้ากรอกล่วงหน้าใน checkout (ถ้ามี) แยกจาก kyc.id_address ที่ rider verify.
+  // ไรเดอร์บันทึก KYC ที่จุดรับเครื่อง (ดู bkk-rider-app KYCModal).
+  // ตัว record เต็มอยู่ที่ /jobs_kyc/{jobId} (locked read — admin + rider
+  // assigned เท่านั้น). บน /jobs/{id} เก็บแค่ flag non-sensitive 2 ตัวสำหรับ
+  // index/filter dashboard. Schema ของ KYCRecord sync กับ
+  // bkk-rider-app/src/types/index.ts — แก้ที่นั่นต้องแก้ที่นี่ด้วย.
   /** ที่อยู่ตามบัตรประชาชนที่ลูกค้ากรอกล่วงหน้าตอน checkout (optional pre-fill) */
   cust_id_address?: string;
-  /** บันทึก KYC ที่ rider/สาขา capture ที่จุดรับเครื่อง */
-  kyc?: KYCRecord;
-  /** Mirror ของ kyc.verified_at — ใช้เป็น index/filter ใน dashboard */
+  /** Mirror ของ kyc.verified_at — ใช้เป็น index/filter ใน dashboard (non-sensitive) */
   kyc_verified_at?: number;
+  /** Mirror ของ kyc.method — non-sensitive flag เพื่อ filter "Review (Fallback)" */
+  kyc_method?: KYCMethod;
 }
 
 /** AMLO (พ.ร.บ.ฟอกเงิน) threshold — ออเดอร์ ≥ 50,000 ต้องเก็บภาพลูกค้าถือบัตร */
