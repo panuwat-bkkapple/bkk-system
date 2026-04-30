@@ -39,13 +39,34 @@
     "jobs": {
       ".read": "auth != null",
       ".write": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
-      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name", "uid", "cust_email", "cust_phone"],
+      ".indexOn": ["status", "created_at", "type", "rider_id", "agent_name", "uid", "cust_email", "cust_phone", "kyc_verified_at"],
       "$jobId": {
         ".read": true,
         ".write": "auth != null && (data.child('rider_id').val() === auth.uid || newData.child('rider_id').val() === auth.uid)",
         "chats": {
           ".read": "auth != null",
           ".write": "auth != null"
+        },
+
+        "kyc": {
+          ".validate": "!data.exists() && newData.hasChildren(['method', 'id_number', 'id_address', 'verified_at', 'verified_by_rider_uid', 'verified_by_rider_name'])",
+          "method": { ".validate": "newData.isString() && (newData.val() === 'photo' || newData.val() === 'typed_fallback')" },
+          "id_number": { ".validate": "newData.isString() && newData.val().length === 13" },
+          "id_address": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 500" },
+          "verified_at": { ".validate": "newData.isNumber() && newData.val() <= now + 300000" },
+          "verified_by_rider_uid": { ".validate": "newData.isString() && newData.val() === auth.uid" },
+          "verified_by_rider_name": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "id_card_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "id_with_device_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "holder_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "signature_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "fallback_reason": { ".validate": "newData.isString()" },
+          "fallback_detail": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        },
+
+        "kyc_verified_at": {
+          ".validate": "!data.exists() && newData.isNumber() && newData.val() <= now + 300000"
         }
       }
     },
