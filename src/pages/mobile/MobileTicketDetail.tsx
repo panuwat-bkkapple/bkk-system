@@ -393,12 +393,12 @@ export const MobileTicketDetail = () => {
           </div>
 
           {/* === Rider-cancelled banner ===
-              Surfaces when status is back at Active Lead but the
-              cancelled_at + cancel_category fields linger from the
-              rider's mid-pickup cancellation. Without this, admin
-              sees the job as a generic "fresh broadcast" and has no
-              way to tell why their rider didn't show up. */}
-          {(job.status === 'Active Leads' || job.status === 'Active Lead') &&
+              Rider cancelled mid-pickup. New rider writes (PR
+              bkk-rider-app#52) park the job at Following Up so it
+              doesn't auto-rebroadcast and spam other riders. Older
+              jobs (pre-#52) sit at Active Leads with the same
+              cancelled_* fields — both shapes show this banner. */}
+          {(['Active Leads', 'Active Lead', 'Following Up'].includes(job.status)) &&
             !job.rider_id &&
             job.cancelled_at &&
             (job.cancelled_by || '').startsWith('rider:') && (
@@ -960,10 +960,26 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
       if (isPickup) actions.push(dispatchAction);
       break;
-    case 'Following Up':
+    case 'Following Up': {
+      const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
-      if (isPickup) actions.push(dispatchAction);
+      if (isPickup) {
+        // After a rider cancels mid-pickup we land here (PR bkk-rider-app#52).
+        // Re-label the broadcast button so admin knows this is a deliberate
+        // re-dispatch, not the first send.
+        if (wasRiderCancelled) {
+          actions.push({
+            label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
+            status: 'Active Leads',
+            log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
+            style: 'bg-orange-500 text-white',
+          });
+        } else {
+          actions.push(dispatchAction);
+        }
+      }
       break;
+    }
     case 'Appointment Set':
     case 'Waiting Drop-off':
       if (isPickup) actions.push(dispatchAction);
