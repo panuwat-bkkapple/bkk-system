@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue } from 'firebase/database';
 import {
   ShieldCheck, AlertTriangle, IdCard, MapPin, Smartphone, User, PencilLine,
-  ImageOff, Eye, EyeOff, Copy, Check, ExternalLink, Clock,
+  ImageOff, Eye, EyeOff, Copy, Check, ExternalLink, Clock, Calendar, CalendarX,
 } from 'lucide-react';
 import { db } from '@/api/firebase';
 import type { Job, KYCRecord } from '@/types/domain';
@@ -33,6 +33,35 @@ function formatTimestamp(ts: number | undefined): string {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+/**
+ * Best-effort parse of a Thai card date string. Cards print DD/MM/YYYY in
+ * either พ.ศ. (e.g. "15/08/2570") or rarely ค.ศ. ("15/08/2027"). Returns
+ * a Date in Gregorian terms, or null if the string isn't recognisable.
+ * Heuristic: year >= 2400 → treat as พ.ศ. and subtract 543.
+ */
+function parseCardDate(s: string | undefined): Date | null {
+  if (!s) return null;
+  const m = s.match(/(\d{1,2})[\s./-](\d{1,2})[\s./-](\d{2,4})/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  let year = Number(m[3]);
+  if (year < 100) year += 2500; // 2-digit fallback — Thai cards typically print 4 anyway
+  if (year >= 2400) year -= 543;
+  if (!day || !month || month > 12 || day > 31) return null;
+  const d = new Date(year, month - 1, day);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function isExpired(s: string | undefined): boolean {
+  const d = parseCardDate(s);
+  if (!d) return false;
+  // Compare on calendar date (ignore time-of-day)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
 }
 
 export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
@@ -200,6 +229,66 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
             </button>
           </div>
         </div>
+
+        {/* Optional ID-card fields auto-filled by Vision OCR. Render only
+            when at least one is present so legacy KYC records (pre-OCR)
+            don't show empty blocks. */}
+        {(kyc.id_name || kyc.id_dob || kyc.id_issued_at || kyc.id_expires_at) && (
+          <div>
+            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-2">
+              <User size={11} /> ข้อมูลตามบัตรประชาชน
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {kyc.id_name && (
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">ชื่อ-นามสกุล</p>
+                  <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900">
+                    {kyc.id_name}
+                  </div>
+                </div>
+              )}
+              {kyc.id_dob && (
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Calendar size={9} />วันเกิด</p>
+                  <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono text-slate-900">
+                    {kyc.id_dob}
+                  </div>
+                </div>
+              )}
+              {kyc.id_issued_at && (
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันออกบัตร</p>
+                  <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono text-slate-900">
+                    {kyc.id_issued_at}
+                  </div>
+                </div>
+              )}
+              {kyc.id_expires_at && (
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันบัตรหมดอายุ</p>
+                  <div className={`px-3 py-2 border rounded-lg text-sm font-mono flex items-center justify-between ${
+                    isExpired(kyc.id_expires_at)
+                      ? 'bg-red-50 border-red-200 text-red-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}>
+                    <span>{kyc.id_expires_at}</span>
+                    {isExpired(kyc.id_expires_at) && (
+                      <span className="text-[10px] font-bold text-red-600 flex items-center gap-1">
+                        <CalendarX size={11} /> หมดอายุแล้ว
+                      </span>
+                    )}
+                  </div>
+                  {isExpired(kyc.id_expires_at) && (
+                    <p className="mt-1.5 text-[11px] text-red-700 flex items-start gap-1">
+                      <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+                      <span>บัตรประชาชนหมดอายุแล้ว — ตรวจสอบกับลูกค้าและพิจารณาขอเอกสารใหม่ก่อนอนุมัติ</span>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ID address — compare against pre-filled if exists */}
         <div>
