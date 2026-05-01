@@ -266,7 +266,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
                   <p className="text-xs font-black text-amber-800 uppercase tracking-widest">ไรเดอร์ยกเลิกระหว่างทาง — รอแอดมินตัดสิน</p>
                   {job.cancel_category && (
                     <p className="text-[12px] font-bold text-amber-700 mt-1">
-                      เหตุผล: {job.cancel_category}
+                      เหตุผล: {CANCEL_CATEGORY_LABEL_TH[job.cancel_category as keyof typeof CANCEL_CATEGORY_LABEL_TH] || job.cancel_category}
                       {job.cancel_reason ? ` — ${job.cancel_reason}` : ''}
                     </p>
                   )}

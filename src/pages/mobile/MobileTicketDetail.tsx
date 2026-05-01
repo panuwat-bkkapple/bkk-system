@@ -13,6 +13,7 @@ import {
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
+import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -411,7 +412,7 @@ export const MobileTicketDetail = () => {
                   <p className="text-xs font-black text-amber-700 uppercase tracking-wider">ไรเดอร์ยกเลิกระหว่างทาง — รอแอดมินตัดสิน</p>
                   {job.cancel_category && (
                     <p className="text-[11px] font-bold text-amber-700 mt-1">
-                      เหตุผล: {job.cancel_category}
+                      เหตุผล: {CANCEL_CATEGORY_LABEL_TH[job.cancel_category as keyof typeof CANCEL_CATEGORY_LABEL_TH] || job.cancel_category}
                       {job.cancel_reason ? ` — ${job.cancel_reason}` : ''}
                     </p>
                   )}
