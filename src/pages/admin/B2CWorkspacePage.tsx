@@ -249,6 +249,31 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
               </div>
               <SmartPipeline job={job} />
             </div>
+            {/* Rider-cancelled banner at Active Lead — admin sees the
+                rider's reason instead of just a generic "fresh broadcast"
+                screen and gets fast access to the right decision. */}
+            {(statusLower === 'active leads' || statusLower === 'active lead') &&
+              !job.rider_id &&
+              job.cancelled_at &&
+              (job.cancelled_by || '').startsWith('rider:') && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                  <span className="text-lg">!</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black text-amber-800 uppercase tracking-widest">ไรเดอร์ยกเลิกระหว่างทาง — รอแอดมินตัดสิน</p>
+                  {job.cancel_category && (
+                    <p className="text-[12px] font-bold text-amber-700 mt-1">
+                      เหตุผล: {job.cancel_category}
+                      {job.cancel_reason ? ` — ${job.cancel_reason}` : ''}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-amber-700 mt-2 leading-relaxed">
+                    ใช้ปุ่ม "Dispatch Rider" ด้านขวาเพื่อ broadcast ใหม่, หรือ "ยกเลิกออเดอร์" เพื่อปิดงาน
+                  </p>
+                </div>
+              </div>
+            )}
             <CustomerInfoCard job={job} isEditing={isEditingCustomer} editData={editCustData} onSave={handleSaveCustomerInfo} onToggleEdit={handleToggleEdit} onEditChange={setEditCustData} />
             <KYCInfoCard job={job} />
             <ConditionVerification job={job} modelsData={modelsData} conditionSets={conditionSets} />
