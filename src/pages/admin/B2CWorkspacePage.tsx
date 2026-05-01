@@ -249,10 +249,12 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
               </div>
               <SmartPipeline job={job} />
             </div>
-            {/* Rider-cancelled banner at Active Lead — admin sees the
-                rider's reason instead of just a generic "fresh broadcast"
-                screen and gets fast access to the right decision. */}
-            {(statusLower === 'active leads' || statusLower === 'active lead') &&
+            {/* Rider-cancelled banner — admin sees the rider's reason
+                instead of a generic "fresh broadcast" screen and gets
+                fast access to the right decision. New rider writes
+                (bkk-rider-app#52) park at Following Up; older legacy
+                writes used Active Leads — both shapes show the banner. */}
+            {['active leads', 'active lead', 'following up'].includes(statusLower) &&
               !job.rider_id &&
               job.cancelled_at &&
               (job.cancelled_by || '').startsWith('rider:') && (
