@@ -296,7 +296,7 @@ export const MobileTicketDetail = () => {
   };
 
   // Available quick actions based on status
-  const quickActions = getQuickActions(job.status, isCancelled, job.receive_method);
+  const quickActions = getQuickActions(job.status, isCancelled, job.receive_method, job);
 
   return (
     <div className="h-full flex flex-col">
@@ -391,6 +391,37 @@ export const MobileTicketDetail = () => {
               </div>
             </div>
           </div>
+
+          {/* === Rider-cancelled banner ===
+              Surfaces when status is back at Active Lead but the
+              cancelled_at + cancel_category fields linger from the
+              rider's mid-pickup cancellation. Without this, admin
+              sees the job as a generic "fresh broadcast" and has no
+              way to tell why their rider didn't show up. */}
+          {(job.status === 'Active Leads' || job.status === 'Active Lead') &&
+            !job.rider_id &&
+            job.cancelled_at &&
+            (job.cancelled_by || '').startsWith('rider:') && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={16} className="text-amber-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black text-amber-700 uppercase tracking-wider">ไรเดอร์ยกเลิกระหว่างทาง — รอแอดมินตัดสิน</p>
+                  {job.cancel_category && (
+                    <p className="text-[11px] font-bold text-amber-700 mt-1">
+                      เหตุผล: {job.cancel_category}
+                      {job.cancel_reason ? ` — ${job.cancel_reason}` : ''}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-amber-600 mt-1.5 leading-relaxed">
+                    เลือก "ส่งให้ไรเดอร์ใหม่" เพื่อ broadcast ต่อ, "กลับไปติดตาม" เพื่อโทรลูกค้าก่อน, หรือกด "ยกเลิกงาน" ด้านล่างเพื่อปิดงาน
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* === Customer Info Card === */}
           <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
@@ -907,7 +938,7 @@ const getConditionIcon = (text: string) => {
 // Quick Actions by Status
 // ---------------------------------------------------------------------------
 
-function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string) {
+function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string, job?: any) {
   if (isCancelled) return [];
 
   const actions: { label: string; status: string; log: string; style: string }[] = [];
@@ -938,7 +969,38 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       if (isPickup) actions.push(dispatchAction);
       else actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       break;
-    case 'Active Leads':
+    case 'Active Leads': {
+      // Two distinct cases at Active Lead:
+      // 1) Fresh broadcast — rider hasn't claimed yet, rider_id is null,
+      //    cancelled_at is unset. Only useful action is wait for a rider
+      //    to pick it up; admin can move it back to Following Up if they
+      //    want to re-call the customer.
+      // 2) Post-rider-cancel — rider claimed then cancelled mid-pickup.
+      //    rider_id is null again BUT cancelled_at + cancel_category
+      //    linger from the rider's write. Admin needs to either confirm
+      //    the cancellation (use bottom red button) or re-broadcast.
+      // The old single 'In-Transit' action assumed a rider was already
+      // dispatched and just needed admin to mark them en-route — wrong
+      // for both cases above.
+      const hasRider = !!job?.rider_id;
+      const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
+      if (hasRider) {
+        actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+      } else {
+        // No rider currently. Either nobody picked up yet, or a rider
+        // dropped it. Admin can re-broadcast or fall back to Following Up.
+        if (wasRiderCancelled) {
+          actions.push({
+            label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
+            status: 'Active Leads',
+            log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
+            style: 'bg-orange-500 text-white',
+          });
+        }
+        actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
+      }
+      break;
+    }
     case 'Assigned':
     case 'Accepted':
       actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
