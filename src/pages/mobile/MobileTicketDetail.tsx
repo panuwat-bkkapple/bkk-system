@@ -659,7 +659,13 @@ export const MobileTicketDetail = () => {
           )}
 
           {/* === Quick Actions (always visible) === */}
-          {!isCancelled && (quickActions.length > 0 || !job.agent_name) && (
+          {/* Always show the action panel for non-cancelled jobs so admin
+              can at least access the bottom red Cancel button — the
+              previous "hide if no quick actions and agent set" gate left
+              jobs at uncovered statuses (e.g. canonical 'Active Lead'
+              singular before fall-through, or any future status the
+              switch doesn't list) with no recovery path. */}
+          {!isCancelled && (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-2">
               <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">
                 ดำเนินการ
@@ -986,6 +992,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       if (isPickup) actions.push(dispatchAction);
       else actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       break;
+    case 'Active Lead':
     case 'Active Leads': {
       // Two distinct cases at Active Lead:
       // 1) Fresh broadcast — rider hasn't claimed yet, rider_id is null,
