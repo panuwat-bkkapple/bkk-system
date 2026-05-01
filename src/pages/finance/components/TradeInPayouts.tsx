@@ -84,7 +84,14 @@ export const TradeInPayouts = () => {
       // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
       const riderFee = Number(selectedTx.rider_fee || 0);
 
-      const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover'; 
+      // Status string is intentionally the legacy lowercase 'Waiting for
+      // Handover' — admin readers across this app (TradeInDashboard,
+      // Finance, RiderSettlements, MobileTicketsPage, QCStation,
+      // DispatcherPage) all match it that way and switching to canonical
+      // 'Waiting For Handover' would break those views. Rider app handles
+      // this via legacy alias (PR bkk-rider-app#51). Long-term fix is to
+      // unify domain.ts and job-statuses.ts; tracked separately.
+      const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
       const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
 

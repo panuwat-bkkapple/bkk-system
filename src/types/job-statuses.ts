@@ -218,6 +218,7 @@ const LEGACY_ALIAS: Record<string, JobStatus> = {
   PAID: JOB_STATUS.PAID,
   'Payment Completed': JOB_STATUS.PAID,
   'Active Leads': JOB_STATUS.ACTIVE_LEAD, // plural → singular
+  'Waiting for Handover': JOB_STATUS.WAITING_FOR_HANDOVER, // lowercase 'for' (legacy admin writer)
 
   // Renamed statuses
   Assigned: JOB_STATUS.RIDER_ASSIGNED,
