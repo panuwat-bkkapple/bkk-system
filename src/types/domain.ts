@@ -456,6 +456,14 @@ export interface KYCRecord {
   signature_url?: string | null;
   fallback_reason?: KYCFallbackReason;
   fallback_detail?: string;
+  /** ชื่อ-นามสกุลตามบัตร รวมคำนำหน้า (เช่น "นาย สมชาย ใจดี") — auto-fill จาก Vision OCR, rider แก้ได้ */
+  id_name?: string;
+  /** วันเกิดตามบัตร (DD/MM/YYYY ตามที่ปรากฏบนบัตร — อาจเป็น พ.ศ. หรือ ค.ศ.) */
+  id_dob?: string;
+  /** วันออกบัตร */
+  id_issued_at?: string;
+  /** วันบัตรหมดอายุ — admin ใช้ดูว่าบัตรยังไม่หมดอายุ (display-only ตอนนี้, ไม่ block submit) */
+  id_expires_at?: string;
   verified_at: number;
   verified_by_rider_uid: string;
   verified_by_rider_name: string;

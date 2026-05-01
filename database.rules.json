@@ -81,6 +81,10 @@
         "signature_url": { ".validate": "newData.isString() && newData.val().length > 0" },
         "fallback_reason": { ".validate": "newData.isString()" },
         "fallback_detail": { ".validate": "newData.isString()" },
+        "id_name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "id_dob": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "id_issued_at": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "id_expires_at": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "$other": { ".validate": false }
       }
     },
