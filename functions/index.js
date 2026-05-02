@@ -1944,6 +1944,69 @@ exports.expireApprovedAmendments = onSchedule(
   }
 );
 
+// ----------------------------------------------------------------------------
+// Auto-cancel open amendments when their parent job goes to a terminal status
+// ----------------------------------------------------------------------------
+//
+// When admin cancels a job through any path that doesn't run through the
+// amendment review modal (legacy cancel buttons, discrepancy-reports
+// page, manual Firebase Console edits), any open /jobs_amendments/{id}
+// records on that job stay in pending/approved/consented forever. The
+// single-pending guard then blocks the rider's next request on the job
+// with `failed-precondition`.
+//
+// This trigger watches /jobs/{jobId}/status. When it transitions INTO
+// any TERMINAL_STATUSES value (Cancelled / Completed / Sold / Closed /
+// Returned / Withdrawal Completed), we sweep open amendments on that
+// job and flip them to `cancelled`. Idempotent — no-op if there are
+// no open amendments.
+
+exports.onJobTerminalCancelAmendments = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    instance: "bkk-apple-tradein-default-rtdb",
+    region: AMENDMENT_REGION,
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (before === after) return;
+    if (!TERMINAL_STATUSES.includes(after)) return;
+    // Only fire on the transition INTO terminal — not subsequent edits
+    // while already terminal.
+    if (TERMINAL_STATUSES.includes(before)) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const snap = await db
+      .ref("jobs_amendments")
+      .orderByChild("job_id")
+      .equalTo(jobId)
+      .once("value");
+    if (!snap.exists()) return;
+
+    const now = Date.now();
+    const ops = [];
+    snap.forEach((s) => {
+      const am = s.val();
+      if (am.status === "pending" || am.status === "approved" || am.status === "consented") {
+        ops.push(
+          s.ref.update({
+            status: "cancelled",
+            cancelled_at: now,
+            admin_note: am.admin_note
+              ? `${am.admin_note} [auto: job terminal=${after}]`
+              : `Auto-cancelled because job moved to ${after}`,
+          })
+        );
+      }
+    });
+    if (ops.length === 0) return;
+    console.log(`[amendment-auto-cancel] job ${jobId} → ${after}; cancelled ${ops.length} open amendments`);
+    await Promise.all(ops);
+  }
+);
+
 exports.escalateAmendmentTimeouts = onSchedule(
   { schedule: "every 1 minutes", timeZone: "Asia/Bangkok", region: AMENDMENT_REGION },
   async () => {
