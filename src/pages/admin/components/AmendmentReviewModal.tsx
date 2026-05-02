@@ -371,9 +371,12 @@ const ApprovePanel: React.FC<{
   const [cancelCategory, setCancelCategory] = useState<CancelCategory>('customer_changed_mind');
   const [cancelDetail, setCancelDetail] = useState<string>('');
 
-  // Reset cascading state when parent changes
-  useEffect(() => { setPickModelId(''); setPickVariantId(''); }, [pickBrand]);
-  useEffect(() => { setPickVariantId(''); }, [pickModelId]);
+  // Cascading reset is wired into the dropdown onChange handlers below
+  // (not via useEffect on pickBrand/pickModelId). useEffect-based reset
+  // races with the pre-populate path: setPickBrand triggers the reset
+  // effect AFTER setPickModelId in the same tick, wiping the rider's
+  // pick we just seeded. Putting the reset on the user's explicit
+  // dropdown change avoids the race entirely.
 
   const naturalCompare = (a: string, b: string) =>
     (a || '').localeCompare(b || '', 'en', { numeric: true, sensitivity: 'base' });
@@ -419,17 +422,13 @@ const ApprovePanel: React.FC<{
       // Rider already identified the device — decompose into the 3
       // cascading levels so picker shows the same selection. brand
       // resolved from flatVariants since rider may not have sent it.
+      // No useEffect-based reset on pickBrand anymore, so all three
+      // can be set in the same tick without racing.
       const match = flatVariants.find((v) => v.modelId === t.model_id);
       if (match) {
         setPickBrand(match.brand);
-        // Defer model + variant set until brand-effect fires (it
-        // resets them); use a microtask to reapply.
-        Promise.resolve().then(() => {
-          setPickModelId(t.model_id);
-          if (t.variant_id) {
-            Promise.resolve().then(() => setPickVariantId(t.variant_id));
-          }
-        });
+        setPickModelId(t.model_id);
+        setPickVariantId(t.variant_id || '');
       }
       if (typeof t.suggested_price === 'number') {
         setNewPriceText(String(t.suggested_price));
@@ -509,7 +508,11 @@ const ApprovePanel: React.FC<{
           <div className="space-y-2 mb-2">
             <select
               value={pickBrand}
-              onChange={(e) => setPickBrand(e.target.value)}
+              onChange={(e) => {
+                setPickBrand(e.target.value);
+                setPickModelId('');
+                setPickVariantId('');
+              }}
               className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none"
             >
               <option value="">— ยี่ห้อ —</option>
@@ -517,7 +520,10 @@ const ApprovePanel: React.FC<{
             </select>
             <select
               value={pickModelId}
-              onChange={(e) => setPickModelId(e.target.value)}
+              onChange={(e) => {
+                setPickModelId(e.target.value);
+                setPickVariantId('');
+              }}
               disabled={!pickBrand}
               className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
             >
