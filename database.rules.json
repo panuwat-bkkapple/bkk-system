@@ -112,6 +112,12 @@
           "reason_category": { ".validate": "newData.isString()" },
           "reason_detail": { ".validate": "newData.isString() && newData.val().length <= 500" },
           "admin_freeform": { ".validate": "newData.isString() && newData.val().length <= 1000" },
+          "model_id": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
+          "variant_id": { ".validate": "newData.isString() && newData.val().length <= 64" },
+          "model_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "variant_name": { ".validate": "newData.isString() && newData.val().length <= 100" },
+          "brand": { ".validate": "newData.isString() && newData.val().length <= 50" },
+          "suggested_price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000" },
           "$other": { ".validate": false }
         },
         "target_device_index": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 50" },

@@ -1381,7 +1381,7 @@ function validateRiderRequest(type, body) {
     out.target_device_index = body.target_device_index;
   }
 
-  // target — operational types let rider seed the change with a hint
+  // target — typed payload depending on type
   if (body.target && typeof body.target === "object") {
     const t = body.target;
     if (type === "appointment_reschedule" && t.kind === "appointment" && typeof t.new_appointment_time === "number") {
@@ -1398,6 +1398,24 @@ function validateRiderRequest(type, body) {
               && VALID_CANCEL_CATEGORIES.includes(t.reason_category)) {
       out.target = { kind: "cancel", reason_category: t.reason_category };
       if (typeof t.reason_detail === "string") out.target.reason_detail = t.reason_detail.slice(0, 500);
+    } else if ((type === "device_mismatch" || type === "add_device")
+              && t.kind === "device_pick"
+              && typeof t.model_id === "string" && t.model_id.length > 0
+              && typeof t.model_name === "string" && t.model_name.length > 0) {
+      // Rider's pick of the actual device model+variant from /models
+      // catalog. Admin can override during review; this just seeds the
+      // approval form so admin doesn't have to re-identify from the photo.
+      out.target = {
+        kind: "device_pick",
+        model_id: t.model_id.slice(0, 64),
+        model_name: t.model_name.slice(0, 200),
+      };
+      if (typeof t.variant_id === "string") out.target.variant_id = t.variant_id.slice(0, 64);
+      if (typeof t.variant_name === "string") out.target.variant_name = t.variant_name.slice(0, 100);
+      if (typeof t.brand === "string") out.target.brand = t.brand.slice(0, 50);
+      if (typeof t.suggested_price === "number" && t.suggested_price >= 0 && t.suggested_price <= 1000000) {
+        out.target.suggested_price = t.suggested_price;
+      }
     }
   }
 
