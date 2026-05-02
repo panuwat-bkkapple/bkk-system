@@ -348,7 +348,12 @@ const ApprovePanel: React.FC<{
   const fnReview = httpsCallable(getFunctions(app, 'asia-southeast1'), 'reviewAmendment');
 
   // Type-specific local state
-  const [newModelKey, setNewModelKey] = useState<string>('');
+  // 3-level cascading picker for device types (brand → model → variant).
+  // Flat dropdown didn't scale with our catalog size; cascading + natural
+  // sort keeps browsing fast. Mirror of bkk-rider-app implementation.
+  const [pickBrand, setPickBrand] = useState<string>('');
+  const [pickModelId, setPickModelId] = useState<string>('');
+  const [pickVariantId, setPickVariantId] = useState<string>('');
   const [newPriceText, setNewPriceText] = useState<string>('');
   const [newAppointmentTime, setNewAppointmentTime] = useState<string>(''); // datetime-local string
   const [newAddress, setNewAddress] = useState<string>('');
@@ -356,6 +361,34 @@ const ApprovePanel: React.FC<{
   const [custInfoValue, setCustInfoValue] = useState<string>('');
   const [cancelCategory, setCancelCategory] = useState<CancelCategory>('customer_changed_mind');
   const [cancelDetail, setCancelDetail] = useState<string>('');
+
+  // Reset cascading state when parent changes
+  useEffect(() => { setPickModelId(''); setPickVariantId(''); }, [pickBrand]);
+  useEffect(() => { setPickVariantId(''); }, [pickModelId]);
+
+  const naturalCompare = (a: string, b: string) =>
+    (a || '').localeCompare(b || '', 'en', { numeric: true, sensitivity: 'base' });
+
+  const brandOptions = useMemo(
+    () => Array.from(new Set(flatVariants.map((v) => v.brand).filter(Boolean))).sort(naturalCompare),
+    [flatVariants],
+  );
+  const modelOptions = useMemo(() => {
+    if (!pickBrand) return [];
+    const seen = new Map<string, { id: string; name: string }>();
+    for (const v of flatVariants) {
+      if (v.brand !== pickBrand) continue;
+      if (!v.modelId || seen.has(v.modelId)) continue;
+      seen.set(v.modelId, { id: v.modelId, name: v.modelName });
+    }
+    return Array.from(seen.values()).sort((a, b) => naturalCompare(a.name, b.name));
+  }, [flatVariants, pickBrand]);
+  const variantOptions = useMemo(() => {
+    if (!pickModelId) return [];
+    return flatVariants
+      .filter((v) => v.modelId === pickModelId)
+      .sort((a, b) => naturalCompare(a.variantName, b.variantName));
+  }, [flatVariants, pickModelId]);
 
   // Pre-populate from rider's target hint, if any
   useEffect(() => {
@@ -374,21 +407,32 @@ const ApprovePanel: React.FC<{
       setCancelCategory(t.reason_category as CancelCategory);
       setCancelDetail(t.reason_detail || '');
     } else if (t.kind === 'device_pick' && typeof t.model_id === 'string') {
-      // Rider already identified the device — seed admin's picker.
-      // Catalog binding is keyed by `${modelId}|${variantId}` so the
-      // model + price flows naturally without admin re-typing.
-      setNewModelKey(`${t.model_id}|${t.variant_id || ''}`);
+      // Rider already identified the device — decompose into the 3
+      // cascading levels so picker shows the same selection. brand
+      // resolved from flatVariants since rider may not have sent it.
+      const match = flatVariants.find((v) => v.modelId === t.model_id);
+      if (match) {
+        setPickBrand(match.brand);
+        // Defer model + variant set until brand-effect fires (it
+        // resets them); use a microtask to reapply.
+        Promise.resolve().then(() => {
+          setPickModelId(t.model_id);
+          if (t.variant_id) {
+            Promise.resolve().then(() => setPickVariantId(t.variant_id));
+          }
+        });
+      }
       if (typeof t.suggested_price === 'number') {
         setNewPriceText(String(t.suggested_price));
       }
     }
-  }, [amendment.target]);
+  }, [amendment.target, flatVariants]);
 
   const selectedVariant = useMemo(() => {
-    if (!newModelKey) return null;
-    const [modelId, variantId] = newModelKey.split('|');
-    return flatVariants.find((v) => v.modelId === modelId && v.variantId === variantId) || null;
-  }, [newModelKey, flatVariants]);
+    if (!pickModelId) return null;
+    return flatVariants.find((v) => v.modelId === pickModelId && v.variantId === pickVariantId)
+      || (variantOptions.length === 1 && !variantOptions[0].variantId ? variantOptions[0] : null);
+  }, [pickModelId, pickVariantId, flatVariants, variantOptions]);
 
   useEffect(() => {
     if (selectedVariant) setNewPriceText(String(selectedVariant.price));
@@ -453,18 +497,38 @@ const ApprovePanel: React.FC<{
               Job มี {beforeDevices.length} เครื่อง — แก้เครื่องที่ 1 (ตัวอื่นคงเดิม)
             </p>
           )}
-          <select
-            value={newModelKey}
-            onChange={(e) => setNewModelKey(e.target.value)}
-            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none mb-2"
-          >
-            <option value="">-- เลือกรุ่น --</option>
-            {flatVariants.map((v) => (
-              <option key={`${v.modelId}|${v.variantId}`} value={`${v.modelId}|${v.variantId}`}>
-                {v.modelName}{v.variantName ? ` — ${v.variantName}` : ''} (฿{v.price.toLocaleString()})
-              </option>
-            ))}
-          </select>
+          <div className="space-y-2 mb-2">
+            <select
+              value={pickBrand}
+              onChange={(e) => setPickBrand(e.target.value)}
+              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none"
+            >
+              <option value="">— ยี่ห้อ —</option>
+              {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+            <select
+              value={pickModelId}
+              onChange={(e) => setPickModelId(e.target.value)}
+              disabled={!pickBrand}
+              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">— รุ่น —</option>
+              {modelOptions.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select
+              value={pickVariantId}
+              onChange={(e) => setPickVariantId(e.target.value)}
+              disabled={!pickModelId || variantOptions.length === 0}
+              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">— ความจุ / variant —</option>
+              {variantOptions.map((v) => (
+                <option key={v.variantId || '_'} value={v.variantId}>
+                  {v.variantName || '(ไม่มี variant)'} {' — ฿'}{v.price.toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs text-slate-500">ราคาเครื่องนี้ (บาท):</span>
             <input
