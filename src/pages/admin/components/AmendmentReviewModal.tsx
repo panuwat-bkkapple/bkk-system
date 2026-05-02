@@ -103,12 +103,21 @@ export const AmendmentReviewModal: React.FC<Props> = ({ amendmentId, onClose }) 
         continue;
       }
       for (const v of variants) {
+        // PriceEditor modifier mode writes `usedPrice` + `newPrice`
+        // separately. For trade-in (the only operation here) we want
+        // usedPrice — that's the buy-back price. Fall back through
+        // legacy `price` and `newPrice` for back-compat.
+        const variantPrice =
+          typeof v.usedPrice === 'number' ? v.usedPrice :
+          typeof v.price === 'number' ? v.price :
+          typeof v.newPrice === 'number' ? v.newPrice :
+          basePrice;
         out.push({
           modelId,
           modelName,
           variantId: v.id || v.name,
           variantName: v.name || '',
-          price: typeof v.price === 'number' ? v.price : basePrice,
+          price: variantPrice,
           brand,
         });
       }
