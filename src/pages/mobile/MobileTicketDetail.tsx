@@ -13,6 +13,7 @@ import {
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
+import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
 
 // ---------------------------------------------------------------------------
@@ -502,6 +503,9 @@ export const MobileTicketDetail = () => {
               )}
             </div>
           </div>
+
+          {/* === On-site amendment banner (if pending/approved) === */}
+          <AmendmentBanner jobId={job.id} />
 
           {/* === KYC (rider-captured at pickup) === */}
           <KYCInfoCard job={job} />

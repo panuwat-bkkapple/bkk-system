@@ -14,6 +14,7 @@ import type { CancelCategory } from '@/types/job-statuses';
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
 import { KYCInfoCard } from './components/KYCInfoCard';
+import { AmendmentBanner } from './components/AmendmentBanner';
 import { ConditionVerification } from './components/ConditionVerification';
 import { PricingSidebar } from './components/PricingSidebar';
 import { CancelModal } from './components/CancelModal';
@@ -276,6 +277,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
                 </div>
               </div>
             )}
+            <AmendmentBanner jobId={job.id} />
             <CustomerInfoCard job={job} isEditing={isEditingCustomer} editData={editCustData} onSave={handleSaveCustomerInfo} onToggleEdit={handleToggleEdit} onEditChange={setEditCustData} />
             <KYCInfoCard job={job} />
             <ConditionVerification job={job} modelsData={modelsData} conditionSets={conditionSets} />

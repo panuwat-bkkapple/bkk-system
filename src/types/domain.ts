@@ -364,6 +364,10 @@ export interface Job {
 
   /** พนักงานที่รับผิดชอบ */
   assigned_staff?: string;
+  /** UID ของ admin เจ้าของเคส — เพิ่มเข้ามาคู่กับ agent_name เพื่อให้ notification
+   *  ระบบสามารถส่ง push ตรงให้เจ้าของเคสได้โดยไม่ต้อง lookup จากชื่อ.
+   *  Optional เพราะ job เก่าก่อน feature นี้ไม่มี — fall back broadcast all admins. */
+  agent_uid?: string;
   /** หมายเหตุเพิ่มเติม */
   notes?: string;
 
@@ -467,6 +471,97 @@ export interface KYCRecord {
   verified_at: number;
   verified_by_rider_uid: string;
   verified_by_rider_name: string;
+}
+
+// =====================================================================
+// Job Amendment (PR-AMEND)
+// ---------------------------------------------------------------------
+// On-site amendment workflow when rider arrives and finds the job data
+// doesn't match reality (wrong model, customer wants to add/remove a
+// device, etc.). Rider role is purely operational: report the problem
+// + photos. Admin owns every decision (model identification, pricing,
+// approve/reject, customer-facing communication).
+//
+// Schema synced with bkk-rider-app/src/types/index.ts and validate
+// rules in bkk-system/database.rules.json — change all 3 together.
+// =====================================================================
+
+export type JobAmendmentType =
+  | 'device_mismatch';      // ลูกค้าระบุรุ่น/variant ผิด — Phase 1 only
+
+export type JobAmendmentStatus =
+  | 'pending'        // rider submitted, admin hasn't reviewed
+  | 'approved'       // admin approved, waiting customer consent
+  | 'rejected'       // admin rejected
+  | 'consented'      // customer signed; cloud function applying
+  | 'applied'        // changes written to /jobs/{id}; flow continues
+  | 'cancelled';     // amendment voided (timeout, customer left, etc.)
+
+export type JobAmendmentRejectAction =
+  | 'continue_original'   // rider proceeds with original job spec
+  | 'cancel_job'          // entire job cancelled
+  | 'wait_admin_call';    // rider stands by, admin contacts customer
+
+/**
+ * Customer's consent for accepting an amendment's new terms.
+ * Phase 1 = signature only. Schema is forward-compat with OTP / verbal
+ * (added once SMS gateway is wired up).
+ */
+export type AmendmentConsentMethod = 'signature' | 'otp' | 'verbal';
+
+export interface JobAmendmentSnapshot {
+  /** Devices array as it stood (or will stand) at this point */
+  devices: JobDevice[];
+  /** Final price after deductions/coupons (อาจ = price ถ้ายังไม่หัก) */
+  final_price: number;
+}
+
+export interface JobAmendment {
+  /** Storage at /jobs_amendments/{id} */
+  id: string;
+  /** Job this amendment applies to */
+  job_id: string;
+  type: JobAmendmentType;
+
+  // Rider input (immutable after submit)
+  requested_at: number;
+  requested_by_rider_uid: string;
+  requested_by_rider_name: string;
+  /** Free-text หมายเหตุจาก rider (เช่น "ลูกค้าบอกว่าเอา iPhone 14 มา ไม่ใช่ 15") */
+  rider_note?: string;
+  /** Storage URLs ของรูปประกอบจาก rider — บังคับ ≥1 รูปสำหรับ device_mismatch */
+  evidence_urls: string[];
+
+  /** Snapshot ณ เวลา submit — ไม่ใช่ live ref เพราะ /jobs/{id} อาจมีการ
+   *  อัพเดทอื่นเข้ามาระหว่าง pending; เก็บ snapshot ป้องกัน drift */
+  before: JobAmendmentSnapshot;
+
+  /** Admin fills in on approve. NULL while pending/rejected. */
+  after?: JobAmendmentSnapshot;
+
+  status: JobAmendmentStatus;
+
+  // Admin decision
+  reviewed_at?: number;
+  reviewed_by_admin_uid?: string;
+  reviewed_by_admin_name?: string;
+  /** Admin's note ถึง rider — แสดงใน push + UI */
+  admin_note?: string;
+  /** สำหรับ rejected: คำสั่งให้ rider ทำต่อ */
+  reject_action?: JobAmendmentRejectAction;
+
+  // Customer consent (only after approved)
+  consented_at?: number;
+  consent_method?: AmendmentConsentMethod;
+  /** Storage URL ของลายเซ็น (เฉพาะเมื่อ consent_method='signature') */
+  consent_signature_url?: string;
+
+  // Atomic apply (cloud function เขียนหลัง consented)
+  applied_at?: number;
+
+  /** Auto-escalation marker — set when amendment ค้าง pending > 15 นาที
+   *  จะถูกใช้ trigger broadcast push to all admins */
+  escalated_at?: number;
 }
 
 /** ซีรีส์สินค้า */
