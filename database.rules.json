@@ -91,41 +91,82 @@
 
     "jobs_amendments": {
       ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
-      ".indexOn": ["status", "job_id", "requested_at"],
+      ".indexOn": ["status", "job_id", "requested_at", "amendment_class", "type"],
       "$amendmentId": {
         ".read": "auth != null && (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child(data.child('job_id').val()).child('rider_id').val() === auth.uid)",
         ".write": "auth != null && (!data.exists() ? root.child('jobs').child(newData.child('job_id').val()).child('rider_id').val() === auth.uid : (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child(data.child('job_id').val()).child('rider_id').val() === auth.uid))",
-        ".validate": "newData.hasChildren(['job_id', 'type', 'requested_at', 'requested_by_rider_uid', 'requested_by_rider_name', 'before', 'status'])",
+        ".validate": "newData.hasChildren(['job_id', 'type', 'amendment_class', 'requested_at', 'requested_by_rider_uid', 'requested_by_rider_name', 'status'])",
         "job_id": { ".validate": "newData.isString() && newData.val().length > 0" },
-        "type": { ".validate": "newData.isString() && newData.val() === 'device_mismatch'" },
+        "schema_version": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+        "client_request_id": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
+        "amendment_class": { ".validate": "newData.isString() && (newData.val() === 'contractual' || newData.val() === 'operational')" },
+        "type": { ".validate": "newData.isString() && (newData.val() === 'device_mismatch' || newData.val() === 'add_device' || newData.val() === 'remove_device' || newData.val() === 'appointment_reschedule' || newData.val() === 'address_wrong' || newData.val() === 'customer_info_wrong' || newData.val() === 'customer_request_cancel' || newData.val() === 'other')" },
+        "target": {
+          "kind": { ".validate": "newData.isString()" },
+          "new_appointment_time": { ".validate": "newData.isNumber()" },
+          "new_address": { ".validate": "newData.isString() && newData.val().length <= 500" },
+          "new_lat": { ".validate": "newData.isNumber()" },
+          "new_lng": { ".validate": "newData.isNumber()" },
+          "field": { ".validate": "newData.isString() && (newData.val() === 'cust_name' || newData.val() === 'cust_phone' || newData.val() === 'cust_email')" },
+          "new_value": { ".validate": "newData.isString() && newData.val().length <= 500" },
+          "reason_category": { ".validate": "newData.isString()" },
+          "reason_detail": { ".validate": "newData.isString() && newData.val().length <= 500" },
+          "admin_freeform": { ".validate": "newData.isString() && newData.val().length <= 1000" },
+          "$other": { ".validate": false }
+        },
+        "target_device_index": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 50" },
         "requested_at": { ".validate": "newData.isNumber() && newData.val() <= now + 300000" },
         "requested_by_rider_uid": { ".validate": "newData.isString() && (data.exists() || newData.val() === auth.uid)" },
         "requested_by_rider_name": { ".validate": "newData.isString() && newData.val().length > 0" },
-        "rider_note": { ".validate": "newData.isString() && newData.val().length <= 500" },
+        "rider_note": { ".validate": "newData.isString() && newData.val().length <= 1000" },
         "evidence_urls": {
-          ".validate": "newData.hasChildren()",
           "$idx": { ".validate": "newData.isString() && newData.val().length > 0" }
+        },
+        "evidence": {
+          "$idx": {
+            "url": { ".validate": "newData.isString() && newData.val().length > 0" },
+            "purpose": { ".validate": "newData.isString()" },
+            "uploaded_at": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
         },
         "before": {
           ".validate": "newData.hasChildren(['devices', 'final_price'])",
           "devices": { ".validate": "newData.hasChildren()" },
-          "final_price": { ".validate": "newData.isNumber()" }
+          "final_price": { ".validate": "newData.isNumber()" },
+          "pricing": { "$other": { ".validate": true } }
         },
         "after": {
           ".validate": "newData.hasChildren(['devices', 'final_price'])",
           "devices": { ".validate": "newData.hasChildren()" },
-          "final_price": { ".validate": "newData.isNumber()" }
+          "final_price": { ".validate": "newData.isNumber()" },
+          "pricing": { "$other": { ".validate": true } }
         },
-        "status": { ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected' || newData.val() === 'consented' || newData.val() === 'applied' || newData.val() === 'cancelled')" },
+        "status": { ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected' || newData.val() === 'consented' || newData.val() === 'applied' || newData.val() === 'cancelled' || newData.val() === 'expired')" },
         "reviewed_at": { ".validate": "newData.isNumber()" },
         "reviewed_by_admin_uid": { ".validate": "newData.isString()" },
         "reviewed_by_admin_name": { ".validate": "newData.isString()" },
-        "admin_note": { ".validate": "newData.isString() && newData.val().length <= 500" },
+        "admin_note": { ".validate": "newData.isString() && newData.val().length <= 1000" },
         "reject_action": { ".validate": "newData.isString() && (newData.val() === 'continue_original' || newData.val() === 'cancel_job' || newData.val() === 'wait_admin_call')" },
+        "consent": {
+          "method": { ".validate": "newData.isString() && (newData.val() === 'signature' || newData.val() === 'otp' || newData.val() === 'verbal')" },
+          "consented_at": { ".validate": "newData.isNumber()" },
+          "signature_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+          "otp_phone_masked": { ".validate": "newData.isString()" },
+          "otp_verified_at": { ".validate": "newData.isNumber()" },
+          "verbal_transcript": { ".validate": "newData.isString() && newData.val().length <= 1000" },
+          "disclosure_text_snapshot": { ".validate": "newData.isString() && newData.val().length <= 2000" },
+          "disclosure_version": { ".validate": "newData.isString() && newData.val().length <= 32" },
+          "captured_on": { ".validate": "newData.isString() && (newData.val() === 'rider_app' || newData.val() === 'admin_app')" },
+          "captured_by_uid": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        },
         "consented_at": { ".validate": "newData.isNumber()" },
         "consent_method": { ".validate": "newData.isString() && (newData.val() === 'signature' || newData.val() === 'otp' || newData.val() === 'verbal')" },
         "consent_signature_url": { ".validate": "newData.isString() && newData.val().length > 0" },
+        "approved_expires_at": { ".validate": "newData.isNumber()" },
         "applied_at": { ".validate": "newData.isNumber()" },
+        "cancelled_at": { ".validate": "newData.isNumber()" },
         "escalated_at": { ".validate": "newData.isNumber()" },
         "$other": { ".validate": false }
       }

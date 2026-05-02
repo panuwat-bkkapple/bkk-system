@@ -1284,56 +1284,188 @@ function shortJobId(id) {
   return (id || "").slice(-4).toUpperCase() || "????";
 }
 
+// ----------------------------------------------------------------------------
+// Type/class lookup tables — single source of truth, mirrored client-side
+// ----------------------------------------------------------------------------
+
+const AMENDMENT_TYPE_CLASS = {
+  device_mismatch: "contractual",
+  add_device: "contractual",
+  remove_device: "contractual",
+  appointment_reschedule: "operational",
+  address_wrong: "operational",
+  customer_info_wrong: "operational",
+  customer_request_cancel: "operational",
+  other: "operational",
+};
+const VALID_AMENDMENT_TYPES = Object.keys(AMENDMENT_TYPE_CLASS);
+const VALID_REJECT_ACTIONS = ["continue_original", "cancel_job", "wait_admin_call"];
+const VALID_CUSTOMER_INFO_FIELDS = ["cust_name", "cust_phone", "cust_email"];
+const VALID_CANCEL_CATEGORIES = [
+  "customer_changed_mind", "customer_no_show", "rider_issue",
+  "device_mismatch", "hidden_damage", "price_disagreement",
+  "fraud_suspected", "parcel_lost", "sla_timeout", "other",
+];
+
+/** TTL for contractual approval — expires if customer doesn't sign in 24h */
+const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+
+const AMENDMENT_TYPE_LABEL_TH = {
+  device_mismatch: "เครื่องไม่ตรง",
+  add_device: "เพิ่มเครื่อง",
+  remove_device: "ลด/ยกเลิกเครื่อง",
+  appointment_reschedule: "เลื่อนนัดหมาย",
+  address_wrong: "ที่อยู่ไม่ตรง",
+  customer_info_wrong: "ข้อมูลลูกค้าผิด",
+  customer_request_cancel: "ลูกค้าขอยกเลิก",
+  other: "ปัญหาอื่นๆ",
+};
+
+function buildBeforeSnapshot(job) {
+  return {
+    devices: job.devices || [],
+    final_price:
+      typeof job.final_price === "number" ? job.final_price :
+      typeof job.price === "number" ? job.price : 0,
+    pricing: {
+      devices_subtotal: typeof job.price === "number" ? job.price : 0,
+      pickup_fee: typeof job.pickup_fee === "number" ? job.pickup_fee : 0,
+      coupon_discount: typeof job.coupon_discount === "number" ? job.coupon_discount : 0,
+      final_price:
+        typeof job.final_price === "number" ? job.final_price :
+        typeof job.price === "number" ? job.price : 0,
+      currency: "THB",
+    },
+  };
+}
+
+/** Validate the rider's per-type submission shape. Throws HttpsError on
+ *  bad input. Returns sanitized fields for write. */
+function validateRiderRequest(type, body) {
+  const out = { evidence: [], evidenceUrls: [], target: null, target_device_index: null };
+  const evidence = Array.isArray(body.evidence) ? body.evidence : [];
+  const legacyUrls = Array.isArray(body.evidenceUrls) ? body.evidenceUrls : [];
+
+  // Normalize evidence — accept either v2 array or v1 url[]
+  if (evidence.length) {
+    for (const e of evidence) {
+      if (!e || typeof e.url !== "string" || !/^https?:\/\//.test(e.url)) {
+        throw new HttpsError("invalid-argument", "evidence URL ไม่ถูกต้อง");
+      }
+      out.evidence.push({
+        url: e.url,
+        purpose: typeof e.purpose === "string" ? e.purpose : "other",
+        uploaded_at: typeof e.uploaded_at === "number" ? e.uploaded_at : Date.now(),
+      });
+      out.evidenceUrls.push(e.url);
+    }
+  } else if (legacyUrls.length) {
+    for (const url of legacyUrls) {
+      if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+        throw new HttpsError("invalid-argument", "evidenceUrls ต้องเป็น https URL");
+      }
+      out.evidence.push({ url, purpose: "other", uploaded_at: Date.now() });
+      out.evidenceUrls.push(url);
+    }
+  }
+
+  // Photo requirement varies by type. Contractual types need a photo of
+  // the device for admin to identify the model.
+  if (["device_mismatch", "add_device"].includes(type) && out.evidence.length < 1) {
+    throw new HttpsError("invalid-argument", "ต้องมีรูปประกอบอย่างน้อย 1 รูป");
+  }
+
+  // target_device_index — used by remove_device + device_mismatch on
+  // multi-device jobs (admin can set later for replace; rider sets for remove).
+  if (typeof body.target_device_index === "number" && body.target_device_index >= 0) {
+    out.target_device_index = body.target_device_index;
+  }
+
+  // target — operational types let rider seed the change with a hint
+  if (body.target && typeof body.target === "object") {
+    const t = body.target;
+    if (type === "appointment_reschedule" && t.kind === "appointment" && typeof t.new_appointment_time === "number") {
+      out.target = { kind: "appointment", new_appointment_time: t.new_appointment_time };
+    } else if (type === "address_wrong" && t.kind === "address" && typeof t.new_address === "string") {
+      out.target = { kind: "address", new_address: t.new_address.slice(0, 500) };
+      if (typeof t.new_lat === "number") out.target.new_lat = t.new_lat;
+      if (typeof t.new_lng === "number") out.target.new_lng = t.new_lng;
+    } else if (type === "customer_info_wrong" && t.kind === "customer_info"
+              && VALID_CUSTOMER_INFO_FIELDS.includes(t.field)
+              && typeof t.new_value === "string") {
+      out.target = { kind: "customer_info", field: t.field, new_value: t.new_value.slice(0, 500) };
+    } else if (type === "customer_request_cancel" && t.kind === "cancel"
+              && VALID_CANCEL_CATEGORIES.includes(t.reason_category)) {
+      out.target = { kind: "cancel", reason_category: t.reason_category };
+      if (typeof t.reason_detail === "string") out.target.reason_detail = t.reason_detail.slice(0, 500);
+    }
+  }
+
+  return out;
+}
+
 exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
   }
-  const { jobId, type, riderNote, evidenceUrls } = request.data || {};
+  const body = request.data || {};
+  const { jobId, type, riderNote, clientRequestId } = body;
   if (!jobId || typeof jobId !== "string") {
     throw new HttpsError("invalid-argument", "ต้องระบุ jobId");
   }
-  if (type !== "device_mismatch") {
-    throw new HttpsError("invalid-argument", "type ไม่รองรับใน Phase 1");
+  if (!VALID_AMENDMENT_TYPES.includes(type)) {
+    throw new HttpsError("invalid-argument", `type ไม่รองรับ: ${type}`);
   }
-  if (!Array.isArray(evidenceUrls) || evidenceUrls.length < 1) {
-    throw new HttpsError("invalid-argument", "ต้องมีรูปประกอบอย่างน้อย 1 รูป");
+  if (riderNote && (typeof riderNote !== "string" || riderNote.length > 1000)) {
+    throw new HttpsError("invalid-argument", "riderNote ยาวเกิน 1,000 ตัวอักษร");
   }
-  for (const url of evidenceUrls) {
-    if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
-      throw new HttpsError("invalid-argument", "evidenceUrls ต้องเป็น https URL");
-    }
-  }
-  if (riderNote && (typeof riderNote !== "string" || riderNote.length > 500)) {
-    throw new HttpsError("invalid-argument", "riderNote ยาวเกิน 500 ตัวอักษร");
+  // 'other' requires a note since there's no other structured signal
+  if (type === "other" && (!riderNote || riderNote.trim().length < 5)) {
+    throw new HttpsError("invalid-argument", "ประเภท 'อื่นๆ' ต้องระบุรายละเอียดอย่างน้อย 5 ตัวอักษร");
   }
 
+  const sanitized = validateRiderRequest(type, body);
+  const amendmentClass = AMENDMENT_TYPE_CLASS[type];
   const db = getDatabase();
 
-  const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
-  if (!jobSnap.exists()) {
-    throw new HttpsError("not-found", "ไม่พบงาน");
+  // Idempotency — if same client_request_id submitted within last 1h, return existing
+  if (clientRequestId && typeof clientRequestId === "string") {
+    const dup = await db.ref("jobs_amendments")
+      .orderByChild("client_request_id").equalTo(clientRequestId).once("value");
+    let existingId = null;
+    dup.forEach((s) => {
+      const am = s.val();
+      if (am && am.requested_at && (Date.now() - am.requested_at) < 60 * 60 * 1000) {
+        existingId = am.id;
+      }
+    });
+    if (existingId) {
+      console.log(`[amendment] Idempotent retry for client_request_id=${clientRequestId}; returning existing ${existingId}`);
+      return { ok: true, amendmentId: existingId, deduplicated: true };
+    }
   }
+
+  const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+  if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบงาน");
   const job = jobSnap.val();
   if (job.rider_id !== request.auth.uid) {
     throw new HttpsError("permission-denied", "ไม่ใช่ rider ของ job นี้");
   }
 
-  // Reject if there's already a pending amendment on this job — one at a time
+  // Single in-flight guard — only one open amendment per job
   const existing = await db.ref("jobs_amendments")
     .orderByChild("job_id").equalTo(jobId).once("value");
-  let hasPending = false;
+  let hasOpen = false;
   existing.forEach((s) => {
-    if (s.val().status === "pending" || s.val().status === "approved") hasPending = true;
+    const st = s.val().status;
+    if (st === "pending" || st === "approved" || st === "consented") hasOpen = true;
   });
-  if (hasPending) {
-    throw new HttpsError("failed-precondition", "มี amendment ค้างอยู่บน job นี้แล้ว");
+  if (hasOpen) {
+    throw new HttpsError("failed-precondition", "มี amendment ค้างอยู่บน job นี้แล้ว — รอเคลียร์ก่อน");
   }
 
-  const before = {
-    devices: job.devices || [],
-    final_price: typeof job.final_price === "number" ? job.final_price :
-                 typeof job.price === "number" ? job.price : 0,
-  };
+  // Build before-snapshot (contractual only — operational doesn't need it)
+  const before = amendmentClass === "contractual" ? buildBeforeSnapshot(job) : null;
 
   const newRef = db.ref("jobs_amendments").push();
   const amendmentId = newRef.key;
@@ -1344,15 +1476,21 @@ exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
   const amendment = {
     id: amendmentId,
     job_id: jobId,
+    schema_version: 2,
+    amendment_class: amendmentClass,
     type,
     requested_at: Date.now(),
     requested_by_rider_uid: request.auth.uid,
     requested_by_rider_name: riderName,
     rider_note: riderNote || "",
-    evidence_urls: evidenceUrls,
-    before,
+    evidence: sanitized.evidence,
+    evidence_urls: sanitized.evidenceUrls,
     status: "pending",
   };
+  if (clientRequestId) amendment.client_request_id = clientRequestId;
+  if (before) amendment.before = before;
+  if (sanitized.target) amendment.target = sanitized.target;
+  if (sanitized.target_device_index !== null) amendment.target_device_index = sanitized.target_device_index;
 
   await newRef.set(amendment);
 
@@ -1360,10 +1498,10 @@ exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
     db,
     {
       notification: {
-        title: "🚨 Rider ขอแก้ไข — รอ admin อนุมัติ",
-        body: `${riderName} แจ้งปัญหา job #${shortJobId(jobId)}: ${riderNote || "ดูรายละเอียด"}`,
+        title: `🚨 Rider แจ้งปัญหา — ${AMENDMENT_TYPE_LABEL_TH[type]}`,
+        body: `${riderName} ขอ admin จัดการ job #${shortJobId(jobId)}${riderNote ? `: ${riderNote.slice(0, 80)}` : ""}`,
       },
-      data: { type: "amendment_requested", amendmentId, jobId },
+      data: { type: "amendment_requested", amendmentId, jobId, amendmentType: type },
     },
     job.agent_uid,
     "amendment-requested"
@@ -1372,16 +1510,124 @@ exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
   return { ok: true, amendmentId };
 });
 
+/** Status set in which the rider has committed time/fuel and deserves
+ *  a time-loss fee if the customer cancels. (RIDER_ACCEPTED alone
+ *  doesn't count — rider hasn't departed yet.) */
+const RIDER_DEPARTED_STATUSES = new Set([
+  "Heading to Customer",
+  "Rider En Route",
+  "Arrived",
+  "Rider Arrived",
+]);
+
+const DEFAULT_RIDER_TIME_LOSS_FEE = 100;
+
+/** Build the multi-path updates needed to atomically apply an amendment.
+ *  Returns object suitable for db.ref().update(). Caller should also
+ *  append a qc_logs entry. Different types touch different /jobs fields.
+ *
+ *  job is the current /jobs/{id} value — used by customer_request_cancel
+ *  to decide whether the rider has already departed (and thus is owed
+ *  ค่าเสียเวลา for the cancelled trip). riderCompensation is the
+ *  resolved settings/rider_compensation block, or null. */
+function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
+  const u = {};
+  const jobBase = `jobs/${am.job_id}`;
+
+  switch (am.type) {
+    // Contractual — require am.after with devices + final_price
+    case "device_mismatch":
+    case "add_device":
+    case "remove_device": {
+      if (!am.after || !Array.isArray(am.after.devices)) {
+        throw new HttpsError("internal", "amendment.after ขาด");
+      }
+      u[`${jobBase}/devices`] = am.after.devices;
+      u[`${jobBase}/final_price`] = am.after.final_price;
+      if (am.after.devices[0]) {
+        const d = am.after.devices[0];
+        u[`${jobBase}/model`] = d.model || (d.model_name + (d.variant_name ? ` ${d.variant_name}` : "")).trim();
+      }
+      if (am.after.pricing) u[`${jobBase}/pricing`] = am.after.pricing;
+      break;
+    }
+    // Operational — read target.kind for the change
+    case "appointment_reschedule": {
+      if (!am.target || am.target.kind !== "appointment" || typeof am.target.new_appointment_time !== "number") {
+        throw new HttpsError("internal", "target.appointment ขาด");
+      }
+      u[`${jobBase}/appointment_time`] = am.target.new_appointment_time;
+      break;
+    }
+    case "address_wrong": {
+      if (!am.target || am.target.kind !== "address" || typeof am.target.new_address !== "string") {
+        throw new HttpsError("internal", "target.address ขาด");
+      }
+      u[`${jobBase}/cust_address`] = am.target.new_address;
+      if (typeof am.target.new_lat === "number") u[`${jobBase}/cust_lat`] = am.target.new_lat;
+      if (typeof am.target.new_lng === "number") u[`${jobBase}/cust_lng`] = am.target.new_lng;
+      break;
+    }
+    case "customer_info_wrong": {
+      if (!am.target || am.target.kind !== "customer_info"
+          || !VALID_CUSTOMER_INFO_FIELDS.includes(am.target.field)
+          || typeof am.target.new_value !== "string") {
+        throw new HttpsError("internal", "target.customer_info ขาด");
+      }
+      u[`${jobBase}/${am.target.field}`] = am.target.new_value;
+      break;
+    }
+    case "customer_request_cancel": {
+      if (!am.target || am.target.kind !== "cancel"
+          || !VALID_CANCEL_CATEGORIES.includes(am.target.reason_category)) {
+        throw new HttpsError("internal", "target.cancel ขาด");
+      }
+      u[`${jobBase}/status`] = "Cancelled";
+      u[`${jobBase}/cancel_category`] = am.target.reason_category;
+      u[`${jobBase}/cancel_reason`] = am.target.reason_detail || am.rider_note || "ลูกค้าขอยกเลิก";
+      u[`${jobBase}/cancelled_at`] = now;
+
+      // Rider time-loss fee: customer cancelled mid-route. Different
+      // from rider self-cancel (handled by RejectModal flow) which
+      // pays nothing and may deduct rider points. Only kicks in once
+      // the rider has actually departed — RIDER_ACCEPTED alone doesn't
+      // qualify since they haven't burned fuel yet.
+      if (job && RIDER_DEPARTED_STATUSES.has(job.status)) {
+        const fee = (riderCompensation && typeof riderCompensation.customer_cancel_time_loss === "number")
+          ? riderCompensation.customer_cancel_time_loss
+          : DEFAULT_RIDER_TIME_LOSS_FEE;
+        u[`${jobBase}/rider_fee`] = fee;
+        u[`${jobBase}/rider_fee_status`] = "Pending";
+        u[`${jobBase}/rider_fee_breakdown`] = {
+          type: "time_loss_customer_cancel",
+          amount: fee,
+          reason: `ลูกค้ายกเลิกระหว่างทาง (status: ${job.status}) — ค่าเสียเวลาไรเดอร์`,
+          computed_at: now,
+          source: riderCompensation ? "settings" : "default",
+        };
+      }
+      break;
+    }
+    case "other": {
+      // No structured apply — admin uses chat with customer to coordinate.
+      // Just mark job updated_at so dashboards refresh.
+      break;
+    }
+  }
+  u[`${jobBase}/updated_at`] = now;
+  return u;
+}
+
 exports.reviewAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
   }
-  const { amendmentId, decision, after, adminNote, rejectAction } = request.data || {};
+  const { amendmentId, decision, after, target, adminNote, rejectAction } = request.data || {};
   if (!amendmentId || (decision !== "approve" && decision !== "reject")) {
     throw new HttpsError("invalid-argument", "amendmentId / decision ไม่ถูกต้อง");
   }
-  if (adminNote && (typeof adminNote !== "string" || adminNote.length > 500)) {
-    throw new HttpsError("invalid-argument", "adminNote ยาวเกิน 500 ตัวอักษร");
+  if (adminNote && (typeof adminNote !== "string" || adminNote.length > 1000)) {
+    throw new HttpsError("invalid-argument", "adminNote ยาวเกิน 1,000 ตัวอักษร");
   }
 
   const db = getDatabase();
@@ -1391,93 +1637,162 @@ exports.reviewAmendment = onCall({ region: AMENDMENT_REGION }, async (request) =
   }
 
   const amSnap = await db.ref(`jobs_amendments/${amendmentId}`).once("value");
-  if (!amSnap.exists()) {
-    throw new HttpsError("not-found", "ไม่พบ amendment");
-  }
+  if (!amSnap.exists()) throw new HttpsError("not-found", "ไม่พบ amendment");
   const am = amSnap.val();
   if (am.status !== "pending") {
     throw new HttpsError("failed-precondition", `amendment status=${am.status}`);
   }
 
   const adminName = adminSnap.val().name || adminSnap.val().display_name || "Admin";
-  const updates = {
-    reviewed_at: Date.now(),
-    reviewed_by_admin_uid: request.auth.uid,
-    reviewed_by_admin_name: adminName,
-    admin_note: adminNote || "",
+  const now = Date.now();
+  const amendmentClass = am.amendment_class || AMENDMENT_TYPE_CLASS[am.type] || "contractual";
+
+  if (decision === "reject") {
+    if (!VALID_REJECT_ACTIONS.includes(rejectAction)) {
+      throw new HttpsError("invalid-argument", `rejectAction ต้องเป็น ${VALID_REJECT_ACTIONS.join("/")}`);
+    }
+    const updates = {
+      [`jobs_amendments/${amendmentId}/reviewed_at`]: now,
+      [`jobs_amendments/${amendmentId}/reviewed_by_admin_uid`]: request.auth.uid,
+      [`jobs_amendments/${amendmentId}/reviewed_by_admin_name`]: adminName,
+      [`jobs_amendments/${amendmentId}/admin_note`]: adminNote || "",
+      [`jobs_amendments/${amendmentId}/status`]: "rejected",
+      [`jobs_amendments/${amendmentId}/reject_action`]: rejectAction,
+    };
+    if (rejectAction === "cancel_job") {
+      updates[`jobs/${am.job_id}/status`] = "Cancelled";
+      updates[`jobs/${am.job_id}/cancel_category`] = "amendment_rejected";
+      updates[`jobs/${am.job_id}/cancel_reason`] = adminNote || "Admin ปฏิเสธ amendment + ขอยกเลิก job";
+      updates[`jobs/${am.job_id}/cancelled_at`] = now;
+      updates[`jobs/${am.job_id}/updated_at`] = now;
+    }
+    await db.ref().update(updates);
+
+    const riderTitle = rejectAction === "cancel_job"
+      ? "❌ Admin ยกเลิก job"
+      : rejectAction === "wait_admin_call"
+        ? "⏸ Admin จะติดต่อลูกค้าเอง"
+        : "❌ Admin ปฏิเสธ — ทำงานต่อตาม original";
+    await pushToRider(
+      db,
+      am.requested_by_rider_uid,
+      {
+        notification: {
+          title: riderTitle,
+          body: adminNote || (rejectAction === "wait_admin_call"
+            ? `รอที่จุดรับ — job #${shortJobId(am.job_id)}`
+            : `Job #${shortJobId(am.job_id)}`),
+        },
+        data: { type: "amendment_rejected", amendmentId, jobId: am.job_id, rejectAction },
+      },
+      "amendment-rejected"
+    );
+    return { ok: true };
+  }
+
+  // Approve path — branches by class
+  const baseUpdates = {
+    [`jobs_amendments/${amendmentId}/reviewed_at`]: now,
+    [`jobs_amendments/${amendmentId}/reviewed_by_admin_uid`]: request.auth.uid,
+    [`jobs_amendments/${amendmentId}/reviewed_by_admin_name`]: adminName,
+    [`jobs_amendments/${amendmentId}/admin_note`]: adminNote || "",
   };
 
-  if (decision === "approve") {
-    if (
-      !after ||
-      !Array.isArray(after.devices) ||
-      after.devices.length < 1 ||
-      typeof after.final_price !== "number"
-    ) {
+  if (amendmentClass === "contractual") {
+    // Admin must provide `after` snapshot (devices + final_price [+ pricing])
+    if (!after || !Array.isArray(after.devices) || after.devices.length < 1
+        || typeof after.final_price !== "number") {
       throw new HttpsError("invalid-argument", "after snapshot ต้องครบ (devices + final_price)");
     }
-    updates.status = "approved";
-    updates.after = {
+    const sanitizedAfter = {
       devices: after.devices,
       final_price: after.final_price,
     };
-  } else {
-    const allowed = ["continue_original", "cancel_job", "wait_admin_call"];
-    if (!allowed.includes(rejectAction)) {
-      throw new HttpsError("invalid-argument", `rejectAction ต้องเป็น ${allowed.join("/")}`);
+    if (after.pricing && typeof after.pricing === "object") {
+      sanitizedAfter.pricing = {
+        devices_subtotal: Number(after.pricing.devices_subtotal) || 0,
+        pickup_fee: Number(after.pricing.pickup_fee) || 0,
+        coupon_discount: Number(after.pricing.coupon_discount) || 0,
+        final_price: Number(after.pricing.final_price) || after.final_price,
+        currency: "THB",
+      };
     }
-    updates.status = "rejected";
-    updates.reject_action = rejectAction;
-    if (rejectAction === "cancel_job") {
-      // Atomic: amendment+job both updated together
-      const now = Date.now();
-      await db.ref().update({
-        ...Object.fromEntries(Object.entries(updates).map(([k, v]) => [`jobs_amendments/${amendmentId}/${k}`, v])),
-        [`jobs/${am.job_id}/status`]: "Cancelled",
-        [`jobs/${am.job_id}/cancel_category`]: "amendment_rejected",
-        [`jobs/${am.job_id}/cancel_reason`]: adminNote || "Admin ปฏิเสธ amendment + ขอยกเลิก job",
-        [`jobs/${am.job_id}/cancelled_at`]: now,
-        [`jobs/${am.job_id}/updated_at`]: now,
-      });
-      await pushToRider(
-        db,
-        am.requested_by_rider_uid,
-        {
-          notification: {
-            title: "❌ Admin ยกเลิก job",
-            body: adminNote || `แจ้งลูกค้าและกลับได้เลย — job #${shortJobId(am.job_id)}`,
-          },
-          data: { type: "amendment_rejected", amendmentId, jobId: am.job_id, rejectAction },
+    const updates = {
+      ...baseUpdates,
+      [`jobs_amendments/${amendmentId}/status`]: "approved",
+      [`jobs_amendments/${amendmentId}/after`]: sanitizedAfter,
+      [`jobs_amendments/${amendmentId}/approved_expires_at`]: now + APPROVAL_TTL_MS,
+    };
+    await db.ref().update(updates);
+
+    await pushToRider(
+      db,
+      am.requested_by_rider_uid,
+      {
+        notification: {
+          title: "✅ Admin อนุมัติ — ขอลายเซ็นลูกค้า",
+          body: `เปิดงาน #${shortJobId(am.job_id)} เพื่อให้ลูกค้าเซ็นยืนยัน`,
         },
-        "amendment-rejected-cancel"
-      );
-      return { ok: true };
-    }
+        data: { type: "amendment_approved", amendmentId, jobId: am.job_id },
+      },
+      "amendment-approved"
+    );
+    return { ok: true };
   }
 
-  await db.ref(`jobs_amendments/${amendmentId}`).update(updates);
+  // Operational approve = atomic apply NOW (no consent step)
+  // Admin may have edited target during review; merge edits if provided.
+  let finalTarget = am.target;
+  if (target && typeof target === "object" && am.target && target.kind === am.target.kind) {
+    finalTarget = { ...am.target, ...target };
+    baseUpdates[`jobs_amendments/${amendmentId}/target`] = finalTarget;
+  } else if (target && typeof target === "object" && !am.target) {
+    // Rider didn't seed a target hint; admin authored it from scratch
+    finalTarget = target;
+    baseUpdates[`jobs_amendments/${amendmentId}/target`] = finalTarget;
+  }
+  const stagedAm = { ...am, target: finalTarget };
 
-  const riderTitle = decision === "approve"
-    ? "✅ Admin อนุมัติ — ขอลายเซ็นลูกค้า"
-    : (rejectAction === "wait_admin_call"
-        ? "⏸ Admin จะติดต่อลูกค้าเอง"
-        : "❌ Admin ปฏิเสธ — ทำงานต่อตาม original");
-  const riderBody = decision === "approve"
-    ? `เปิดงาน #${shortJobId(am.job_id)} เพื่อให้ลูกค้าเซ็นยืนยัน`
-    : (adminNote || (rejectAction === "wait_admin_call"
-        ? "รอที่จุดรับ — admin จะแจ้งคำสั่งใหม่"
-        : `รับเครื่องตาม spec เดิมเท่านั้น — job #${shortJobId(am.job_id)}`));
+  // Fetch job + rider compensation settings (the latter only needed
+  // for customer_request_cancel but cheap to always fetch — single
+  // realtime DB read).
+  const jobSnap = await db.ref(`jobs/${am.job_id}`).once("value");
+  if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบ job ที่จะ apply");
+  const job = jobSnap.val();
+  const compSnap = await db.ref("settings/rider_compensation").once("value");
+  const riderCompensation = compSnap.exists() ? compSnap.val() : null;
+
+  const applyUpdates = buildAmendmentApplyUpdates(stagedAm, job, now, riderCompensation);
+  const updatedLogs = [
+    {
+      action: "Amendment Applied",
+      by: `Admin: ${adminName}`,
+      timestamp: now,
+      details: `${AMENDMENT_TYPE_LABEL_TH[am.type]} — apply โดย admin (operational, no consent required)`,
+    },
+    ...(job.qc_logs || []),
+  ];
+
+  await db.ref().update({
+    ...baseUpdates,
+    [`jobs_amendments/${amendmentId}/status`]: "applied",
+    [`jobs_amendments/${amendmentId}/applied_at`]: now,
+    ...applyUpdates,
+    [`jobs/${am.job_id}/qc_logs`]: updatedLogs,
+  });
 
   await pushToRider(
     db,
     am.requested_by_rider_uid,
     {
-      notification: { title: riderTitle, body: riderBody },
-      data: { type: `amendment_${updates.status}`, amendmentId, jobId: am.job_id, rejectAction: rejectAction || "" },
+      notification: {
+        title: "✅ Admin จัดการเรียบร้อย",
+        body: `${AMENDMENT_TYPE_LABEL_TH[am.type]} — อัพเดตข้อมูล job แล้ว ทำงานต่อได้`,
+      },
+      data: { type: "amendment_applied", amendmentId, jobId: am.job_id },
     },
-    `amendment-${updates.status}`
+    "amendment-applied-operational"
   );
-
   return { ok: true };
 });
 
@@ -1485,7 +1800,7 @@ exports.consentAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
   }
-  const { amendmentId, signatureUrl } = request.data || {};
+  const { amendmentId, signatureUrl, disclosureText, disclosureVersion } = request.data || {};
   if (!amendmentId || !signatureUrl || typeof signatureUrl !== "string") {
     throw new HttpsError("invalid-argument", "amendmentId/signatureUrl ไม่ครบ");
   }
@@ -1495,49 +1810,65 @@ exports.consentAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
 
   const db = getDatabase();
   const amSnap = await db.ref(`jobs_amendments/${amendmentId}`).once("value");
-  if (!amSnap.exists()) {
-    throw new HttpsError("not-found", "ไม่พบ amendment");
-  }
+  if (!amSnap.exists()) throw new HttpsError("not-found", "ไม่พบ amendment");
   const am = amSnap.val();
   if (am.status !== "approved") {
     throw new HttpsError("failed-precondition", `amendment status=${am.status}`);
   }
+  // Operational types should never reach consent — admin already applied.
+  const amendmentClass = am.amendment_class || AMENDMENT_TYPE_CLASS[am.type] || "contractual";
+  if (amendmentClass !== "contractual") {
+    throw new HttpsError("failed-precondition", "operational amendment ไม่ต้องการ consent");
+  }
   if (am.requested_by_rider_uid !== request.auth.uid) {
     throw new HttpsError("permission-denied", "เฉพาะ rider ของ amendment");
   }
-  if (!am.after || !Array.isArray(am.after.devices)) {
-    throw new HttpsError("internal", "amendment.after ขาด — admin approve ผิดพลาด");
+  if (am.approved_expires_at && Date.now() > am.approved_expires_at) {
+    throw new HttpsError("failed-precondition", "amendment หมดอายุแล้ว — ขออนุมัติใหม่");
   }
 
   const now = Date.now();
-
-  // Append qc_log: pull current logs first since RTDB doesn't have arrayUnion
   const jobSnap = await db.ref(`jobs/${am.job_id}`).once("value");
-  if (!jobSnap.exists()) {
-    throw new HttpsError("not-found", "ไม่พบ job ที่จะ apply");
-  }
+  if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบ job ที่จะ apply");
   const job = jobSnap.val();
+  // Contractual amendments don't currently use job/riderCompensation
+  // (no time-loss case), but keep the call consistent for forward-compat.
+  const compSnap = await db.ref("settings/rider_compensation").once("value");
+  const riderCompensation = compSnap.exists() ? compSnap.val() : null;
+
+  const applyUpdates = buildAmendmentApplyUpdates(am, job, now, riderCompensation);
   const updatedLogs = [
     {
       action: "Amendment Applied",
       by: `Rider: ${am.requested_by_rider_name}`,
       timestamp: now,
-      details: `เปลี่ยน devices/ราคา ตาม amendment ${amendmentId} (admin: ${am.reviewed_by_admin_name || "?"})`,
+      details: `${AMENDMENT_TYPE_LABEL_TH[am.type]} — ลูกค้าเซ็นยืนยัน (admin: ${am.reviewed_by_admin_name || "?"})`,
     },
     ...(job.qc_logs || []),
   ];
 
-  // Atomic multi-path update
+  const consent = {
+    method: "signature",
+    consented_at: now,
+    signature_url: signatureUrl,
+    disclosure_text_snapshot: typeof disclosureText === "string" && disclosureText.length > 0
+      ? disclosureText.slice(0, 2000)
+      : "ลูกค้ายอมรับการเปลี่ยนแปลงของ job ตาม amendment ที่ admin อนุมัติ",
+    disclosure_version: typeof disclosureVersion === "string" ? disclosureVersion.slice(0, 32) : "amendment-2026.09",
+    captured_on: "rider_app",
+    captured_by_uid: request.auth.uid,
+  };
+
   await db.ref().update({
     [`jobs_amendments/${amendmentId}/status`]: "applied",
+    [`jobs_amendments/${amendmentId}/applied_at`]: now,
+    [`jobs_amendments/${amendmentId}/consent`]: consent,
+    // V1-compat flat fields (older readers)
     [`jobs_amendments/${amendmentId}/consented_at`]: now,
     [`jobs_amendments/${amendmentId}/consent_method`]: "signature",
     [`jobs_amendments/${amendmentId}/consent_signature_url`]: signatureUrl,
-    [`jobs_amendments/${amendmentId}/applied_at`]: now,
-    [`jobs/${am.job_id}/devices`]: am.after.devices,
-    [`jobs/${am.job_id}/final_price`]: am.after.final_price,
+    ...applyUpdates,
     [`jobs/${am.job_id}/qc_logs`]: updatedLogs,
-    [`jobs/${am.job_id}/updated_at`]: now,
   });
 
   await dispatchAmendmentPush(
@@ -1555,6 +1886,45 @@ exports.consentAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
 
   return { ok: true };
 });
+
+exports.expireApprovedAmendments = onSchedule(
+  { schedule: "every 30 minutes", timeZone: "Asia/Bangkok", region: AMENDMENT_REGION },
+  async () => {
+    const db = getDatabase();
+    const snap = await db
+      .ref("jobs_amendments")
+      .orderByChild("status")
+      .equalTo("approved")
+      .once("value");
+    if (!snap.exists()) return;
+
+    const ops = [];
+    const now = Date.now();
+    snap.forEach((s) => {
+      const am = s.val();
+      const ttl = am.approved_expires_at || (am.reviewed_at ? am.reviewed_at + APPROVAL_TTL_MS : 0);
+      if (ttl && now > ttl) {
+        ops.push(
+          s.ref.update({ status: "expired", cancelled_at: now })
+            .then(() =>
+              pushToRider(db, am.requested_by_rider_uid,
+                {
+                  notification: {
+                    title: "⏰ Amendment หมดอายุ",
+                    body: `Job #${shortJobId(am.job_id)} ลูกค้าไม่ได้เซ็นยืนยันใน 24 ชม. — กรุณาขออนุมัติใหม่หากต้องการแก้ไข`,
+                  },
+                  data: { type: "amendment_expired", amendmentId: am.id, jobId: am.job_id },
+                },
+                "amendment-expired")
+            )
+        );
+      }
+    });
+    if (ops.length === 0) return;
+    console.log(`[amendment-expire] Expiring ${ops.length} approved-but-not-consented amendments`);
+    await Promise.all(ops);
+  }
+);
 
 exports.escalateAmendmentTimeouts = onSchedule(
   { schedule: "every 1 minutes", timeZone: "Asia/Bangkok", region: AMENDMENT_REGION },
