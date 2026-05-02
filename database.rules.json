@@ -93,7 +93,7 @@
       ".read": "auth != null && root.child('admins').child(auth.uid).child('role').val() === 'admin'",
       ".indexOn": ["status", "job_id", "requested_at"],
       "$amendmentId": {
-        ".read": "auth != null && (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child(data.child('job_id').val()).child('rider_id').val() === auth.uid || root.child('jobs').child(newData.child('job_id').val()).child('rider_id').val() === auth.uid)",
+        ".read": "auth != null && (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child(data.child('job_id').val()).child('rider_id').val() === auth.uid)",
         ".write": "auth != null && (!data.exists() ? root.child('jobs').child(newData.child('job_id').val()).child('rider_id').val() === auth.uid : (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child(data.child('job_id').val()).child('rider_id').val() === auth.uid))",
         ".validate": "newData.hasChildren(['job_id', 'type', 'requested_at', 'requested_by_rider_uid', 'requested_by_rider_name', 'before', 'status'])",
         "job_id": { ".validate": "newData.isString() && newData.val().length > 0" },
