@@ -44,6 +44,16 @@ service firebase.storage {
       allow write: if request.auth != null;
     }
 
+    // ─── Amendment evidence + customer consent signature (PR-AMEND v2)
+    // ภาพประกอบจาก rider เวลาแจ้งปัญหาหน้างาน + ลายเซ็นลูกค้าเวลา
+    // ยืนยัน contractual amendment. ใช้ opaque UUID filename — guess ไม่ได้
+    // RTDB layer (jobs_amendments validate rules) gates ใครเขียน record
+    // ได้ ส่วน Storage layer แค่ require auth. สอดคล้องกับ KYC pattern.
+    match /jobs/{jobId}/amendments/{filename=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
     // ─── Device verification photos (Vision OCR pipeline) ──────────
     // ภาพถ่ายหน้าจอ Settings (About / Battery / Find My) ที่ rider
     // ถ่ายตอนตรวจสอบเครื่องเบื้องต้น
