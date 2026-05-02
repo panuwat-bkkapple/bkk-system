@@ -88,19 +88,27 @@ export const AmendmentReviewModal: React.FC<Props> = ({ amendmentId, onClose }) 
       if (!m || typeof m !== 'object') continue;
       const rv = (m as any).variants;
       const variants: any[] = !rv ? [] : Array.isArray(rv) ? rv : Object.values(rv);
-      const modelId = m.id || m.model;
+      // Schema field on /models/{id} is `name` (display name like
+      // "iPhone 16"). The legacy `m.model` reference returns undefined
+      // on live data so picker rendered empty labels. Same bug fix
+      // applied in bkk-rider-app's useFlatVariants.
+      const modelId = m.id || m.name || m.model;
+      const modelName = m.name || m.model || '';
       const brand = m.brand || 'Apple';
+      const basePrice = (typeof m.baseUsedPrice === 'number' ? m.baseUsedPrice :
+                         typeof m.baseNewPrice === 'number' ? m.baseNewPrice :
+                         typeof m.base_price === 'number' ? m.base_price : 0);
       if (variants.length === 0) {
-        out.push({ modelId, modelName: m.model || '', variantId: '', variantName: '', price: m.base_price || 0, brand });
+        out.push({ modelId, modelName, variantId: '', variantName: '', price: basePrice, brand });
         continue;
       }
       for (const v of variants) {
         out.push({
           modelId,
-          modelName: m.model || '',
+          modelName,
           variantId: v.id || v.name,
           variantName: v.name || '',
-          price: typeof v.price === 'number' ? v.price : (m.base_price || 0),
+          price: typeof v.price === 'number' ? v.price : basePrice,
           brand,
         });
       }
