@@ -474,70 +474,177 @@ export interface KYCRecord {
 }
 
 // =====================================================================
-// Job Amendment (PR-AMEND)
+// Job Amendment v2 (PR-AMEND v2 — Big Bang)
 // ---------------------------------------------------------------------
-// On-site amendment workflow when rider arrives and finds the job data
-// doesn't match reality (wrong model, customer wants to add/remove a
-// device, etc.). Rider role is purely operational: report the problem
-// + photos. Admin owns every decision (model identification, pricing,
-// approve/reject, customer-facing communication).
+// Unified on-site change-request workflow. Replaces the older
+// /jobs/{id}/discrepancy_reports/* path which had no atomic apply, no
+// customer consent, no real FCM notification — all admin-side state
+// drift bugs we hit in production stem from that.
+//
+// Two classes of amendment:
+//   contractual (กระทบสัญญาซื้อขาย: ราคา/รุ่น/จำนวนเครื่อง)
+//     → require customer consent (signature) before atomic apply
+//   operational (admin handles backend: นัด/ที่อยู่/ข้อมูลลูกค้า/ยกเลิก)
+//     → admin approve = atomic apply (no consent step)
 //
 // Schema synced with bkk-rider-app/src/types/index.ts and validate
 // rules in bkk-system/database.rules.json — change all 3 together.
 // =====================================================================
 
+export type AmendmentClass = 'contractual' | 'operational';
+
 export type JobAmendmentType =
-  | 'device_mismatch';      // ลูกค้าระบุรุ่น/variant ผิด — Phase 1 only
+  // Contractual (require customer consent before apply)
+  | 'device_mismatch'
+  | 'add_device'
+  | 'remove_device'
+  // Operational (admin approve = apply, no consent)
+  | 'appointment_reschedule'
+  | 'address_wrong'
+  | 'customer_info_wrong'
+  | 'customer_request_cancel'
+  | 'other';
+
+/** Map type → class. Server validates this matches; clients use it to
+ *  decide whether to gate consent step. Single source of truth here. */
+export const AMENDMENT_TYPE_CLASS: Record<JobAmendmentType, AmendmentClass> = {
+  device_mismatch: 'contractual',
+  add_device: 'contractual',
+  remove_device: 'contractual',
+  appointment_reschedule: 'operational',
+  address_wrong: 'operational',
+  customer_info_wrong: 'operational',
+  customer_request_cancel: 'operational',
+  other: 'operational',
+};
+
+export const AMENDMENT_TYPE_LABEL_TH: Record<JobAmendmentType, string> = {
+  device_mismatch: 'เครื่องไม่ตรงตามที่ลงทะเบียน',
+  add_device: 'ลูกค้าขอเพิ่มเครื่อง',
+  remove_device: 'ลูกค้าขอลด/ยกเลิกบางเครื่อง',
+  appointment_reschedule: 'ลูกค้าขอเลื่อนนัดหมาย',
+  address_wrong: 'ที่อยู่ไม่ตรง',
+  customer_info_wrong: 'ข้อมูลลูกค้าไม่ตรง (ชื่อ/เบอร์/อีเมล)',
+  customer_request_cancel: 'ลูกค้าขอยกเลิกทั้งงาน',
+  other: 'อื่นๆ — admin โทรคุยลูกค้า',
+};
 
 export type JobAmendmentStatus =
   | 'pending'        // rider submitted, admin hasn't reviewed
-  | 'approved'       // admin approved, waiting customer consent
+  | 'approved'       // admin approved (contractual only — waiting consent)
   | 'rejected'       // admin rejected
   | 'consented'      // customer signed; cloud function applying
   | 'applied'        // changes written to /jobs/{id}; flow continues
-  | 'cancelled';     // amendment voided (timeout, customer left, etc.)
+  | 'cancelled'      // amendment voided (admin cancel, rider re-open, etc.)
+  | 'expired';       // approved + 24h passed without customer consent
 
 export type JobAmendmentRejectAction =
   | 'continue_original'   // rider proceeds with original job spec
   | 'cancel_job'          // entire job cancelled
   | 'wait_admin_call';    // rider stands by, admin contacts customer
 
-/**
- * Customer's consent for accepting an amendment's new terms.
- * Phase 1 = signature only. Schema is forward-compat with OTP / verbal
- * (added once SMS gateway is wired up).
- */
 export type AmendmentConsentMethod = 'signature' | 'otp' | 'verbal';
 
-export interface JobAmendmentSnapshot {
-  /** Devices array as it stood (or will stand) at this point */
-  devices: JobDevice[];
-  /** Final price after deductions/coupons (อาจ = price ถ้ายังไม่หัก) */
+/** Discriminated union — typed payload of what's being changed. Only
+ *  set for operational types where the change is field-level rather
+ *  than a snapshot replacement. Contractual types use before/after. */
+export type AmendmentTarget =
+  | { kind: 'appointment'; new_appointment_time: number }
+  | { kind: 'address'; new_address: string; new_lat?: number; new_lng?: number }
+  | { kind: 'customer_info'; field: 'cust_name' | 'cust_phone' | 'cust_email'; new_value: string }
+  | { kind: 'cancel'; reason_category: import('./job-statuses').CancelCategory; reason_detail?: string }
+  | { kind: 'other'; admin_freeform?: string };
+
+/** Per-device entry in an amendment snapshot. v1 readers see `model`/
+ *  `brand` only; v2 readers can use the catalog binding (model_id +
+ *  variant_id) and per-device unit_price. Server always writes both
+ *  for forward+back compat. */
+export interface AmendmentDevice {
+  // V1 fields — always written
+  model: string;          // "iPhone 17 256GB Black"
+  brand: Brand;
+  serial?: string;
+  imei?: string;
+  grade?: QCGrade;
+  partsCondition?: PartsCondition;
+
+  // V2 fields — also written for v2 readers
+  model_id?: string;      // foreign key to /models/{id}
+  variant_id?: string;
+  model_name?: string;
+  variant_name?: string;
+  unit_price?: number;
+}
+
+export interface AmendmentSnapshot {
+  devices: AmendmentDevice[];
+  /** V1 field — sum of unit_price minus discount, including pickup_fee.
+   *  Always written for back-compat. */
   final_price: number;
+  /** V2 — explicit breakdown. Optional for v1 records. */
+  pricing?: {
+    devices_subtotal: number;
+    pickup_fee: number;
+    coupon_discount: number;
+    final_price: number;
+    currency: 'THB';
+  };
+}
+
+export interface AmendmentEvidence {
+  url: string;
+  purpose: 'device_back' | 'settings_about' | 'imei_label' | 'box' | 'customer_with_device' | 'address_pin' | 'other';
+  uploaded_at: number;
+}
+
+export interface AmendmentConsent {
+  method: AmendmentConsentMethod;
+  consented_at: number;
+  signature_url?: string;
+  otp_phone_masked?: string;
+  otp_verified_at?: number;
+  verbal_transcript?: string;
+  /** Snapshot of disclosure copy shown to customer at consent time —
+   *  for legal replay if a dispute arises. */
+  disclosure_text_snapshot: string;
+  disclosure_version: string;
+  captured_on: 'rider_app' | 'admin_app';
+  captured_by_uid: string;
 }
 
 export interface JobAmendment {
-  /** Storage at /jobs_amendments/{id} */
+  // Identity + version
   id: string;
-  /** Job this amendment applies to */
   job_id: string;
+  /** Schema version. v1 records (Phase 1) won't have this field — read
+   *  adapters treat missing as 1. */
+  schema_version?: 2;
+  /** Idempotency key generated by the rider client (UUIDv4). Server
+   *  rejects duplicate submissions with the same id within 1h. */
+  client_request_id?: string;
+
+  // Classification
+  amendment_class: AmendmentClass;
   type: JobAmendmentType;
 
-  // Rider input (immutable after submit)
+  // Operational target (kind discriminator inside)
+  target?: AmendmentTarget;
+  /** Index into job.devices for replace/remove. Undefined for add. */
+  target_device_index?: number;
+
+  // Rider input
   requested_at: number;
   requested_by_rider_uid: string;
   requested_by_rider_name: string;
-  /** Free-text หมายเหตุจาก rider (เช่น "ลูกค้าบอกว่าเอา iPhone 14 มา ไม่ใช่ 15") */
   rider_note?: string;
-  /** Storage URLs ของรูปประกอบจาก rider — บังคับ ≥1 รูปสำหรับ device_mismatch */
-  evidence_urls: string[];
+  /** v1: legacy field. v2 readers should prefer `evidence`. Server
+   *  writes both for compat. */
+  evidence_urls?: string[];
+  evidence?: AmendmentEvidence[];
 
-  /** Snapshot ณ เวลา submit — ไม่ใช่ live ref เพราะ /jobs/{id} อาจมีการ
-   *  อัพเดทอื่นเข้ามาระหว่าง pending; เก็บ snapshot ป้องกัน drift */
-  before: JobAmendmentSnapshot;
-
-  /** Admin fills in on approve. NULL while pending/rejected. */
-  after?: JobAmendmentSnapshot;
+  // Snapshots (contractual only)
+  before?: AmendmentSnapshot;
+  after?: AmendmentSnapshot;
 
   status: JobAmendmentStatus;
 
@@ -545,24 +652,27 @@ export interface JobAmendment {
   reviewed_at?: number;
   reviewed_by_admin_uid?: string;
   reviewed_by_admin_name?: string;
-  /** Admin's note ถึง rider — แสดงใน push + UI */
   admin_note?: string;
-  /** สำหรับ rejected: คำสั่งให้ rider ทำต่อ */
   reject_action?: JobAmendmentRejectAction;
 
-  // Customer consent (only after approved)
+  // Consent (contractual only)
+  consent?: AmendmentConsent;
+  /** v1 flat fields — kept for back-compat readers. Server populates
+   *  these when consent_method='signature' alongside the v2 `consent`
+   *  object. */
   consented_at?: number;
   consent_method?: AmendmentConsentMethod;
-  /** Storage URL ของลายเซ็น (เฉพาะเมื่อ consent_method='signature') */
   consent_signature_url?: string;
 
-  // Atomic apply (cloud function เขียนหลัง consented)
+  // Lifecycle
+  approved_expires_at?: number;
   applied_at?: number;
-
-  /** Auto-escalation marker — set when amendment ค้าง pending > 15 นาที
-   *  จะถูกใช้ trigger broadcast push to all admins */
+  cancelled_at?: number;
   escalated_at?: number;
 }
+
+/** Back-compat alias for v1 callers. Same shape as AmendmentSnapshot. */
+export type JobAmendmentSnapshot = AmendmentSnapshot;
 
 /** ซีรีส์สินค้า */
 export interface Series {
