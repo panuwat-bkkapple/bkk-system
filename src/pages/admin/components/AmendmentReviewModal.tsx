@@ -365,6 +365,14 @@ const ApprovePanel: React.FC<{
     } else if (t.kind === 'cancel') {
       setCancelCategory(t.reason_category as CancelCategory);
       setCancelDetail(t.reason_detail || '');
+    } else if (t.kind === 'device_pick' && typeof t.model_id === 'string') {
+      // Rider already identified the device — seed admin's picker.
+      // Catalog binding is keyed by `${modelId}|${variantId}` so the
+      // model + price flows naturally without admin re-typing.
+      setNewModelKey(`${t.model_id}|${t.variant_id || ''}`);
+      if (typeof t.suggested_price === 'number') {
+        setNewPriceText(String(t.suggested_price));
+      }
     }
   }, [amendment.target]);
 

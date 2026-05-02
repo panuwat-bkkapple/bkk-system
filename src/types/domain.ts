@@ -553,7 +553,22 @@ export type AmendmentTarget =
   | { kind: 'address'; new_address: string; new_lat?: number; new_lng?: number }
   | { kind: 'customer_info'; field: 'cust_name' | 'cust_phone' | 'cust_email'; new_value: string }
   | { kind: 'cancel'; reason_category: import('./job-statuses').CancelCategory; reason_detail?: string }
-  | { kind: 'other'; admin_freeform?: string };
+  | { kind: 'other'; admin_freeform?: string }
+  // Rider's identification of the actual device (for device_mismatch /
+  // add_device). Rider has the physical device in hand and can read
+  // its model/variant directly — letting them seed the pick saves
+  // admin a guess from the photo. Admin can still override during
+  // review (e.g. if photo doesn't match what rider claimed).
+  | {
+      kind: 'device_pick';
+      model_id: string;
+      variant_id?: string;
+      model_name: string;
+      variant_name?: string;
+      brand?: string;
+      /** Catalog price ของ variant ตอน rider เลือก. Admin can override. */
+      suggested_price?: number;
+    };
 
 /** Per-device entry in an amendment snapshot. v1 readers see `model`/
  *  `brand` only; v2 readers can use the catalog binding (model_id +
