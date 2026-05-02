@@ -35,22 +35,65 @@ function formatTimestamp(ts: number | undefined): string {
   });
 }
 
+// Thai/English month name → 1-12. Mirrors the parser in
+// bkk-frontend-next/functions/src/vision/parsers/idCard.ts so any string
+// the OCR pipeline emits round-trips correctly here. Update both maps
+// together when adding/removing month aliases.
+const MONTH_NAME_TO_NUM: Record<string, number> = {
+  // Thai full
+  มกราคม: 1, กุมภาพันธ์: 2, มีนาคม: 3, เมษายน: 4, พฤษภาคม: 5, มิถุนายน: 6,
+  กรกฎาคม: 7, สิงหาคม: 8, กันยายน: 9, ตุลาคม: 10, พฤศจิกายน: 11, ธันวาคม: 12,
+  // Thai abbrev
+  'ม.ค.': 1, 'ก.พ.': 2, 'มี.ค.': 3, 'เม.ย.': 4, 'พ.ค.': 5, 'มิ.ย.': 6,
+  'ก.ค.': 7, 'ส.ค.': 8, 'ก.ย.': 9, 'ต.ค.': 10, 'พ.ย.': 11, 'ธ.ค.': 12,
+  // English full + abbrev (keys lowercased; matched case-insensitively)
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8,
+  sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
 /**
  * Best-effort parse of a Thai card date string. Cards print DD/MM/YYYY in
- * either พ.ศ. (e.g. "15/08/2570") or rarely ค.ศ. ("15/08/2027"). Returns
- * a Date in Gregorian terms, or null if the string isn't recognisable.
+ * either พ.ศ. (e.g. "15/08/2570") or ค.ศ. ("15/08/2027"), but Vision OCR
+ * also returns the Thai/English month variants the card prints alongside
+ * the numeric form ("15 ก.ค. 2570" / "15 Jul. 2027"). Returns a Date in
+ * Gregorian terms, or null if the string isn't recognisable.
  * Heuristic: year >= 2400 → treat as พ.ศ. and subtract 543.
  */
 function parseCardDate(s: string | undefined): Date | null {
   if (!s) return null;
-  const m = s.match(/(\d{1,2})[\s./-](\d{1,2})[\s./-](\d{2,4})/);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const month = Number(m[2]);
-  let year = Number(m[3]);
-  if (year < 100) year += 2500; // 2-digit fallback — Thai cards typically print 4 anyway
+  const trimmed = s.trim();
+  let day: number | null = null;
+  let month: number | null = null;
+  let year: number | null = null;
+
+  // Try Thai/English month-name format first (most common on cards).
+  const named = trimmed.match(/(\d{1,2})\s+([A-Za-z฀-๿.]+?)\s+(\d{2,4})/);
+  if (named) {
+    const lookup = MONTH_NAME_TO_NUM[named[2]] ?? MONTH_NAME_TO_NUM[named[2].toLowerCase()];
+    if (lookup) {
+      day = Number(named[1]);
+      month = lookup;
+      year = Number(named[3]);
+    }
+  }
+
+  // Fall back to all-numeric DD/MM/YYYY.
+  if (day === null) {
+    const numeric = trimmed.match(/(\d{1,2})[\s./-](\d{1,2})[\s./-](\d{2,4})/);
+    if (numeric) {
+      day = Number(numeric[1]);
+      month = Number(numeric[2]);
+      year = Number(numeric[3]);
+    }
+  }
+
+  if (day === null || month === null || year === null) return null;
+  if (year < 100) year += 2500; // 2-digit fallback — cards usually print 4
   if (year >= 2400) year -= 543;
   if (!day || !month || month > 12 || day > 31) return null;
+  if (year < 1900 || year > 2100) return null; // sanity bound — reject parser noise
   const d = new Date(year, month - 1, day);
   return isNaN(d.getTime()) ? null : d;
 }
