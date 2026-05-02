@@ -127,6 +127,9 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         created_by: currentUser?.name || 'Admin',
         agent_name: currentUser?.name || 'Admin',
         agent_id: currentUser?.id || 'admin_1',
+        // Firebase UID — used by amendment notifications to push the assigned
+        // admin specifically (falls back to broadcast if missing on legacy jobs).
+        ...(currentUser?.uid ? { agent_uid: currentUser.uid } : {}),
         is_read: true,
         ref_no: `OID-${Math.floor(100000 + Math.random() * 900000)}`,
         updated_at: Date.now(),
@@ -164,6 +167,9 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         created_by: currentUser?.name || 'Admin',
         agent_name: currentUser?.name || 'Admin',
         agent_id: currentUser?.id || 'admin_1',
+        // Firebase UID — used by amendment notifications to push the assigned
+        // admin specifically (falls back to broadcast if missing on legacy jobs).
+        ...(currentUser?.uid ? { agent_uid: currentUser.uid } : {}),
         is_read: true,
         ref_no: `OID-${Math.floor(100000 + Math.random() * 900000)}`,
         updated_at: Date.now(),
@@ -255,6 +261,9 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       await withRetry(() => update(ref(db, `jobs/${job.id}`), {
         agent_name: currentUser?.name || 'Admin',
         agent_id: currentUser?.id || 'admin_1',
+        // Firebase UID — used by amendment notifications to push the assigned
+        // admin specifically (falls back to broadcast if missing on legacy jobs).
+        ...(currentUser?.uid ? { agent_uid: currentUser.uid } : {}),
         qc_logs: updatedLogs,
         status: nextStatus,
         is_read: true

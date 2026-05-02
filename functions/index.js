@@ -1,5 +1,5 @@
 const { onValueCreated, onValueUpdated, onValueWritten } = require("firebase-functions/v2/database");
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
@@ -1202,5 +1202,397 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     } catch (err) {
       console.error(`[riderFee] Failed to compute for ${jobId}:`, err);
     }
+  }
+);
+
+// =============================================================================
+// Job Amendment workflow (PR-AMEND)
+// ---------------------------------------------------------------------
+// On-site change-request flow when rider arrives and finds the job's data
+// doesn't match reality. Rider role is purely operational — they report the
+// problem + photos. Admin owns every decision (model identification, pricing,
+// approve/reject, customer-facing communication). All mutations to /jobs are
+// authored server-side here so we have a single audit trail and atomic apply.
+//
+// Endpoints:
+//   - requestAmendment   (callable, rider) — open a request
+//   - reviewAmendment    (callable, admin) — approve/reject
+//   - consentAmendment   (callable, rider) — customer signed → atomic apply
+//   - escalateAmendmentTimeouts (scheduled) — broadcast to all admins after 15 min
+// =============================================================================
+
+const AMENDMENT_REGION = "asia-southeast1";
+
+/** Targeted push to the specific admin owning the job; falls back to the
+ *  existing dispatchAdminPush broadcast if (a) job has no agent_uid yet, or
+ *  (b) the targeted admin has no live FCM tokens. Keeps cleanup-on-failure
+ *  semantics consistent with broadcast path. */
+async function dispatchAmendmentPush(db, message, ownerAdminUid, tag) {
+  if (ownerAdminUid) {
+    const tokensSnap = await db.ref(`admin_fcm_tokens/${ownerAdminUid}`).once("value");
+    if (tokensSnap.exists()) {
+      const tokens = [];
+      const tokenMeta = [];
+      tokensSnap.forEach((tokenSnap) => {
+        const data = tokenSnap.val();
+        if (data && data.token) {
+          tokens.push(data.token);
+          tokenMeta.push({ staffId: ownerAdminUid, tokenKey: tokenSnap.key });
+        }
+      });
+      if (tokens.length > 0) {
+        const messaging = getMessaging();
+        const result = await messaging.sendEachForMulticast({ ...message, tokens });
+        result.responses.forEach((resp, idx) => {
+          if (
+            resp.error &&
+            (resp.error.code === "messaging/registration-token-not-registered" ||
+              resp.error.code === "messaging/invalid-registration-token")
+          ) {
+            const meta = tokenMeta[idx];
+            db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
+          }
+        });
+        console.log(`[${tag}] Targeted ${ownerAdminUid}: ${result.successCount}/${tokens.length} delivered`);
+        return;
+      }
+    }
+    console.log(`[${tag}] No live tokens for owner ${ownerAdminUid}; broadcasting`);
+  }
+  await dispatchAdminPush(message, tag);
+}
+
+/** Send a single push to the rider's FCM token (stored at /riders/{uid}/fcm_token).
+ *  No-op if rider has no token saved. Errors are logged but not thrown — push
+ *  failures must not block the database operation that triggered them. */
+async function pushToRider(db, riderUid, message, tag) {
+  try {
+    const tokenSnap = await db.ref(`riders/${riderUid}/fcm_token`).once("value");
+    const token = tokenSnap.val();
+    if (!token) {
+      console.warn(`[${tag}] Rider ${riderUid} has no fcm_token`);
+      return;
+    }
+    await getMessaging().send({ token, ...message });
+    console.log(`[${tag}] Delivered to rider ${riderUid}`);
+  } catch (err) {
+    console.error(`[${tag}] Push to rider ${riderUid} failed:`, err);
+  }
+}
+
+function shortJobId(id) {
+  return (id || "").slice(-4).toUpperCase() || "????";
+}
+
+exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+  const { jobId, type, riderNote, evidenceUrls } = request.data || {};
+  if (!jobId || typeof jobId !== "string") {
+    throw new HttpsError("invalid-argument", "ต้องระบุ jobId");
+  }
+  if (type !== "device_mismatch") {
+    throw new HttpsError("invalid-argument", "type ไม่รองรับใน Phase 1");
+  }
+  if (!Array.isArray(evidenceUrls) || evidenceUrls.length < 1) {
+    throw new HttpsError("invalid-argument", "ต้องมีรูปประกอบอย่างน้อย 1 รูป");
+  }
+  for (const url of evidenceUrls) {
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+      throw new HttpsError("invalid-argument", "evidenceUrls ต้องเป็น https URL");
+    }
+  }
+  if (riderNote && (typeof riderNote !== "string" || riderNote.length > 500)) {
+    throw new HttpsError("invalid-argument", "riderNote ยาวเกิน 500 ตัวอักษร");
+  }
+
+  const db = getDatabase();
+
+  const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+  if (!jobSnap.exists()) {
+    throw new HttpsError("not-found", "ไม่พบงาน");
+  }
+  const job = jobSnap.val();
+  if (job.rider_id !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "ไม่ใช่ rider ของ job นี้");
+  }
+
+  // Reject if there's already a pending amendment on this job — one at a time
+  const existing = await db.ref("jobs_amendments")
+    .orderByChild("job_id").equalTo(jobId).once("value");
+  let hasPending = false;
+  existing.forEach((s) => {
+    if (s.val().status === "pending" || s.val().status === "approved") hasPending = true;
+  });
+  if (hasPending) {
+    throw new HttpsError("failed-precondition", "มี amendment ค้างอยู่บน job นี้แล้ว");
+  }
+
+  const before = {
+    devices: job.devices || [],
+    final_price: typeof job.final_price === "number" ? job.final_price :
+                 typeof job.price === "number" ? job.price : 0,
+  };
+
+  const newRef = db.ref("jobs_amendments").push();
+  const amendmentId = newRef.key;
+
+  const riderSnap = await db.ref(`riders/${request.auth.uid}`).once("value");
+  const riderName = (riderSnap.val() && riderSnap.val().name) || job.rider_name || "Rider";
+
+  const amendment = {
+    id: amendmentId,
+    job_id: jobId,
+    type,
+    requested_at: Date.now(),
+    requested_by_rider_uid: request.auth.uid,
+    requested_by_rider_name: riderName,
+    rider_note: riderNote || "",
+    evidence_urls: evidenceUrls,
+    before,
+    status: "pending",
+  };
+
+  await newRef.set(amendment);
+
+  await dispatchAmendmentPush(
+    db,
+    {
+      notification: {
+        title: "🚨 Rider ขอแก้ไข — รอ admin อนุมัติ",
+        body: `${riderName} แจ้งปัญหา job #${shortJobId(jobId)}: ${riderNote || "ดูรายละเอียด"}`,
+      },
+      data: { type: "amendment_requested", amendmentId, jobId },
+    },
+    job.agent_uid,
+    "amendment-requested"
+  );
+
+  return { ok: true, amendmentId };
+});
+
+exports.reviewAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+  const { amendmentId, decision, after, adminNote, rejectAction } = request.data || {};
+  if (!amendmentId || (decision !== "approve" && decision !== "reject")) {
+    throw new HttpsError("invalid-argument", "amendmentId / decision ไม่ถูกต้อง");
+  }
+  if (adminNote && (typeof adminNote !== "string" || adminNote.length > 500)) {
+    throw new HttpsError("invalid-argument", "adminNote ยาวเกิน 500 ตัวอักษร");
+  }
+
+  const db = getDatabase();
+  const adminSnap = await db.ref(`admins/${request.auth.uid}`).once("value");
+  if (!adminSnap.exists() || adminSnap.val().role !== "admin") {
+    throw new HttpsError("permission-denied", "เฉพาะ admin");
+  }
+
+  const amSnap = await db.ref(`jobs_amendments/${amendmentId}`).once("value");
+  if (!amSnap.exists()) {
+    throw new HttpsError("not-found", "ไม่พบ amendment");
+  }
+  const am = amSnap.val();
+  if (am.status !== "pending") {
+    throw new HttpsError("failed-precondition", `amendment status=${am.status}`);
+  }
+
+  const adminName = adminSnap.val().name || adminSnap.val().display_name || "Admin";
+  const updates = {
+    reviewed_at: Date.now(),
+    reviewed_by_admin_uid: request.auth.uid,
+    reviewed_by_admin_name: adminName,
+    admin_note: adminNote || "",
+  };
+
+  if (decision === "approve") {
+    if (
+      !after ||
+      !Array.isArray(after.devices) ||
+      after.devices.length < 1 ||
+      typeof after.final_price !== "number"
+    ) {
+      throw new HttpsError("invalid-argument", "after snapshot ต้องครบ (devices + final_price)");
+    }
+    updates.status = "approved";
+    updates.after = {
+      devices: after.devices,
+      final_price: after.final_price,
+    };
+  } else {
+    const allowed = ["continue_original", "cancel_job", "wait_admin_call"];
+    if (!allowed.includes(rejectAction)) {
+      throw new HttpsError("invalid-argument", `rejectAction ต้องเป็น ${allowed.join("/")}`);
+    }
+    updates.status = "rejected";
+    updates.reject_action = rejectAction;
+    if (rejectAction === "cancel_job") {
+      // Atomic: amendment+job both updated together
+      const now = Date.now();
+      await db.ref().update({
+        ...Object.fromEntries(Object.entries(updates).map(([k, v]) => [`jobs_amendments/${amendmentId}/${k}`, v])),
+        [`jobs/${am.job_id}/status`]: "Cancelled",
+        [`jobs/${am.job_id}/cancel_category`]: "amendment_rejected",
+        [`jobs/${am.job_id}/cancel_reason`]: adminNote || "Admin ปฏิเสธ amendment + ขอยกเลิก job",
+        [`jobs/${am.job_id}/cancelled_at`]: now,
+        [`jobs/${am.job_id}/updated_at`]: now,
+      });
+      await pushToRider(
+        db,
+        am.requested_by_rider_uid,
+        {
+          notification: {
+            title: "❌ Admin ยกเลิก job",
+            body: adminNote || `แจ้งลูกค้าและกลับได้เลย — job #${shortJobId(am.job_id)}`,
+          },
+          data: { type: "amendment_rejected", amendmentId, jobId: am.job_id, rejectAction },
+        },
+        "amendment-rejected-cancel"
+      );
+      return { ok: true };
+    }
+  }
+
+  await db.ref(`jobs_amendments/${amendmentId}`).update(updates);
+
+  const riderTitle = decision === "approve"
+    ? "✅ Admin อนุมัติ — ขอลายเซ็นลูกค้า"
+    : (rejectAction === "wait_admin_call"
+        ? "⏸ Admin จะติดต่อลูกค้าเอง"
+        : "❌ Admin ปฏิเสธ — ทำงานต่อตาม original");
+  const riderBody = decision === "approve"
+    ? `เปิดงาน #${shortJobId(am.job_id)} เพื่อให้ลูกค้าเซ็นยืนยัน`
+    : (adminNote || (rejectAction === "wait_admin_call"
+        ? "รอที่จุดรับ — admin จะแจ้งคำสั่งใหม่"
+        : `รับเครื่องตาม spec เดิมเท่านั้น — job #${shortJobId(am.job_id)}`));
+
+  await pushToRider(
+    db,
+    am.requested_by_rider_uid,
+    {
+      notification: { title: riderTitle, body: riderBody },
+      data: { type: `amendment_${updates.status}`, amendmentId, jobId: am.job_id, rejectAction: rejectAction || "" },
+    },
+    `amendment-${updates.status}`
+  );
+
+  return { ok: true };
+});
+
+exports.consentAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+  const { amendmentId, signatureUrl } = request.data || {};
+  if (!amendmentId || !signatureUrl || typeof signatureUrl !== "string") {
+    throw new HttpsError("invalid-argument", "amendmentId/signatureUrl ไม่ครบ");
+  }
+  if (!/^https?:\/\//.test(signatureUrl)) {
+    throw new HttpsError("invalid-argument", "signatureUrl ต้องเป็น https URL");
+  }
+
+  const db = getDatabase();
+  const amSnap = await db.ref(`jobs_amendments/${amendmentId}`).once("value");
+  if (!amSnap.exists()) {
+    throw new HttpsError("not-found", "ไม่พบ amendment");
+  }
+  const am = amSnap.val();
+  if (am.status !== "approved") {
+    throw new HttpsError("failed-precondition", `amendment status=${am.status}`);
+  }
+  if (am.requested_by_rider_uid !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "เฉพาะ rider ของ amendment");
+  }
+  if (!am.after || !Array.isArray(am.after.devices)) {
+    throw new HttpsError("internal", "amendment.after ขาด — admin approve ผิดพลาด");
+  }
+
+  const now = Date.now();
+
+  // Append qc_log: pull current logs first since RTDB doesn't have arrayUnion
+  const jobSnap = await db.ref(`jobs/${am.job_id}`).once("value");
+  if (!jobSnap.exists()) {
+    throw new HttpsError("not-found", "ไม่พบ job ที่จะ apply");
+  }
+  const job = jobSnap.val();
+  const updatedLogs = [
+    {
+      action: "Amendment Applied",
+      by: `Rider: ${am.requested_by_rider_name}`,
+      timestamp: now,
+      details: `เปลี่ยน devices/ราคา ตาม amendment ${amendmentId} (admin: ${am.reviewed_by_admin_name || "?"})`,
+    },
+    ...(job.qc_logs || []),
+  ];
+
+  // Atomic multi-path update
+  await db.ref().update({
+    [`jobs_amendments/${amendmentId}/status`]: "applied",
+    [`jobs_amendments/${amendmentId}/consented_at`]: now,
+    [`jobs_amendments/${amendmentId}/consent_method`]: "signature",
+    [`jobs_amendments/${amendmentId}/consent_signature_url`]: signatureUrl,
+    [`jobs_amendments/${amendmentId}/applied_at`]: now,
+    [`jobs/${am.job_id}/devices`]: am.after.devices,
+    [`jobs/${am.job_id}/final_price`]: am.after.final_price,
+    [`jobs/${am.job_id}/qc_logs`]: updatedLogs,
+    [`jobs/${am.job_id}/updated_at`]: now,
+  });
+
+  await dispatchAmendmentPush(
+    db,
+    {
+      notification: {
+        title: "✅ Amendment สำเร็จ",
+        body: `Job #${shortJobId(am.job_id)} ลูกค้าเซ็นแล้ว — rider ทำงานต่อ`,
+      },
+      data: { type: "amendment_applied", amendmentId, jobId: am.job_id },
+    },
+    job.agent_uid,
+    "amendment-applied"
+  );
+
+  return { ok: true };
+});
+
+exports.escalateAmendmentTimeouts = onSchedule(
+  { schedule: "every 1 minutes", timeZone: "Asia/Bangkok", region: AMENDMENT_REGION },
+  async () => {
+    const db = getDatabase();
+    const cutoff = Date.now() - 15 * 60 * 1000;
+
+    const snap = await db
+      .ref("jobs_amendments")
+      .orderByChild("status")
+      .equalTo("pending")
+      .once("value");
+    if (!snap.exists()) return;
+
+    const ops = [];
+    snap.forEach((s) => {
+      const am = s.val();
+      if (am.requested_at < cutoff && !am.escalated_at) {
+        ops.push(
+          s.ref
+            .update({ escalated_at: Date.now() })
+            .then(() =>
+              dispatchAdminPush(
+                {
+                  notification: {
+                    title: "🚨 Amendment ค้างนาน — รอ admin",
+                    body: `Rider ${am.requested_by_rider_name} รอเกิน 15 นาทีบน job #${shortJobId(am.job_id)}`,
+                  },
+                  data: { type: "amendment_escalated", amendmentId: am.id, jobId: am.job_id },
+                },
+                "amendment-escalation"
+              )
+            )
+        );
+      }
+    });
+    if (ops.length === 0) return;
+    console.log(`[amendment-escalation] Escalating ${ops.length} stale amendments`);
+    await Promise.all(ops);
   }
 );
