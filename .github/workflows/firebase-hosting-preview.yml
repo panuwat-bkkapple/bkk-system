@@ -42,3 +42,11 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
           projectId: bkk-apple-tradein
           target: admin
+          # Shorten the preview-channel lifetime from the 7d default to 1d.
+          # Firebase Hosting limits ~50 preview channels per site; with the
+          # PR cadence in this repo we hit RESOURCE_EXHAUSTED (HTTP 429)
+          # repeatedly. 1d still covers the typical review-then-merge
+          # window — we squash-merge fast and don't keep PR previews
+          # around. Anything still relevant after a day can re-trigger
+          # by pushing a new commit.
+          expires: 1d
