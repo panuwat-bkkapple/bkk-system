@@ -51,9 +51,26 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
 };
 
 // Pipeline steps
+// Each step lists every status that should highlight that segment of the
+// timeline. Includes BOTH legacy lowercase strings and the canonical
+// values from JOB_STATUS so jobs written by either-vintage code render
+// correctly. When the rider/admin app writes `Rider En Route`, the
+// pickup pill activates. When a legacy code path writes
+// `Heading to Customer`, the same pill activates.
 const PIPELINE = [
   { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
-  { label: 'รับเครื่อง', statuses: ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit'] },
+  {
+    label: 'รับเครื่อง',
+    statuses: [
+      'Active Leads',
+      // Rider claims through legacy or canonical
+      'Assigned', 'Accepted', 'Rider Accepted',
+      // Heading out (legacy "Heading to Customer" / "In-Transit", canonical "Rider En Route")
+      'Heading to Customer', 'In-Transit', 'Rider En Route',
+      // On-site (legacy "Arrived", canonical "Rider Arrived")
+      'Arrived', 'Rider Arrived',
+    ],
+  },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
   { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
 ];
