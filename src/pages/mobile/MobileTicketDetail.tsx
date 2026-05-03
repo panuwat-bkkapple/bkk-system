@@ -173,7 +173,25 @@ export const MobileTicketDetail = () => {
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
 
   // Pipeline progress
-  const currentStepIdx = PIPELINE.findIndex((step) => step.statuses.includes(job.status));
+  // Use the FURTHEST step the job has ever reached (max from qc_logs +
+  // current status), not just the current status. The flow legitimately
+  // moves "backwards" from จ่ายเงิน → ตรวจสอบ when the rider returns to
+  // base and the device awaits internal QC (Paid → Rider Returning →
+  // Pending QC) — but the payment phase is still "completed", so the
+  // pill should stay highlighted. qc_logs.action stores the canonical
+  // status name in nearly all transitions, so a Set lookup against the
+  // PIPELINE catches each step the job has ever touched.
+  const reachedStatuses = new Set<string>();
+  if (job.status) reachedStatuses.add(job.status);
+  for (const log of (job.qc_logs || [])) {
+    if (log && typeof log.action === 'string') reachedStatuses.add(log.action);
+  }
+  let currentStepIdx = -1;
+  PIPELINE.forEach((step, idx) => {
+    if (step.statuses.some((s) => reachedStatuses.has(s))) {
+      currentStepIdx = Math.max(currentStepIdx, idx);
+    }
+  });
 
   const makeLog = (action: string, details: string) => ({
     action, details, by: currentUser?.name || 'Admin', timestamp: Date.now()
