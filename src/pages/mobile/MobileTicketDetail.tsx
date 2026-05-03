@@ -1075,10 +1075,29 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       break;
     case 'Being Inspected':
     case 'Pending QC':
-    case 'QC Review':
-      actions.push({ label: 'ผ่าน QC → Payout', status: 'Payout Processing', log: 'ผ่านการตรวจสอบ ดำเนินการจ่ายเงิน', style: 'bg-emerald-500 text-white' });
-      actions.push({ label: 'ต้องเจรจาราคา (Negotiation)', status: 'Negotiation', log: 'ต้องเจรจาราคากับลูกค้า', style: 'bg-red-500 text-white' });
+    case 'QC Review': {
+      // "Pending QC" appears in TWO different points in our flow:
+      //   1. PRE-payment (Mail-in / Store-in inspection at branch
+      //      before admin transfers money) → next step is Payout.
+      //   2. POST-payment (Pickup flow, after rider returns to branch
+      //      with the device) → payment already done; next step is
+      //      Lab / Stock / Sold for the resale pipeline.
+      // Detect by scanning qc_logs for a prior "Paid" / "PAID" entry.
+      // If we ever paid this job, "ผ่าน QC → Payout" would loop a
+      // second payout — wrong. Branch accordingly.
+      const wasPaid = (job?.qc_logs || []).some(
+        (l: any) => l && (l.action === 'Paid' || l.action === 'PAID'),
+      );
+      if (status === 'Pending QC' && wasPaid) {
+        actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', status: 'Sent to QC Lab', log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
+        actions.push({ label: 'ผ่าน QC → เก็บ Stock', status: 'In Stock', log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
+        actions.push({ label: 'ขายแล้ว (Sold)', status: 'Sold', log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white' });
+      } else {
+        actions.push({ label: 'ผ่าน QC → Payout', status: 'Payout Processing', log: 'ผ่านการตรวจสอบ ดำเนินการจ่ายเงิน', style: 'bg-emerald-500 text-white' });
+        actions.push({ label: 'ต้องเจรจาราคา (Negotiation)', status: 'Negotiation', log: 'ต้องเจรจาราคากับลูกค้า', style: 'bg-red-500 text-white' });
+      }
       break;
+    }
     case 'Revised Offer':
     case 'Negotiation':
       actions.push({ label: 'ตกลงราคา → Payout', status: 'Payout Processing', log: 'ลูกค้าตกลงราคา เริ่มจ่ายเงิน', style: 'bg-emerald-500 text-white' });
