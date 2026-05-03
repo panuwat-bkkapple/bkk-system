@@ -1743,15 +1743,29 @@ exports.reviewAmendment = onCall({ region: AMENDMENT_REGION }, async (request) =
     };
     await db.ref().update(updates);
 
+    // Include the new total + delta in the push body so rider sees the
+    // pending amount on the lock-screen notification (without needing
+    // to open the consent modal first). Job's main card still shows the
+    // old final_price until atomic apply runs after consent.
+    const beforeTotal = (am.before && typeof am.before.final_price === "number") ? am.before.final_price : 0;
+    const afterTotal = sanitizedAfter.final_price;
+    const delta = afterTotal - beforeTotal;
+    const deltaSign = delta >= 0 ? "+" : "";
     await pushToRider(
       db,
       am.requested_by_rider_uid,
       {
         notification: {
           title: "✅ Admin อนุมัติ — ขอลายเซ็นลูกค้า",
-          body: `เปิดงาน #${shortJobId(am.job_id)} เพื่อให้ลูกค้าเซ็นยืนยัน`,
+          body: `Job #${shortJobId(am.job_id)} · ราคาใหม่ ฿${afterTotal.toLocaleString()} (${deltaSign}฿${delta.toLocaleString()})`,
         },
-        data: { type: "amendment_approved", amendmentId, jobId: am.job_id },
+        data: {
+          type: "amendment_approved",
+          amendmentId,
+          jobId: am.job_id,
+          beforeFinalPrice: String(beforeTotal),
+          afterFinalPrice: String(afterTotal),
+        },
       },
       "amendment-approved"
     );
