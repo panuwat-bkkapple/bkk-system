@@ -45,7 +45,17 @@ const PHASE_FILTERS = [
 ];
 
 const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
-const LOGISTICS_STATUSES = ['Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit', 'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'];
+// Includes both legacy and canonical (JOB_STATUS) values so a job that
+// flips to `Rider En Route` doesn't fall out of the Logistics tab.
+const LOGISTICS_STATUSES = [
+  // Legacy
+  'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit',
+  // Canonical (from JOB_STATUS)
+  'Active Lead', 'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
+  // Inspection / payout phases — unchanged
+  'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation',
+  'Payout Processing', 'Waiting for Handover',
+];
 const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {
