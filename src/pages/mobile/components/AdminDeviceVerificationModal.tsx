@@ -60,14 +60,19 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
 
   const handleUpload = async (file: File | undefined, slot: Slot) => {
     if (!file) return;
-    const setter = slot === 'imei' ? setImei
+    // Setter is the union of 4 differently-typed Dispatch funcs. TS can't
+    // call a union of setters with one updater signature, so cast to a
+    // single permissive type — the slot branching below picks the right
+    // one anyway.
+    type AnySetter = React.Dispatch<React.SetStateAction<SlotState<unknown>>>;
+    const setter = (slot === 'imei' ? setImei
       : slot === 'battery' ? setBattery
       : slot === 'findMy' ? setFindMy
-      : setWarranty;
-    setter((s: SlotState<unknown>) => ({ ...s, uploading: true }));
+      : setWarranty) as unknown as AnySetter;
+    setter((s) => ({ ...s, uploading: true }));
     try {
       const url = await uploadImageToFirebase(file, `jobs/${job.id}/verification`, { opaqueFilename: true });
-      setter((s: SlotState<unknown>) => ({ ...s, url, uploading: false, ocring: true }));
+      setter((s) => ({ ...s, url, uploading: false, ocring: true }));
 
       try {
         if (slot === 'imei') {
@@ -91,12 +96,12 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error('[AdminDeviceVerification] OCR failed', { slot, error: msg });
-        setter((s: SlotState<unknown>) => ({ ...s, ocring: false }));
+        setter((s) => ({ ...s, ocring: false }));
         toast.info('อ่านข้อมูลอัตโนมัติไม่ได้ — กรุณากรอกเอง');
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setter((s: SlotState<unknown>) => ({ ...s, uploading: false }));
+      setter((s) => ({ ...s, uploading: false }));
       toast.error('อัปโหลดไม่สำเร็จ: ' + msg);
     }
   };
