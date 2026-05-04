@@ -24,6 +24,33 @@ export interface IdCardFields {
   expiresAt: string | null;
 }
 
+export interface ImeiFields {
+  imei: string | null;
+  imei2: string | null;
+  serial: string | null;
+  modelNumber: string | null;
+  modelName: string | null;
+}
+
+export interface BatteryFields {
+  maximumCapacityPct: number | null;
+  cycleCount: number | null;
+  peakPerformanceCapability: string | null;
+}
+
+export interface FindMyFields {
+  findMyStatus: 'on' | 'off' | 'unknown';
+  activationLock: 'on' | 'off' | 'unknown';
+  appleIdHint: string | null;
+}
+
+export interface WarrantyFields {
+  status: 'active' | 'expired' | 'unknown';
+  expiresAt: string | null;
+  coverageType: 'applecare_plus' | 'limited_warranty' | null;
+  expiresAtRaw: string | null;
+}
+
 async function call<F>(mode: Mode, storageUri: string): Promise<ExtractResponse<F>> {
   const functions = getFunctions(app, 'asia-southeast1');
   const fn = httpsCallable<{ mode: Mode; storageUri: string }, ExtractResponse<F>>(functions, 'extractFromImage');
@@ -35,5 +62,22 @@ export async function ocrIdCard(storageUri: string): Promise<ExtractResponse<IdC
   return call<IdCardFields>('idCard', storageUri);
 }
 
+export async function ocrImei(storageUri: string): Promise<ExtractResponse<ImeiFields>> {
+  return call<ImeiFields>('imei', storageUri);
+}
+
+export async function ocrBattery(storageUri: string): Promise<ExtractResponse<BatteryFields>> {
+  return call<BatteryFields>('battery', storageUri);
+}
+
+export async function ocrFindMy(storageUri: string): Promise<ExtractResponse<FindMyFields>> {
+  return call<FindMyFields>('findMy', storageUri);
+}
+
+export async function ocrWarranty(storageUri: string): Promise<ExtractResponse<WarrantyFields>> {
+  return call<WarrantyFields>('warranty', storageUri);
+}
+
 /** Confidence threshold below which the operator should manually verify */
 export const OCR_VERIFY_THRESHOLD = 0.8;
+
