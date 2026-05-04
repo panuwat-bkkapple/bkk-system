@@ -1262,19 +1262,66 @@ async function dispatchAmendmentPush(db, message, ownerAdminUid, tag) {
   await dispatchAdminPush(message, tag);
 }
 
-/** Send a single push to the rider's FCM token (stored at /riders/{uid}/fcm_token).
- *  No-op if rider has no token saved. Errors are logged but not thrown — push
- *  failures must not block the database operation that triggered them. */
+/** Send a push to all of the rider's FCM tokens.
+ *  Reads multi-device tokens from `/riders/{uid}/fcm_tokens/{deviceId}` (current
+ *  format) and falls back to legacy `/riders/{uid}/fcm_token` (single-string) for
+ *  rider clients that haven't migrated yet. Dead tokens are cleaned up the same
+ *  way `dispatchAdminPush` does — when FCM returns
+ *  `messaging/registration-token-not-registered` or `invalid-registration-token`,
+ *  the offending token entry is removed from RTDB so it doesn't waste sends. */
 async function pushToRider(db, riderUid, message, tag) {
   try {
-    const tokenSnap = await db.ref(`riders/${riderUid}/fcm_token`).once("value");
-    const token = tokenSnap.val();
-    if (!token) {
-      console.warn(`[${tag}] Rider ${riderUid} has no fcm_token`);
+    const tokens = [];
+    const tokenMeta = [];
+
+    const multiSnap = await db.ref(`riders/${riderUid}/fcm_tokens`).once("value");
+    if (multiSnap.exists()) {
+      multiSnap.forEach((deviceSnap) => {
+        const data = deviceSnap.val();
+        if (data && data.token) {
+          tokens.push(data.token);
+          tokenMeta.push({ kind: "multi", deviceId: deviceSnap.key });
+        }
+      });
+    }
+
+    const legacySnap = await db.ref(`riders/${riderUid}/fcm_token`).once("value");
+    const legacyToken = legacySnap.val();
+    if (typeof legacyToken === "string" && legacyToken && !tokens.includes(legacyToken)) {
+      tokens.push(legacyToken);
+      tokenMeta.push({ kind: "legacy" });
+    }
+
+    if (tokens.length === 0) {
+      console.warn(`[${tag}] Rider ${riderUid} has no FCM tokens (multi or legacy)`);
       return;
     }
-    await getMessaging().send({ token, ...message });
-    console.log(`[${tag}] Delivered to rider ${riderUid}`);
+
+    const result = await getMessaging().sendEachForMulticast({ ...message, tokens });
+
+    result.responses.forEach((resp, idx) => {
+      if (resp.error) {
+        const meta = tokenMeta[idx];
+        const expired =
+          resp.error.code === "messaging/registration-token-not-registered" ||
+          resp.error.code === "messaging/invalid-registration-token";
+        if (expired && meta) {
+          if (meta.kind === "multi") {
+            db.ref(`riders/${riderUid}/fcm_tokens/${meta.deviceId}`).remove();
+            console.log(`[${tag}] Cleaned up expired rider token: ${riderUid}/${meta.deviceId}`);
+          } else {
+            db.ref(`riders/${riderUid}/fcm_token`).remove();
+            console.log(`[${tag}] Cleaned up expired legacy rider token: ${riderUid}`);
+          }
+        } else {
+          console.warn(`[${tag}] Push to rider ${riderUid} (idx ${idx}) failed:`, resp.error.code);
+        }
+      }
+    });
+
+    console.log(
+      `[${tag}] Rider ${riderUid}: ${result.successCount} success, ${result.failureCount} failed, ${tokens.length} total`
+    );
   } catch (err) {
     console.error(`[${tag}] Push to rider ${riderUid} failed:`, err);
   }
