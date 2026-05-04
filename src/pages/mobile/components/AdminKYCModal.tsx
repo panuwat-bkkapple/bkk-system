@@ -186,12 +186,13 @@ export const AdminKYCModal = ({ job, staffName, onClose, onSaved }: AdminKYCModa
       // pattern the rest of the codebase uses. Mixing string keys into
       // the array path turns it into a map and crashes consumers that
       // call .some() / .map() on it.
+      const isPostHoc = job.receive_method !== 'Store-in';
       const newLog = {
         action: 'KYC_CAPTURED',
         by: staffName || 'Admin',
         by_uid: auth.currentUser.uid,
         timestamp: verifiedAt,
-        details: `Store-in KYC (${method === 'photo' ? 'มีบัตร' : 'ไม่มีบัตร'})`,
+        details: `${isPostHoc ? 'KYC ย้อนหลัง' : 'Store-in KYC'} (${method === 'photo' ? 'มีบัตร' : 'ไม่มีบัตร'})`,
       };
       const updatedLogs = [newLog, ...((job.qc_logs as unknown[]) || [])];
       const updates: Record<string, unknown> = {
@@ -232,7 +233,11 @@ export const AdminKYCModal = ({ job, staffName, onClose, onSaved }: AdminKYCModa
             </div>
             <div>
               <h2 className="font-bold text-gray-900">ยืนยันตัวตนลูกค้า</h2>
-              <p className="text-xs text-gray-500">งาน Store-in — บันทึก KYC ที่สาขา</p>
+              <p className="text-xs text-gray-500">
+                {job?.receive_method === 'Store-in'
+                  ? 'งาน Store-in — บันทึก KYC ที่สาขา'
+                  : 'บันทึก KYC ย้อนหลัง (admin)'}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full" aria-label="ปิด">
