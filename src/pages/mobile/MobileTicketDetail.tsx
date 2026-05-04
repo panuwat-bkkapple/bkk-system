@@ -110,11 +110,25 @@ export const MobileTicketDetail = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [rider, setRider] = useState<{ name: string; phone: string } | null>(null);
 
-  // Load job
+  // Load job. RTDB returns arrays as objects when keys aren't sequential
+  // integers (e.g. qc_logs that got a string key written by mistake), so
+  // we normalize the few array fields we know about up front. Consumers
+  // (.some / .map / spread) then Just Work without each one re-checking.
   useEffect(() => {
     if (!id) return;
     const unsub = onValue(ref(db, `jobs/${id}`), (snap) => {
-      if (snap.exists()) setJob({ id: snap.key, ...snap.val() });
+      if (snap.exists()) {
+        const raw = snap.val();
+        const normalized = {
+          ...raw,
+          qc_logs: Array.isArray(raw.qc_logs)
+            ? raw.qc_logs
+            : raw.qc_logs && typeof raw.qc_logs === 'object'
+              ? Object.values(raw.qc_logs)
+              : [],
+        };
+        setJob({ id: snap.key, ...normalized });
+      }
       setLoading(false);
     });
     return () => unsub();
