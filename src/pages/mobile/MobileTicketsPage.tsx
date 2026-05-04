@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { normalizeQcLogs } from '../../utils/jobNormalizer';
 import {
   Search, Filter, ChevronRight, Phone, MapPin,
   Truck, Store, Mail, Clock, Package, RefreshCw
@@ -82,7 +83,8 @@ export const MobileTicketsPage = () => {
       if (!snap.exists()) { setJobs([]); setLoading(false); return; }
       const list: any[] = [];
       snap.forEach((child) => {
-        list.push({ id: child.key, ...child.val() });
+        const raw = child.val();
+        list.push({ id: child.key, ...raw, qc_logs: normalizeQcLogs(raw?.qc_logs) });
       });
       list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       setJobs(list);
