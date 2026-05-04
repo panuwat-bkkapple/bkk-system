@@ -11,6 +11,9 @@ import { useToast } from '../../../components/ui/ToastProvider';
 
 interface KYCInfoCardProps {
   job: Job;
+  /** When provided, the empty state on Store-in jobs shows a "บันทึก KYC ที่สาขา"
+   *  button that invokes this callback. Other job types ignore it. */
+  onCaptureKyc?: () => void;
 }
 
 // Format 1234567890123 → 1-2345-67890-12-3 (Thai NID display style)
@@ -107,7 +110,7 @@ function isExpired(s: string | undefined): boolean {
   return d.getTime() < today.getTime();
 }
 
-export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
+export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) => {
   const toast = useToast();
   const [showFullNid, setShowFullNid] = useState(false);
   const [copiedNid, setCopiedNid] = useState(false);
@@ -187,9 +190,19 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job }) => {
           </div>
         )}
         {!isPickup && (
-          <p className="text-xs text-slate-400">
-            งาน {job.receive_method} จะบันทึก KYC ที่สาขา/ตอนเปิดพัสดุ ไม่ผ่านไรเดอร์
-          </p>
+          <>
+            <p className="text-xs text-slate-400">
+              งาน {job.receive_method} จะบันทึก KYC ที่สาขา/ตอนเปิดพัสดุ ไม่ผ่านไรเดอร์
+            </p>
+            {onCaptureKyc && (job.receive_method === 'Store-in') && (
+              <button
+                onClick={onCaptureKyc}
+                className="mt-3 w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition"
+              >
+                <ShieldCheck size={16} /> บันทึก KYC ที่สาขา
+              </button>
+            )}
+          </>
         )}
       </div>
     );

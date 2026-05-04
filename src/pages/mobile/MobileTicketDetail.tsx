@@ -13,6 +13,8 @@ import {
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
+import { AdminKYCModal } from './components/AdminKYCModal';
+import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
 
@@ -94,6 +96,8 @@ export const MobileTicketDetail = () => {
   const [showChat, setShowChat] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showKycModal, setShowKycModal] = useState(false);
+  const [showInspectModal, setShowInspectModal] = useState(false);
   const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -542,8 +546,27 @@ export const MobileTicketDetail = () => {
           {/* === On-site amendment banner (if pending/approved) === */}
           <AmendmentBanner jobId={job.id} />
 
-          {/* === KYC (rider-captured at pickup) === */}
-          <KYCInfoCard job={job} />
+          {/* === KYC (rider-captured at pickup, admin-captured at branch for Store-in) === */}
+          <KYCInfoCard job={job} onCaptureKyc={() => setShowKycModal(true)} />
+
+          {/* === Store-in inspection card — only when admin still needs to QC the device === */}
+          {job.receive_method === 'Store-in'
+            && !job.inspected_at
+            && !isCancelled
+            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(job.status) && (
+            <button
+              onClick={() => setShowInspectModal(true)}
+              className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
+            >
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                <Camera size={20} />
+              </div>
+              <div className="text-left flex-1">
+                <p className="font-bold">ตรวจสภาพเครื่อง</p>
+                <p className="text-xs text-purple-100">ถ่ายรูป 6 ด้าน + เช็คลิสต์ → Pending QC</p>
+              </div>
+            </button>
+          )}
 
           {/* === Device Details (enhanced) === */}
           {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {
@@ -860,6 +883,24 @@ export const MobileTicketDetail = () => {
             </div>
           )}
         </div>
+      )}
+
+      {/* === Admin KYC Modal (Store-in only) === */}
+      {showKycModal && job && (
+        <AdminKYCModal
+          job={job}
+          staffName={currentUser?.name || 'Admin'}
+          onClose={() => setShowKycModal(false)}
+        />
+      )}
+
+      {/* === Admin Inspection Modal (Store-in only) === */}
+      {showInspectModal && job && (
+        <AdminInspectionModal
+          job={job}
+          staffName={currentUser?.name || 'Admin'}
+          onClose={() => setShowInspectModal(false)}
+        />
       )}
 
       {/* === Edit Modal === */}

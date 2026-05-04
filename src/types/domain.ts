@@ -323,6 +323,9 @@ export interface Job {
   price: number;
   /** ราคาสุดท้าย (หลังเจรจา/หักส่วนลด) */
   final_price: number;
+  /** ยอดสุทธิที่ลูกค้าได้รับ (final_price - pickup_fee + coupon).
+   *  Cloud Function เขียนตอนสร้างงาน + admin/rider เขียนทุกครั้งที่ราคาเปลี่ยน. */
+  net_payout?: number;
 
   // ข้อมูลลูกค้า
   /** ชื่อลูกค้า */
