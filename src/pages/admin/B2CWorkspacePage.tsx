@@ -10,6 +10,7 @@ import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
 import { useToast } from '@/components/ui/ToastProvider';
 import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
+import { normalizeQcLogs } from '@/utils/jobNormalizer';
 
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
@@ -44,7 +45,15 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     if (!id) return;
     const unsubscribeJob = onValue(ref(db, `jobs/${id}`), (snapshot) => {
       if (snapshot.exists()) {
-        const data = { id: snapshot.key, ...snapshot.val() };
+        const raw = snapshot.val();
+        // qc_logs may have been promoted to a map by an earlier write
+        // mistake (multi-path update with a string key). Without this
+        // normalize, .some/.map throw and the page goes white.
+        const data = {
+          id: snapshot.key,
+          ...raw,
+          qc_logs: normalizeQcLogs(raw?.qc_logs),
+        };
         setJob(data);
         if (!negotiatedPrice) setNegotiatedPrice(data.final_price || data.price || '');
       }
