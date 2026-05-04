@@ -13,6 +13,7 @@ import {
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
+import { AdminKYCModal } from './components/AdminKYCModal';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
 
@@ -94,6 +95,7 @@ export const MobileTicketDetail = () => {
   const [showChat, setShowChat] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showKycModal, setShowKycModal] = useState(false);
   const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -542,8 +544,8 @@ export const MobileTicketDetail = () => {
           {/* === On-site amendment banner (if pending/approved) === */}
           <AmendmentBanner jobId={job.id} />
 
-          {/* === KYC (rider-captured at pickup) === */}
-          <KYCInfoCard job={job} />
+          {/* === KYC (rider-captured at pickup, admin-captured at branch for Store-in) === */}
+          <KYCInfoCard job={job} onCaptureKyc={() => setShowKycModal(true)} />
 
           {/* === Device Details (enhanced) === */}
           {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {
@@ -860,6 +862,15 @@ export const MobileTicketDetail = () => {
             </div>
           )}
         </div>
+      )}
+
+      {/* === Admin KYC Modal (Store-in only) === */}
+      {showKycModal && job && (
+        <AdminKYCModal
+          job={job}
+          staffName={currentUser?.name || 'Admin'}
+          onClose={() => setShowKycModal(false)}
+        />
       )}
 
       {/* === Edit Modal === */}
