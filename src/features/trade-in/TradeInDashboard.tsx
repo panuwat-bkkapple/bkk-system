@@ -28,6 +28,11 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const [filterPhase, setFilterPhase] = useState<'All' | 'Sales' | 'Logistics' | 'Closed'>('All');
   const [filterMethod, setFilterMethod] = useState<'All' | 'Store-in' | 'Pickup' | 'Mail-in'>('All');
   const [filterKyc, setFilterKyc] = useState<'All' | 'Review' | 'Missing'>('All');
+  // Location flag filter — surfaces orders where the registration
+  // location vs typed pickup address mismatch is suspicious. Backed by
+  // the `location_flag` field set server-side by validateAndCreateOrder
+  // (bkk-frontend-next PR #485). "Flagged" = orange or red.
+  const [filterLocation, setFilterLocation] = useState<'All' | 'Flagged' | 'Red'>('All');
 
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -59,6 +64,15 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         if (filterAgent === 'Me' && j.agent_name !== currentUser?.name) return false;
         if (filterAgent === 'Unassigned' && j.agent_name) return false;
         if (filterMethod !== 'All' && j.receive_method !== filterMethod) return false;
+
+        // Location flag filter — flagged = orange or red, Red = red only.
+        // Skips orders without a flag (legacy / opt-out / geocode failed)
+        // when the filter is on, so admin can focus on actionable cases.
+        if (filterLocation !== 'All') {
+          const flag = (j as { location_flag?: string }).location_flag;
+          if (filterLocation === 'Flagged' && flag !== 'orange' && flag !== 'red') return false;
+          if (filterLocation === 'Red' && flag !== 'red') return false;
+        }
 
         // KYC review filter — uses non-sensitive flags on the parent job
         // doc (kyc_method, kyc_verified_at). Actual KYC record lives at
@@ -93,7 +107,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
       return true;
     }).sort((a, b) => b.created_at - a.created_at);
-  }, [jobs, searchTerm, filterAgent, filterPhase, filterMethod, filterKyc, currentUser, workspace]);
+  }, [jobs, searchTerm, filterAgent, filterPhase, filterMethod, filterKyc, filterLocation, currentUser, workspace]);
 
   // ฟังก์ชันสร้าง Ticket (B2C)
   const handleCreateTicket = async (payload: any) => {
@@ -371,6 +385,16 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                   <option value="All">KYC: All</option>
                   <option value="Review">KYC: รอตรวจสอบ (Fallback)</option>
                   <option value="Missing">KYC: ขาดบันทึก</option>
+                </select>
+                <select
+                  value={filterLocation}
+                  onChange={e => setFilterLocation(e.target.value as 'All' | 'Flagged' | 'Red')}
+                  className={`border text-xs font-black uppercase rounded-xl px-4 py-2.5 outline-none ${filterLocation !== 'All' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}
+                  title="กรองตามพิกัดที่ผิดปกติ — เปรียบเทียบ browser geolocation vs ที่อยู่ที่กรอก"
+                >
+                  <option value="All">Location: All</option>
+                  <option value="Flagged">Location: Flagged (≥ 100 km)</option>
+                  <option value="Red">Location: Red (≥ 500 km)</option>
                 </select>
               </>
             )}
