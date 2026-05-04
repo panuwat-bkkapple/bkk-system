@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -48,12 +50,25 @@ jobs:
       - name: List preview channels
         run: |
           set -x
+          set +e
+
           firebase hosting:channel:list \
             --site bkk-apple-admin \
             --project bkk-apple-tradein \
-            --json > channels.json
-          echo "---raw output---"
-          cat channels.json
+            --json > channels.json 2> channels.err
+          exit_code=$?
+
+          echo "---firebase exit code: $exit_code---"
+          echo "---stdout (channels.json)---"
+          cat channels.json || echo "(empty)"
+          echo "---stderr (channels.err)---"
+          cat channels.err || echo "(empty)"
+
+          if [[ $exit_code -ne 0 ]]; then
+            echo "::error::firebase hosting:channel:list failed with exit $exit_code"
+            exit $exit_code
+          fi
+
           echo "---parsed names---"
           jq -r '.result.channels[]?.name // .channels[]?.name // empty' channels.json
 
