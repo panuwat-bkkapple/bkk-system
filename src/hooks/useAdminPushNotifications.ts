@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { getFirebaseMessaging } from '../api/firebase';
-import { getToken, onMessage } from 'firebase/messaging';
-import { ref, set } from 'firebase/database';
+import { getToken, onMessage, type Messaging } from 'firebase/messaging';
+import { ref, set, get, remove } from 'firebase/database';
 import { db } from '../api/firebase';
 
 // Stable per-browser identifier so token refreshes overwrite the same DB entry
@@ -19,18 +19,97 @@ const getDeviceId = (): string => {
   return id;
 };
 
+// FCM tokens on iOS PWA can silently expire after weeks/months. We re-validate
+// on visibility change (cheap) and every 12h while the app stays open.
+const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
 /**
  * Hook สำหรับลงทะเบียน FCM token ของแอดมิน
  * เก็บ token ไว้ที่ admin_fcm_tokens/{staffId}/{deviceId}
  * รับ foreground messages แล้วแสดง Browser Notification
+ *
+ * Token freshness: re-fetched on app mount, visibility change → visible, and
+ * every 12h. If FCM rotates the token we overwrite the same RTDB entry; the
+ * previous entry under a different deviceId would have been cleaned up by
+ * pushToRider/dispatchAdminPush as soon as FCM returned not-registered.
  */
 export const useAdminPushNotifications = (staffId: string | null) => {
   useEffect(() => {
     if (!staffId) return;
 
+    let messagingInstance: Messaging | null = null;
+    let swRegistration: ServiceWorkerRegistration | undefined;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let visibilityHandler: (() => void) | null = null;
+    let cancelled = false;
+
+    const saveToken = async (token: string) => {
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      const deviceId = getDeviceId();
+      const path = `admin_fcm_tokens/${staffId}/${deviceId}`;
+
+      const snap = await get(ref(db, path));
+      const existing = snap.val() as { token?: string; updated_at?: number } | null;
+
+      // Skip the write if token + updated_at are still recent — saves an RTDB
+      // round-trip on every visibility flip.
+      if (
+        existing?.token === token &&
+        existing?.updated_at &&
+        Date.now() - existing.updated_at < REFRESH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      await set(ref(db, path), {
+        token,
+        device: isMobile ? 'mobile' : 'desktop',
+        updated_at: Date.now(),
+      });
+      console.log(`[Push] FCM token saved (${isMobile ? 'mobile' : 'desktop'})`);
+    };
+
+    const fetchAndSaveToken = async () => {
+      if (!messagingInstance || cancelled) return;
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim();
+      if (!vapidKey) return;
+
+      // Patch window.atob ชั่วคราว เพื่อให้ Firebase SDK decode VAPID key ได้
+      // Firebase SDK ใช้ atob() ภายใน getToken() แต่ VAPID key เป็น base64url ไม่มี padding
+      const originalAtob = window.atob.bind(window);
+      (window as unknown as { atob: typeof window.atob }).atob = (str: string) => {
+        try {
+          return originalAtob(str);
+        } catch {
+          const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
+          const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+          return originalAtob(base64);
+        }
+      };
+
+      try {
+        const token = await getToken(messagingInstance, {
+          vapidKey,
+          serviceWorkerRegistration: swRegistration,
+        });
+        if (token && !cancelled) {
+          await saveToken(token);
+        } else if (!token) {
+          // Permission revoked or SW issue — drop the stored token so Cloud
+          // Functions stop trying to push to a device that can't receive.
+          const deviceId = getDeviceId();
+          await remove(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`));
+          console.warn('[Push] getToken returned empty; removed stored token');
+        }
+      } catch (err) {
+        console.error('[Push] Failed to fetch FCM token:', err);
+      } finally {
+        window.atob = originalAtob;
+      }
+    };
+
     const setupPush = async () => {
       try {
-        // ตรวจสอบ browser รองรับ notification หรือไม่
         if (!('Notification' in window)) {
           console.warn('[Push] Browser does not support notifications');
           return;
@@ -42,8 +121,6 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           return;
         }
 
-        // Register unified service worker (handles both push + caching)
-        let swRegistration: ServiceWorkerRegistration | undefined;
         if ('serviceWorker' in navigator) {
           swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
           await navigator.serviceWorker.ready;
@@ -54,50 +131,18 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           console.warn('[Push] Firebase Messaging not supported on this browser');
           return;
         }
+        messagingInstance = messaging;
 
-        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim();
-        if (!vapidKey) {
-          console.error('[Push] VITE_FIREBASE_VAPID_KEY is not set! Push notifications will not work.');
-          return;
-        }
+        await fetchAndSaveToken();
 
-        // Patch window.atob ชั่วคราว เพื่อให้ Firebase SDK decode VAPID key ได้
-        // Firebase SDK ใช้ atob() ภายใน getToken() แต่ VAPID key เป็น base64url ไม่มี padding
-        const originalAtob = window.atob.bind(window);
-        (window as any).atob = (str: string) => {
-          try {
-            return originalAtob(str);
-          } catch {
-            // Fallback: เติม padding + แปลง base64url → base64
-            const padded = str + '='.repeat((4 - (str.length % 4)) % 4);
-            const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
-            return originalAtob(base64);
+        intervalId = setInterval(fetchAndSaveToken, REFRESH_INTERVAL_MS);
+
+        visibilityHandler = () => {
+          if (document.visibilityState === 'visible') {
+            fetchAndSaveToken();
           }
         };
-
-        let token: string | null = null;
-        try {
-          token = await getToken(messaging, {
-            vapidKey,
-            serviceWorkerRegistration: swRegistration,
-          });
-        } finally {
-          // Restore original atob
-          window.atob = originalAtob;
-        }
-
-        if (token) {
-          const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-          const deviceId = getDeviceId();
-          await set(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`), {
-            token,
-            device: isMobile ? 'mobile' : 'desktop',
-            updated_at: Date.now()
-          });
-          console.log(`[Push] FCM token registered (${isMobile ? 'mobile' : 'desktop'})`);
-        } else {
-          console.warn('[Push] Failed to get FCM token');
-        }
+        document.addEventListener('visibilitychange', visibilityHandler);
 
         // Handle foreground messages from Cloud Functions
         onMessage(messaging, (payload) => {
@@ -107,10 +152,11 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           if (data.type === 'new_ticket' && document.hasFocus()) return;
 
           if (payload.notification) {
-            const tag = data.type === 'new_ticket' ? `ticket-${data.jobId}`
-              : data.type === 'status_change' ? `status-${data.jobId}`
-              : data.type === 'chat_message' ? `chat-${data.jobId}`
-              : undefined;
+            const tag =
+              data.type === 'new_ticket' ? `ticket-${data.jobId}`
+                : data.type === 'status_change' ? `status-${data.jobId}`
+                  : data.type === 'chat_message' ? `chat-${data.jobId}`
+                    : undefined;
             new Notification(payload.notification.title || 'BKK Admin', {
               body: payload.notification.body,
               icon: '/icons/icon-192.png',
@@ -124,5 +170,11 @@ export const useAdminPushNotifications = (staffId: string | null) => {
     };
 
     setupPush();
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+      if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+    };
   }, [staffId]);
 };
