@@ -67,7 +67,7 @@
       ".indexOn": ["verified_at"],
       "$jobId": {
         ".read": "auth != null && (root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('jobs').child($jobId).child('rider_id').val() === auth.uid)",
-        ".write": "auth != null && !data.exists() && (root.child('jobs').child($jobId).child('rider_id').val() === auth.uid || (root.child('admins').child(auth.uid).child('role').val() === 'admin' && root.child('jobs').child($jobId).child('receive_method').val() === 'Store-in'))",
+        ".write": "auth != null && !data.exists() && (root.child('jobs').child($jobId).child('rider_id').val() === auth.uid || root.child('admins').child(auth.uid).child('role').val() === 'admin')",
         ".validate": "newData.hasChildren(['method', 'id_number', 'id_address', 'verified_at', 'verified_by_rider_uid', 'verified_by_rider_name'])",
         "method": { ".validate": "newData.isString() && (newData.val() === 'photo' || newData.val() === 'typed_fallback')" },
         "id_number": { ".validate": "newData.isString() && newData.val().length === 13" },

@@ -178,11 +178,13 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
           </div>
           <div>
             <h3 className="font-bold text-slate-900">ยืนยันตัวตนลูกค้า (KYC)</h3>
-            <p className="text-xs text-slate-500">ไรเดอร์ยังไม่ได้บันทึก KYC สำหรับงานนี้</p>
+            <p className="text-xs text-slate-500">
+              {isPickup ? 'ไรเดอร์ยังไม่ได้บันทึก KYC สำหรับงานนี้' : 'ยังไม่มีบันทึก KYC สำหรับงานนี้'}
+            </p>
           </div>
         </div>
         {expectedSoon && (
-          <div className="flex gap-2 items-start bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div className="flex gap-2 items-start bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
             <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-800 leading-relaxed">
               งานนี้อยู่ในสถานะที่ควรมี KYC แล้ว — ตรวจสอบกับไรเดอร์/แอป rider ว่าบันทึกข้อมูลครบหรือไม่
@@ -190,19 +192,18 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
           </div>
         )}
         {!isPickup && (
-          <>
-            <p className="text-xs text-slate-400">
-              งาน {job.receive_method} จะบันทึก KYC ที่สาขา/ตอนเปิดพัสดุ ไม่ผ่านไรเดอร์
-            </p>
-            {onCaptureKyc && (job.receive_method === 'Store-in') && (
-              <button
-                onClick={onCaptureKyc}
-                className="mt-3 w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition"
-              >
-                <ShieldCheck size={16} /> บันทึก KYC ที่สาขา
-              </button>
-            )}
-          </>
+          <p className="text-xs text-slate-400 mb-2">
+            งาน {job.receive_method} จะบันทึก KYC ที่สาขา/ตอนเปิดพัสดุ ไม่ผ่านไรเดอร์
+          </p>
+        )}
+        {onCaptureKyc && (
+          <button
+            onClick={onCaptureKyc}
+            className="mt-1 w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition"
+          >
+            <ShieldCheck size={16} />
+            {isPickup ? 'บันทึก KYC ย้อนหลัง (ไรเดอร์ข้าม)' : 'บันทึก KYC ที่สาขา'}
+          </button>
         )}
       </div>
     );
