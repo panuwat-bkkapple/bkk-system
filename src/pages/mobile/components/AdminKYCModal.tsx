@@ -554,7 +554,7 @@ const PhotoSlot = ({ title, hint, imageUrl, uploading, inputRef, onUpload, onCle
         ) : (
           <>
             <Camera size={28} />
-            <span className="text-sm font-medium">เปิดกล้องเพื่อถ่ายภาพ</span>
+            <span className="text-sm font-medium">ถ่ายรูปหรือเลือกจากคลังภาพ</span>
           </>
         )}
       </button>
@@ -563,7 +563,6 @@ const PhotoSlot = ({ title, hint, imageUrl, uploading, inputRef, onUpload, onCle
       ref={inputRef}
       type="file"
       accept="image/*"
-      capture="environment"
       className="hidden"
       onChange={(e) => onUpload(e.target.files?.[0])}
     />
