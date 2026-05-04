@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate, useParams, useLocation } from 'react-router-dom';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { AdminLayout } from './components/layout/AdminLayout';
@@ -120,6 +121,7 @@ export default function App() {
   return (
     <ToastProvider>
     <Router>
+      <ErrorBoundary>
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-gray-400 animate-pulse">Loading...</div>}>
       <Routes>
         {/* Public Routes */}
@@ -187,6 +189,7 @@ export default function App() {
         )}
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     </Router>
     <Toaster position="top-right" />
     </ToastProvider>
