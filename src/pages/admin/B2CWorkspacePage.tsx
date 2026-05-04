@@ -15,6 +15,7 @@ import { normalizeQcLogs } from '@/utils/jobNormalizer';
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
 import { KYCInfoCard } from './components/KYCInfoCard';
+import { LocationVerificationCard } from './components/LocationVerificationCard';
 import { AmendmentBanner } from './components/AmendmentBanner';
 import { ConditionVerification } from './components/ConditionVerification';
 import { PricingSidebar } from './components/PricingSidebar';
@@ -289,6 +290,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
             <AmendmentBanner jobId={job.id} />
             <CustomerInfoCard job={job} isEditing={isEditingCustomer} editData={editCustData} onSave={handleSaveCustomerInfo} onToggleEdit={handleToggleEdit} onEditChange={setEditCustData} />
             <KYCInfoCard job={job} />
+            <LocationVerificationCard job={job} />
             <ConditionVerification job={job} modelsData={modelsData} conditionSets={conditionSets} />
           </div>
         </div>

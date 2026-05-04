@@ -334,10 +334,33 @@ export interface Job {
   cust_phone: string;
   /** อีเมลลูกค้า */
   cust_email?: string;
-  /** ที่อยู่ลูกค้า */
+  /** ที่อยู่ลูกค้า — สำหรับนัดรับ/นัดส่ง (ลูกค้าพิมพ์เอง ไม่เท่ากับที่อยู่ตามบัตร) */
   cust_address?: string;
+  /** Pin lat ที่ลูกค้าลากบนแผนที่ — ใช้นำทางสำหรับ Pickup เท่านั้น */
+  cust_lat?: number | null;
+  /** Pin lng ที่ลูกค้าลากบนแผนที่ */
+  cust_lng?: number | null;
   /** หมายเหตุจากลูกค้า (กรอกตอน checkout) */
   cust_notes?: string;
+
+  // === Location verification (PR #485, geocoded server-side / browser geolocation) ===
+  // ใช้สำหรับ admin ตรวจสอบว่าตัวตนลูกค้าตรงกัน (registration vs typed address)
+  // ทุก field nullable — ลูกค้าอาจปฏิเสธ permission หรือ geocoding fail
+  /** Browser geolocation ตอน checkout (silent capture, opt-in) */
+  registration_lat?: number | null;
+  registration_lng?: number | null;
+  registration_accuracy?: number | null;
+  registration_captured_at?: number | null;
+  /** Geocode ของ cust_address (server-side via Google Geocoding API) */
+  cust_address_geocoded_lat?: number | null;
+  cust_address_geocoded_lng?: number | null;
+  cust_address_geocoded_status?: 'ok' | 'partial' | 'failed' | null;
+  cust_address_geocoded_formatted?: string | null;
+  cust_address_geocoded_at?: number | null;
+  /** Computed: ระยะห่างระหว่าง browser location vs typed address */
+  registration_pickup_distance_km?: number | null;
+  /** Tier flag — < 30 green, < 100 yellow, < 500 orange, >= 500 red */
+  location_flag?: 'green' | 'yellow' | 'orange' | 'red' | null;
 
   // การรับสินค้า
   /** วิธีการรับสินค้า */
