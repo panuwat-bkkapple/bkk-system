@@ -12,7 +12,7 @@ import {
   X, Camera, IdCard, MapPin, AlertTriangle, ShieldCheck, Loader2,
   PencilLine, Trash2, Lock, User, Calendar,
 } from 'lucide-react';
-import { ref as dbRef, update, serverTimestamp } from 'firebase/database';
+import { ref as dbRef, update } from 'firebase/database';
 import { db, auth } from '../../../api/firebase';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { isValidThaiNid, formatThaiNid } from '../../../utils/thaiNid';
@@ -182,6 +182,18 @@ export const AdminKYCModal = ({ job, staffName, onClose, onSaved }: AdminKYCModa
             };
 
       const verifiedAt = Date.now();
+      // qc_logs is stored as an array — use the same prepend-and-replace
+      // pattern the rest of the codebase uses. Mixing string keys into
+      // the array path turns it into a map and crashes consumers that
+      // call .some() / .map() on it.
+      const newLog = {
+        action: 'KYC_CAPTURED',
+        by: staffName || 'Admin',
+        by_uid: auth.currentUser.uid,
+        timestamp: verifiedAt,
+        details: `Store-in KYC (${method === 'photo' ? 'มีบัตร' : 'ไม่มีบัตร'})`,
+      };
+      const updatedLogs = [newLog, ...((job.qc_logs as unknown[]) || [])];
       const updates: Record<string, unknown> = {
         [`jobs_kyc/${job.id}`]: {
           ...kycPayload,
@@ -191,18 +203,10 @@ export const AdminKYCModal = ({ job, staffName, onClose, onSaved }: AdminKYCModa
         },
         [`jobs/${job.id}/kyc_verified_at`]: verifiedAt,
         [`jobs/${job.id}/kyc_method`]: method,
+        [`jobs/${job.id}/qc_logs`]: updatedLogs,
         ...(idAddress.trim() && !job.cust_id_address
           ? { [`jobs/${job.id}/cust_id_address`]: idAddress.trim() }
           : {}),
-      };
-      // Audit trail in qc_logs so it shows up in the timeline
-      const logKey = `${verifiedAt}_${Math.random().toString(36).slice(2, 8)}`;
-      updates[`jobs/${job.id}/qc_logs/${logKey}`] = {
-        action: 'KYC_CAPTURED',
-        by: staffName || 'Admin',
-        by_uid: auth.currentUser.uid,
-        timestamp: serverTimestamp(),
-        reason: `Store-in KYC (${method === 'photo' ? 'มีบัตร' : 'ไม่มีบัตร'})`,
       };
 
       await update(dbRef(db), updates);

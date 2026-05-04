@@ -13,7 +13,7 @@ import {
   X, ChevronLeft, CheckCircle2, Camera, Upload,
   Smartphone, ShieldCheck, PackageOpen, ListChecks,
 } from 'lucide-react';
-import { ref as dbRef, onValue, update, serverTimestamp } from 'firebase/database';
+import { ref as dbRef, onValue, update } from 'firebase/database';
 import { db, auth } from '../../../api/firebase';
 import { formatCurrency } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
@@ -271,6 +271,17 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
       const newNetPayout = Math.max(0, jobTotalDevicePrice - pickupFee + couponValue);
 
       const inspectedAt = Date.now();
+      // qc_logs is stored as an array — prepend-and-replace, same pattern
+      // the rest of the codebase uses. Mixing string keys into the array
+      // path turns it into a map and crashes consumers.
+      const newLog = {
+        action: 'INSPECTED',
+        by: staffName,
+        by_uid: auth.currentUser.uid,
+        timestamp: inspectedAt,
+        details: `Store-in inspection: ${updatedDevices.length} device(s), final ฿${jobTotalDevicePrice.toLocaleString()}`,
+      };
+      const updatedLogs = [newLog, ...((job.qc_logs as unknown[]) || [])];
       const updates: Record<string, unknown> = {
         [`jobs/${job.id}/devices`]: updatedDevices,
         [`jobs/${job.id}/final_price`]: jobTotalDevicePrice,
@@ -278,14 +289,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         [`jobs/${job.id}/net_payout`]: newNetPayout,
         [`jobs/${job.id}/inspected_at`]: inspectedAt,
         [`jobs/${job.id}/status`]: 'Pending QC',
-      };
-      const logKey = `${inspectedAt}_${Math.random().toString(36).slice(2, 8)}`;
-      updates[`jobs/${job.id}/qc_logs/${logKey}`] = {
-        action: 'INSPECTED',
-        by: staffName,
-        by_uid: auth.currentUser.uid,
-        timestamp: serverTimestamp(),
-        reason: `Store-in inspection: ${updatedDevices.length} device(s), final ฿${jobTotalDevicePrice.toLocaleString()}`,
+        [`jobs/${job.id}/qc_logs`]: updatedLogs,
       };
 
       await update(dbRef(db), updates);
