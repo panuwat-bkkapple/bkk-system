@@ -441,7 +441,6 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                       ref={slotInputRef}
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       className="hidden"
                       onChange={handleSlotCapture}
                     />
@@ -475,7 +474,6 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                         ref={damageInputRef}
                         type="file"
                         accept="image/*"
-                        capture="environment"
                         className="hidden"
                         onChange={handleDamageCapture}
                       />
