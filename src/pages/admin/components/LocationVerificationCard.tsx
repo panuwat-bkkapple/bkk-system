@@ -68,12 +68,18 @@ export const LocationVerificationCard: React.FC<Props> = ({ job }) => {
             <p className="text-xs text-slate-500">ตรวจสอบว่าลูกค้าลงทะเบียนจากที่ใด vs ที่อยู่ที่กรอก</p>
           </div>
         </div>
-        {flagCfg && distance != null && (
+        {flagCfg && distance != null && (() => {
+          // JSX rejects `<flagCfg.Icon>` because `flagCfg` is lowercase —
+          // the parser treats the whole tag as a DOM element. Aliasing
+          // to a PascalCase local fixes it.
+          const FlagIcon = flagCfg.Icon;
+          return (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-black uppercase tracking-wider ${flagCfg.bg} ${flagCfg.border} ${flagCfg.text}`}>
-            <flagCfg.Icon size={12} />
+            <FlagIcon size={12} />
             {flagCfg.label} · {distance} km
           </span>
-        )}
+          );
+        })()}
       </div>
 
       {/* === Typed pickup/contact address === */}
@@ -155,16 +161,22 @@ export const LocationVerificationCard: React.FC<Props> = ({ job }) => {
       </div>
 
       {/* === Mismatch interpretation === */}
-      {flag === 'orange' || flag === 'red' ? (
-        <div className={`flex gap-2 items-start p-3 rounded-xl border ${flagCfg!.bg} ${flagCfg!.border}`}>
-          <flagCfg!.Icon size={14} className={`${flagCfg!.text} mt-0.5 shrink-0`} />
-          <p className={`text-xs ${flagCfg!.text} leading-relaxed`}>
+      {(flag === 'orange' || flag === 'red') && flagCfg && (() => {
+        // Bind icon to a capitalized local so JSX doesn't try to parse
+        // `<flagCfg!.Icon>` as a tag (TS rejects the non-null + property
+        // access inside the tag head).
+        const InterpretIcon = flagCfg.Icon;
+        return (
+        <div className={`flex gap-2 items-start p-3 rounded-xl border ${flagCfg.bg} ${flagCfg.border}`}>
+          <InterpretIcon size={14} className={`${flagCfg.text} mt-0.5 shrink-0`} />
+          <p className={`text-xs ${flagCfg.text} leading-relaxed`}>
             พิกัดที่ลูกค้าลงทะเบียนห่างจากที่อยู่ที่กรอกถึง <strong>{distance} กม.</strong>
             {flag === 'red' && ' — น่าจะคนละประเทศหรือผิดปกติ ตรวจสอบตัวตนเพิ่มเติมก่อนดำเนินการ'}
             {flag === 'orange' && ' — ต่างจังหวัด อาจเป็นการเดินทางมาทำธุระ ตรวจสอบให้แน่ใจก่อนส่งไรเดอร์'}
           </p>
         </div>
-      ) : null}
+        );
+      })()}
     </div>
   );
 };
