@@ -26,11 +26,6 @@
     "source": "functions",
     "runtime": "nodejs22",
     "codebase": "bkk-system"
-  },
-  "database": {
-    "rules": "database.rules.json"
-  },
-  "storage": {
-    "rules": "storage.rules"
   }
 }
+
