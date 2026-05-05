@@ -8,6 +8,7 @@
 
 ## Related Repos (ห้ามแก้ไข repos อื่น)
 - **bkk-frontend-next** — เว็บฝั่งลูกค้า (customer tracking, คนละระบบ)
+  - **CANONICAL SOURCE FOR FIREBASE RULES**: `database.rules.json` และ `storage.rules` อยู่ใน repo นั้น repo เดียว — ห้าม recreate ใน repo นี้. ถ้าต้องแก้ rules ต้องไปแก้ที่ bkk-frontend-next แล้วรัน `firebase deploy --only database` หรือ `--only storage` จาก repo นั้น
 - **BKK Rider** — แอป PWA สำหรับ rider (มีระบบ push notification แยกต่างหาก)
 
 ## Deployment

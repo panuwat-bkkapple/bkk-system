@@ -52,25 +52,13 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
-      # Deploy Database Rules
-      - name: Deploy Firebase Database Rules
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only database --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-
-      # Deploy Storage Rules — re-enabled after the SA was granted
-      # "Cloud Storage for Firebase Admin (Beta)" in IAM (the role that
-      # provides firebasestorage.defaultBucket.get; "Storage Admin" alone
-      # is for cloud-storage.googleapis.com and doesn't cover the
-      # firebasestorage namespace).
-      - name: Deploy Firebase Storage Rules
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only storage --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+      # NOTE: database + storage rules are deployed exclusively from
+      # bkk-frontend-next now. Maintaining two copies caused the rules
+      # to silently overwrite each other on every push (see PR #492 /
+      # #496 for the incident postmortem). Rules files have been
+      # deleted from this repo, and firebase.json no longer references
+      # them. To change rules, edit bkk-frontend-next/database.rules.json
+      # or bkk-frontend-next/storage.rules and deploy from there.
 
       # Deploy Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
