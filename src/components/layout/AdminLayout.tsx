@@ -172,6 +172,9 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
               <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
+              {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
+                <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
+              )}
               <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>
