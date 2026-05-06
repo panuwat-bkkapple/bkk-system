@@ -34,6 +34,7 @@ const B2BDispatchQueue = lazy(() => import('./pages/admin/B2BDispatchQueue').the
 const CustomerCRM = lazy(() => import('./pages/crm/CustomerCRM').then(m => ({ default: m.CustomerCRM })));
 const RiderManagement = lazy(() => import('./pages/fleet/RiderManagement').then(m => ({ default: m.RiderManagement })));
 const DiscrepancyReports = lazy(() => import('./pages/fleet/DiscrepancyReports').then(m => ({ default: m.DiscrepancyReports })));
+const RiderPerformance = lazy(() => import('./pages/fleet/RiderPerformance').then(m => ({ default: m.RiderPerformance })));
 const CustomerTracking = lazy(() => import('./pages/tracking/CustomerTracking').then(m => ({ default: m.CustomerTracking })));
 const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').then(m => ({ default: m.B2CWorkspacePage })));
 const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
@@ -169,6 +170,7 @@ export default function App() {
               <Route path="/finance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <Finance /> : <Navigate to="/" replace />} />
               <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
               <Route path="/riders" element={<RiderManagement />} />
+              <Route path="/rider-performance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformance /> : <Navigate to="/" replace />} />
               <Route path="/discrepancy-reports" element={<DiscrepancyReports />} />
               <Route path="/crm" element={<CustomerCRM />} />
               <Route path="/customer-crm" element={<Navigate to="/crm" replace />} />
