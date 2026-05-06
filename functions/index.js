@@ -1585,7 +1585,11 @@ const RIDER_DEPARTED_STATUSES = new Set([
   "Rider Arrived",
 ]);
 
-const DEFAULT_RIDER_TIME_LOSS_FEE = 100;
+// Hard-coded default removed in favour of forcing admin to configure
+// settings/rider_compensation/customer_cancel_time_loss via the
+// Global Settings page in bkk-system. The previous fallback (100฿) was
+// silently used when the settings node was absent which made the
+// production payout amount invisible from code review.
 
 /** Build the multi-path updates needed to atomically apply an amendment.
  *  Returns object suitable for db.ref().update(). Caller should also
@@ -1658,9 +1662,19 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
       // the rider has actually departed — RIDER_ACCEPTED alone doesn't
       // qualify since they haven't burned fuel yet.
       if (job && RIDER_DEPARTED_STATUSES.has(job.status)) {
-        const fee = (riderCompensation && typeof riderCompensation.customer_cancel_time_loss === "number")
+        const fee = riderCompensation && typeof riderCompensation.customer_cancel_time_loss === "number"
           ? riderCompensation.customer_cancel_time_loss
-          : DEFAULT_RIDER_TIME_LOSS_FEE;
+          : null;
+        if (fee === null || !Number.isFinite(fee) || fee < 0) {
+          // No silent fallback — refuse to apply the amendment until
+          // admin sets the value via Global Settings. Avoids the
+          // previous failure mode where the function quietly paid out
+          // a hard-coded 100฿ that no longer reflected business policy.
+          throw new HttpsError(
+            "failed-precondition",
+            "settings/rider_compensation/customer_cancel_time_loss ยังไม่ตั้งค่า — ตั้งค่าใน Global Settings ก่อน",
+          );
+        }
         u[`${jobBase}/rider_fee`] = fee;
         u[`${jobBase}/rider_fee_status`] = "Pending";
         u[`${jobBase}/rider_fee_breakdown`] = {
@@ -1668,7 +1682,7 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
           amount: fee,
           reason: `ลูกค้ายกเลิกระหว่างทาง (status: ${job.status}) — ค่าเสียเวลาไรเดอร์`,
           computed_at: now,
-          source: riderCompensation ? "settings" : "default",
+          source: "settings",
         };
       }
       break;

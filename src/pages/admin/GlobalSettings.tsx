@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
-import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike } from 'lucide-react';
+import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
 const DEFAULT_RIDER_RATES = {
@@ -28,6 +28,15 @@ export default function GlobalSettings() {
   const [riderRates, setRiderRates] = useState(DEFAULT_RIDER_RATES);
   const [isSavingRider, setIsSavingRider] = useState(false);
   const [showRiderSuccess, setShowRiderSuccess] = useState(false);
+
+  // ค่าชดเชยไรเดอร์เวลาลูกค้ายกเลิกงานกลางทาง
+  // — Cloud Function reviewAmendment อ่านจาก settings/rider_compensation
+  // ก่อนหน้านี้ค่านี้ hard-code 100 ที่ Cloud Function — ย้ายมาให้ admin
+  // แก้ผ่าน UI ได้ + ลบ fallback ทิ้งฝั่ง functions เพื่อบังคับให้ตั้งค่าก่อน
+  const [riderComp, setRiderComp] = useState({ customer_cancel_time_loss: 0 });
+  const [isSavingComp, setIsSavingComp] = useState(false);
+  const [showCompSuccess, setShowCompSuccess] = useState(false);
+  const [compLoaded, setCompLoaded] = useState(false);
 
   const [testDistance, setTestDistance] = useState<number>(12); // สำหรับ Slider จำลองระยะทาง
   const [isSaving, setIsSaving] = useState(false);
@@ -78,6 +87,41 @@ export default function GlobalSettings() {
       toast.error('เกิดข้อผิดพลาดในการบันทึกอัตราค่าวิ่ง');
     } finally {
       setIsSavingRider(false);
+    }
+  };
+
+  useEffect(() => {
+    const compRef = ref(db, 'settings/rider_compensation');
+    const unsubscribe = onValue(compRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const v = snapshot.val() || {};
+        setRiderComp({
+          customer_cancel_time_loss: Number(v.customer_cancel_time_loss ?? 0),
+        });
+      }
+      setCompLoaded(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveRiderCompensation = async () => {
+    if (!Number.isFinite(riderComp.customer_cancel_time_loss) || riderComp.customer_cancel_time_loss < 0) {
+      toast.warning('ค่าชดเชยต้องเป็นตัวเลขไม่ติดลบ');
+      return;
+    }
+    setIsSavingComp(true);
+    setShowCompSuccess(false);
+    try {
+      await update(ref(db, 'settings/rider_compensation'), {
+        customer_cancel_time_loss: Math.round(riderComp.customer_cancel_time_loss),
+        updated_at: Date.now(),
+      });
+      setShowCompSuccess(true);
+      setTimeout(() => setShowCompSuccess(false), 3000);
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการบันทึกค่าชดเชย');
+    } finally {
+      setIsSavingComp(false);
     }
   };
 
@@ -207,6 +251,68 @@ export default function GlobalSettings() {
           {showRiderSuccess && (
             <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2.5 rounded-xl animate-in fade-in text-sm">
               <CheckCircle2 size={18} /> อัปเดตอัตราค่าวิ่งสำเร็จ!
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ค่าชดเชยไรเดอร์เวลาลูกค้ายกเลิก (Customer Cancel Compensation) */}
+      <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
+        <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
+          <XCircle className="text-rose-600" /> ค่าชดเชยไรเดอร์เมื่อลูกค้ายกเลิก
+        </h2>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-5">
+          จ่ายให้ไรเดอร์เมื่อลูกค้ากดยกเลิกระหว่างที่ไรเดอร์ออกเดินทางแล้ว
+          (status: <code className="bg-slate-100 px-1 rounded text-[10px]">Heading to Customer</code> /
+          <code className="bg-slate-100 px-1 rounded text-[10px]">Rider En Route</code> /
+          <code className="bg-slate-100 px-1 rounded text-[10px]">Arrived</code> /
+          <code className="bg-slate-100 px-1 rounded text-[10px]">Rider Arrived</code>) — Cloud Function
+          <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">reviewAmendment</code> อ่านจาก
+          <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/rider_compensation</code>
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+              ค่าเสียเวลา (Customer Cancel Time Loss)
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">฿</span>
+              <input
+                type="number"
+                min={0}
+                value={riderComp.customer_cancel_time_loss}
+                onChange={(e) => setRiderComp(prev => ({ ...prev, customer_cancel_time_loss: Number(e.target.value) }))}
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none transition-all"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1 font-bold">
+              บันทึกลง <code>jobs/&#123;id&#125;/rider_fee</code> + <code>rider_fee_breakdown.type = "time_loss_customer_cancel"</code>
+            </p>
+          </div>
+        </div>
+
+        {compLoaded && riderComp.customer_cancel_time_loss === 0 && (
+          <div className="mt-4 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-2 text-xs text-amber-800">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" />
+            <span className="font-bold leading-relaxed">
+              ค่ายังเป็น 0 หรือยังไม่เคยตั้ง — Cloud Function จะ throw error เมื่อมีคำขอยกเลิกของลูกค้าเข้ามา
+              เพื่อกันการจ่ายโดยไม่ตั้งใจ. กำหนดค่าก่อนเปิดให้ลูกค้ายกเลิกผ่านระบบ.
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-4 mt-5">
+          <button
+            onClick={handleSaveRiderCompensation}
+            disabled={isSavingComp}
+            className="bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-xl font-black transition-all shadow-lg active:scale-95 disabled:bg-slate-300 flex items-center gap-2"
+          >
+            {isSavingComp ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} บันทึกค่าชดเชย
+          </button>
+          {showCompSuccess && (
+            <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2.5 rounded-xl animate-in fade-in text-sm">
+              <CheckCircle2 size={18} /> อัปเดตค่าชดเชยสำเร็จ!
             </div>
           )}
         </div>
