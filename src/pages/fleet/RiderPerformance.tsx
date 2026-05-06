@@ -18,6 +18,11 @@ import {
   CheckCircle2, XCircle, Activity, ArrowUpDown,
 } from 'lucide-react';
 
+interface AutoReviewFlag {
+  flagged_at?: number;
+  reasons?: string[];
+}
+
 interface Rider {
   id: string;
   name?: string;
@@ -25,6 +30,7 @@ interface Rider {
   photo?: string;
   photo_url?: string;
   approval_status?: string;
+  flags?: { auto_review?: AutoReviewFlag };
 }
 
 interface Checkpoint {
@@ -96,6 +102,7 @@ export const RiderPerformance: React.FC = () => {
           phone: r.phone,
           photo: r.photo || r.photo_url,
           approval_status: r.approval_status || r.status,
+          flags: r.flags,
         }));
         setRiders(list);
       }
@@ -290,7 +297,17 @@ export const RiderPerformance: React.FC = () => {
                         </div>
                       )}
                       <div className="leading-tight">
-                        <div className="font-bold text-slate-800">{s.rider.name}</div>
+                        <div className="font-bold text-slate-800 flex items-center gap-2">
+                          {s.rider.name}
+                          {s.rider.flags?.auto_review && (
+                            <span
+                              title={s.rider.flags.auto_review.reasons?.join(' / ') || 'Auto-flagged for review'}
+                              className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-black border border-amber-200"
+                            >
+                              FLAGGED
+                            </span>
+                          )}
+                        </div>
                         {s.rider.phone && <div className="text-[11px] text-slate-400">{s.rider.phone}</div>}
                       </div>
                     </Link>
