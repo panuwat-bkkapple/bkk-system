@@ -16,6 +16,7 @@ import { ToastProvider } from './components/ui/ToastProvider';
 const TradeInDashboard = lazy(() => import('./features/trade-in/TradeInDashboard').then(m => ({ default: m.TradeInDashboard })));
 const Inventory = lazy(() => import('./pages/inventory/Inventory').then(m => ({ default: m.Inventory })));
 const Analytics = lazy(() => import('./pages/analytics/Analytics').then(m => ({ default: m.Analytics })));
+const CouponAnalytics = lazy(() => import('./pages/analytics/CouponAnalytics').then(m => ({ default: m.CouponAnalytics })));
 const PriceEditor = lazy(() => import('./features/trade-in/PriceEditor').then(m => ({ default: m.PriceEditor })));
 const QCStation = lazy(() => import('./pages/lab/QCStation').then(m => ({ default: m.QCStation })));
 const DispatcherPage = lazy(() => import('./pages/fleet/DispatcherPage').then(m => ({ default: m.DispatcherPage })));
@@ -164,6 +165,7 @@ export default function App() {
               <Route path="/b2b-auditor" element={<B2BAuditorTool />} />
               <Route path="/analytics/trade-in" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="buying" /> : <Navigate to="/" replace />} />
               <Route path="/analytics/sales" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="sales" /> : <Navigate to="/" replace />} />
+              <Route path="/analytics/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponAnalytics /> : <Navigate to="/" replace />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/accessories" element={<Accessories />} />
               <Route path="/sales-history" element={<SalesHistory />} />
