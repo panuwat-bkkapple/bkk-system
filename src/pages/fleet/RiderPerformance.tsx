@@ -52,6 +52,12 @@ interface Job {
   checkpoints?: Record<string, Checkpoint>;
 }
 
+interface OfferRecord {
+  offered_at?: number;
+  accepted_at?: number;
+  rejected_at?: number;
+}
+
 interface RiderStats {
   rider: Rider;
   active: number;
@@ -63,6 +69,9 @@ interface RiderStats {
   avgArrivalDistanceM: number | null;
   outsideZoneArrivals: number;
   arrivalSamples: number;
+  offered: number;              // count of offers presented to this rider (Phase 2)
+  acceptedFromOffers: number;   // count where this rider accepted
+  acceptanceRate: number | null;       // acceptedFromOffers / offered
 }
 
 const ACTIVE_STATUSES = new Set([
@@ -87,6 +96,10 @@ function isWithinDateRange(ts: number | undefined, fromTs: number, toTs: number)
 export const RiderPerformance: React.FC = () => {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  // /jobs_offers/{jobId}/{riderId} → offer record
+  // Flatten to a single map keyed "jobId|riderId" so the per-rider
+  // aggregation below stays a simple loop without nested lookups.
+  const [offers, setOffers] = useState<Record<string, Record<string, OfferRecord>>>({});
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<keyof RiderStats | 'name'>('completionRate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -117,7 +130,15 @@ export const RiderPerformance: React.FC = () => {
       setLoading(false);
     });
 
-    return () => { unsubRiders(); unsubJobs(); };
+    const unsubOffers = onValue(ref(db, 'jobs_offers'), (snap) => {
+      if (snap.exists()) {
+        setOffers(snap.val() || {});
+      } else {
+        setOffers({});
+      }
+    });
+
+    return () => { unsubRiders(); unsubJobs(); unsubOffers(); };
   }, []);
 
   const stats = useMemo<RiderStats[]>(() => {
@@ -139,9 +160,23 @@ export const RiderPerformance: React.FC = () => {
           avgArrivalDistanceM: null,
           outsideZoneArrivals: 0,
           arrivalSamples: 0,
+          offered: 0,
+          acceptedFromOffers: 0,
+          acceptanceRate: null,
         };
 
         let arrivalSum = 0;
+
+        // Aggregate /jobs_offers entries for this rider within the date range.
+        for (const jobId of Object.keys(offers)) {
+          const rec = offers[jobId]?.[rider.id];
+          if (!rec) continue;
+          const refTs = rec.offered_at || rec.accepted_at || rec.rejected_at;
+          if (dateRange !== 0 && !isWithinDateRange(refTs, fromTs, toTs)) continue;
+          if (rec.offered_at) s.offered += 1;
+          if (rec.accepted_at) s.acceptedFromOffers += 1;
+        }
+        s.acceptanceRate = s.offered > 0 ? s.acceptedFromOffers / s.offered : null;
 
         for (const job of jobs) {
           const refTs = job.completed_at || job.cancelled_at || job.created_at;
@@ -179,7 +214,7 @@ export const RiderPerformance: React.FC = () => {
 
         return s;
       });
-  }, [riders, jobs, dateRange]);
+  }, [riders, jobs, offers, dateRange]);
 
   const sortedStats = useMemo(() => {
     const arr = [...stats];
@@ -188,6 +223,7 @@ export const RiderPerformance: React.FC = () => {
       let bv: number | string = 0;
       if (sortKey === 'name') { av = a.rider.name || ''; bv = b.rider.name || ''; }
       else if (sortKey === 'completionRate') { av = a.completionRate ?? -1; bv = b.completionRate ?? -1; }
+      else if (sortKey === 'acceptanceRate') { av = a.acceptanceRate ?? -1; bv = b.acceptanceRate ?? -1; }
       else if (sortKey === 'avgArrivalDistanceM') { av = a.avgArrivalDistanceM ?? Infinity; bv = b.avgArrivalDistanceM ?? Infinity; }
       else { av = (a[sortKey] as number) ?? 0; bv = (b[sortKey] as number) ?? 0; }
       if (av < bv) return sortDir === 'asc' ? -1 : 1;
@@ -271,12 +307,13 @@ export const RiderPerformance: React.FC = () => {
                 <Th label="ไรเดอร์ยกเลิก" onClick={() => toggleSort('riderCancelled')} active={sortKey === 'riderCancelled'} dir={sortDir} />
                 <Th label="กำลังทำ" onClick={() => toggleSort('active')} active={sortKey === 'active'} dir={sortDir} />
                 <Th label="อัตราสำเร็จ" onClick={() => toggleSort('completionRate')} active={sortKey === 'completionRate'} dir={sortDir} />
+                <Th label="อัตรารับงาน" onClick={() => toggleSort('acceptanceRate')} active={sortKey === 'acceptanceRate'} dir={sortDir} />
                 <Th label="ระยะถึง (เฉลี่ย)" onClick={() => toggleSort('avgArrivalDistanceM')} active={sortKey === 'avgArrivalDistanceM'} dir={sortDir} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sortedStats.length === 0 ? (
-                <tr><td colSpan={7} className="text-center p-8 text-slate-400 font-bold">ยังไม่มีไรเดอร์ที่ active</td></tr>
+                <tr><td colSpan={8} className="text-center p-8 text-slate-400 font-bold">ยังไม่มีไรเดอร์ที่ active</td></tr>
               ) : sortedStats.map((s) => (
                 <tr
                   key={s.rider.id}
@@ -326,6 +363,20 @@ export const RiderPerformance: React.FC = () => {
                     )}
                   </td>
                   <td className="p-4">
+                    {s.acceptanceRate == null ? (
+                      <span className="text-slate-300 text-xs">ยังไม่มีข้อมูล</span>
+                    ) : (
+                      <div className="leading-tight">
+                        <span className={`font-black ${s.acceptanceRate >= 0.7 ? 'text-emerald-600' : s.acceptanceRate >= 0.4 ? 'text-amber-600' : 'text-rose-600'}`}>
+                          {(s.acceptanceRate * 100).toFixed(0)}%
+                        </span>
+                        <div className="text-[10px] text-slate-400 font-bold">
+                          {s.acceptedFromOffers}/{s.offered} งาน
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-4">
                     {s.avgArrivalDistanceM == null ? (
                       <span className="text-slate-300 text-xs">ยังไม่มีข้อมูล</span>
                     ) : (
@@ -350,7 +401,7 @@ export const RiderPerformance: React.FC = () => {
       </div>
 
       <p className="text-xs text-slate-400 mt-4 leading-relaxed">
-        <strong>หมายเหตุ:</strong> ระยะถึงเฉลี่ยคำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/checkpoints/rider_arrived</code> ที่เก็บโดยแอปไรเดอร์ตอนกด "ถึงลูกค้า" — ไรเดอร์ที่เพิ่งเริ่มต้น/ยังไม่มีข้อมูล check-in จะแสดง "ยังไม่มีข้อมูล". อัตราสำเร็จ = สำเร็จ ÷ (สำเร็จ + ลูกค้ายกเลิก) — ไม่นับงานที่ไรเดอร์ปฏิเสธ
+        <strong>หมายเหตุ:</strong> ระยะถึงเฉลี่ยคำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/checkpoints/rider_arrived</code> ที่เก็บโดยแอปไรเดอร์ตอนกด "ถึงลูกค้า" — ไรเดอร์ที่เพิ่งเริ่มต้น/ยังไม่มีข้อมูล check-in จะแสดง "ยังไม่มีข้อมูล". อัตราสำเร็จ = สำเร็จ ÷ (สำเร็จ + ลูกค้ายกเลิก) — ไม่นับงานที่ไรเดอร์ปฏิเสธ. อัตรารับงาน = รับ ÷ ที่ถูกเสนอ จาก <code className="bg-slate-100 px-1 rounded">jobs_offers/&#123;id&#125;/&#123;riderId&#125;</code>
       </p>
     </div>
   );
