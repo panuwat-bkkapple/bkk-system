@@ -10,6 +10,7 @@
 // to indexed queries with date filters once jobs > a few thousand.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
@@ -270,9 +271,17 @@ export const RiderPerformance: React.FC = () => {
               {sortedStats.length === 0 ? (
                 <tr><td colSpan={7} className="text-center p-8 text-slate-400 font-bold">ยังไม่มีไรเดอร์ที่ active</td></tr>
               ) : sortedStats.map((s) => (
-                <tr key={s.rider.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr
+                  key={s.rider.id}
+                  className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                  onClick={() => { window.location.href = `/rider-performance/${s.rider.id}`; }}
+                >
                   <td className="p-4">
-                    <div className="flex items-center gap-3">
+                    <Link
+                      to={`/rider-performance/${s.rider.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-3 hover:text-emerald-700"
+                    >
                       {s.rider.photo ? (
                         <img src={s.rider.photo} alt="" className="w-9 h-9 rounded-full object-cover" />
                       ) : (
@@ -284,7 +293,7 @@ export const RiderPerformance: React.FC = () => {
                         <div className="font-bold text-slate-800">{s.rider.name}</div>
                         {s.rider.phone && <div className="text-[11px] text-slate-400">{s.rider.phone}</div>}
                       </div>
-                    </div>
+                    </Link>
                   </td>
                   <td className="p-4 font-black text-emerald-700">{s.completed}</td>
                   <td className="p-4 font-bold text-rose-600">{s.customerCancelled}</td>
