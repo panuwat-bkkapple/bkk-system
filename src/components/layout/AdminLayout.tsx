@@ -187,6 +187,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/" icon={<Activity size={18} />} label="ภาพรวม (Dashboard)" />
                 <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />
                 {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/analytics/sales" icon={<TrendingUp size={18} />} label="วิเคราะห์กำไร" />}
+                <NavButton collapsed={isCollapsed} to="/analytics/coupons" icon={<Ticket size={18} />} label="วิเคราะห์คูปอง" />
               </div>
             </div>
           )}
