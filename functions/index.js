@@ -2122,3 +2122,192 @@ exports.escalateAmendmentTimeouts = onSchedule(
     await Promise.all(ops);
   }
 );
+
+// ────────────────────────────────────────────────────────────────────
+// Auto-flag misbehaving riders (Phase 3).
+//
+// Scheduled daily — walks /jobs and /jobs_offers from the last 30 days,
+// computes per-rider stats, and writes /riders/{id}/flags/auto_review
+// for anyone exceeding any threshold. Admin gets a push for each newly
+// flagged rider so they can investigate via the dashboard. We never
+// auto-suspend — flag-only — because the dashboard already exposes
+// "อัตราสำเร็จ" / "อัตรารับงาน" so an admin can sanity-check before
+// taking action. Auto-suspend is left for a future phase once we trust
+// the data more.
+//
+// Thresholds live at /settings/rider_flag_thresholds in RTDB so they
+// can be tuned without redeploying functions. If the node is missing
+// we fall back to conservative defaults (high bar — only obvious bad
+// actors get flagged).
+
+const AUTO_FLAG_LOOKBACK_DAYS = 30;
+const DEFAULT_FLAG_THRESHOLDS = {
+  // Trip ≥ this fraction of completed-or-customer-cancelled landing in
+  // customer-cancelled bucket suggests the rider is causing the cancels
+  // (late, no-show, customer dispute on arrival).
+  customer_cancel_rate: 0.30,
+  // Rider rejecting / abandoning ≥ this fraction of accepted jobs in
+  // the window. Different from "ignores broadcasts" — those are tracked
+  // by acceptance rate.
+  rider_cancel_rate: 0.30,
+  // Acceptance rate < this fraction → rider mostly ignores broadcasts.
+  // A rider who literally never accepts anything in 30 days isn't
+  // useful as a rider; they should be talked to or paused.
+  acceptance_rate_min: 0.20,
+  // At least this many offered/assigned jobs in the window before we
+  // bother evaluating a rider — avoids flagging brand-new riders on
+  // sample-size noise (e.g. 0/1 looks worse than it is).
+  min_sample_size: 10,
+};
+
+function statusIsCompleted(s) {
+  return ["Paid", "Payment Completed", "Sent To QC Lab", "Ready To Sell", "Sold", "In Stock", "Completed"].includes(s);
+}
+
+exports.autoFlagRiders = onSchedule(
+  {
+    // Run at 04:00 Bangkok daily — after archiveOldJobs (03:00) so we
+    // don't double-count freshly archived jobs. The archive uses
+    // jobs/${id}, our query reads /jobs only, so this is a non-issue
+    // anyway, but keeping a clean ordering helps mental model.
+    schedule: "0 4 * * *",
+    timeZone: "Asia/Bangkok",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const db = getDatabase();
+    const now = Date.now();
+    const sinceTs = now - AUTO_FLAG_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+
+    const [thrSnap, ridersSnap, jobsSnap, offersSnap] = await Promise.all([
+      db.ref("settings/rider_flag_thresholds").once("value"),
+      db.ref("riders").once("value"),
+      db.ref("jobs").once("value"),
+      db.ref("jobs_offers").once("value"),
+    ]);
+
+    const thresholds = { ...DEFAULT_FLAG_THRESHOLDS, ...(thrSnap.val() || {}) };
+    const riders = ridersSnap.val() || {};
+    const jobs = jobsSnap.val() || {};
+    const offers = offersSnap.val() || {};
+
+    const flagsToWrite = {};
+    const newlyFlaggedNotifications = [];
+
+    for (const [riderId, riderRaw] of Object.entries(riders)) {
+      const rider = riderRaw || {};
+      const status = rider.approval_status || rider.status;
+      // Skip already-suspended / rejected riders — flagging them again is noise.
+      if (status === "Suspended" || status === "Rejected") continue;
+
+      let completed = 0;
+      let customerCancelled = 0;
+      let riderCancelled = 0;
+      let offered = 0;
+      let acceptedFromOffers = 0;
+
+      for (const [, jobRaw] of Object.entries(jobs)) {
+        const job = jobRaw || {};
+        const refTs = job.completed_at || job.cancelled_at || job.created_at || 0;
+        if (refTs < sinceTs) continue;
+
+        if (job.cancelled_by === `rider:${riderId}`) {
+          riderCancelled += 1;
+          continue;
+        }
+        if (job.rider_id !== riderId) continue;
+
+        if (statusIsCompleted(job.status)) completed += 1;
+        else if (job.status === "Cancelled" && job.cancel_category === "customer_request_cancel") customerCancelled += 1;
+      }
+
+      // Walk offers for this rider
+      for (const [, perJobOffers] of Object.entries(offers)) {
+        const rec = perJobOffers && perJobOffers[riderId];
+        if (!rec) continue;
+        const refTs = rec.offered_at || rec.accepted_at || rec.rejected_at || 0;
+        if (refTs < sinceTs) continue;
+        if (rec.offered_at) offered += 1;
+        if (rec.accepted_at) acceptedFromOffers += 1;
+      }
+
+      const totalEngaged = completed + customerCancelled + riderCancelled;
+      // Sample size = max of the two denominators we evaluate against.
+      const sampleSize = Math.max(totalEngaged, offered);
+      if (sampleSize < thresholds.min_sample_size) continue;
+
+      const reasons = [];
+      const customerCancelRate = totalEngaged > 0 ? customerCancelled / totalEngaged : 0;
+      const riderCancelRate = totalEngaged > 0 ? riderCancelled / totalEngaged : 0;
+      const acceptanceRate = offered > 0 ? acceptedFromOffers / offered : null;
+
+      if (customerCancelRate > thresholds.customer_cancel_rate) {
+        reasons.push(`อัตราลูกค้ายกเลิก ${(customerCancelRate * 100).toFixed(0)}% (เกิน ${(thresholds.customer_cancel_rate * 100).toFixed(0)}%)`);
+      }
+      if (riderCancelRate > thresholds.rider_cancel_rate) {
+        reasons.push(`อัตราไรเดอร์ยกเลิก/ปฏิเสธ ${(riderCancelRate * 100).toFixed(0)}% (เกิน ${(thresholds.rider_cancel_rate * 100).toFixed(0)}%)`);
+      }
+      if (acceptanceRate != null && acceptanceRate < thresholds.acceptance_rate_min) {
+        reasons.push(`อัตรารับงาน ${(acceptanceRate * 100).toFixed(0)}% (ต่ำกว่า ${(thresholds.acceptance_rate_min * 100).toFixed(0)}%)`);
+      }
+
+      const wasAlreadyFlagged = !!(rider.flags && rider.flags.auto_review);
+
+      if (reasons.length > 0) {
+        flagsToWrite[`riders/${riderId}/flags/auto_review`] = {
+          flagged_at: now,
+          window_days: AUTO_FLAG_LOOKBACK_DAYS,
+          sample_size: sampleSize,
+          reasons,
+          metrics: {
+            completed,
+            customer_cancelled: customerCancelled,
+            rider_cancelled: riderCancelled,
+            offered,
+            accepted_from_offers: acceptedFromOffers,
+            customer_cancel_rate: Number(customerCancelRate.toFixed(3)),
+            rider_cancel_rate: Number(riderCancelRate.toFixed(3)),
+            acceptance_rate: acceptanceRate != null ? Number(acceptanceRate.toFixed(3)) : null,
+          },
+        };
+        if (!wasAlreadyFlagged) {
+          newlyFlaggedNotifications.push({
+            riderId,
+            name: rider.name || rider.fullName || riderId,
+            reasons,
+          });
+        }
+      } else if (wasAlreadyFlagged) {
+        // Rider's stats recovered — clear the flag.
+        flagsToWrite[`riders/${riderId}/flags/auto_review`] = null;
+      }
+    }
+
+    if (Object.keys(flagsToWrite).length > 0) {
+      await db.ref().update(flagsToWrite);
+    }
+
+    for (const item of newlyFlaggedNotifications) {
+      try {
+        await dispatchAdminPush(
+          {
+            notification: {
+              title: "🚩 Rider flagged for review",
+              body: `${item.name}: ${item.reasons[0]}${item.reasons.length > 1 ? ` (+${item.reasons.length - 1})` : ""}`,
+            },
+            data: { type: "rider_auto_flagged", riderId: item.riderId },
+          },
+          "rider-auto-flag"
+        );
+      } catch (e) {
+        console.error(`autoFlagRiders push failed for ${item.riderId}:`, e);
+      }
+    }
+
+    console.log(
+      `autoFlagRiders: scanned ${Object.keys(riders).length} riders, ` +
+      `wrote ${Object.keys(flagsToWrite).length} flag updates, ` +
+      `${newlyFlaggedNotifications.length} new flags notified.`
+    );
+  }
+);

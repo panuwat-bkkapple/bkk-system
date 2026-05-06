@@ -38,6 +38,20 @@ export default function GlobalSettings() {
   const [showCompSuccess, setShowCompSuccess] = useState(false);
   const [compLoaded, setCompLoaded] = useState(false);
 
+  // Auto-flag thresholds — Cloud Function autoFlagRiders runs daily and
+  // marks /riders/{id}/flags/auto_review for riders whose stats exceed
+  // these. Stored at settings/rider_flag_thresholds. Hard-coded fallback
+  // lives in the function so an empty settings node still flags obvious
+  // bad actors; this UI is for tuning the bar, not bootstrapping it.
+  const [flagThresholds, setFlagThresholds] = useState({
+    customer_cancel_rate: 0.30,
+    rider_cancel_rate: 0.30,
+    acceptance_rate_min: 0.20,
+    min_sample_size: 10,
+  });
+  const [isSavingFlag, setIsSavingFlag] = useState(false);
+  const [showFlagSuccess, setShowFlagSuccess] = useState(false);
+
   const [testDistance, setTestDistance] = useState<number>(12); // สำหรับ Slider จำลองระยะทาง
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -103,6 +117,49 @@ export default function GlobalSettings() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const flagRef = ref(db, 'settings/rider_flag_thresholds');
+    const unsubscribe = onValue(flagRef, (snap) => {
+      if (snap.exists()) {
+        const v = snap.val() || {};
+        setFlagThresholds({
+          customer_cancel_rate: Number(v.customer_cancel_rate ?? 0.30),
+          rider_cancel_rate: Number(v.rider_cancel_rate ?? 0.30),
+          acceptance_rate_min: Number(v.acceptance_rate_min ?? 0.20),
+          min_sample_size: Number(v.min_sample_size ?? 10),
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveFlagThresholds = async () => {
+    if (flagThresholds.customer_cancel_rate < 0 || flagThresholds.customer_cancel_rate > 1
+      || flagThresholds.rider_cancel_rate < 0 || flagThresholds.rider_cancel_rate > 1
+      || flagThresholds.acceptance_rate_min < 0 || flagThresholds.acceptance_rate_min > 1) {
+      toast.warning('อัตราต้องอยู่ระหว่าง 0–1 (เช่น 0.30 = 30%)');
+      return;
+    }
+    if (flagThresholds.min_sample_size < 1) {
+      toast.warning('Sample size ต้องอย่างน้อย 1');
+      return;
+    }
+    setIsSavingFlag(true);
+    setShowFlagSuccess(false);
+    try {
+      await update(ref(db, 'settings/rider_flag_thresholds'), {
+        ...flagThresholds,
+        updated_at: Date.now(),
+      });
+      setShowFlagSuccess(true);
+      setTimeout(() => setShowFlagSuccess(false), 3000);
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการบันทึก threshold');
+    } finally {
+      setIsSavingFlag(false);
+    }
+  };
 
   const handleSaveRiderCompensation = async () => {
     if (!Number.isFinite(riderComp.customer_cancel_time_loss) || riderComp.customer_cancel_time_loss < 0) {
@@ -313,6 +370,78 @@ export default function GlobalSettings() {
           {showCompSuccess && (
             <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2.5 rounded-xl animate-in fade-in text-sm">
               <CheckCircle2 size={18} /> อัปเดตค่าชดเชยสำเร็จ!
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Auto-flag thresholds — drives the daily Cloud Function */}
+      <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
+        <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
+          <AlertTriangle className="text-amber-600" /> เกณฑ์ Flag ไรเดอร์อัตโนมัติ (Auto-flag Thresholds)
+        </h2>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-5">
+          Cloud Function <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">autoFlagRiders</code> รันทุกวัน 04:00 น. — ไรเดอร์ที่มีตัวเลขเกินเกณฑ์ใดๆ ใน 30 วันล่าสุด จะถูกตั้ง flag <code className="bg-slate-100 px-1 rounded text-[11px]">riders/&#123;id&#125;/flags/auto_review</code> + ส่ง push ให้แอดมินตรวจสอบ. ระบบไม่ auto-suspend
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">ลูกค้ายกเลิก ≥</label>
+            <div className="relative">
+              <input type="number" step="0.01" min="0" max="1"
+                value={flagThresholds.customer_cancel_rate}
+                onChange={(e) => setFlagThresholds(p => ({ ...p, customer_cancel_rate: Number(e.target.value) }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs">{(flagThresholds.customer_cancel_rate * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">ไรเดอร์ยกเลิก ≥</label>
+            <div className="relative">
+              <input type="number" step="0.01" min="0" max="1"
+                value={flagThresholds.rider_cancel_rate}
+                onChange={(e) => setFlagThresholds(p => ({ ...p, rider_cancel_rate: Number(e.target.value) }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs">{(flagThresholds.rider_cancel_rate * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">รับงาน &lt;</label>
+            <div className="relative">
+              <input type="number" step="0.01" min="0" max="1"
+                value={flagThresholds.acceptance_rate_min}
+                onChange={(e) => setFlagThresholds(p => ({ ...p, acceptance_rate_min: Number(e.target.value) }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs">{(flagThresholds.acceptance_rate_min * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Min sample size</label>
+            <div className="relative">
+              <input type="number" min="1"
+                value={flagThresholds.min_sample_size}
+                onChange={(e) => setFlagThresholds(p => ({ ...p, min_sample_size: Number(e.target.value) }))}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all" />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xs">งาน</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1 font-bold">ไรเดอร์ที่มี sample &lt; ค่านี้ ไม่ถูก flag</p>
+          </div>
+        </div>
+
+        <div className="mt-5 bg-amber-50/50 p-4 rounded-xl border border-amber-100 flex items-start gap-3 text-xs text-amber-800">
+          <Info size={16} className="shrink-0 mt-0.5 text-amber-500" />
+          <div className="leading-relaxed font-medium">
+            <strong>หมายเหตุ:</strong> ค่าเป็นเศษส่วน (0–1). ตัวอย่าง 0.30 = 30%. ถ้าตั้งสูงเกินไป → flag ไม่ค่อยขึ้น; ถ้าต่ำเกินไป → flag ขึ้นบ่อยจนเป็น noise
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 mt-5">
+          <button onClick={handleSaveFlagThresholds} disabled={isSavingFlag} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-black transition-all shadow-lg active:scale-95 disabled:bg-slate-300 flex items-center gap-2">
+            {isSavingFlag ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} บันทึกเกณฑ์
+          </button>
+          {showFlagSuccess && (
+            <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2.5 rounded-xl animate-in fade-in text-sm">
+              <CheckCircle2 size={18} /> อัปเดตเกณฑ์สำเร็จ!
             </div>
           )}
         </div>
