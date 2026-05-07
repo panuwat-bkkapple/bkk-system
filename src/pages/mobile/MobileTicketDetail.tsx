@@ -14,6 +14,7 @@ import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
 import { LocationVerificationCard } from '../admin/components/LocationVerificationCard';
+import { CheckpointsCard } from '../admin/components/CheckpointsCard';
 import { AdminKYCModal } from './components/AdminKYCModal';
 import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificationModal';
@@ -568,6 +569,9 @@ export const MobileTicketDetail = () => {
 
           {/* === Location verification (registration vs typed address) === */}
           <LocationVerificationCard job={job} />
+
+          {/* === Rider check-in timeline (Phase 1A) — links each stage to Maps pin === */}
+          <CheckpointsCard job={job} />
 
           {/* === Store-in device verification — IMEI / Battery / Find My / Warranty === */}
           {job.receive_method === 'Store-in'
