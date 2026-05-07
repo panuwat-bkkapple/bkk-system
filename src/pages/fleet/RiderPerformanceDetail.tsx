@@ -13,7 +13,7 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   ArrowLeft, Bike, Loader2, MapPin, CheckCircle2, XCircle, Clock,
-  ChevronDown, ChevronRight, AlertTriangle, Phone, Mail,
+  ChevronDown, ChevronRight, AlertTriangle, Phone, Mail, ExternalLink,
 } from 'lucide-react';
 
 interface Rider {
@@ -303,11 +303,24 @@ const CheckpointTimeline: React.FC<{ checkpoints?: Partial<Record<Stage, Checkpo
       {STAGE_ORDER.map((stage) => {
         const cp = checkpoints[stage];
         if (!cp) return null;
+        const url = cp.lat != null && cp.lng != null
+          ? `https://www.google.com/maps/search/?api=1&query=${cp.lat},${cp.lng}`
+          : null;
+        const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+          url ? (
+            <a href={url} target="_blank" rel="noreferrer noopener" className="flex items-start gap-3 text-xs group hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors">{children}</a>
+          ) : (
+            <div className="flex items-start gap-3 text-xs">{children}</div>
+          );
+
         return (
-          <div key={stage} className="flex items-start gap-3 text-xs">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+          <Wrapper key={stage}>
+            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${cp.is_within_zone === false ? 'bg-rose-500' : 'bg-emerald-500'}`} />
             <div className="flex-1 min-w-0">
-              <div className="font-black text-slate-700">{STAGE_LABEL[stage]}</div>
+              <div className="font-black text-slate-700 flex items-center gap-1.5">
+                {STAGE_LABEL[stage]}
+                {url && <ExternalLink size={10} className="text-slate-400 group-hover:text-blue-600 transition-colors" />}
+              </div>
               <div className="text-slate-500 font-medium">
                 {formatDateTime(cp.at)}
                 {cp.distance_m != null && (
@@ -318,7 +331,7 @@ const CheckpointTimeline: React.FC<{ checkpoints?: Partial<Record<Stage, Checkpo
                 )}
               </div>
             </div>
-          </div>
+          </Wrapper>
         );
       })}
     </div>
