@@ -6,7 +6,7 @@ import { uploadImageToFirebase } from '../../utils/uploadImage';
 import {
   Search, CheckCircle2, X, Copy, Check,
   Smartphone, Upload, FileText, Loader2,
-  RefreshCw, Banknote, ChevronDown, ChevronUp
+  RefreshCw, Banknote, ChevronDown, ChevronUp, Wallet
 } from 'lucide-react';
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -27,6 +27,8 @@ export const MobileFinancePage = () => {
   const [editBankName, setEditBankName] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
   const [editBankHolder, setEditBankHolder] = useState('');
+
+  const [paymentMethod, setPaymentMethod] = useState<'transfer' | 'cash'>('transfer');
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -83,6 +85,7 @@ export const MobileFinancePage = () => {
   const openTransferModal = (tx: any) => {
     setSelectedTx(tx);
     setSlipFile(null);
+    setPaymentMethod('transfer');
 
     let bankNameDisplay = tx.payment_info?.bank || tx.bank_name || '';
     if (tx.payment_info?.type === 'promptpay') bankNameDisplay = 'พร้อมเพย์ (PromptPay)';
@@ -94,10 +97,11 @@ export const MobileFinancePage = () => {
 
   const handleConfirmTransfer = async () => {
     if (!selectedTx) return;
-    if (!slipFile) { toast.warning('กรุณาแนบสลิปการโอนเงิน'); return; }
-    if (!editBankName || !editBankAccount || !editBankHolder) { toast.warning('กรุณาระบุข้อมูลบัญชีให้ครบ'); return; }
+    const isCash = paymentMethod === 'cash';
+    if (!slipFile) { toast.warning(isCash ? 'กรุณาแนบหลักฐานการรับเงินสด' : 'กรุณาแนบสลิปการโอนเงิน'); return; }
+    if (!isCash && (!editBankName || !editBankAccount || !editBankHolder)) { toast.warning('กรุณาระบุข้อมูลบัญชีให้ครบ'); return; }
 
-    if (!confirm('ยืนยันว่าโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
+    if (!confirm(isCash ? 'ยืนยันว่าจ่ายเงินสดให้ลูกค้าเรียบร้อยแล้ว?' : 'ยืนยันว่าโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
 
     setIsUploading(true);
     try {
@@ -111,7 +115,9 @@ export const MobileFinancePage = () => {
 
       const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
-      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
+      const logDetails = isCash
+        ? `ฝ่ายบัญชีจ่ายเงินสดสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} ให้ ${selectedTx.cust_name || 'ลูกค้า'}`
+        : `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
 
       const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
 
@@ -122,10 +128,13 @@ export const MobileFinancePage = () => {
       updates[`jobs/${selectedTx.id}/paid_at`] = now;
       updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
       updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      updates[`jobs/${selectedTx.id}/payment_method`] = isCash ? 'cash' : 'transfer';
       updates[`jobs/${selectedTx.id}/updated_at`] = now;
-      updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
-      updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
-      updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
+      if (!isCash) {
+        updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
+        updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
+        updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
+      }
       updates[`jobs/${selectedTx.id}/qc_logs`] = [newLog, ...(selectedTx.qc_logs || [])];
 
       const debitKey = push(child(ref(db), 'transactions')).key;
@@ -134,7 +143,8 @@ export const MobileFinancePage = () => {
         amount: actualTransferAmount,
         type: 'DEBIT',
         category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
-        description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
+        description: `${isCash ? 'จ่ายเงินสดรับซื้อสุทธิ' : 'จ่ายเงินรับซื้อสุทธิ'} ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
+        payment_method: isCash ? 'cash' : 'transfer',
         timestamp: now,
         ref_job_id: selectedTx.id,
         slip_url: slipUrl
@@ -158,9 +168,9 @@ export const MobileFinancePage = () => {
       // Post-payment verification: ตรวจสอบว่า transaction ถูกสร้างจริง
       const verifySnapshot = await get(ref(db, `transactions/${debitKey}`));
       if (!verifySnapshot.exists()) {
-        toast.warning('⚠️ โอนเงินสำเร็จแต่ Transaction อาจไม่ถูกบันทึก — กรุณาตรวจสอบที่แท็บ "ซ่อม Transaction"');
+        toast.warning(`⚠️ ${isCash ? 'จ่ายเงินสด' : 'โอนเงิน'}สำเร็จแต่ Transaction อาจไม่ถูกบันทึก — กรุณาตรวจสอบที่แท็บ "ซ่อม Transaction"`);
       } else {
-        toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
+        toast.success(isCash ? 'บันทึกการจ่ายเงินสดพร้อมหลักฐานสำเร็จ!' : 'บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
       }
       setSelectedTx(null);
       setSlipFile(null);
@@ -309,7 +319,9 @@ export const MobileFinancePage = () => {
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white rounded-t-[2rem] z-10">
               <div>
-                <h3 className="text-lg font-black text-slate-800">ยืนยันโอนเงิน</h3>
+                <h3 className="text-lg font-black text-slate-800">
+                  {paymentMethod === 'cash' ? 'ยืนยันจ่ายเงินสด' : 'ยืนยันโอนเงิน'}
+                </h3>
                 <p className="text-[10px] font-bold text-blue-500 tracking-widest uppercase mt-0.5">Ref: {selectedTx.ref_no}</p>
               </div>
               <button onClick={() => setSelectedTx(null)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400">
@@ -320,60 +332,95 @@ export const MobileFinancePage = () => {
             <div className="p-5 space-y-5">
               {/* Amount */}
               <div className="text-center py-3">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ยอดโอนสุทธิ</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                  {paymentMethod === 'cash' ? 'ยอดจ่ายสุทธิ' : 'ยอดโอนสุทธิ'}
+                </p>
                 <h1 className="text-4xl font-black text-emerald-600">
                   {formatCurrency(getNetPayout(selectedTx))}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">{selectedTx.cust_name} · {selectedTx.model}</p>
               </div>
 
-              {/* Bank Details Form */}
-              <div className="bg-slate-50 rounded-2xl p-4 space-y-3 border border-slate-200">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ธนาคาร</label>
-                  <input
-                    type="text"
-                    value={editBankName}
-                    onChange={(e) => setEditBankName(e.target.value)}
-                    placeholder="เช่น กสิกรไทย, KBank..."
-                    className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-800 outline-none focus:border-emerald-500 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">เลขบัญชี</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <input
-                      type="text"
-                      value={editBankAccount}
-                      onChange={(e) => setEditBankAccount(e.target.value)}
-                      placeholder="เลขที่บัญชี"
-                      className="flex-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-mono font-bold text-slate-900 outline-none focus:border-emerald-500 text-sm tracking-wider"
-                    />
-                    {editBankAccount && (
-                      <button
-                        onClick={() => handleCopy(editBankAccount)}
-                        className="bg-blue-100 text-blue-600 p-2.5 rounded-xl active:bg-blue-200 shrink-0"
-                      >
-                        {copiedText === editBankAccount ? <Check size={16} /> : <Copy size={16} />}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ชื่อบัญชี</label>
-                  <input
-                    type="text"
-                    value={editBankHolder}
-                    onChange={(e) => setEditBankHolder(e.target.value)}
-                    placeholder="ชื่อบัญชีรับเงิน"
-                    className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500 text-sm"
-                  />
+              {/* Payment Method Toggle */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">วิธีจ่ายเงิน</label>
+                <div className="mt-1 grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('transfer')}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-black transition-all ${paymentMethod === 'transfer' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500'}`}
+                  >
+                    <Banknote size={16} /> โอนเงิน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-black transition-all ${paymentMethod === 'cash' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500'}`}
+                  >
+                    <Wallet size={16} /> เงินสด
+                  </button>
                 </div>
               </div>
 
-              {/* Slip Upload */}
+              {/* Bank Details Form — show only on transfer mode */}
+              {paymentMethod === 'transfer' ? (
+                <div className="bg-slate-50 rounded-2xl p-4 space-y-3 border border-slate-200">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ธนาคาร</label>
+                    <input
+                      type="text"
+                      value={editBankName}
+                      onChange={(e) => setEditBankName(e.target.value)}
+                      placeholder="เช่น กสิกรไทย, KBank..."
+                      className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-800 outline-none focus:border-emerald-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">เลขบัญชี</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="text"
+                        value={editBankAccount}
+                        onChange={(e) => setEditBankAccount(e.target.value)}
+                        placeholder="เลขที่บัญชี"
+                        className="flex-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-mono font-bold text-slate-900 outline-none focus:border-emerald-500 text-sm tracking-wider"
+                      />
+                      {editBankAccount && (
+                        <button
+                          onClick={() => handleCopy(editBankAccount)}
+                          className="bg-blue-100 text-blue-600 p-2.5 rounded-xl active:bg-blue-200 shrink-0"
+                        >
+                          {copiedText === editBankAccount ? <Check size={16} /> : <Copy size={16} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ชื่อบัญชี</label>
+                    <input
+                      type="text"
+                      value={editBankHolder}
+                      onChange={(e) => setEditBankHolder(e.target.value)}
+                      placeholder="ชื่อบัญชีรับเงิน"
+                      className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500 text-sm"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                  <Wallet size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-800 leading-relaxed">
+                    <p className="font-black mb-0.5">จ่ายเงินสดให้ลูกค้าโดยตรง</p>
+                    <p className="font-bold opacity-80">ไม่ต้องระบุข้อมูลธนาคาร — กรุณาแนบรูปใบเซ็นรับเงินสดหรือหลักฐานการรับเงินจากลูกค้า</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Slip / Evidence Upload */}
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">หลักฐานการโอน (สลิป)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  {paymentMethod === 'cash' ? 'หลักฐานการรับเงินสด' : 'หลักฐานการโอน (สลิป)'}
+                </label>
                 <label className={`block w-full mt-1 border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${slipFile ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 active:border-emerald-500 active:bg-emerald-50'}`}>
                   <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
                   {slipFile ? (
@@ -383,7 +430,9 @@ export const MobileFinancePage = () => {
                   ) : (
                     <div className="text-slate-400 flex flex-col items-center gap-1.5">
                       <Upload size={22} />
-                      <span className="text-xs font-bold">แตะเพื่ออัปโหลดสลิป</span>
+                      <span className="text-xs font-bold">
+                        {paymentMethod === 'cash' ? 'แตะเพื่ออัปโหลดหลักฐาน' : 'แตะเพื่ออัปโหลดสลิป'}
+                      </span>
                     </div>
                   )}
                 </label>
@@ -396,7 +445,11 @@ export const MobileFinancePage = () => {
                 className={`w-full text-white py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 shadow-xl transition-all ${isUploading ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 active:scale-[0.98] shadow-emerald-200'}`}
               >
                 {isUploading ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-                {isUploading ? 'กำลังบันทึก...' : 'ยืนยันโอนเงินแล้ว'}
+                {isUploading
+                  ? 'กำลังบันทึก...'
+                  : paymentMethod === 'cash'
+                    ? 'ยืนยันจ่ายเงินสดแล้ว'
+                    : 'ยืนยันโอนเงินแล้ว'}
               </button>
             </div>
           </div>
