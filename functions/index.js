@@ -951,6 +951,19 @@ const NOTIFY_STATUS_MAP = {
   "Revised Offer": "เสนอราคาใหม่",
   Negotiation: "ลูกค้าต่อราคา",
   "Price Accepted": "ลูกค้ารับราคา",
+  // Rider lifecycle — admins need real-time visibility of who's where without
+  // having to open the dashboard. Both canonical (job-statuses.ts) and legacy
+  // DB strings are listed so the trigger keeps firing through the rename.
+  "Rider Assigned": "🛵 ไรเดอร์รับงาน",
+  Assigned: "🛵 ไรเดอร์รับงาน",
+  "Rider Accepted": "✅ ไรเดอร์ยืนยันรับงาน",
+  Accepted: "✅ ไรเดอร์ยืนยันรับงาน",
+  "Rider En Route": "🛣️ ไรเดอร์ออกเดินทาง",
+  "Heading to Customer": "🛣️ ไรเดอร์ออกเดินทาง",
+  "Rider Arrived": "📍 ไรเดอร์ถึงจุดนัดหมาย",
+  Arrived: "📍 ไรเดอร์ถึงจุดนัดหมาย",
+  "Rider Returning": "🔙 ไรเดอร์กำลังกลับสาขา",
+  "In-Transit": "🔙 ไรเดอร์กำลังกลับสาขา", // Pickup overload — guarded below
   // B2B Pipeline Statuses
   "Pre-Quote Sent": "ส่งใบเสนอราคาเบื้องต้น (B2B)",
   "Pre-Quote Accepted": "ลูกค้ายอมรับราคาเบื้องต้น (B2B)",
@@ -983,6 +996,11 @@ exports.onJobStatusChanged = onValueUpdated(
     const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
     if (!jobSnap.exists()) return;
     const job = jobSnap.val();
+
+    // 'In-Transit' is overloaded by receive_method: Pickup → rider returning
+    // (admin wants to know), Mail-in → parcel in transit (not actionable for
+    // admin — Thailand Post tracking trigger handles parcel updates).
+    if (after === "In-Transit" && job.receive_method !== "Pickup") return;
 
     const model = job.model || "ไม่ระบุรุ่น";
     const custName = job.cust_name || "";
