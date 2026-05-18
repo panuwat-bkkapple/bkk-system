@@ -943,8 +943,6 @@ exports.notifyChatMessage = onRequest(
  * Thai label.
  */
 const NOTIFY_STATUS_MAP = {
-  Cancelled: "ยกเลิกงาน",
-  "Closed (Lost)": "ปิดงาน (Lost)",
   Returned: "ตีเครื่องกลับ",
   "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
   "Withdrawal Requested": "ขอถอนเงิน",
@@ -954,10 +952,10 @@ const NOTIFY_STATUS_MAP = {
   // Rider lifecycle — admins need real-time visibility of who's where without
   // having to open the dashboard. Both canonical (job-statuses.ts) and legacy
   // DB strings are listed so the trigger keeps firing through the rename.
+  // 'Rider Accepted' / 'Accepted' deliberately omitted — most flows fire it
+  // right after Rider Assigned, doubling the push for the same event.
   "Rider Assigned": "🛵 ไรเดอร์รับงาน",
   Assigned: "🛵 ไรเดอร์รับงาน",
-  "Rider Accepted": "✅ ไรเดอร์ยืนยันรับงาน",
-  Accepted: "✅ ไรเดอร์ยืนยันรับงาน",
   "Rider En Route": "🛣️ ไรเดอร์ออกเดินทาง",
   "Heading to Customer": "🛣️ ไรเดอร์ออกเดินทาง",
   "Rider Arrived": "📍 ไรเดอร์ถึงจุดนัดหมาย",
@@ -976,6 +974,49 @@ const NOTIFY_STATUS_MAP = {
   "Payment Completed": "ชำระเงินเสร็จ (B2B)",
 };
 
+// =============================================================================
+// Context-aware label builder
+//
+// Some transitions share a status string but mean different things depending
+// on who caused them — Cancelled by rider vs customer vs system, or Following
+// Up that's an ordinary CRM state vs the parking lot for a mid-route
+// rider-cancel. The static NOTIFY_STATUS_MAP can't express that, so cases
+// that need the extra dimension are resolved here and the map is the fallback
+// for everything else.
+//
+// Returns the Thai label to push, or null to suppress the notification.
+// =============================================================================
+function buildAdminStatusLabel(after, job) {
+  const cancelledBy = job.cancelled_by || "";
+  const isRiderCancel = cancelledBy.startsWith("rider:");
+  const isCustomerCancel = cancelledBy === "customer" || cancelledBy.startsWith("customer:");
+  const isAdminCancel = cancelledBy === "admin" || cancelledBy.startsWith("admin:");
+  const isSystemCancel = cancelledBy === "system";
+
+  // Cancelled — vary the label by source so admin instantly knows blame.
+  if (after === "Cancelled") {
+    if (isRiderCancel) return "❌ ไรเดอร์ยกเลิกงาน";
+    if (isCustomerCancel) return "❌ ลูกค้ายกเลิกงาน";
+    if (isAdminCancel) return "❌ Admin ยกเลิกงาน";
+    if (isSystemCancel) return "⏱ ระบบยกเลิกอัตโนมัติ (timeout)";
+    return "❌ ยกเลิกงาน";
+  }
+  if (after === "Closed (Lost)") return "ปิดงาน (Lost)";
+
+  // Following Up is the parking lot for mid-route rider cancels (PR #52).
+  // Without the cancelled_by guard, every ordinary follow-up would push.
+  if (after === "Following Up") {
+    if (isRiderCancel) return "🚫 ไรเดอร์คืนงาน — ต้องจ่ายงานใหม่";
+    return null;
+  }
+
+  return NOTIFY_STATUS_MAP[after] || null;
+}
+
+// Status family the overdue scheduler keys off — needs paid_at to be
+// authoritative regardless of which client wrote the status.
+const PAID_STATUSES = ["Paid", "PAID", "Payment Completed"];
+
 exports.onJobStatusChanged = onValueUpdated(
   {
     ref: "/jobs/{jobId}/status",
@@ -984,27 +1025,38 @@ exports.onJobStatusChanged = onValueUpdated(
   async (event) => {
     const before = event.data.before.val();
     const after = event.data.after.val();
-
-    // สถานะไม่เปลี่ยน หรือไม่ใช่สถานะที่ต้องแจ้ง
     if (before === after) return;
-    if (!NOTIFY_STATUS_MAP[after]) return;
 
     const jobId = event.params.jobId;
     const db = getDatabase();
 
-    // ดึงข้อมูล job เพื่อแสดงในข้อความ
+    // Auto-stamp paid_at on transition into the Paid family. The mobile
+    // "จ่ายเงินแล้ว" button only writes status, so the overdue scheduler
+    // wouldn't have an anchor without this. Finance payouts already stamp
+    // explicitly — guard against overwriting their timestamp.
+    if (PAID_STATUSES.includes(after) && !PAID_STATUSES.includes(before)) {
+      const paidAtRef = db.ref(`jobs/${jobId}/paid_at`);
+      const existing = await paidAtRef.once("value");
+      if (!existing.exists()) {
+        await paidAtRef.set(Date.now());
+        console.log(`[onJobStatusChanged] ${jobId} paid_at stamped`);
+      }
+    }
+
     const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
     if (!jobSnap.exists()) return;
     const job = jobSnap.val();
 
     // 'In-Transit' is overloaded by receive_method: Pickup → rider returning
-    // (admin wants to know), Mail-in → parcel in transit (not actionable for
-    // admin — Thailand Post tracking trigger handles parcel updates).
+    // (admin wants to know), Mail-in → parcel in transit (Thailand Post
+    // tracking trigger handles parcel updates separately).
     if (after === "In-Transit" && job.receive_method !== "Pickup") return;
+
+    const statusLabel = buildAdminStatusLabel(after, job);
+    if (!statusLabel) return;
 
     const model = job.model || "ไม่ระบุรุ่น";
     const custName = job.cust_name || "";
-    const statusLabel = NOTIFY_STATUS_MAP[after];
     const reason = job.cancel_reason ? ` - ${job.cancel_reason}` : "";
 
     const title = `🔔 ${statusLabel}`;
@@ -2327,5 +2379,109 @@ exports.autoFlagRiders = onSchedule(
       `wrote ${Object.keys(flagsToWrite).length} flag updates, ` +
       `${newlyFlaggedNotifications.length} new flags notified.`
     );
+  }
+);
+
+// =============================================================================
+// Overdue rider-return detector
+//
+// Once a job hits Paid, the rider has the device and the money has left our
+// account — every minute they're not back at the branch is unmanaged risk.
+// Anchoring the SLA on paid_at (rather than 'Rider Returning') means the
+// clock starts the moment we're financially exposed, even if the rider
+// hasn't pressed the "เดินทางกลับ" button.
+//
+// Default threshold 60 minutes, overridable in settings/system/rider_overdue_min
+// (single integer, minutes). One push per job — overdue_notified_at stamp
+// prevents the cron from spamming the same job on every tick.
+// =============================================================================
+const STILL_OUT_STATUSES = [
+  "Paid", "PAID", "Payment Completed",
+  "Rider Returning", "In-Transit",
+];
+
+exports.checkOverdueReturns = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    region: "asia-southeast1",
+    timeZone: "Asia/Bangkok",
+  },
+  async () => {
+    const db = getDatabase();
+
+    const thresholdSnap = await db.ref("settings/system/rider_overdue_min").get();
+    const thresholdMin = (thresholdSnap.exists() && typeof thresholdSnap.val() === "number" && thresholdSnap.val() > 0)
+      ? thresholdSnap.val()
+      : 60;
+
+    const now = Date.now();
+    const cutoff = now - thresholdMin * 60 * 1000;
+    const lookback = now - 24 * 60 * 60 * 1000; // ignore stale data > 24h
+
+    // Scan the live jobs collection — archived jobs (>90d) aren't here.
+    // No paid_at index in rules so we filter in code; live set is ~hundreds,
+    // negligible at every-5-min cadence.
+    const jobsSnap = await db.ref("jobs").once("value");
+    if (!jobsSnap.exists()) {
+      console.log("[checkOverdueReturns] no jobs to scan");
+      return;
+    }
+
+    const overdue = [];
+    jobsSnap.forEach((snap) => {
+      const job = snap.val();
+      if (!job || typeof job.paid_at !== "number") return;
+      if (job.paid_at < lookback || job.paid_at > cutoff) return;
+      if (!STILL_OUT_STATUSES.includes(job.status)) return;
+      if (job.overdue_notified_at) return; // already alerted once
+      if (!job.rider_id) return; // store-in / mail-in skip — no rider in the loop
+      overdue.push({ id: snap.key, job });
+    });
+
+    if (overdue.length === 0) {
+      console.log(`[checkOverdueReturns] none overdue (threshold ${thresholdMin}m)`);
+      return;
+    }
+
+    for (const { id, job } of overdue) {
+      const elapsedMin = Math.floor((now - job.paid_at) / 60000);
+      const model = job.model || "ไม่ระบุรุ่น";
+      const custName = job.cust_name || "";
+      const title = "⚠️ ไรเดอร์ค้างส่งคืน";
+      const body = `จ่ายเงินไปแล้ว ${elapsedMin} นาที ยังไม่ถึงสาขา — ${model}${custName ? ` (${custName})` : ""}`;
+
+      await dispatchAdminPush(
+        {
+          data: {
+            jobId: id,
+            type: "rider_overdue",
+            title,
+            body,
+            model,
+            elapsedMin: String(elapsedMin),
+            riderId: String(job.rider_id || ""),
+          },
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "rider_overdue",
+              priority: "high",
+              defaultSound: true,
+              tag: `overdue-${id}`,
+            },
+          },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { "mutable-content": 1, sound: "default" } },
+          },
+          webpush: { headers: { Urgency: "high", TTL: "86400" } },
+        },
+        `checkOverdueReturns(${id})`
+      );
+
+      await db.ref(`jobs/${id}/overdue_notified_at`).set(now);
+    }
+
+    console.log(`[checkOverdueReturns] alerted on ${overdue.length} overdue job(s), threshold ${thresholdMin}m`);
   }
 );
