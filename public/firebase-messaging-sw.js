@@ -30,8 +30,8 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle = data.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
   const notificationOptions = {
     body: data.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: '/android-chrome-192x192.png',
+    badge: '/android-chrome-192x192.png',
     tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : isChatMessage ? `chat-${data.jobId}` : 'bkk-admin',
     data: data,
     vibrate: [200, 100, 200, 100, 200],
@@ -89,12 +89,16 @@ self.addEventListener('notificationclick', (event) => {
 // Caching (Offline Support)
 // =============================================================================
 
-const CACHE_NAME = 'bkk-system-v2';
+// Bump CACHE_NAME whenever STATIC_ASSETS or critical SW logic changes —
+// this forces stuck SWs to re-install on the next page load so admins who
+// silently lost notifications get a clean state. Asset paths align with
+// the favicon_io set referenced from manifest.json (PR #159).
+const CACHE_NAME = 'bkk-system-v3';
 const STATIC_ASSETS = [
   '/mobile',
   '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/android-chrome-192x192.png',
+  '/android-chrome-512x512.png',
 ];
 
 self.addEventListener('install', (event) => {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { getFirebaseMessaging } from '../api/firebase';
 import { getToken, onMessage, type Messaging } from 'firebase/messaging';
-import { ref, set, get, remove } from 'firebase/database';
+import { ref, set, get } from 'firebase/database';
 import { db } from '../api/firebase';
 
 // Stable per-browser identifier so token refreshes overwrite the same DB entry
@@ -95,11 +95,11 @@ export const useAdminPushNotifications = (staffId: string | null) => {
         if (token && !cancelled) {
           await saveToken(token);
         } else if (!token) {
-          // Permission revoked or SW issue — drop the stored token so Cloud
-          // Functions stop trying to push to a device that can't receive.
-          const deviceId = getDeviceId();
-          await remove(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`));
-          console.warn('[Push] getToken returned empty; removed stored token');
+          // getToken() can return null for transient reasons (SW not yet
+          // activated, FCM endpoint hiccup, iOS PWA quirk). Don't delete the
+          // stored token — dispatchAdminPush already prunes tokens that FCM
+          // rejects with token-not-registered. Just log and retry next cycle.
+          console.warn('[Push] getToken returned empty; keeping stored token, will retry');
         }
       } catch (err) {
         console.error('[Push] Failed to fetch FCM token:', err);
