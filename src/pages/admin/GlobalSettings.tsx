@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
-import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle } from 'lucide-react';
+import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle, MessageSquareText, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
 const DEFAULT_RIDER_RATES = {
@@ -41,6 +41,19 @@ export default function GlobalSettings() {
   const [testDistance, setTestDistance] = useState<number>(12); // สำหรับ Slider จำลองระยะทาง
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // ข้อความด่วน (Quick Notes) — chips ที่โผล่ใต้ "ฝากข้อความ" หน้า
+  // /checkout ลูกค้า โครงเป็น Record<TradeMethod, string[]>; เก็บที่
+  // settings/store/quick_notes; frontend อ่านผ่าน useQuickNotes().
+  const DEFAULT_QUICK_NOTES = {
+    pickup: ['โทรก่อนถึง 15 นาที', 'ลงมารับที่ล็อบบี้', 'ขอเก็บกล่อง/อุปกรณ์เสริม'],
+    inStore: [] as string[],
+    mailIn: [] as string[],
+  };
+  const [quickNotes, setQuickNotes] = useState<{ pickup: string[]; inStore: string[]; mailIn: string[] }>(DEFAULT_QUICK_NOTES);
+  const [quickNotesDraft, setQuickNotesDraft] = useState<{ pickup: string; inStore: string; mailIn: string }>({ pickup: '', inStore: '', mailIn: '' });
+  const [isSavingQuickNotes, setIsSavingQuickNotes] = useState(false);
+  const [showQuickNotesSuccess, setShowQuickNotesSuccess] = useState(false);
 
   // ดึงข้อมูลจาก Firebase
   useEffect(() => {
@@ -103,6 +116,71 @@ export default function GlobalSettings() {
     });
     return () => unsubscribe();
   }, []);
+
+  // โหลด quick_notes จาก Firebase พร้อม fallback ถ้ายังไม่เคยตั้ง
+  useEffect(() => {
+    const qnRef = ref(db, 'settings/store/quick_notes');
+    const unsubscribe = onValue(qnRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const v = snapshot.val() || {};
+        const cleanList = (raw: unknown): string[] =>
+          Array.isArray(raw) ? raw.filter((s) => typeof s === 'string' && s.trim()).slice(0, 8) : [];
+        setQuickNotes({
+          pickup: cleanList(v.pickup),
+          inStore: cleanList(v.inStore),
+          mailIn: cleanList(v.mailIn),
+        });
+      } else {
+        setQuickNotes(DEFAULT_QUICK_NOTES);
+      }
+    });
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addQuickNote = (method: 'pickup' | 'inStore' | 'mailIn') => {
+    const text = quickNotesDraft[method].trim();
+    if (!text) return;
+    if (text.length > 60) {
+      toast.warning('ข้อความต้องไม่เกิน 60 ตัวอักษร');
+      return;
+    }
+    if (quickNotes[method].length >= 8) {
+      toast.warning('เพิ่มได้สูงสุด 8 รายการต่อช่องทาง');
+      return;
+    }
+    if (quickNotes[method].includes(text)) {
+      toast.warning('ข้อความนี้มีอยู่แล้ว');
+      return;
+    }
+    setQuickNotes((prev) => ({ ...prev, [method]: [...prev[method], text] }));
+    setQuickNotesDraft((prev) => ({ ...prev, [method]: '' }));
+  };
+
+  const removeQuickNote = (method: 'pickup' | 'inStore' | 'mailIn', idx: number) => {
+    setQuickNotes((prev) => ({ ...prev, [method]: prev[method].filter((_, i) => i !== idx) }));
+  };
+
+  const handleSaveQuickNotes = async () => {
+    setIsSavingQuickNotes(true);
+    setShowQuickNotesSuccess(false);
+    try {
+      await update(ref(db, 'settings/store/quick_notes'), {
+        pickup: quickNotes.pickup,
+        inStore: quickNotes.inStore,
+        mailIn: quickNotes.mailIn,
+        updated_at: Date.now(),
+      });
+      setShowQuickNotesSuccess(true);
+      toast.success('บันทึกข้อความด่วนเรียบร้อย');
+      setTimeout(() => setShowQuickNotesSuccess(false), 2500);
+    } catch (e) {
+      console.error(e);
+      toast.error('บันทึกไม่สำเร็จ');
+    } finally {
+      setIsSavingQuickNotes(false);
+    }
+  };
 
   const handleSaveRiderCompensation = async () => {
     if (!Number.isFinite(riderComp.customer_cancel_time_loss) || riderComp.customer_cancel_time_loss < 0) {
@@ -177,6 +255,89 @@ export default function GlobalSettings() {
           ตั้งค่าระบบส่วนกลาง (Global Settings)
         </h1>
         <p className="text-slate-500 font-medium ml-12">กำหนดสมการคำนวณค่าบริการเข้ารับเครื่องตามระยะทาง (Distance-Based Pricing)</p>
+      </div>
+
+      {/* 💬 ข้อความด่วนหน้า Checkout (Quick Notes Chips) */}
+      <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
+        <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
+          <MessageSquareText className="text-emerald-600" /> ข้อความด่วนหน้า Checkout (Quick Notes)
+        </h2>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-5">
+          ปุ่มข้อความสำเร็จรูปที่โผล่ใต้ช่อง "ฝากข้อความถึงไรเดอร์" ในหน้า /checkout — ลูกค้าแตะเพื่อเพิ่ม/ลบบรรทัดในข้อความได้ บันทึกที่ <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/store/quick_notes</code> (สูงสุด 8 ข้อความต่อช่องทาง, 60 ตัวอักษรต่อข้อความ)
+        </p>
+
+        <div className="space-y-5">
+          {([
+            { key: 'pickup' as const, label: 'ไรเดอร์รับถึงที่ (Pickup)', desc: 'แสดงเมื่อลูกค้าเลือกให้ไรเดอร์มารับเครื่อง' },
+            { key: 'inStore' as const, label: 'เข้ารับที่สาขา (In-store)', desc: 'แสดงเมื่อลูกค้านัดเข้าสาขา' },
+            { key: 'mailIn' as const, label: 'ส่งทางไปรษณีย์ (Mail-in)', desc: 'แสดงเมื่อลูกค้าส่งเครื่องทางพัสดุ' },
+          ]).map(({ key, label, desc }) => (
+            <div key={key} className="border border-slate-200 rounded-2xl p-5 bg-slate-50/50">
+              <div className="flex items-baseline justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">{label}</h3>
+                  <p className="text-[11px] font-medium text-slate-500">{desc}</p>
+                </div>
+                <span className="text-[11px] font-bold text-slate-400 tabular-nums">{quickNotes[key].length}/8</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-3 min-h-[2rem]">
+                {quickNotes[key].length === 0 ? (
+                  <span className="text-xs text-slate-400 italic font-medium">ยังไม่มีข้อความด่วน — ลูกค้าจะเห็นเฉพาะช่องพิมพ์อิสระ</span>
+                ) : (
+                  quickNotes[key].map((chip, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 bg-white border border-emerald-200 rounded-full text-xs font-bold text-slate-700">
+                      {chip}
+                      <button
+                        type="button"
+                        onClick={() => removeQuickNote(key, idx)}
+                        className="w-5 h-5 inline-flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 text-red-500 transition-colors"
+                        aria-label={`ลบ ${chip}`}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={quickNotesDraft[key]}
+                  onChange={(e) => setQuickNotesDraft((prev) => ({ ...prev, [key]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addQuickNote(key); } }}
+                  placeholder="พิมพ์ข้อความใหม่ แล้วกด + หรือ Enter"
+                  maxLength={60}
+                  className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => addQuickNote(key)}
+                  disabled={!quickNotesDraft[key].trim() || quickNotes[key].length >= 8}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all inline-flex items-center gap-1.5 active:scale-95"
+                >
+                  <Plus size={16} /> เพิ่ม
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-4 mt-5">
+          <button
+            onClick={handleSaveQuickNotes}
+            disabled={isSavingQuickNotes}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black transition-all shadow-lg active:scale-95 disabled:bg-slate-300 flex items-center gap-2"
+          >
+            {isSavingQuickNotes ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} บันทึกข้อความด่วน
+          </button>
+          {showQuickNotesSuccess && (
+            <span className="text-emerald-600 font-bold text-sm inline-flex items-center gap-1.5">
+              <CheckCircle2 size={16} /> บันทึกเรียบร้อย
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 🏍️ อัตราค่าวิ่งไรเดอร์ (Rider Fee Rates) */}
