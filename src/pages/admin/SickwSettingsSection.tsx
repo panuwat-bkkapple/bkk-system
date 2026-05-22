@@ -1,0 +1,93 @@
+// Section ของหน้า GlobalSettings ที่ตั้งค่า Sickw:
+//   - default service bundle (ไรเดอร์/แอดมินกดทีเดียวใช้ตัวนี้)
+//   - แสดง credit คงเหลือ
+//   - ลิงก์ไปจัดการ key ที่ sickw.com
+
+import { useEffect, useState } from 'react';
+import { ref, onValue, update } from 'firebase/database';
+import { Save, Loader2, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-react';
+import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
+import { SickwServicePicker } from '../../components/sickw/SickwServicePicker';
+import { SickwBalanceWidget } from '../../components/sickw/SickwBalanceWidget';
+
+export function SickwSettingsSection() {
+  const toast = useToast();
+  const [defaultBundle, setDefaultBundle] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  useEffect(() => {
+    const unsub = onValue(ref(db, 'settings/sickw/default_bundle'), (snap) => {
+      const v = snap.val();
+      if (Array.isArray(v)) setDefaultBundle(v.map(String));
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setShowSuccess(false);
+    try {
+      await update(ref(db, 'settings/sickw'), {
+        default_bundle: defaultBundle,
+        updated_at: Date.now(),
+      });
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (e: any) {
+      toast.error('บันทึก Sickw settings ไม่สำเร็จ: ' + (e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-700/50">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center">
+          <ShieldCheck size={20} className="text-blue-400" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-black text-white uppercase tracking-tight">Sickw IMEI Check</h2>
+          <p className="text-xs text-slate-400">
+            ตั้ง default bundle ของ service ที่ระบบจะใช้ตรวจ — ไรเดอร์/แอดมินกดปุ่ม "ใช้ default" ทีเดียวเรียกครบ
+          </p>
+        </div>
+        <a
+          href="https://sickw.com/?page=api"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
+        >
+          จัดการ key <ExternalLink size={11} />
+        </a>
+      </div>
+
+      <div className="mb-5">
+        <SickwBalanceWidget />
+      </div>
+
+      <div className="mb-5 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+        <SickwServicePicker
+          value={defaultBundle}
+          onChange={setDefaultBundle}
+        />
+        <p className="text-[11px] text-slate-400 mt-2">
+          แนะนำ: เลือก 2-3 service ที่ครอบคลุม "Carrier/Model info" (รุ่น/ความจุ/ประเทศ) + "FMI/iCloud" + "Blacklist"
+          เพื่อให้ Gate กันเครื่องมีปัญหาได้ครบ
+        </p>
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full sm:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {saving ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</>
+          : showSuccess ? <><CheckCircle2 size={16} /> บันทึกเรียบร้อย</>
+          : <><Save size={16} /> บันทึก Default Bundle</>}
+      </button>
+    </div>
+  );
+}
