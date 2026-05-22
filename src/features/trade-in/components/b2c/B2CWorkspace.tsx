@@ -15,12 +15,17 @@ import { MethodBadge, TicketPipeline } from '../modal/TradeInUI';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
+import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
+import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
+import { getSickwGateStatus } from '@/utils/sickwApi';
+import { useAuth } from '@/hooks/useAuth';
 
-export const B2CWorkspace = ({ 
-  job, onUpdateStatus, onClaimTicket, onSaveNotes, 
-  onReviseOffer, setIsInspectionModalOpen, setActiveChatJobId, onClose 
+export const B2CWorkspace = ({
+  job, onUpdateStatus, onClaimTicket, onSaveNotes,
+  onReviseOffer, setIsInspectionModalOpen, setActiveChatJobId, onClose
 }: any) => {
   const toast = useToast();
+  const { currentUser } = useAuth();
 
   const [callNotes, setCallNotes] = useState('');
   const [revisedPrice, setRevisedPrice] = useState('');
@@ -244,6 +249,20 @@ export const B2CWorkspace = ({
                <TicketPipeline status={job.status} />
             </div>
           </div>
+
+          {/* Sickw verification — Banner + parsed details
+              โชว์เฉพาะใบงานที่เคยตรวจ Sickw แล้ว (ของไรเดอร์หรือแอดมิน) */}
+          {job.sickw_check?.last_check && (
+            <div className="space-y-3">
+              <SickwGateBanner
+                jobId={job.id}
+                sickwCheck={job.sickw_check}
+                gate={getSickwGateStatus(job.sickw_check)}
+                currentRole={currentUser?.role}
+              />
+              <SickwStoredResultCard sickwCheck={job.sickw_check} />
+            </div>
+          )}
 
           {/* Condition Match Comparison */}
           <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-8">
