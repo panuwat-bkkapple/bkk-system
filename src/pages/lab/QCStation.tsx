@@ -10,11 +10,16 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
+import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
+import { getSickwGateStatus } from '../../utils/sickwApi';
+import { useAuth } from '../../hooks/useAuth';
 
 const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
 
 export const QCStation = () => {
    const toast = useToast();
+   const { currentUser } = useAuth();
    const { data: jobs, loading } = useDatabase('jobs');
    const [searchTerm, setSearchTerm] = useState('');
    const [activeTab, setActiveTab] = useState<'todo' | 'done'>('todo');
@@ -153,6 +158,13 @@ export const QCStation = () => {
       if (!qcForm.actual_imei || qcForm.actual_imei.trim() === '') {
          toast.warning('กรุณาสแกนหรือกรอกเลข IMEI เครื่องก่อนบันทึกเข้าคลัง'); return;
       }
+      // Sickw Gate — ห้ามส่ง QC pass / เข้าคลังถ้าเครื่องติด FMI/MDM/Blacklist
+      // (ผูกตรงนี้กับ payout pipeline เลย — ป้องกันเครื่องผิดเข้าสต็อก)
+      const freshGate = getSickwGateStatus(selectedJob?.sickw_check);
+      if (freshGate.blocked) {
+         toast.warning(`Sickw Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
+         return;
+      }
       if (!confirm('ยืนยันผลการตรวจสอบอุปกรณ์?')) return;
 
       try {
@@ -274,6 +286,13 @@ export const QCStation = () => {
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
+                           {/* Sickw Gate Status — banner ด้านบนสุด */}
+                           <SickwGateBanner
+                              jobId={selectedJob.id}
+                              sickwCheck={selectedJob.sickw_check}
+                              gate={getSickwGateStatus(selectedJob.sickw_check)}
+                              currentRole={currentUser?.role}
+                           />
                            <section className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
                               <h3 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Smartphone size={16} /> Identity</h3>
                               <div className="grid grid-cols-2 gap-4">
@@ -282,6 +301,14 @@ export const QCStation = () => {
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Color</label><input type="text" value={qcForm.actual_color} onChange={e => setQcForm({ ...qcForm, actual_color: e.target.value })} placeholder={selectedJob.color} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Capacity</label><input type="text" value={qcForm.model_code} onChange={e => setQcForm({ ...qcForm, model_code: e.target.value })} placeholder={selectedJob.capacity} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
                               </div>
+                           </section>
+
+                           <section>
+                              <SickwDeviceCheck
+                                 jobId={selectedJob.id}
+                                 initialImei={qcForm.actual_imei || selectedJob.imei || ''}
+                                 initialSerial={qcForm.actual_serial || selectedJob.serial || ''}
+                              />
                            </section>
 
                            <section>
@@ -360,19 +387,30 @@ export const QCStation = () => {
 
                         <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-4 shadow-2xl">
                            <button onClick={() => setSelectedJob(null)} className="px-6 py-4 rounded-xl font-bold text-slate-400 hover:bg-slate-50 uppercase text-xs tracking-widest">Cancel</button>
-                           {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน */}
-                           {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (
-                              <button onClick={handleSubmitQC} className="px-8 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-sm shadow-lg hover:bg-blue-700 active:scale-95 flex items-center gap-2 transition-all">
-                                 <Save size={18} />
-                                 {(() => {
-                                    const isPaid = selectedJob.qc_logs?.some((log: any) => ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
-                                    // ถ้าจ่ายเงินแล้ว หรือเป็นเคส Pickup ให้ขึ้นปุ่มส่งเข้าสต็อก
-                                    if (isPaid || selectedJob.receive_method === 'Pickup') return 'Approve & Send to Stock';
-                                    // ถ้ายังไม่จ่ายเงิน ให้ขึ้นปุ่มส่งให้ Admin
-                                    return 'Submit QC to Admin';
-                                 })()}
-                              </button>
-                           )}
+                           {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน + ถูก Sickw Gate block ได้ */}
+                           {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (() => {
+                              const qcGate = getSickwGateStatus(selectedJob.sickw_check);
+                              return (
+                                 <button
+                                    onClick={handleSubmitQC}
+                                    disabled={qcGate.blocked}
+                                    className={`px-8 py-4 rounded-xl font-black uppercase text-sm shadow-lg active:scale-95 flex items-center gap-2 transition-all ${
+                                       qcGate.blocked
+                                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                                 >
+                                    {qcGate.blocked ? <AlertTriangle size={18} /> : <Save size={18} />}
+                                    {qcGate.blocked
+                                       ? 'Sickw Gate Block — ต้อง Override'
+                                       : (() => {
+                                          const isPaid = selectedJob.qc_logs?.some((log: any) => ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
+                                          if (isPaid || selectedJob.receive_method === 'Pickup') return 'Approve & Send to Stock';
+                                          return 'Submit QC to Admin';
+                                       })()}
+                                 </button>
+                              );
+                           })()}
                         </div>
                      </div>
                   ) : (
