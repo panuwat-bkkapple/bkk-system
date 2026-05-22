@@ -26,6 +26,7 @@ import {
   type ImeiFields, type BatteryFields, type FindMyFields, type WarrantyFields,
 } from '../../../utils/visionOcr';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { SickwDeviceCheck } from '../../../components/sickw/SickwDeviceCheck';
 
 interface Props {
   job: { id: string };
@@ -238,6 +239,14 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
                 )}
               </div>
             )}
+          />
+
+          {/* Sickw IMEI Check — ตรวจสอบกับฐานข้อมูล Apple
+              autofill IMEI/Serial จาก OCR ของ slot IMEI ด้านบน */}
+          <SickwDeviceCheck
+            jobId={job.id}
+            initialImei={imeiText || imei.fields?.imei || ''}
+            initialSerial={imei.fields?.serial || ''}
           />
 
           {/* Battery Health */}
