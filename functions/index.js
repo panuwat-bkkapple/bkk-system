@@ -2976,6 +2976,102 @@ exports.submitSickwGateOverride = onCall({ region: SICKW_REGION }, async (reques
 // ทุก admin/rider load page = ดึง cache → ไม่ burn quota
 // =============================================================================
 
+// =============================================================================
+// Sickw → Job sync: ใช้ข้อมูล parsed จาก Sickw last_check ไป update
+// ฟิลด์ model/capacity/color/country/imei/serial/imei2 ของใบงาน
+//
+// ทำไม: ลูกค้ากรอกตอนสร้างงานอาจคลาดเคลื่อน (รุ่นผิด/สีผิด/ความจุผิด)
+// — Sickw ดึงข้อมูลจาก Apple database จริง → ใช้เป็น authoritative source ได้
+//
+// เก็บ before-snapshot ใน sickw_sync_history เผื่อ undo
+// บันทึก qc_log entry "SICKW_SYNC" + ผู้ทำรายการ + ฟิลด์ที่เปลี่ยน
+// =============================================================================
+
+exports.syncJobFromSickw = onCall({ region: SICKW_REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+
+  const { jobId, fields } = request.data || {};
+  if (!jobId || typeof jobId !== "string" || /[/.#$\[\]]/.test(jobId)) {
+    throw new HttpsError("invalid-argument", "jobId ไม่ถูกต้อง");
+  }
+  if (!Array.isArray(fields) || fields.length === 0) {
+    throw new HttpsError("invalid-argument", "ต้องระบุ fields ที่จะ sync (array)");
+  }
+
+  // whitelist fields ที่อนุญาตให้ sync — กันลูกค้า inject path อื่น
+  const ALLOWED_FIELDS = ["model", "capacity", "color", "country", "imei", "imei2", "serial"];
+  const validFields = fields.filter((f) => ALLOWED_FIELDS.includes(f));
+  if (validFields.length === 0) {
+    throw new HttpsError("invalid-argument", `fields ที่อนุญาต: ${ALLOWED_FIELDS.join(", ")}`);
+  }
+
+  const db = getDatabase();
+
+  // ตรวจ role — staff/CEO/MANAGER/STAFF + rider ก็ใช้ได้ (rider sync ตอนรับเครื่อง)
+  const staff = await lookupStaffByAuth(db, request.auth);
+  const actorName = staff ? (staff.name || staff.email || "Unknown") : "Unknown";
+  const actorRole = staff ? String(staff.role || "STAFF").toUpperCase() : "UNKNOWN";
+
+  const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+  if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบใบงาน");
+  const job = jobSnap.val();
+
+  const checkSnap = await db.ref(`jobs/${jobId}/sickw_check/last_check`).once("value");
+  if (!checkSnap.exists()) {
+    throw new HttpsError("failed-precondition", "ใบงานนี้ยังไม่มีผลตรวจ Sickw");
+  }
+  const parsed = (checkSnap.val() && checkSnap.val().parsed) || {};
+
+  // before-snapshot สำหรับ audit
+  const before = {};
+  const after = {};
+  const updates = {};
+  for (const field of validFields) {
+    const newVal = parsed[field];
+    if (!newVal || String(newVal).trim() === "") continue; // ไม่ override ด้วยค่าว่าง
+    before[field] = job[field] ?? null;
+    after[field] = String(newVal);
+    updates[`jobs/${jobId}/${field}`] = String(newVal);
+  }
+  if (Object.keys(updates).length === 0) {
+    throw new HttpsError("failed-precondition", "ไม่มี field ใน Sickw ที่จะ sync (ค่าว่างทั้งหมด)");
+  }
+
+  // เพิ่ม qc_log entry — append หน้าสุดของ list
+  const oldLogs = Array.isArray(job.qc_logs) ? job.qc_logs : [];
+  const detailLines = Object.entries(after).map(([k, v]) => {
+    const old = before[k] ?? "(ว่าง)";
+    return `${k}: ${old} → ${v}`;
+  }).join("; ");
+  const newLog = {
+    action: "SICKW_SYNC",
+    by: actorName,
+    role: actorRole,
+    timestamp: Date.now(),
+    details: `Sync จาก Sickw: ${detailLines}`,
+  };
+  updates[`jobs/${jobId}/qc_logs`] = [newLog, ...oldLogs];
+  updates[`jobs/${jobId}/updated_at`] = Date.now();
+
+  // เก็บ history ใน sickw_sync_history เผื่อ undo
+  const historyKey = db.ref("sickw_sync_history").push().key;
+  updates[`sickw_sync_history/${historyKey}`] = {
+    job_id: jobId,
+    synced_at: Date.now(),
+    synced_by_uid: request.auth.uid,
+    synced_by_name: actorName,
+    synced_by_role: actorRole,
+    fields: validFields,
+    before,
+    after,
+  };
+
+  await db.ref().update(updates);
+
+  console.log(`[sickw-sync] job ${jobId} synced ${validFields.length} field(s) by ${actorName} (${actorRole})`);
+  return { ok: true, fields: validFields, before, after };
+});
+
 const SICKW_CATALOG_CACHE_KEY = "sickw/services_catalog";
 const SICKW_CATALOG_TTL_MS = 60 * 60 * 1000; // 1h
 const SICKW_BALANCE_CACHE_KEY = "sickw/balance_cache";

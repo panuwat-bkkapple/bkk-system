@@ -171,6 +171,20 @@ export async function getSickwBalance(forceRefresh = false): Promise<SickwBalanc
   return (await fn({ forceRefresh })).data;
 }
 
+export type SyncableField = 'model' | 'capacity' | 'color' | 'country' | 'imei' | 'imei2' | 'serial';
+
+export async function syncJobFromSickw(jobId: string, fields: SyncableField[]): Promise<{
+  ok: boolean;
+  fields: SyncableField[];
+  before: Record<string, string | null>;
+  after: Record<string, string>;
+}> {
+  const fn = httpsCallable<{ jobId: string; fields: SyncableField[] }, {
+    ok: boolean; fields: SyncableField[]; before: Record<string, string | null>; after: Record<string, string>;
+  }>(getFunctions(app, 'asia-southeast1'), 'syncJobFromSickw');
+  return (await fn({ jobId, fields })).data;
+}
+
 export async function checkDeviceWithSickwBundle(input: {
   imei: string;
   serviceIds: string[];
