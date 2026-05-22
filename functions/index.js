@@ -2837,3 +2837,266 @@ exports.submitSickwGateOverride = onCall({ region: SICKW_REGION }, async (reques
   console.log(`[sickw] gate override on job ${jobId} by ${role} ${request.auth.uid}`);
   return { ok: true, override: overrideRecord };
 });
+
+// =============================================================================
+// Sickw Service Catalog: ดึง list services ที่ user มี subscription + ราคา
+// (Sickw endpoint `?action=services` คืน array {service, name, price})
+//
+// Cache 1 ชม. ใน sickw/services_catalog เพราะ service list เปลี่ยนน้อยมาก
+// ทุก admin/rider load page = ดึง cache → ไม่ burn quota
+// =============================================================================
+
+const SICKW_CATALOG_CACHE_KEY = "sickw/services_catalog";
+const SICKW_CATALOG_TTL_MS = 60 * 60 * 1000; // 1h
+const SICKW_BALANCE_CACHE_KEY = "sickw/balance_cache";
+const SICKW_BALANCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+exports.listSickwServices = onCall({ region: SICKW_REGION, timeoutSeconds: 30 }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  const apiKey = process.env.SICKW_API_KEY;
+  if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
+
+  const forceRefresh = !!(request.data && request.data.forceRefresh);
+  const db = getDatabase();
+
+  if (!forceRefresh) {
+    const cacheSnap = await db.ref(SICKW_CATALOG_CACHE_KEY).once("value");
+    if (cacheSnap.exists()) {
+      const cached = cacheSnap.val();
+      if (cached.cached_at && Date.now() - cached.cached_at < SICKW_CATALOG_TTL_MS) {
+        return { cached: true, services: cached.services || [], cachedAt: cached.cached_at };
+      }
+    }
+  }
+
+  const url = `${SICKW_ENDPOINT}?action=services&key=${encodeURIComponent(apiKey)}`;
+  let parsed;
+  try {
+    const resp = await fetch(url);
+    const text = await resp.text();
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new HttpsError("internal", `Sickw services: non-JSON: ${text.slice(0, 120)}`);
+    }
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError("internal", `เรียก services ไม่สำเร็จ: ${e?.message || e}`);
+  }
+
+  // Sickw shape: { "Service List": [{service, name, price}] }
+  const list = parsed["Service List"] || parsed.services || parsed.result || [];
+  const services = (Array.isArray(list) ? list : []).map((s) => ({
+    service: String(s.service),
+    name: String(s.name || ""),
+    price: Number(s.price || 0),
+  })).filter((s) => /^\d+$/.test(s.service));
+
+  await db.ref(SICKW_CATALOG_CACHE_KEY).set({ cached_at: Date.now(), services });
+
+  return { cached: false, services, cachedAt: Date.now() };
+});
+
+exports.getSickwBalance = onCall({ region: SICKW_REGION, timeoutSeconds: 20 }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  const apiKey = process.env.SICKW_API_KEY;
+  if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
+
+  const forceRefresh = !!(request.data && request.data.forceRefresh);
+  const db = getDatabase();
+
+  if (!forceRefresh) {
+    const cacheSnap = await db.ref(SICKW_BALANCE_CACHE_KEY).once("value");
+    if (cacheSnap.exists()) {
+      const cached = cacheSnap.val();
+      if (cached.cached_at && Date.now() - cached.cached_at < SICKW_BALANCE_TTL_MS) {
+        return { cached: true, balance: cached.balance, cachedAt: cached.cached_at };
+      }
+    }
+  }
+
+  const url = `${SICKW_ENDPOINT}?action=balance&key=${encodeURIComponent(apiKey)}`;
+  let balance;
+  try {
+    const resp = await fetch(url);
+    const text = (await resp.text()).trim();
+    // ตอบกลับเป็นตัวเลขล้วนๆ (เช่น "878.75") หรือ JSON
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) {
+      balance = numeric;
+    } else {
+      try {
+        const parsed = JSON.parse(text);
+        balance = Number(parsed.balance || parsed.result || parsed);
+      } catch {
+        throw new HttpsError("internal", `Sickw balance: ตอบกลับไม่เข้าใจ: ${text.slice(0, 80)}`);
+      }
+    }
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError("internal", `เรียก balance ไม่สำเร็จ: ${e?.message || e}`);
+  }
+
+  await db.ref(SICKW_BALANCE_CACHE_KEY).set({ cached_at: Date.now(), balance });
+  return { cached: false, balance, cachedAt: Date.now() };
+});
+
+// =============================================================================
+// Sickw Bundle Check: ยิงหลาย service พร้อมกันบน IMEI เดียวกัน → merge ผล
+//
+// ใช้สำหรับเคสที่ admin/rider ต้องการเช็คครบ (model+capacity+country+FMI+
+// iCloud+blacklist+MDM) — ทำใน Cloud Function เพื่อ:
+//   1. ลด round-trip จาก client (1 callable vs N callable)
+//   2. Server-side cache hit ใช้ของเดิมถ้ามี (กัน user spam burn credit)
+//   3. รวม flags ทั้งหมด → snapshot เดียวบนใบงาน → Gate ดู source-of-truth
+//
+// Cost = sum(prices ของทุก service ที่ไม่ใช่ cache-hit)
+// =============================================================================
+
+exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSeconds: 120 }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  const apiKey = process.env.SICKW_API_KEY;
+  if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
+
+  const { imei, serviceIds, forceRefresh, jobId } = request.data || {};
+  if (!imei || typeof imei !== "string") throw new HttpsError("invalid-argument", "ต้องระบุ IMEI / Serial");
+  if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
+    throw new HttpsError("invalid-argument", "ต้องระบุ serviceIds (array) อย่างน้อย 1 ตัว");
+  }
+  if (serviceIds.length > 10) {
+    // กันยิงทีเดียวมากเกินไป (cost protection)
+    throw new HttpsError("invalid-argument", "เลือกได้สูงสุด 10 service ต่อครั้ง");
+  }
+  if (jobId != null && (typeof jobId !== "string" || jobId.length > 128 || /[/.#$\[\]]/.test(jobId))) {
+    throw new HttpsError("invalid-argument", "jobId ไม่ถูกต้อง");
+  }
+
+  const cleanImei = imei.trim().toUpperCase();
+  if (!/^[A-Z0-9]{8,17}$/.test(cleanImei)) {
+    throw new HttpsError("invalid-argument", "IMEI / Serial ไม่ถูกต้อง");
+  }
+
+  const cleanSvcIds = serviceIds.map((s) => String(s).trim()).filter((s) => /^\d{1,4}$/.test(s));
+  if (cleanSvcIds.length === 0) throw new HttpsError("invalid-argument", "serviceIds ทุกตัวต้องเป็นตัวเลข");
+
+  const db = getDatabase();
+
+  // ยิงทุก service พร้อมกัน — แต่ละตัวเช็ค cache ตัวเอง
+  // (ใช้ logic เดียวกับ checkDeviceWithSickw แต่ inline เพื่อ parallel ได้)
+  const results = await Promise.all(cleanSvcIds.map(async (svcId) => {
+    const cacheRef = db.ref(`device_checks/${cleanImei}/svc_${svcId}`);
+
+    if (!forceRefresh) {
+      const cacheSnap = await cacheRef.once("value");
+      if (cacheSnap.exists()) {
+        const cached = cacheSnap.val();
+        if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
+          const reparsed = parseSickwResult(cached.raw || "");
+          return {
+            serviceId: svcId,
+            cached: true,
+            checkedAt: cached.checked_at,
+            status: cached.status,
+            parsed: reparsed.parsed,
+            fields: reparsed.fields,
+            raw: cached.raw || "",
+          };
+        }
+      }
+    }
+
+    const url = `${SICKW_ENDPOINT}?format=JSON&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(cleanImei)}&service=${encodeURIComponent(svcId)}`;
+    let sickwResp;
+    try {
+      const httpResp = await fetch(url);
+      const text = await httpResp.text();
+      try { sickwResp = JSON.parse(text); }
+      catch { return { serviceId: svcId, error: `non-JSON: ${text.slice(0, 100)}` }; }
+    } catch (e) {
+      return { serviceId: svcId, error: `fetch failed: ${e?.message || e}` };
+    }
+
+    const status = String(sickwResp.status || "unknown").toLowerCase();
+    const raw = typeof sickwResp.result === "string" ? sickwResp.result : JSON.stringify(sickwResp.result || sickwResp);
+    const { parsed, fields } = parseSickwResult(raw);
+
+    const record = {
+      checked_at: Date.now(),
+      checked_by_uid: request.auth.uid,
+      service_id: svcId,
+      imei: cleanImei,
+      status,
+      raw,
+      parsed,
+      fields,
+    };
+    try { await cacheRef.set(record); } catch (e) { console.warn("[sickw bundle] cache write failed:", e?.message || e); }
+
+    return {
+      serviceId: svcId,
+      cached: false,
+      checkedAt: record.checked_at,
+      status,
+      parsed,
+      fields,
+      raw,
+    };
+  }));
+
+  // Merge ผล — รวม parsed (worst-case: ค่าที่ใหม่กว่าทับ), fields (รวมหมด)
+  const mergedParsed = {};
+  const mergedFields = {};
+  const perService = {};
+  let hasAnySuccess = false;
+  for (const r of results) {
+    perService[r.serviceId] = r;
+    if (r.error) continue;
+    if (r.status === "success") hasAnySuccess = true;
+    Object.assign(mergedFields, r.fields || {});
+    // first-non-empty wins per parsed key (ป้องกัน service หลังเขียนทับ
+    // ของที่ดีกว่า เช่น service Carrier มี model ครบ ตามด้วย FMI ที่ไม่มี
+    // model จะทับเป็น undefined)
+    for (const [k, v] of Object.entries(r.parsed || {})) {
+      if (v && !mergedParsed[k]) mergedParsed[k] = v;
+    }
+  }
+
+  // คำนวณ flag รวม — ถ้า service ไหนบอกว่า flagged → flagged, clean+unknown → clean
+  const flags = summarizeSickwFlags(mergedParsed);
+
+  // เขียน snapshot ลงใบงาน (ใช้ checked_at ล่าสุด)
+  const latestCheckedAt = Math.max(...results.filter((r) => r.checkedAt).map((r) => r.checkedAt), 0) || Date.now();
+  if (jobId) {
+    try {
+      await db.ref(`jobs/${jobId}/sickw_check`).update({
+        last_check: {
+          checked_at: latestCheckedAt,
+          checked_by_uid: request.auth.uid,
+          // bundle เก็บเป็น csv ของ service ids ที่เรียก
+          service_id: cleanSvcIds.join(","),
+          imei: cleanImei,
+          status: hasAnySuccess ? "success" : "error",
+          parsed: mergedParsed,
+          fields: mergedFields,
+          raw: results.map((r) => `[svc_${r.serviceId}] ${r.raw || r.error || ""}`).join("\n"),
+          flags,
+          bundle: true,
+        },
+      });
+    } catch (e) {
+      console.warn(`[sickw bundle] writeJobSnapshot(${jobId}) failed:`, e?.message || e);
+    }
+  }
+
+  return {
+    ok: hasAnySuccess,
+    bundle: true,
+    checkedAt: latestCheckedAt,
+    imei: cleanImei,
+    serviceIds: cleanSvcIds,
+    parsed: mergedParsed,
+    fields: mergedFields,
+    flags,
+    perService,
+  };
+});

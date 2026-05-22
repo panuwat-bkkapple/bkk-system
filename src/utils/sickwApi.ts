@@ -109,6 +109,78 @@ export async function submitSickwGateOverride(jobId: string, reason: string): Pr
   return result.data;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Service catalog + balance + bundle
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SickwService {
+  service: string;
+  name: string;
+  price: number;
+}
+
+export interface SickwCatalogResult {
+  cached: boolean;
+  services: SickwService[];
+  cachedAt: number;
+}
+
+export interface SickwBalanceResult {
+  cached: boolean;
+  balance: number;
+  cachedAt: number;
+}
+
+export interface SickwBundleResult {
+  ok: boolean;
+  bundle: true;
+  checkedAt: number;
+  imei: string;
+  serviceIds: string[];
+  parsed: SickwParsedFields;
+  fields: Record<string, string>;
+  flags: SickwFlags;
+  perService: Record<string, {
+    serviceId: string;
+    cached?: boolean;
+    checkedAt?: number;
+    status?: string;
+    parsed?: SickwParsedFields;
+    fields?: Record<string, string>;
+    raw?: string;
+    error?: string;
+  }>;
+}
+
+export async function listSickwServices(forceRefresh = false): Promise<SickwCatalogResult> {
+  const fn = httpsCallable<{ forceRefresh?: boolean }, SickwCatalogResult>(
+    getFunctions(app, 'asia-southeast1'),
+    'listSickwServices'
+  );
+  return (await fn({ forceRefresh })).data;
+}
+
+export async function getSickwBalance(forceRefresh = false): Promise<SickwBalanceResult> {
+  const fn = httpsCallable<{ forceRefresh?: boolean }, SickwBalanceResult>(
+    getFunctions(app, 'asia-southeast1'),
+    'getSickwBalance'
+  );
+  return (await fn({ forceRefresh })).data;
+}
+
+export async function checkDeviceWithSickwBundle(input: {
+  imei: string;
+  serviceIds: string[];
+  forceRefresh?: boolean;
+  jobId?: string;
+}): Promise<SickwBundleResult> {
+  const fn = httpsCallable<typeof input, SickwBundleResult>(
+    getFunctions(app, 'asia-southeast1'),
+    'checkDeviceWithSickwBundle'
+  );
+  return (await fn(input)).data;
+}
+
 export function interpretFmi(value: string | undefined): SickwFlagState {
   if (!value) return 'unknown';
   const v = value.toLowerCase();

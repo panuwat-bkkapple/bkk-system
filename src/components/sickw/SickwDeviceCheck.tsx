@@ -1,61 +1,133 @@
 // ปุ่ม + พาเนลผลตรวจ Sickw แบบนำกลับมาใช้ได้
 // ใช้ที่: InternalQCModal, QCStation
 //
-// - จำ default Service ID ใน localStorage (กันแอดมินต้องพิมพ์ซ้ำ)
-// - ตรวจซ้ำภายใน 24 ชม. = ดึง cache (cloud function จัดการให้)
-// - กดปุ่ม "ตรวจใหม่อีกครั้ง" เพื่อ bypass cache (เปลืองเครดิตอีกครั้ง)
+// รองรับ 2 mode:
+// - single service: เลือก 1 service → ใช้ checkDeviceWithSickw
+// - bundle: เลือกหลาย service → ใช้ checkDeviceWithSickwBundle (parallel)
+//
+// Service catalog โหลดจาก Cloud Function listSickwServices (cache 1 ชม.)
+// → admin/rider เห็นชื่อ + ราคาทุกครั้ง, ไม่ต้องจำ ID
 
 import { useEffect, useState } from 'react';
+import { ref, onValue } from 'firebase/database';
 import { Search, Loader2, CheckCircle2, AlertTriangle, HelpCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { db } from '../../api/firebase';
 import {
-  checkDeviceWithSickw,
+  checkDeviceWithSickw, checkDeviceWithSickwBundle,
   interpretFmi, interpretMdm, interpretBlacklist,
-  type SickwCheckResult, type SickwFlagState,
+  type SickwCheckResult, type SickwBundleResult, type SickwFlagState,
+  type SickwParsedFields,
 } from '../../utils/sickwApi';
+import { SickwServicePicker } from './SickwServicePicker';
 
-const SVC_ID_STORAGE_KEY = 'sickw:lastServiceId';
+const BUNDLE_STORAGE_KEY = 'sickw:lastSelectedServices';
 
 interface Props {
   initialImei?: string;
   initialSerial?: string;
-  defaultServiceId?: string;
   className?: string;
   /** ส่ง jobId เพื่อให้ Cloud Function เก็บ snapshot ลง jobs/{id}/sickw_check */
   jobId?: string;
-  /** ผลตรวจที่เก็บไว้ก่อนหน้า — ใช้ pre-populate ตอนเปิดใบงานซ้ำ */
-  existingResult?: SickwCheckResult | null;
-  /** trigger หลังตรวจสำเร็จ ให้ parent re-evaluate gate */
-  onChecked?: (result: SickwCheckResult) => void;
 }
 
-export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId, className, jobId, existingResult, onChecked }: Props) {
-  const [imei, setImei] = useState(initialImei || initialSerial || existingResult?.imei || '');
-  const [serviceId, setServiceId] = useState(() =>
-    defaultServiceId || existingResult?.serviceId || localStorage.getItem(SVC_ID_STORAGE_KEY) || ''
-  );
+// Unified shape: ทั้ง single + bundle map ลง interface เดียวกันเพื่อ render พาเนลเดียว
+interface UnifiedResult {
+  ok: boolean;
+  cached: boolean;
+  checkedAt: number;
+  bundle: boolean;
+  serviceLabel: string; // "service 3" or "bundle [3,4]"
+  status: string;
+  parsed: SickwParsedFields;
+  fields: Record<string, string>;
+  raw: string;
+  imei: string;
+  errors?: string[];
+}
+
+function toUnifiedFromSingle(r: SickwCheckResult): UnifiedResult {
+  return {
+    ok: r.ok,
+    cached: r.cached,
+    checkedAt: r.checkedAt,
+    bundle: false,
+    serviceLabel: `service ${r.serviceId}`,
+    status: r.status,
+    parsed: r.parsed,
+    fields: r.fields,
+    raw: r.raw,
+    imei: r.imei,
+  };
+}
+
+function toUnifiedFromBundle(r: SickwBundleResult): UnifiedResult {
+  const errors: string[] = [];
+  for (const [id, perSvc] of Object.entries(r.perService)) {
+    if (perSvc.error) errors.push(`svc ${id}: ${perSvc.error}`);
+  }
+  const allCached = Object.values(r.perService).every((p) => p.cached);
+  return {
+    ok: r.ok,
+    cached: allCached,
+    checkedAt: r.checkedAt,
+    bundle: true,
+    serviceLabel: `bundle [${r.serviceIds.join(', ')}]`,
+    status: r.ok ? 'success' : 'error',
+    parsed: r.parsed,
+    fields: r.fields,
+    raw: Object.values(r.perService).map((p) => `--- svc_${p.serviceId} ---\n${p.raw || p.error || ''}`).join('\n\n'),
+    imei: r.imei,
+    errors: errors.length ? errors : undefined,
+  };
+}
+
+export function SickwDeviceCheck({ initialImei, initialSerial, className, jobId }: Props) {
+  const [imei, setImei] = useState(initialImei || initialSerial || '');
+  const [selectedServices, setSelectedServices] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BUNDLE_STORAGE_KEY) || '[]');
+      return Array.isArray(saved) ? saved.map(String) : [];
+    } catch { return []; }
+  });
+  const [defaultBundle, setDefaultBundle] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SickwCheckResult | null>(existingResult || null);
+  const [result, setResult] = useState<UnifiedResult | null>(null);
   const [showAllFields, setShowAllFields] = useState(false);
 
-  // ถ้า parent ส่ง existingResult ใหม่มา (เช่น โหลดใบงานเสร็จหลัง mount) → sync
+  // โหลด default bundle จาก settings/sickw/default_bundle
   useEffect(() => {
-    if (existingResult && !result) {
-      setResult(existingResult);
-      if (existingResult.imei && !imei) setImei(existingResult.imei);
-      if (existingResult.serviceId && !serviceId) setServiceId(existingResult.serviceId);
+    const unsub = onValue(ref(db, 'settings/sickw/default_bundle'), (snap) => {
+      const v = snap.val();
+      if (Array.isArray(v)) setDefaultBundle(v.map(String));
+    });
+    return () => unsub();
+  }, []);
+
+  // ครั้งแรก ถ้า user ยังไม่เคยเลือก service ใช้ default bundle ของ admin
+  useEffect(() => {
+    if (selectedServices.length === 0 && defaultBundle.length > 0) {
+      setSelectedServices(defaultBundle);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingResult]);
+  }, [defaultBundle]);
 
   const runCheck = async (forceRefresh = false) => {
     setError(null);
     setLoading(true);
     try {
-      const res = await checkDeviceWithSickw({ imei, serviceId, forceRefresh, jobId });
-      setResult(res);
-      localStorage.setItem(SVC_ID_STORAGE_KEY, String(serviceId));
-      onChecked?.(res);
+      if (selectedServices.length === 1) {
+        const res = await checkDeviceWithSickw({
+          imei, serviceId: selectedServices[0], forceRefresh, jobId,
+        });
+        setResult(toUnifiedFromSingle(res));
+      } else {
+        const res = await checkDeviceWithSickwBundle({
+          imei, serviceIds: selectedServices, forceRefresh, jobId,
+        });
+        setResult(toUnifiedFromBundle(res));
+      }
+      localStorage.setItem(BUNDLE_STORAGE_KEY, JSON.stringify(selectedServices));
     } catch (e: any) {
       setError(e?.message || 'ตรวจสอบไม่สำเร็จ');
       setResult(null);
@@ -64,7 +136,7 @@ export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId,
     }
   };
 
-  const canSubmit = imei.trim().length >= 8 && /^\d+$/.test(serviceId.trim()) && !loading;
+  const canSubmit = imei.trim().length >= 8 && selectedServices.length > 0 && !loading;
 
   return (
     <div className={`bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 ${className || ''}`}>
@@ -74,33 +146,27 @@ export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId,
         </div>
         <div>
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Sickw IMEI Check</h3>
-          <p className="text-[10px] text-slate-500">ตรวจรุ่น / ความจุ / ประเทศ / iCloud / FMI / MDM / Blacklist</p>
+          <p className="text-[10px] text-slate-500">เลือก service ที่จะตรวจ (1+ ตัว) — ราคาตามที่ Sickw กำหนด</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">IMEI / Serial</label>
-          <input
-            type="text"
-            value={imei}
-            onChange={(e) => setImei(e.target.value.replace(/\s/g, ''))}
-            placeholder="358xxxxxxxxxxx"
-            className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-mono outline-none focus:border-blue-400"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Service ID</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={serviceId}
-            onChange={(e) => setServiceId(e.target.value.replace(/[^\d]/g, ''))}
-            placeholder="เช่น 3"
-            className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-mono outline-none focus:border-blue-400"
-          />
-        </div>
+      <div>
+        <label className="text-[10px] font-bold text-slate-400 uppercase">IMEI / Serial</label>
+        <input
+          type="text"
+          value={imei}
+          onChange={(e) => setImei(e.target.value.replace(/\s/g, ''))}
+          placeholder="358xxxxxxxxxxx"
+          className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-mono outline-none focus:border-blue-400"
+        />
       </div>
+
+      <SickwServicePicker
+        value={selectedServices}
+        onChange={setSelectedServices}
+        defaultBundle={defaultBundle}
+        disabled={loading}
+      />
 
       <div className="flex gap-2">
         <button
@@ -108,13 +174,15 @@ export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId,
           disabled={!canSubmit}
           className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-blue-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:active:scale-100 flex justify-center items-center gap-2 transition-all"
         >
-          {loading ? <><Loader2 size={16} className="animate-spin" /> กำลังตรวจ...</> : <><Search size={16} /> ตรวจสอบ</>}
+          {loading
+            ? <><Loader2 size={16} className="animate-spin" /> กำลังตรวจ...</>
+            : <><Search size={16} /> {selectedServices.length > 1 ? `ตรวจครบชุด (${selectedServices.length} services)` : 'ตรวจสอบ'}</>}
         </button>
         {result && (
           <button
             onClick={() => runCheck(true)}
             disabled={loading}
-            title="ข้าม cache แล้วเรียก Sickw ใหม่ (เปลืองเครดิต)"
+            title="ข้าม cache (เปลืองเครดิตอีกรอบ)"
             className="px-3 py-3 rounded-xl border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-all"
           >
             <RefreshCw size={16} />
@@ -136,20 +204,25 @@ export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId,
   );
 }
 
-function SickwResultPanel({ result, showAll, onToggleAll }: { result: SickwCheckResult; showAll: boolean; onToggleAll: () => void }) {
+function SickwResultPanel({ result, showAll, onToggleAll }: { result: UnifiedResult; showAll: boolean; onToggleAll: () => void }) {
   const p = result.parsed;
   const failed = result.status !== 'success';
 
-  if (failed) {
+  if (failed && !p.model && !p.fmiStatus && !p.iCloudStatus) {
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
         <div className="flex items-center gap-2">
           <AlertTriangle size={16} className="text-amber-600" />
           <span className="text-sm font-bold text-amber-900">Sickw ตอบกลับว่า: {result.status}</span>
         </div>
+        {result.errors && (
+          <ul className="text-[11px] text-amber-800 list-disc pl-5">
+            {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        )}
         {result.raw && (
-          <pre className="text-[11px] text-amber-800 bg-white/50 p-2 rounded font-mono whitespace-pre-wrap break-words">
-            {result.raw.slice(0, 500)}
+          <pre className="text-[11px] text-amber-800 bg-white/50 p-2 rounded font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+            {result.raw.slice(0, 800)}
           </pre>
         )}
       </div>
@@ -163,7 +236,9 @@ function SickwResultPanel({ result, showAll, onToggleAll }: { result: SickwCheck
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-[10px] text-slate-500">
-        <span>ตรวจเมื่อ: <span className="font-mono">{new Date(result.checkedAt).toLocaleString('th-TH')}</span></span>
+        <span>
+          {result.serviceLabel} · {new Date(result.checkedAt).toLocaleString('th-TH')}
+        </span>
         {result.cached && (
           <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded font-bold uppercase tracking-wider">cached</span>
         )}
@@ -190,11 +265,22 @@ function SickwResultPanel({ result, showAll, onToggleAll }: { result: SickwCheck
         <InfoRow label="Serial" value={p.serial} mono />
       </div>
 
+      {result.errors && result.errors.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 text-[10px] text-amber-800">
+          <p className="font-bold mb-1">บาง service ใน bundle ล้มเหลว:</p>
+          <ul className="list-disc pl-4">
+            {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+
       <button
         onClick={onToggleAll}
         className="w-full flex items-center justify-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 py-1"
       >
-        {showAll ? <><ChevronUp size={12} /> ซ่อนข้อมูลดิบทั้งหมด</> : <><ChevronDown size={12} /> ดูข้อมูลดิบทั้งหมด ({Object.keys(result.fields).length} field)</>}
+        {showAll
+          ? <><ChevronUp size={12} /> ซ่อนข้อมูลดิบทั้งหมด</>
+          : <><ChevronDown size={12} /> ดูข้อมูลดิบทั้งหมด ({Object.keys(result.fields).length} field)</>}
       </button>
 
       {showAll && (

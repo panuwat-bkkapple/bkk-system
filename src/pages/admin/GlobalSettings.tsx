@@ -6,6 +6,7 @@ import { ref, onValue, update } from 'firebase/database';
 import { db } from '../../api/firebase'; 
 import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
+import { SickwSettingsSection } from './SickwSettingsSection';
 
 const DEFAULT_RIDER_RATES = {
   base_fee: 60,
@@ -574,6 +575,8 @@ export default function GlobalSettings() {
 
           </div>
         </div>
+
+        <SickwSettingsSection />
 
       </div>
     </div>
