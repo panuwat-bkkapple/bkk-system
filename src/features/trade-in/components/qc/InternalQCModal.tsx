@@ -10,6 +10,9 @@ import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { formatCurrency } from '../../../../utils/formatters';
 import { useToast } from '../../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck';
+import { SickwGateBanner } from '../../../../components/sickw/SickwGateBanner';
+import { getSickwGateStatus } from '../../../../utils/sickwApi';
+import { useAuth } from '../../../../hooks/useAuth';
 
 interface InternalQCModalProps {
     isOpen: boolean;
@@ -27,6 +30,8 @@ const getDeviceDisplayName = (device: any) => {
 
 export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSets }: InternalQCModalProps) => {
     const toast = useToast();
+    const { currentUser } = useAuth();
+    const gate = useMemo(() => getSickwGateStatus(job?.sickw_check), [job?.sickw_check]);
     const [activeDeviceIndex, setActiveDeviceIndex] = useState<number | null>(null);
     const [inspectedDevicesData, setInspectedDevicesData] = useState<Record<number, any>>({});
     const [checks, setChecks] = useState<string[]>([]);
@@ -205,6 +210,13 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
     };
 
     const submitAllInspections = async () => {
+        // Sickw Gate — block ถ้าเครื่องติด FMI/MDM/Blacklist และยังไม่ override
+        // อ่าน fresh จาก job เผื่อ user เพิ่งกดตรวจหรือ override ระหว่างเปิดโมดอลอยู่
+        const freshGate = getSickwGateStatus(job?.sickw_check);
+        if (freshGate.blocked) {
+            toast.error(`Sickw Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อนถึงจะส่ง QC ได้`);
+            return;
+        }
         setIsUploadingQC(true);
         try {
             const updatedDevices = devicesList.map((device: any, index: number) => {
@@ -285,6 +297,13 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                             <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X /></button>
                         </div>
                         <div className="p-8 flex-1 overflow-y-auto bg-slate-50 space-y-4">
+                            {/* Sickw Gate Status — banner ด้านบนสุดของรายการเครื่อง */}
+                            <SickwGateBanner
+                                jobId={job.id}
+                                sickwCheck={job?.sickw_check}
+                                gate={gate}
+                                currentRole={currentUser?.role}
+                            />
                             {devicesList.map((device: any, idx: number) => (
                                 <div key={idx} className={`p-5 rounded-3xl border-2 flex justify-between items-center transition-all ${inspectedDevicesData[idx] ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200 shadow-sm'}`}>
                                     <div className="flex items-center gap-4">
@@ -311,16 +330,18 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                             ))}
                         </div>
                         <div className="p-8 bg-white border-t border-slate-100">
-                            <button 
-                                onClick={submitAllInspections} 
-                                disabled={Object.keys(inspectedDevicesData).length !== devicesList.length || isUploadingQC} 
+                            <button
+                                onClick={submitAllInspections}
+                                disabled={Object.keys(inspectedDevicesData).length !== devicesList.length || isUploadingQC || gate.blocked}
                                 className={`w-full py-5 rounded-2xl font-black shadow-xl transition-all active:scale-[0.98] flex justify-center items-center gap-2 ${
-                                    Object.keys(inspectedDevicesData).length === devicesList.length && !isUploadingQC
-                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200' 
+                                    Object.keys(inspectedDevicesData).length === devicesList.length && !isUploadingQC && !gate.blocked
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'
                                     : 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed'
                                 }`}
                             >
-                                {isUploadingQC ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึกและอัปโหลดรูป...</> : 'สรุปผลและส่งรายงาน QC'}
+                                {isUploadingQC ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึกและอัปโหลดรูป...</>
+                                    : gate.blocked ? <><AlertTriangle size={18} /> Sickw Gate Block — ต้อง Override ก่อน</>
+                                    : 'สรุปผลและส่งรายงาน QC'}
                             </button>
                         </div>
                     </div>
@@ -337,7 +358,9 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                         <div className="p-8 flex-1 overflow-y-auto bg-slate-50 space-y-8 no-scrollbar">
 
                             {/* Sickw IMEI check — แอดมินยืนยันสถานะกับฐานข้อมูล Apple */}
+                            {/* ส่ง jobId เพื่อให้ snapshot เก็บใน jobs/{id}/sickw_check */}
                             <SickwDeviceCheck
+                                jobId={job.id}
                                 initialImei={devicesList[activeDeviceIndex]?.imei || job.imei || ''}
                                 initialSerial={devicesList[activeDeviceIndex]?.serial || job.serial || ''}
                             />

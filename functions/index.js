@@ -2536,6 +2536,40 @@ function normalizeSickwKey(rawKey) {
     .replace(/\s+/g, " ");
 }
 
+// Map ค่าจาก Sickw → flag state (clean | flagged | unknown) สำหรับใช้ตัดสิน Gate
+// ที่ฝั่ง server ด้วย (อย่าให้ client กำหนดเองทั้งหมด)
+function interpretSickwFlag(value, kind) {
+  if (!value) return "unknown";
+  const v = String(value).toLowerCase();
+  if (kind === "fmi" || kind === "icloud") {
+    if (v.includes("off") || v.includes("clean") || v.includes("disabled")) return "clean";
+    if (v.includes("on") || v.includes("locked") || v.includes("enabled") || v.includes("active")) return "flagged";
+    return "unknown";
+  }
+  if (kind === "mdm") {
+    if (v.includes("no") || v.includes("clean") || v.includes("off") || v.includes("clear") || v.includes("not enrolled")) return "clean";
+    if (v.includes("yes") || v.includes("lock") || v.includes("enrolled") || v.includes("supervised")) return "flagged";
+    return "unknown";
+  }
+  if (kind === "blacklist") {
+    if (v.includes("clean") || v.startsWith("not") || v === "no" || v.includes(" no ") || v.includes("off")) return "clean";
+    if (v.includes("blacklist") || v.includes("lost") || v.includes("stolen") || v.startsWith("yes")) return "flagged";
+    return "unknown";
+  }
+  return "unknown";
+}
+
+// คำนวณ flags สรุปจาก parsed fields → ใช้ทั้งฝั่ง server (เขียนลง snapshot ของ job)
+// และ Gate check ฝั่ง UI (helper เดียวกัน source-of-truth)
+function summarizeSickwFlags(parsed) {
+  const p = parsed || {};
+  return {
+    fmi: interpretSickwFlag(p.fmiStatus || p.iCloudStatus || p.activationLock, "fmi"),
+    mdm: interpretSickwFlag(p.mdmStatus, "mdm"),
+    blacklist: interpretSickwFlag(p.blacklistStatus, "blacklist"),
+  };
+}
+
 function parseSickwResult(raw) {
   // Sickw คืน result เป็น HTML/text เช่น
   //   "Model Description: iPhone 14 Pro<br>IMEI: 35xx<br>FMI Status: OFF"
@@ -2587,10 +2621,13 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
   }
 
-  const { imei, serviceId, forceRefresh } = request.data || {};
+  const { imei, serviceId, forceRefresh, jobId } = request.data || {};
 
   if (!imei || typeof imei !== "string") {
     throw new HttpsError("invalid-argument", "ต้องระบุ IMEI หรือ Serial Number");
+  }
+  if (jobId != null && (typeof jobId !== "string" || jobId.length > 128 || /[/.#$\[\]]/.test(jobId))) {
+    throw new HttpsError("invalid-argument", "jobId ไม่ถูกต้อง");
   }
   const cleanImei = imei.trim().toUpperCase();
   // IMEI 15 หลัก หรือ Serial 8–17 ตัวอักษร (Apple serial = 10–12)
@@ -2606,6 +2643,25 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
   const db = getDatabase();
   const cacheRef = db.ref(`device_checks/${cleanImei}/svc_${svcId}`);
 
+  // helper: เขียน snapshot ผลตรวจล่าสุดลงใบงาน (ถ้าผู้เรียกส่ง jobId มา)
+  // ทำทั้งเส้น cache-hit และ cache-miss — ใบงานต้องมี snapshot ทุกครั้งที่กดตรวจ
+  // เพื่อให้ Gate ตัดสินใจจาก state ล่าสุด
+  async function writeJobSnapshot(snapshot) {
+    if (!jobId) return;
+    const flags = summarizeSickwFlags(snapshot.parsed);
+    const snapshotForJob = {
+      ...snapshot,
+      flags,
+    };
+    try {
+      // ใช้ update เพื่อไม่ลบ override เก่า (ถ้ามี) — override จะถูก invalidate
+      // เฉพาะตอนที่ checked_at ใหม่กว่า against_check_at ของ override
+      await db.ref(`jobs/${jobId}/sickw_check`).update({ last_check: snapshotForJob });
+    } catch (e) {
+      console.warn(`[sickw] writeJobSnapshot(${jobId}) failed:`, e?.message || e);
+    }
+  }
+
   // Cache hit (ภายใน TTL) — return เลย ไม่เรียก Sickw
   if (!forceRefresh) {
     const cacheSnap = await cacheRef.once("value");
@@ -2613,6 +2669,18 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
       const cached = cacheSnap.val();
       if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
         console.log(`[sickw] cache hit for ${cleanImei}/svc_${svcId} (age=${Math.round((Date.now() - cached.checked_at) / 1000)}s)`);
+        // cache-hit ก็ต้องเขียน snapshot ลง job (ผูกผลล่าสุดเข้าใบงานนี้)
+        // ใช้ time เดิม เพื่อ Gate ตัดสินถูกว่า override เก่ายัง valid อยู่หรือไม่
+        await writeJobSnapshot({
+          checked_at: cached.checked_at,
+          checked_by_uid: request.auth.uid,
+          service_id: svcId,
+          imei: cleanImei,
+          status: cached.status,
+          parsed: cached.parsed || {},
+          fields: cached.fields || {},
+          raw: cached.raw || "",
+        });
         return {
           ok: true,
           cached: true,
@@ -2623,6 +2691,7 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
           parsed: cached.parsed || {},
           fields: cached.fields || {},
           raw: cached.raw || "",
+          flags: summarizeSickwFlags(cached.parsed),
         };
       }
     }
@@ -2672,6 +2741,9 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     console.warn("[sickw] cache write failed:", e?.message || e);
   }
 
+  // เก็บ snapshot ลงใบงานด้วย (ถ้าผู้เรียกส่ง jobId มา)
+  await writeJobSnapshot(record);
+
   return {
     ok: status === "success",
     cached: false,
@@ -2682,5 +2754,74 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     parsed,
     fields,
     raw,
+    flags: summarizeSickwFlags(parsed),
   };
+});
+
+// =============================================================================
+// Sickw Gate Override: แอดมินระดับ MANAGER/CEO เขียนเหตุผลเพื่อปลดล็อก Gate
+// บนใบงานที่ Sickw รายงานว่าเครื่องติด FMI/MDM/Blacklist
+//
+// - Override ผูกกับเช็คเดิม (against_check_at) — ถ้าใบงานนั้นมีการกดตรวจใหม่
+//   ภายหลัง override จะ stale อัตโนมัติและ Gate กลับมา block อีกครั้ง
+// - ลง audit log ใน sickw_check/override_history[] เพื่อให้ตรวจย้อนหลังได้
+//   (เก็บเฉพาะ override ที่เคยกด ไม่ลบทับของเก่า)
+// =============================================================================
+
+const SICKW_OVERRIDE_ROLES = ["CEO", "MANAGER"];
+
+exports.submitSickwGateOverride = onCall({ region: SICKW_REGION }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+
+  const { jobId, reason } = request.data || {};
+  if (!jobId || typeof jobId !== "string" || /[/.#$\[\]]/.test(jobId)) {
+    throw new HttpsError("invalid-argument", "jobId ไม่ถูกต้อง");
+  }
+  if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
+    throw new HttpsError("invalid-argument", "ต้องระบุเหตุผลการ override อย่างน้อย 10 ตัวอักษร");
+  }
+  if (reason.length > 500) {
+    throw new HttpsError("invalid-argument", "เหตุผลยาวเกิน 500 ตัวอักษร");
+  }
+
+  const db = getDatabase();
+
+  // ตรวจ role จาก staff/{uid}/role
+  const staffSnap = await db.ref(`staff/${request.auth.uid}`).once("value");
+  const staff = staffSnap.val() || {};
+  const role = String(staff.role || "").toUpperCase();
+  if (!SICKW_OVERRIDE_ROLES.includes(role)) {
+    throw new HttpsError("permission-denied", `เฉพาะ ${SICKW_OVERRIDE_ROLES.join(" / ")} เท่านั้นที่ override ได้`);
+  }
+
+  // ต้องมี last_check และ flagged จริง — กันกด override ทิ้งไว้บนใบงานที่ผ่านอยู่แล้ว
+  const checkSnap = await db.ref(`jobs/${jobId}/sickw_check/last_check`).once("value");
+  if (!checkSnap.exists()) {
+    throw new HttpsError("failed-precondition", "ใบงานนี้ยังไม่มีผลตรวจ Sickw");
+  }
+  const lastCheck = checkSnap.val();
+  const flags = lastCheck.flags || summarizeSickwFlags(lastCheck.parsed);
+  const anyFlagged = flags.fmi === "flagged" || flags.mdm === "flagged" || flags.blacklist === "flagged";
+  if (!anyFlagged) {
+    throw new HttpsError("failed-precondition", "ใบงานนี้ไม่ติด Gate — ไม่ต้อง override");
+  }
+
+  const overrideRecord = {
+    overridden_at: Date.now(),
+    overridden_by_uid: request.auth.uid,
+    overridden_by_name: staff.name || staff.displayName || "Unknown",
+    overridden_by_role: role,
+    reason: reason.trim(),
+    against_check_at: lastCheck.checked_at,
+    against_imei: lastCheck.imei,
+  };
+
+  await db.ref(`jobs/${jobId}/sickw_check/override`).set(overrideRecord);
+  // เก็บประวัติด้วย — push() เพื่อให้ list ทุก override ที่เคยกดบนใบงานนี้
+  await db.ref(`jobs/${jobId}/sickw_check/override_history`).push(overrideRecord);
+
+  console.log(`[sickw] gate override on job ${jobId} by ${role} ${request.auth.uid}`);
+  return { ok: true, override: overrideRecord };
 });

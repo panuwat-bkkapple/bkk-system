@@ -5,7 +5,7 @@
 // - ตรวจซ้ำภายใน 24 ชม. = ดึง cache (cloud function จัดการให้)
 // - กดปุ่ม "ตรวจใหม่อีกครั้ง" เพื่อ bypass cache (เปลืองเครดิตอีกครั้ง)
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, Loader2, CheckCircle2, AlertTriangle, HelpCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   checkDeviceWithSickw,
@@ -20,25 +20,42 @@ interface Props {
   initialSerial?: string;
   defaultServiceId?: string;
   className?: string;
+  /** ส่ง jobId เพื่อให้ Cloud Function เก็บ snapshot ลง jobs/{id}/sickw_check */
+  jobId?: string;
+  /** ผลตรวจที่เก็บไว้ก่อนหน้า — ใช้ pre-populate ตอนเปิดใบงานซ้ำ */
+  existingResult?: SickwCheckResult | null;
+  /** trigger หลังตรวจสำเร็จ ให้ parent re-evaluate gate */
+  onChecked?: (result: SickwCheckResult) => void;
 }
 
-export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId, className }: Props) {
-  const [imei, setImei] = useState(initialImei || initialSerial || '');
+export function SickwDeviceCheck({ initialImei, initialSerial, defaultServiceId, className, jobId, existingResult, onChecked }: Props) {
+  const [imei, setImei] = useState(initialImei || initialSerial || existingResult?.imei || '');
   const [serviceId, setServiceId] = useState(() =>
-    defaultServiceId || localStorage.getItem(SVC_ID_STORAGE_KEY) || ''
+    defaultServiceId || existingResult?.serviceId || localStorage.getItem(SVC_ID_STORAGE_KEY) || ''
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SickwCheckResult | null>(null);
+  const [result, setResult] = useState<SickwCheckResult | null>(existingResult || null);
   const [showAllFields, setShowAllFields] = useState(false);
+
+  // ถ้า parent ส่ง existingResult ใหม่มา (เช่น โหลดใบงานเสร็จหลัง mount) → sync
+  useEffect(() => {
+    if (existingResult && !result) {
+      setResult(existingResult);
+      if (existingResult.imei && !imei) setImei(existingResult.imei);
+      if (existingResult.serviceId && !serviceId) setServiceId(existingResult.serviceId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingResult]);
 
   const runCheck = async (forceRefresh = false) => {
     setError(null);
     setLoading(true);
     try {
-      const res = await checkDeviceWithSickw({ imei, serviceId, forceRefresh });
+      const res = await checkDeviceWithSickw({ imei, serviceId, forceRefresh, jobId });
       setResult(res);
       localStorage.setItem(SVC_ID_STORAGE_KEY, String(serviceId));
+      onChecked?.(res);
     } catch (e: any) {
       setError(e?.message || 'ตรวจสอบไม่สำเร็จ');
       setResult(null);
