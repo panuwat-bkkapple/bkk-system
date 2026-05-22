@@ -235,10 +235,12 @@ export function getSickwGateStatus(sickwCheck: JobSickwCheck | undefined | null)
     return { blocked: false, reasons: [], state: 'error' };
   }
 
+  // fmi ห้ามดู iCloudStatus — "icloud status: CLEAN" แค่บอกว่า ไม่ stolen
+  // ไม่ใช่บอกว่า FMI=OFF
   const flags = lc.flags || {
-    fmi: interpretFmi(lc.parsed?.fmiStatus || lc.parsed?.iCloudStatus || lc.parsed?.activationLock),
+    fmi: interpretFmi(lc.parsed?.fmiStatus || lc.parsed?.activationLock),
     mdm: interpretMdm(lc.parsed?.mdmStatus),
-    blacklist: interpretBlacklist(lc.parsed?.blacklistStatus),
+    blacklist: interpretBlacklist(lc.parsed?.blacklistStatus || lc.parsed?.iCloudStatus),
   };
 
   const reasons: string[] = [];

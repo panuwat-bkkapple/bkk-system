@@ -2505,6 +2505,11 @@ const SICKW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 // ปรับ key ของ Sickw ที่เจอบ่อย → ชื่อ field มาตรฐานของเรา
 // ปล่อย key ที่ไม่ match ไว้ใน raw response เพื่อให้แอดมินอ่านได้
+//
+// ระวัง: Sickw มี 2 key ที่ดูคล้ายแต่ความหมายต่าง
+//   - "icloud lock" = Activation Lock ON/OFF → จัดเป็น FMI flag
+//   - "icloud status" = Lost/Stolen/Clean → จัดเป็น Blacklist flag
+// อย่าสลับ ไม่งั้นเครื่อง FMI=ON จะโชว์ clean ผิดทาง
 const SICKW_FIELD_MAP = {
   model: ["model", "model description", "model desc", "model name", "device name", "modal description"],
   modelNumber: ["model number", "model no", "part number", "model code"],
@@ -2514,16 +2519,15 @@ const SICKW_FIELD_MAP = {
   imei: ["imei", "imei number"],
   imei2: ["imei2", "imei 2"],
   serial: ["serial", "serial number", "sn"],
-  iCloudStatus: ["icloud status", "icloud lock", "icloud", "icloud lock status"],
-  fmiStatus: ["fmi status", "fmi", "find my iphone", "find my", "find my status"],
+  fmiStatus: ["icloud lock", "fmi status", "fmi", "find my iphone", "find my", "find my status"],
   activationLock: ["activation lock", "activation lock status"],
-  activationStatus: ["activation status", "activated", "activation"],
-  mdmStatus: ["mdm status", "mdm", "mdm lock", "mdm lock status"],
-  blacklistStatus: ["blacklist status", "blacklist", "gsma blacklist", "stolen", "lost"],
+  activationStatus: ["activation status", "activated", "activation", "device activation"],
+  mdmStatus: ["mdm lock", "mdm status", "mdm", "mdm lock status"],
+  blacklistStatus: ["icloud status", "blacklist status", "blacklist", "gsma blacklist", "stolen", "lost"],
   carrier: ["carrier", "initial carrier", "carrier country", "network", "sold carrier"],
-  simLock: ["sim-lock", "sim lock", "simlock", "lock status"],
-  warrantyStatus: ["warranty status", "warranty"],
-  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation"],
+  simLock: ["sim-lock", "sim lock", "simlock", "lock status", "simpolicy unlock status"],
+  warrantyStatus: ["warranty status", "warranty", "limited warranty"],
+  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation", "coverage start date"],
 };
 
 function normalizeSickwKey(rawKey) {
@@ -2561,10 +2565,14 @@ function interpretSickwFlag(value, kind) {
 
 // คำนวณ flags สรุปจาก parsed fields → ใช้ทั้งฝั่ง server (เขียนลง snapshot ของ job)
 // และ Gate check ฝั่ง UI (helper เดียวกัน source-of-truth)
+//
+// fmi = "icloud lock" หรือ "fmi" หรือ "activation lock" (ON/OFF — ติดล็อคไหม)
+// blacklist = "icloud status" หรือ "blacklist" (Clean/Lost/Stolen)
+// ห้ามใช้ "icloud status" ตัดสิน FMI เพราะ status=Clean บอกแค่ว่า "ไม่หาย" ไม่ใช่ "FMI=OFF"
 function summarizeSickwFlags(parsed) {
   const p = parsed || {};
   return {
-    fmi: interpretSickwFlag(p.fmiStatus || p.iCloudStatus || p.activationLock, "fmi"),
+    fmi: interpretSickwFlag(p.fmiStatus || p.activationLock, "fmi"),
     mdm: interpretSickwFlag(p.mdmStatus, "mdm"),
     blacklist: interpretSickwFlag(p.blacklistStatus, "blacklist"),
   };
