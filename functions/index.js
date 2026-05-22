@@ -2485,3 +2485,202 @@ exports.checkOverdueReturns = onSchedule(
     console.log(`[checkOverdueReturns] alerted on ${overdue.length} overdue job(s), threshold ${thresholdMin}m`);
   }
 );
+
+// =============================================================================
+// Sickw IMEI Check: ตรวจสอบสถานะเครื่อง (รุ่น, ความจุ, ประเทศ, iCloud, FMI,
+// MDM, Stolen) ผ่าน Sickw API
+//
+// - API Key เก็บใน Cloud Function env (SICKW_API_KEY) — ห้ามอยู่ฝั่ง client
+// - Auth: ต้อง login เท่านั้น (admin/rider/staff)
+// - Cache: เก็บผลใน device_checks/{imei}/svc_{serviceId} เพื่อกันเรียกซ้ำ
+//   เปลืองเครดิต (default TTL = 24 ชม., ส่ง forceRefresh:true เพื่อข้าม)
+// - Generic parser: Sickw แต่ละ Service ID คืนค่าคนละ field กัน — เก็บ raw
+//   ทั้งก้อน + best-effort parse field ที่พบบ่อย (model, capacity, country,
+//   iCloud/FMI, MDM, blacklist, carrier ฯลฯ)
+// =============================================================================
+
+const SICKW_REGION = "asia-southeast1";
+const SICKW_ENDPOINT = "https://sickw.com/api.php";
+const SICKW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+// ปรับ key ของ Sickw ที่เจอบ่อย → ชื่อ field มาตรฐานของเรา
+// ปล่อย key ที่ไม่ match ไว้ใน raw response เพื่อให้แอดมินอ่านได้
+const SICKW_FIELD_MAP = {
+  model: ["model", "model description", "model desc", "model name", "device name", "modal description"],
+  modelNumber: ["model number", "model no", "part number", "model code"],
+  capacity: ["capacity", "memory", "storage", "memory capacity"],
+  color: ["color", "colour", "device color"],
+  country: ["country", "purchase country", "sold by", "region", "sold by country", "purchased in", "country of purchase"],
+  imei: ["imei", "imei number"],
+  imei2: ["imei2", "imei 2"],
+  serial: ["serial", "serial number", "sn"],
+  iCloudStatus: ["icloud status", "icloud lock", "icloud", "icloud lock status"],
+  fmiStatus: ["fmi status", "fmi", "find my iphone", "find my", "find my status"],
+  activationLock: ["activation lock", "activation lock status"],
+  activationStatus: ["activation status", "activated", "activation"],
+  mdmStatus: ["mdm status", "mdm", "mdm lock", "mdm lock status"],
+  blacklistStatus: ["blacklist status", "blacklist", "gsma blacklist", "stolen", "lost"],
+  carrier: ["carrier", "initial carrier", "carrier country", "network", "sold carrier"],
+  simLock: ["sim-lock", "sim lock", "simlock", "lock status"],
+  warrantyStatus: ["warranty status", "warranty"],
+  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation"],
+};
+
+function normalizeSickwKey(rawKey) {
+  return String(rawKey || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function parseSickwResult(raw) {
+  // Sickw คืน result เป็น HTML/text เช่น
+  //   "Model Description: iPhone 14 Pro<br>IMEI: 35xx<br>FMI Status: OFF"
+  // ขั้นตอน: split ด้วย <br>/\n → split "key:value" → map → ลง output object
+  if (!raw || typeof raw !== "string") return { parsed: {}, fields: {} };
+
+  const lines = raw
+    .split(/<br\s*\/?>|\r?\n/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // เก็บ field ดิบทุก key:value ที่หาเจอ (สำหรับโชว์ในแอดมิน)
+  const fields = {};
+  for (const line of lines) {
+    const idx = line.indexOf(":");
+    if (idx <= 0) continue;
+    const key = normalizeSickwKey(line.slice(0, idx));
+    const value = line
+      .slice(idx + 1)
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .trim();
+    if (!key || !value) continue;
+    // เก็บแบบ first-write-wins (ค่าแรกของ key เดิม)
+    if (!(key in fields)) fields[key] = value;
+  }
+
+  // Map ลง standard fields
+  const parsed = {};
+  for (const [stdKey, candidates] of Object.entries(SICKW_FIELD_MAP)) {
+    for (const candidate of candidates) {
+      if (candidate in fields) {
+        parsed[stdKey] = fields[candidate];
+        break;
+      }
+    }
+  }
+  return { parsed, fields };
+}
+
+exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60 }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+
+  const apiKey = process.env.SICKW_API_KEY;
+  if (!apiKey) {
+    console.error("[sickw] SICKW_API_KEY not configured");
+    throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
+  }
+
+  const { imei, serviceId, forceRefresh } = request.data || {};
+
+  if (!imei || typeof imei !== "string") {
+    throw new HttpsError("invalid-argument", "ต้องระบุ IMEI หรือ Serial Number");
+  }
+  const cleanImei = imei.trim().toUpperCase();
+  // IMEI 15 หลัก หรือ Serial 8–17 ตัวอักษร (Apple serial = 10–12)
+  if (!/^[A-Z0-9]{8,17}$/.test(cleanImei)) {
+    throw new HttpsError("invalid-argument", "IMEI / Serial ไม่ถูกต้อง (ต้องเป็นตัวเลข/ตัวอักษร 8–17 หลัก)");
+  }
+
+  const svcId = String(serviceId || "").trim();
+  if (!/^\d{1,4}$/.test(svcId)) {
+    throw new HttpsError("invalid-argument", "ต้องระบุ Sickw service ID (ตัวเลข)");
+  }
+
+  const db = getDatabase();
+  const cacheRef = db.ref(`device_checks/${cleanImei}/svc_${svcId}`);
+
+  // Cache hit (ภายใน TTL) — return เลย ไม่เรียก Sickw
+  if (!forceRefresh) {
+    const cacheSnap = await cacheRef.once("value");
+    if (cacheSnap.exists()) {
+      const cached = cacheSnap.val();
+      if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
+        console.log(`[sickw] cache hit for ${cleanImei}/svc_${svcId} (age=${Math.round((Date.now() - cached.checked_at) / 1000)}s)`);
+        return {
+          ok: true,
+          cached: true,
+          checkedAt: cached.checked_at,
+          serviceId: svcId,
+          imei: cleanImei,
+          status: cached.status,
+          parsed: cached.parsed || {},
+          fields: cached.fields || {},
+          raw: cached.raw || "",
+        };
+      }
+    }
+  }
+
+  // เรียก Sickw API
+  const url = `${SICKW_ENDPOINT}?format=JSON&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(cleanImei)}&service=${encodeURIComponent(svcId)}`;
+  let sickwResp;
+  try {
+    const httpResp = await fetch(url, { method: "GET" });
+    const text = await httpResp.text();
+    try {
+      sickwResp = JSON.parse(text);
+    } catch {
+      // Sickw บางครั้งคืน text/html แทน JSON ตอน error
+      console.error(`[sickw] non-JSON response: ${text.slice(0, 200)}`);
+      throw new HttpsError("internal", `Sickw คืนค่าไม่ใช่ JSON: ${text.slice(0, 120)}`);
+    }
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    console.error("[sickw] fetch failed:", e?.message || e);
+    throw new HttpsError("internal", `เรียก Sickw ไม่สำเร็จ: ${e?.message || e}`);
+  }
+
+  // Sickw response shape: { status: "success"|"rejected"|"error", result, imei, service, ... }
+  const status = String(sickwResp.status || "unknown").toLowerCase();
+  const raw = typeof sickwResp.result === "string" ? sickwResp.result : JSON.stringify(sickwResp.result || sickwResp);
+  const { parsed, fields } = parseSickwResult(raw);
+
+  const record = {
+    checked_at: Date.now(),
+    checked_by_uid: request.auth.uid,
+    service_id: svcId,
+    imei: cleanImei,
+    status,
+    raw,
+    parsed,
+    fields,
+  };
+
+  // เก็บ cache (overwrite เสมอ — record ล่าสุดทับของเก่า)
+  // เก็บแม้ status=rejected/error ด้วย เพื่อเลี่ยงการ retry แบบไม่ตั้งใจ
+  // แต่ TTL ของ failure จะสั้นกว่าผ่าน logic ฝั่ง read
+  try {
+    await cacheRef.set(record);
+  } catch (e) {
+    console.warn("[sickw] cache write failed:", e?.message || e);
+  }
+
+  return {
+    ok: status === "success",
+    cached: false,
+    checkedAt: record.checked_at,
+    serviceId: svcId,
+    imei: cleanImei,
+    status,
+    parsed,
+    fields,
+    raw,
+  };
+});

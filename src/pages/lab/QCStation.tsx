@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
 
 const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
 
@@ -282,6 +283,13 @@ export const QCStation = () => {
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Color</label><input type="text" value={qcForm.actual_color} onChange={e => setQcForm({ ...qcForm, actual_color: e.target.value })} placeholder={selectedJob.color} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Capacity</label><input type="text" value={qcForm.model_code} onChange={e => setQcForm({ ...qcForm, model_code: e.target.value })} placeholder={selectedJob.capacity} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
                               </div>
+                           </section>
+
+                           <section>
+                              <SickwDeviceCheck
+                                 initialImei={qcForm.actual_imei || selectedJob.imei || ''}
+                                 initialSerial={qcForm.actual_serial || selectedJob.serial || ''}
+                              />
                            </section>
 
                            <section>

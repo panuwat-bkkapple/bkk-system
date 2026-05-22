@@ -9,6 +9,7 @@ import { db } from '../../../../api/firebase';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { formatCurrency } from '../../../../utils/formatters';
 import { useToast } from '../../../../components/ui/ToastProvider';
+import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck';
 
 interface InternalQCModalProps {
     isOpen: boolean;
@@ -334,6 +335,12 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                             </div>
                         </div>
                         <div className="p-8 flex-1 overflow-y-auto bg-slate-50 space-y-8 no-scrollbar">
+
+                            {/* Sickw IMEI check — แอดมินยืนยันสถานะกับฐานข้อมูล Apple */}
+                            <SickwDeviceCheck
+                                initialImei={devicesList[activeDeviceIndex]?.imei || job.imei || ''}
+                                initialSerial={devicesList[activeDeviceIndex]?.serial || job.serial || ''}
+                            />
 
                             <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2"><Camera size={14} /> แนบรูปถ่ายอ้างอิง</label>
