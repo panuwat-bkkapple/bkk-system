@@ -2573,7 +2573,10 @@ function summarizeSickwFlags(parsed) {
 function parseSickwResult(raw) {
   // Sickw คืน result เป็น HTML/text เช่น
   //   "Model Description: iPhone 14 Pro<br>IMEI: 35xx<br>FMI Status: OFF"
-  // ขั้นตอน: split ด้วย <br>/\n → split "key:value" → map → ลง output object
+  // หรือบาง service มี IMEI/Serial เป็น prefix ของทุก key:
+  //   "klfqvl2mj6 find my iphone: ON<br>klfqvl2mj6 imei: ..."
+  // ขั้นตอน: split ด้วย <br>/\n → split "key:value" → strip imei prefix
+  // → map ด้วย endsWith (ทน prefix variants)
   if (!raw || typeof raw !== "string") return { parsed: {}, fields: {} };
 
   const lines = raw
@@ -2597,12 +2600,17 @@ function parseSickwResult(raw) {
     if (!(key in fields)) fields[key] = value;
   }
 
-  // Map ลง standard fields
+  // Map ลง standard fields — ใช้ endsWith เพื่อทน IMEI/Serial prefix
+  // (เช่น "klfqvl2mj6 find my iphone" → match candidate "find my iphone")
+  // ลำดับ candidate สำคัญ: ตัวที่จำเพาะมากกว่าต้องอยู่ก่อน
   const parsed = {};
   for (const [stdKey, candidates] of Object.entries(SICKW_FIELD_MAP)) {
     for (const candidate of candidates) {
-      if (candidate in fields) {
-        parsed[stdKey] = fields[candidate];
+      const hit = Object.keys(fields).find(
+        (k) => k === candidate || k.endsWith(" " + candidate)
+      );
+      if (hit) {
+        parsed[stdKey] = fields[hit];
         break;
       }
     }
@@ -2669,6 +2677,10 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
       const cached = cacheSnap.val();
       if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
         console.log(`[sickw] cache hit for ${cleanImei}/svc_${svcId} (age=${Math.round((Date.now() - cached.checked_at) / 1000)}s)`);
+        // Re-parse จาก raw ทุกครั้ง — ทำให้ parser improvement ใหม่มีผล
+        // กับ cache เก่าโดยไม่ต้องไป burn credit เรียก Sickw ใหม่
+        const reparsed = parseSickwResult(cached.raw || "");
+        const flags = summarizeSickwFlags(reparsed.parsed);
         // cache-hit ก็ต้องเขียน snapshot ลง job (ผูกผลล่าสุดเข้าใบงานนี้)
         // ใช้ time เดิม เพื่อ Gate ตัดสินถูกว่า override เก่ายัง valid อยู่หรือไม่
         await writeJobSnapshot({
@@ -2677,8 +2689,8 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
           service_id: svcId,
           imei: cleanImei,
           status: cached.status,
-          parsed: cached.parsed || {},
-          fields: cached.fields || {},
+          parsed: reparsed.parsed,
+          fields: reparsed.fields,
           raw: cached.raw || "",
         });
         return {
@@ -2688,10 +2700,10 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
           serviceId: svcId,
           imei: cleanImei,
           status: cached.status,
-          parsed: cached.parsed || {},
-          fields: cached.fields || {},
+          parsed: reparsed.parsed,
+          fields: reparsed.fields,
           raw: cached.raw || "",
-          flags: summarizeSickwFlags(cached.parsed),
+          flags,
         };
       }
     }
