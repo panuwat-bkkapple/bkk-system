@@ -57,6 +57,8 @@ export interface SickwCheckInput {
   serviceId: string | number;
   forceRefresh?: boolean;
   jobId?: string;
+  /** ที่มาของ request — ใช้ใน audit log */
+  source?: string;
 }
 
 // Shape ที่ Cloud Function เก็บใน jobs/{jobId}/sickw_check
@@ -96,6 +98,7 @@ export async function checkDeviceWithSickw(input: SickwCheckInput): Promise<Sick
     serviceId: String(input.serviceId),
     forceRefresh: input.forceRefresh,
     jobId: input.jobId,
+    source: input.source,
   });
   return result.data;
 }
@@ -173,6 +176,8 @@ export async function checkDeviceWithSickwBundle(input: {
   serviceIds: string[];
   forceRefresh?: boolean;
   jobId?: string;
+  /** ที่มาของ request — ใช้ใน audit log */
+  source?: string;
 }): Promise<SickwBundleResult> {
   const fn = httpsCallable<typeof input, SickwBundleResult>(
     getFunctions(app, 'asia-southeast1'),

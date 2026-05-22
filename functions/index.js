@@ -2503,6 +2503,69 @@ const SICKW_REGION = "asia-southeast1";
 const SICKW_ENDPOINT = "https://sickw.com/api.php";
 const SICKW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit log helper — บันทึก call ทุกครั้งของ Sickw (single + bundle)
+// เก็บที่ sickw_usage/{push-key} เพื่อให้ CEO/MANAGER ตรวจย้อนได้
+//
+// เก็บ: uid, name (lookup), role, imei, service_ids, job_id, cached[],
+//       credit_used (USD), status, source ('client'/'rider'/'admin_mobile'/...)
+//
+// Cache hit ไม่หัก credit แต่ก็ log อยู่ดี — เพราะ admin อาจสงสัยว่าทำไมคนนี้
+// query บ่อย (อาจหา IMEI ที่ไม่ใช่ของลูกค้า)
+// ─────────────────────────────────────────────────────────────────────────────
+async function recordSickwUsage(db, entry) {
+  try {
+    // lookup name + role จาก staff/{uid} (ถ้ามี) — ถ้าไม่มี ลอง riders/{uid}
+    let name = "Unknown";
+    let role = "UNKNOWN";
+    try {
+      const staffSnap = await db.ref(`staff/${entry.uid}`).once("value");
+      if (staffSnap.exists()) {
+        const s = staffSnap.val();
+        name = s.name || s.displayName || s.email || "Unknown";
+        role = String(s.role || "STAFF").toUpperCase();
+      } else {
+        const riderSnap = await db.ref(`riders/${entry.uid}`).once("value");
+        if (riderSnap.exists()) {
+          const r = riderSnap.val();
+          name = r.name || r.displayName || r.email || "Rider";
+          role = "RIDER";
+        }
+      }
+    } catch (e) {
+      // best-effort — don't fail the request just because lookup failed
+      console.warn("[sickw-audit] lookup name failed:", e?.message || e);
+    }
+
+    const log = {
+      timestamp: Date.now(),
+      uid: entry.uid,
+      name,
+      role,
+      imei: entry.imei,
+      service_ids: entry.serviceIds,
+      job_id: entry.jobId || null,
+      cached: entry.cached,
+      credit_used: entry.creditUsed,
+      status: entry.status,
+      source: entry.source || "unknown",
+    };
+
+    await db.ref("sickw_usage").push(log);
+
+    // ถ้าตรวจโดยไม่ผูก jobId → flag เป็น suspicious ใน sickw_usage_flags/
+    // เผื่อ CEO เปิดดูแยก (น่าจะตรวจ IMEI ที่ไม่ใช่ของลูกค้า — ส่วนตัวหรือ test)
+    if (!entry.jobId) {
+      await db.ref("sickw_usage_flags").push({
+        ...log,
+        reason: "no_job_id",
+      });
+    }
+  } catch (e) {
+    console.warn("[sickw-audit] write log failed:", e?.message || e);
+  }
+}
+
 // ปรับ key ของ Sickw ที่เจอบ่อย → ชื่อ field มาตรฐานของเรา
 // ปล่อย key ที่ไม่ match ไว้ใน raw response เพื่อให้แอดมินอ่านได้
 //
@@ -2637,7 +2700,7 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
   }
 
-  const { imei, serviceId, forceRefresh, jobId } = request.data || {};
+  const { imei, serviceId, forceRefresh, jobId, source } = request.data || {};
 
   if (!imei || typeof imei !== "string") {
     throw new HttpsError("invalid-argument", "ต้องระบุ IMEI หรือ Serial Number");
@@ -2685,6 +2748,17 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
       const cached = cacheSnap.val();
       if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
         console.log(`[sickw] cache hit for ${cleanImei}/svc_${svcId} (age=${Math.round((Date.now() - cached.checked_at) / 1000)}s)`);
+        // Audit log แม้ cache hit — ยังคงต้องรู้ว่าใครเปิดดูเครื่องไหนบ่อย
+        await recordSickwUsage(db, {
+          uid: request.auth.uid,
+          imei: cleanImei,
+          serviceIds: [svcId],
+          jobId,
+          cached: [true],
+          creditUsed: 0,
+          status: cached.status,
+          source: source || "unknown",
+        });
         // Re-parse จาก raw ทุกครั้ง — ทำให้ parser improvement ใหม่มีผล
         // กับ cache เก่าโดยไม่ต้องไป burn credit เรียก Sickw ใหม่
         const reparsed = parseSickwResult(cached.raw || "");
@@ -2763,6 +2837,28 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
 
   // เก็บ snapshot ลงใบงานด้วย (ถ้าผู้เรียกส่ง jobId มา)
   await writeJobSnapshot(record);
+
+  // ดึงราคาของ service จาก catalog cache เพื่อบันทึก credit_used
+  let price = 0;
+  try {
+    const catalogSnap = await db.ref(SICKW_CATALOG_CACHE_KEY).once("value");
+    if (catalogSnap.exists()) {
+      const cat = catalogSnap.val();
+      const found = (cat.services || []).find((s) => String(s.service) === svcId);
+      if (found) price = Number(found.price || 0);
+    }
+  } catch (_) { /* ignore — credit_used = 0 ก็ยังบันทึก log อยู่ */ }
+
+  await recordSickwUsage(db, {
+    uid: request.auth.uid,
+    imei: cleanImei,
+    serviceIds: [svcId],
+    jobId,
+    cached: [false],
+    creditUsed: price,
+    status,
+    source: source || "unknown",
+  });
 
   return {
     ok: status === "success",
@@ -2966,7 +3062,7 @@ exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSecon
   const apiKey = process.env.SICKW_API_KEY;
   if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
 
-  const { imei, serviceIds, forceRefresh, jobId } = request.data || {};
+  const { imei, serviceIds, forceRefresh, jobId, source } = request.data || {};
   if (!imei || typeof imei !== "string") throw new HttpsError("invalid-argument", "ต้องระบุ IMEI / Serial");
   if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
     throw new HttpsError("invalid-argument", "ต้องระบุ serviceIds (array) อย่างน้อย 1 ตัว");
@@ -3096,6 +3192,34 @@ exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSecon
     }
   }
 
+  // คำนวณ credit_used รวม — เฉพาะ service ที่ไม่ใช่ cache-hit
+  let totalCredit = 0;
+  const cachedFlags = [];
+  try {
+    const catalogSnap = await db.ref(SICKW_CATALOG_CACHE_KEY).once("value");
+    const cat = catalogSnap.exists() ? catalogSnap.val() : { services: [] };
+    for (const svcId of cleanSvcIds) {
+      const r = perService[svcId];
+      const isCached = !!(r && r.cached);
+      cachedFlags.push(isCached);
+      if (!isCached) {
+        const found = (cat.services || []).find((s) => String(s.service) === svcId);
+        if (found) totalCredit += Number(found.price || 0);
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  await recordSickwUsage(db, {
+    uid: request.auth.uid,
+    imei: cleanImei,
+    serviceIds: cleanSvcIds,
+    jobId,
+    cached: cachedFlags,
+    creditUsed: totalCredit,
+    status: hasAnySuccess ? "success" : "error",
+    source: source || "unknown",
+  });
+
   return {
     ok: hasAnySuccess,
     bundle: true,
@@ -3108,3 +3232,137 @@ exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSecon
     perService,
   };
 });
+
+// =============================================================================
+// Daily Sickw Usage Summary (Scheduled): รัน 8:00 น. ทุกวัน
+// รวมยอด audit log ของเมื่อวาน → ส่ง push ให้ CEO ถ้าเกิน threshold
+//
+// Threshold (อ่านจาก settings/sickw/alert_thresholds):
+//   - per_user_checks_per_day: default 20
+//   - per_user_credit_per_day: default 5 (USD)
+//   - flagged_no_jobid_per_day: default 5 (กรณีกดตรวจโดยไม่ผูกใบงาน)
+//
+// Summary เก็บที่ sickw_usage_daily/{YYYY-MM-DD}/{uid} เผื่อ admin ดูย้อน
+// =============================================================================
+
+const SICKW_ALERT_DEFAULTS = {
+  per_user_checks_per_day: 20,
+  per_user_credit_per_day: 5,
+  flagged_no_jobid_per_day: 5,
+};
+
+exports.dailySickwUsageSummary = onSchedule(
+  { schedule: "0 8 * * *", timeZone: "Asia/Bangkok", region: SICKW_REGION },
+  async () => {
+    const db = getDatabase();
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yyyy = yesterday.getFullYear();
+    const mm = String(yesterday.getMonth() + 1).padStart(2, "0");
+    const dd = String(yesterday.getDate()).padStart(2, "0");
+    const dateKey = `${yyyy}-${mm}-${dd}`;
+
+    // bound ของวันเมื่อวาน (Asia/Bangkok)
+    const startOfYesterday = new Date(yyyy, yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0).getTime();
+    const endOfYesterday = startOfYesterday + 24 * 60 * 60 * 1000;
+
+    // โหลด audit log ของเมื่อวาน
+    const usageSnap = await db.ref("sickw_usage")
+      .orderByChild("timestamp")
+      .startAt(startOfYesterday)
+      .endAt(endOfYesterday - 1)
+      .once("value");
+
+    const perUser = {};
+    let totalChecks = 0;
+    let totalCredit = 0;
+    usageSnap.forEach((snap) => {
+      const e = snap.val();
+      if (!e || !e.uid) return;
+      const u = perUser[e.uid] = perUser[e.uid] || {
+        uid: e.uid,
+        name: e.name || "Unknown",
+        role: e.role || "UNKNOWN",
+        checks: 0,
+        credit: 0,
+        no_job_id: 0,
+      };
+      u.checks += 1;
+      u.credit += Number(e.credit_used || 0);
+      if (!e.job_id) u.no_job_id += 1;
+      totalChecks += 1;
+      totalCredit += Number(e.credit_used || 0);
+    });
+
+    const userList = Object.values(perUser);
+    // เก็บ summary
+    await db.ref(`sickw_usage_daily/${dateKey}`).set({
+      date: dateKey,
+      computed_at: Date.now(),
+      total_checks: totalChecks,
+      total_credit: Number(totalCredit.toFixed(4)),
+      per_user: userList,
+    });
+    console.log(`[sickw-daily] ${dateKey}: ${totalChecks} checks, $${totalCredit.toFixed(2)}, ${userList.length} users`);
+
+    // หา anomaly — เกิน threshold ก็ส่ง push ให้ CEO
+    const thresholdSnap = await db.ref("settings/sickw/alert_thresholds").once("value");
+    const t = { ...SICKW_ALERT_DEFAULTS, ...(thresholdSnap.exists() ? thresholdSnap.val() : {}) };
+
+    const offenders = userList.filter((u) =>
+      u.checks > Number(t.per_user_checks_per_day) ||
+      u.credit > Number(t.per_user_credit_per_day) ||
+      u.no_job_id > Number(t.flagged_no_jobid_per_day)
+    );
+    if (offenders.length === 0) return;
+
+    const lines = offenders.map((u) =>
+      `${u.name} (${u.role}): ${u.checks} checks, $${u.credit.toFixed(2)}` +
+      (u.no_job_id > 0 ? `, ${u.no_job_id} ไม่ผูกใบงาน` : "")
+    );
+    const body = `${dateKey}\n${lines.join("\n")}`;
+
+    // ส่ง push เฉพาะ CEO (ดึง uid จาก staff/{}/role=CEO)
+    try {
+      const staffSnap = await db.ref("staff").once("value");
+      const ceoUids = [];
+      staffSnap.forEach((s) => {
+        const v = s.val() || {};
+        if (String(v.role || "").toUpperCase() === "CEO") ceoUids.push(s.key);
+      });
+      if (ceoUids.length === 0) {
+        console.warn("[sickw-daily] no CEO found — skipping push");
+        return;
+      }
+
+      // เก็บ tokens ของเฉพาะ CEO
+      const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
+      const tokens = [];
+      tokensSnap.forEach((staffSnap2) => {
+        if (!ceoUids.includes(staffSnap2.key)) return;
+        staffSnap2.forEach((tokenSnap) => {
+          const t = tokenSnap.val();
+          if (t && t.token) tokens.push(t.token);
+        });
+      });
+
+      if (tokens.length === 0) {
+        console.warn("[sickw-daily] CEO has no FCM tokens");
+        return;
+      }
+
+      await getMessaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: `⚠️ Sickw usage alert — ${offenders.length} user${offenders.length > 1 ? "s" : ""}`,
+          body,
+        },
+        data: { type: "sickw_usage_alert", date: dateKey },
+        webpush: { fcmOptions: { link: "/sickw-usage" } },
+      });
+      console.log(`[sickw-daily] alerted ${tokens.length} CEO device(s) about ${offenders.length} offenders`);
+    } catch (e) {
+      console.error("[sickw-daily] push failed:", e?.message || e);
+    }
+  }
+);
