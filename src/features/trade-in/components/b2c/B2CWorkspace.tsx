@@ -260,7 +260,7 @@ export const B2CWorkspace = ({
                 gate={getSickwGateStatus(job.sickw_check)}
                 currentRole={currentUser?.role}
               />
-              <SickwStoredResultCard sickwCheck={job.sickw_check} />
+              <SickwStoredResultCard sickwCheck={job.sickw_check} job={job} />
             </div>
           )}
 

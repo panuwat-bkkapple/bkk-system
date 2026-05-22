@@ -625,7 +625,7 @@ export const MobileTicketDetail = () => {
               />
               {/* expandable card — แสดง parsed fields ครบทุกอย่าง
                   (Model, Capacity, Country, IMEI, Serial, Carrier, ฯลฯ) */}
-              <SickwStoredResultCard sickwCheck={job.sickw_check} />
+              <SickwStoredResultCard sickwCheck={job.sickw_check} job={job} />
             </div>
           )}
 
