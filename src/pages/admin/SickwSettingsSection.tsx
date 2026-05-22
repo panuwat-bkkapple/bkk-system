@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { ref, onValue, update } from 'firebase/database';
-import { Save, Loader2, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, ExternalLink, ShieldCheck, History } from 'lucide-react';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { SickwServicePicker } from '../../components/sickw/SickwServicePicker';
@@ -54,14 +54,22 @@ export function SickwSettingsSection() {
             ตั้ง default bundle ของ service ที่ระบบจะใช้ตรวจ — ไรเดอร์/แอดมินกดปุ่ม "ใช้ default" ทีเดียวเรียกครบ
           </p>
         </div>
-        <a
-          href="https://sickw.com/?page=api"
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
-        >
-          จัดการ key <ExternalLink size={11} />
-        </a>
+        <div className="flex flex-col gap-1 items-end">
+          <a
+            href="/sickw-usage"
+            className="text-xs text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 font-bold"
+          >
+            <History size={11} /> ดู Audit Log
+          </a>
+          <a
+            href="https://sickw.com/?page=api"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
+          >
+            จัดการ key <ExternalLink size={11} />
+          </a>
+        </div>
       </div>
 
       <div className="mb-5">

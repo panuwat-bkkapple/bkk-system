@@ -112,18 +112,22 @@ export function SickwDeviceCheck({ initialImei, initialSerial, className, jobId 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultBundle]);
 
+  // infer source สำหรับ audit log: ดูว่าอยู่ในหน้า mobile หรือ desktop
+  const source = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile')
+    ? 'admin_mobile' : 'admin_desktop';
+
   const runCheck = async (forceRefresh = false) => {
     setError(null);
     setLoading(true);
     try {
       if (selectedServices.length === 1) {
         const res = await checkDeviceWithSickw({
-          imei, serviceId: selectedServices[0], forceRefresh, jobId,
+          imei, serviceId: selectedServices[0], forceRefresh, jobId, source,
         });
         setResult(toUnifiedFromSingle(res));
       } else {
         const res = await checkDeviceWithSickwBundle({
-          imei, serviceIds: selectedServices, forceRefresh, jobId,
+          imei, serviceIds: selectedServices, forceRefresh, jobId, source,
         });
         setResult(toUnifiedFromBundle(res));
       }
