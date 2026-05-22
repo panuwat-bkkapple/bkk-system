@@ -2513,24 +2513,48 @@ const SICKW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 // Cache hit ไม่หัก credit แต่ก็ log อยู่ดี — เพราะ admin อาจสงสัยว่าทำไมคนนี้
 // query บ่อย (อาจหา IMEI ที่ไม่ใช่ของลูกค้า)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// staff/ key เป็น push id (สร้างตอน Staff Management) ไม่ใช่ Firebase Auth UID
+// → lookup ด้วย email match จาก request.auth.token.email
+// rider app ต่างกัน — riders/{uid} ใช้ Firebase UID เป็น key ตรงๆ
+async function lookupStaffByAuth(db, auth) {
+  if (!auth) return null;
+  const email = auth.token && auth.token.email;
+  if (email) {
+    const snap = await db.ref("staff").once("value");
+    let matched = null;
+    snap.forEach((s) => {
+      const v = s.val();
+      if (!v) return false;
+      const status = String(v.status || "").toUpperCase();
+      if (v.email === email && (status === "" || status === "ACTIVE")) {
+        matched = { id: s.key, ...v };
+        return true; // stop forEach
+      }
+      return false;
+    });
+    if (matched) return matched;
+  }
+  // Fallback rider lookup (rider app ใช้ Firebase UID เป็น key ใน riders/)
+  const riderSnap = await db.ref(`riders/${auth.uid}`).once("value");
+  if (riderSnap.exists()) {
+    const r = riderSnap.val();
+    return { id: auth.uid, role: "RIDER", name: r.name || r.displayName || r.email || "Rider", ...r };
+  }
+  return null;
+}
+
 async function recordSickwUsage(db, entry) {
   try {
-    // lookup name + role จาก staff/{uid} (ถ้ามี) — ถ้าไม่มี ลอง riders/{uid}
     let name = "Unknown";
     let role = "UNKNOWN";
+    let staffId = null;
     try {
-      const staffSnap = await db.ref(`staff/${entry.uid}`).once("value");
-      if (staffSnap.exists()) {
-        const s = staffSnap.val();
-        name = s.name || s.displayName || s.email || "Unknown";
-        role = String(s.role || "STAFF").toUpperCase();
-      } else {
-        const riderSnap = await db.ref(`riders/${entry.uid}`).once("value");
-        if (riderSnap.exists()) {
-          const r = riderSnap.val();
-          name = r.name || r.displayName || r.email || "Rider";
-          role = "RIDER";
-        }
+      const staff = await lookupStaffByAuth(db, { uid: entry.uid, token: entry.authToken });
+      if (staff) {
+        name = staff.name || staff.displayName || staff.email || "Unknown";
+        role = String(staff.role || "STAFF").toUpperCase();
+        staffId = staff.id || null;
       }
     } catch (e) {
       // best-effort — don't fail the request just because lookup failed
@@ -2540,6 +2564,7 @@ async function recordSickwUsage(db, entry) {
     const log = {
       timestamp: Date.now(),
       uid: entry.uid,
+      staff_id: staffId,
       name,
       role,
       imei: entry.imei,
@@ -2751,6 +2776,7 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
         // Audit log แม้ cache hit — ยังคงต้องรู้ว่าใครเปิดดูเครื่องไหนบ่อย
         await recordSickwUsage(db, {
           uid: request.auth.uid,
+          authToken: request.auth.token,
           imei: cleanImei,
           serviceIds: [svcId],
           jobId,
@@ -2851,6 +2877,7 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
 
   await recordSickwUsage(db, {
     uid: request.auth.uid,
+    authToken: request.auth.token,
     imei: cleanImei,
     serviceIds: [svcId],
     jobId,
@@ -2904,9 +2931,8 @@ exports.submitSickwGateOverride = onCall({ region: SICKW_REGION }, async (reques
 
   const db = getDatabase();
 
-  // ตรวจ role จาก staff/{uid}/role
-  const staffSnap = await db.ref(`staff/${request.auth.uid}`).once("value");
-  const staff = staffSnap.val() || {};
+  // ตรวจ role จาก staff — staff/{key} เป็น push id ไม่ใช่ uid → lookup ด้วย email
+  const staff = await lookupStaffByAuth(db, request.auth) || {};
   const role = String(staff.role || "").toUpperCase();
   if (!SICKW_OVERRIDE_ROLES.includes(role)) {
     throw new HttpsError("permission-denied", `เฉพาะ ${SICKW_OVERRIDE_ROLES.join(" / ")} เท่านั้นที่ override ได้`);
@@ -3211,6 +3237,7 @@ exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSecon
 
   await recordSickwUsage(db, {
     uid: request.auth.uid,
+    authToken: request.auth.token,
     imei: cleanImei,
     serviceIds: cleanSvcIds,
     jobId,
@@ -3322,32 +3349,22 @@ exports.dailySickwUsageSummary = onSchedule(
     );
     const body = `${dateKey}\n${lines.join("\n")}`;
 
-    // ส่ง push เฉพาะ CEO (ดึง uid จาก staff/{}/role=CEO)
+    // ส่ง push ให้ admin ทุก token — staff/ ใช้ push id เป็น key ส่วน
+    // admin_fcm_tokens/ ใช้ Firebase UID เป็น key (ไม่ match กับ staff key ตรงๆ)
+    // จึง filter ฝั่ง CEO ไม่ได้ง่ายๆ — ส่งให้ทุก admin device แทน เพราะ
+    // คนที่ใส่ FCM token ใน admin_fcm_tokens คือ admin ของระบบทั้งหมดอยู่แล้ว
     try {
-      const staffSnap = await db.ref("staff").once("value");
-      const ceoUids = [];
-      staffSnap.forEach((s) => {
-        const v = s.val() || {};
-        if (String(v.role || "").toUpperCase() === "CEO") ceoUids.push(s.key);
-      });
-      if (ceoUids.length === 0) {
-        console.warn("[sickw-daily] no CEO found — skipping push");
-        return;
-      }
-
-      // เก็บ tokens ของเฉพาะ CEO
       const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
       const tokens = [];
-      tokensSnap.forEach((staffSnap2) => {
-        if (!ceoUids.includes(staffSnap2.key)) return;
-        staffSnap2.forEach((tokenSnap) => {
+      tokensSnap.forEach((adminSnap) => {
+        adminSnap.forEach((tokenSnap) => {
           const t = tokenSnap.val();
           if (t && t.token) tokens.push(t.token);
         });
       });
 
       if (tokens.length === 0) {
-        console.warn("[sickw-daily] CEO has no FCM tokens");
+        console.warn("[sickw-daily] no admin FCM tokens — skipping push");
         return;
       }
 
