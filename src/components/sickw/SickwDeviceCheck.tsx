@@ -229,9 +229,11 @@ function SickwResultPanel({ result, showAll, onToggleAll }: { result: UnifiedRes
     );
   }
 
-  const fmi = interpretFmi(p.fmiStatus || p.iCloudStatus || p.activationLock);
+  // fmi ดูเฉพาะ "icloud lock / activation lock / fmi status" — ห้ามดู iCloudStatus
+  // (อันนั้นบอก lost/clean ของ blacklist ไม่ใช่ FMI ติดล็อคไหม)
+  const fmi = interpretFmi(p.fmiStatus || p.activationLock);
   const mdm = interpretMdm(p.mdmStatus);
-  const bl = interpretBlacklist(p.blacklistStatus);
+  const bl = interpretBlacklist(p.blacklistStatus || p.iCloudStatus);
 
   return (
     <div className="space-y-3">
@@ -245,9 +247,9 @@ function SickwResultPanel({ result, showAll, onToggleAll }: { result: UnifiedRes
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <FlagBadge label="Find My / iCloud" state={fmi} value={p.fmiStatus || p.iCloudStatus || p.activationLock || '-'} />
+        <FlagBadge label="Find My / iCloud" state={fmi} value={p.fmiStatus || p.activationLock || '-'} />
         <FlagBadge label="MDM" state={mdm} value={p.mdmStatus || '-'} />
-        <FlagBadge label="Blacklist" state={bl} value={p.blacklistStatus || '-'} />
+        <FlagBadge label="Blacklist" state={bl} value={p.blacklistStatus || p.iCloudStatus || '-'} />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
