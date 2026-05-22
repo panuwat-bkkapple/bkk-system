@@ -18,6 +18,10 @@ import { db, auth } from '../../../api/firebase';
 import { formatCurrency } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { SickwDeviceCheck } from '../../../components/sickw/SickwDeviceCheck';
+import { SickwGateBanner } from '../../../components/sickw/SickwGateBanner';
+import { getSickwGateStatus } from '../../../utils/sickwApi';
+import { useAuth } from '../../../hooks/useAuth';
 
 // Required photo slots — admin must take one per angle so QC can verify
 // the device condition without ambiguity.
@@ -79,6 +83,8 @@ function getDevicesList(job: any): any[] {
 
 export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: AdminInspectionModalProps) => {
   const toast = useToast();
+  const { currentUser } = useAuth();
+  const gate = getSickwGateStatus(job?.sickw_check);
 
   const [modelsData, setModelsData] = useState<any[]>([]);
   const [conditionSets, setConditionSets] = useState<any[]>([]);
@@ -319,6 +325,15 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                 <X size={20} />
               </button>
             </div>
+            {/* Sickw Gate status — มาก่อนรายการเครื่อง */}
+            <div className="mb-4">
+              <SickwGateBanner
+                jobId={job.id}
+                sickwCheck={job?.sickw_check}
+                gate={gate}
+                currentRole={currentUser?.role}
+              />
+            </div>
             <div className="space-y-3 mb-8">
               {devicesList.map((device: any, index: number) => {
                 const isDone = !!inspectedDevicesData[index];
@@ -364,17 +379,25 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
               })}
             </div>
             <button
-              onClick={handleSubmitAll}
-              disabled={isUploading || Object.keys(inspectedDevicesData).length !== devicesList.length}
+              onClick={() => {
+                if (gate.blocked) {
+                  toast.error(`Sickw Gate: ${gate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
+                  return;
+                }
+                handleSubmitAll();
+              }}
+              disabled={isUploading || Object.keys(inspectedDevicesData).length !== devicesList.length || gate.blocked}
               className={`w-full py-4 rounded-2xl font-bold text-lg shadow-md transition-all flex items-center justify-center gap-2 ${
-                isUploading || Object.keys(inspectedDevicesData).length !== devicesList.length
+                isUploading || Object.keys(inspectedDevicesData).length !== devicesList.length || gate.blocked
                   ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   : 'bg-emerald-500 text-white active:scale-95 hover:bg-emerald-600'
               }`}
             >
               {isUploading
                 ? <><div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> อัปโหลด...</>
-                : <><Upload size={22} /> ส่งผลตรวจ → Pending QC</>
+                : gate.blocked
+                  ? <>Sickw Gate Block — ต้อง Override</>
+                  : <><Upload size={22} /> ส่งผลตรวจ → Pending QC</>
               }
             </button>
           </div>
@@ -390,6 +413,20 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
             </div>
 
             <div className="space-y-8">
+              {/* Sickw IMEI Check — ตรวจสอบสถานะเครื่องกับฐานข้อมูล Apple
+                  วางก่อน Photos เพื่อให้ admin verify รุ่น/ความจุ/FMI ก่อนเริ่มถ่ายรูป */}
+              <SickwDeviceCheck
+                jobId={job.id}
+                initialImei={
+                  (devicesList[activeDeviceIndex] as any)?.imei ||
+                  job.device_imei || job.imei || ''
+                }
+                initialSerial={
+                  (devicesList[activeDeviceIndex] as any)?.serial ||
+                  job.device_serial || job.serial || ''
+                }
+              />
+
               {/* Photos — named slots */}
               {(() => {
                 const isNew = devicesList[activeDeviceIndex]?.isNewDevice;

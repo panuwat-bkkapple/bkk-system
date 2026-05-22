@@ -18,6 +18,8 @@ import { CheckpointsCard } from '../admin/components/CheckpointsCard';
 import { AdminKYCModal } from './components/AdminKYCModal';
 import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificationModal';
+import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
+import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
 
@@ -609,6 +611,16 @@ export const MobileTicketDetail = () => {
                 <p className="text-xs text-purple-100">ถ่ายรูป 6 ด้าน + เช็คลิสต์ → Pending QC</p>
               </div>
             </button>
+          )}
+
+          {/* === Sickw Gate banner — โชว์สถานะ Sickw ของใบงาน (ถ้ามี) === */}
+          {job.sickw_check?.last_check && (
+            <SickwGateBanner
+              jobId={job.id}
+              sickwCheck={job.sickw_check}
+              gate={getSickwGateStatus(job.sickw_check)}
+              currentRole={currentUser?.role}
+            />
           )}
 
           {/* === Device Details (enhanced) === */}
