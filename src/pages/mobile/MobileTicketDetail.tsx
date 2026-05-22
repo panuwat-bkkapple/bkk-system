@@ -19,6 +19,7 @@ import { AdminKYCModal } from './components/AdminKYCModal';
 import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificationModal';
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
+import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
@@ -613,14 +614,19 @@ export const MobileTicketDetail = () => {
             </button>
           )}
 
-          {/* === Sickw Gate banner — โชว์สถานะ Sickw ของใบงาน (ถ้ามี) === */}
+          {/* === Sickw section — Banner สรุปสถานะ + Card ข้อมูลครบ === */}
           {job.sickw_check?.last_check && (
-            <SickwGateBanner
-              jobId={job.id}
-              sickwCheck={job.sickw_check}
-              gate={getSickwGateStatus(job.sickw_check)}
-              currentRole={currentUser?.role}
-            />
+            <div className="space-y-3">
+              <SickwGateBanner
+                jobId={job.id}
+                sickwCheck={job.sickw_check}
+                gate={getSickwGateStatus(job.sickw_check)}
+                currentRole={currentUser?.role}
+              />
+              {/* expandable card — แสดง parsed fields ครบทุกอย่าง
+                  (Model, Capacity, Country, IMEI, Serial, Carrier, ฯลฯ) */}
+              <SickwStoredResultCard sickwCheck={job.sickw_check} />
+            </div>
           )}
 
           {/* === Device Details (enhanced) === */}
