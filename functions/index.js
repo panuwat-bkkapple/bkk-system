@@ -977,12 +977,15 @@ exports.notifyChatMessage = onRequest(
  * Thai label.
  */
 const NOTIFY_STATUS_MAP = {
-  Returned: "ตีเครื่องกลับ",
-  "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
-  "Withdrawal Requested": "ขอถอนเงิน",
-  "Revised Offer": "เสนอราคาใหม่",
-  Negotiation: "ลูกค้าต่อราคา",
-  "Price Accepted": "ลูกค้ารับราคา",
+  // Sales / scheduling — owner needs to see where the lead is in pre-pickup flow
+  "Appointment Set": "📅 นัดหมายลูกค้าเรียบร้อย",
+  "Waiting Drop-off": "🏬 รอลูกค้านำเครื่องมาส่งที่สาขา",
+  "Awaiting Shipping": "📮 รอลูกค้าส่งเครื่องทางไปรษณีย์",
+  // Inspection / negotiation
+  "Revised Offer": "💰 เสนอราคาใหม่",
+  Negotiation: "💬 ลูกค้าต่อราคา",
+  "Price Accepted": "✅ ลูกค้ารับราคา",
+  "Discrepancy Reported": "❗ พบความไม่ตรงตอนตรวจ — ต้องตรวจสอบ",
   // Rider lifecycle — admins need real-time visibility of who's where without
   // having to open the dashboard. Both canonical (job-statuses.ts) and legacy
   // DB strings are listed so the trigger keeps firing through the rename.
@@ -1004,11 +1007,35 @@ const NOTIFY_STATUS_MAP = {
   "Heading to Customer": "🛣️ ไรเดอร์ออกเดินทาง",
   "Rider Arrived": "📍 ไรเดอร์ถึงจุดนัดหมาย",
   Arrived: "📍 ไรเดอร์ถึงจุดนัดหมาย",
-  // Mid-job events admin's owner needs to know so they can pre-stage approval
+  // Drop-off / Mail-in arrival — owner needs to know device reached the shop
+  "Drop-off Received": "📥 ลูกค้านำเครื่องมาส่งที่สาขาแล้ว",
+  "Parcel In Transit": "📦 พัสดุอยู่ระหว่างขนส่ง",
+  "Parcel Received": "📬 พัสดุถึงสาขาแล้ว",
+  // Mid-inspection events
   "Being Inspected": "🔍 ไรเดอร์เริ่มตรวจสภาพเครื่อง",
   "QC Review": "⚠️ ส่งผลตรวจ — รออนุมัติ QC",
+  "Pending QC": "📦 ไรเดอร์ส่งมอบเครื่อง — รอ QC",
+  // Payout
+  "Payout Processing": "💵 รอจ่ายเงิน — บัญชีต้อง action",
+  "Waiting For Handover": "🤝 จ่ายเงินแล้ว — รอส่งมอบเครื่องกลับ",
+  Paid: "💸 จ่ายเงินเรียบร้อย",
   "Rider Returning": "🔙 ไรเดอร์กำลังกลับสาขา",
   "In-Transit": "🔙 ไรเดอร์กำลังกลับสาขา", // Pickup overload — guarded below
+  // Terminal happy-path
+  Completed: "🎉 ปิดงานสมบูรณ์",
+  // Returns / refunds
+  Returned: "ตีเครื่องกลับ",
+  "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
+  "Returning To Customer": "↩️ กำลังตีเครื่องคืนลูกค้า",
+  "Withdrawal Requested": "💱 ขอถอนเงิน",
+  "Refund Initiated": "↩️ เริ่มกระบวนการคืนเงิน — admin ต้อง action",
+  "Refund Completed": "↩️ คืนเงินเรียบร้อย",
+  Disputed: "⚖️ ลูกค้าโต้แย้ง — admin ต้องตรวจสอบ",
+  // Logistics exceptions — owner must intervene
+  "Drop-off Expired": "⏰ ลูกค้าไม่มา drop-off ตามนัด — งานหมดอายุ",
+  "Shipping Expired": "⏰ ลูกค้าไม่ส่งพัสดุตามนัด — งานหมดอายุ",
+  "Investigating Carrier": "🔎 กำลังตามขนส่ง — พัสดุล่าช้า",
+  "Parcel Lost": "🚨 ขนส่งทำพัสดุหาย",
   // B2B Pipeline Statuses
   "Pre-Quote Sent": "ส่งใบเสนอราคาเบื้องต้น (B2B)",
   "Pre-Quote Accepted": "ลูกค้ายอมรับราคาเบื้องต้น (B2B)",
@@ -1019,6 +1046,13 @@ const NOTIFY_STATUS_MAP = {
   "Waiting for Invoice/Tax Inv.": "รอใบกำกับภาษี (B2B)",
   "Pending Finance Approval": "รอบัญชีตรวจสอบ (B2B)",
   "Payment Completed": "ชำระเงินเสร็จ (B2B)",
+  // INTENTIONALLY OMITTED — inventory-churn statuses fire after the owning
+  // agent's responsibility ends (device already inside the shop, sales team
+  // owns it now). Adding them would dilute the meaningful signal:
+  //   - "Sent To QC Lab"   (internal QC routing step)
+  //   - "In Stock"          (inventory state — no agent action)
+  //   - "Ready To Sell"     (sales-team handoff)
+  //   - "Sold"              (sales event — not the trade-in flow's owner)
 };
 
 // =============================================================================
