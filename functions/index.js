@@ -47,8 +47,22 @@ async function dispatchAdminPush(message, tag) {
   }
   const results = await Promise.all(batches);
 
+  // iOS PWA's FCM token frequently looks "dead" to FCM right after iOS pauses
+  // the PWA / rotates the web-push subscription, but the page can recover it
+  // on next open by calling deleteToken() + getToken() to bypass the SDK's
+  // local cache. Removing the entry on first rejection broke that recovery
+  // path — the user would silently miss every push until they happened to
+  // re-open the PWA and the hook re-registered from scratch at a fresh
+  // deviceId (which doesn't help if iOS reuses the same localStorage entry).
+  //
+  // New policy: stamp first_failure_at / last_failure_at, leave the token in
+  // place. The page hook treats last_failure_at as a signal to force-refresh
+  // via deleteToken() on next visibility. Only after 7 days of consecutive
+  // failures do we accept the token is truly dead and remove it.
+  const FAILURE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
   let tokenIdx = 0;
   for (const result of results) {
+    const failures = [];
     result.responses.forEach((resp, idx) => {
       if (resp.error) {
         const meta = tokenMeta[tokenIdx + idx];
@@ -57,11 +71,31 @@ async function dispatchAdminPush(message, tag) {
             resp.error.code === "messaging/invalid-registration-token") &&
           meta
         ) {
-          db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`).remove();
-          console.log(`[${tag}] Cleaned up expired token: ${meta.staffId}/${meta.tokenKey}`);
+          failures.push({ meta, code: resp.error.code });
         }
       }
     });
+    await Promise.all(
+      failures.map(async ({ meta, code }) => {
+        const path = db.ref(`admin_fcm_tokens/${meta.staffId}/${meta.tokenKey}`);
+        const snap = await path.once("value");
+        const existing = snap.val() || {};
+        const firstFailureAt = existing.first_failure_at || Date.now();
+        const ageMs = Date.now() - firstFailureAt;
+        if (ageMs >= FAILURE_GRACE_MS) {
+          await path.remove();
+          console.log(
+            `[${tag}] Removed dead token (failed ${(ageMs / 86400000).toFixed(1)}d): ${meta.staffId}/${meta.tokenKey}`
+          );
+        } else {
+          await path.update({
+            first_failure_at: firstFailureAt,
+            last_failure_at: Date.now(),
+            last_failure_code: code,
+          });
+        }
+      })
+    );
     tokenIdx += result.responses.length;
   }
 

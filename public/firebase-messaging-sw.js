@@ -93,7 +93,7 @@ self.addEventListener('notificationclick', (event) => {
 // this forces stuck SWs to re-install on the next page load so admins who
 // silently lost notifications get a clean state. Asset paths align with
 // the favicon_io set referenced from manifest.json (PR #159).
-const CACHE_NAME = 'bkk-system-v3';
+const CACHE_NAME = 'bkk-system-v4';
 const STATIC_ASSETS = [
   '/mobile',
   '/manifest.json',
@@ -102,8 +102,21 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  // cache.addAll is atomic — a single 404 rejects the whole promise and the
+  // install event fails, leaving the old SW (or no SW) active and silently
+  // killing push notifications. The bkk-rider repo hit this exact bug
+  // (rider PR #421df35). Add each asset individually with .catch so a missing
+  // file only loses its own caching, not the entire install.
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        STATIC_ASSETS.map((url) =>
+          cache.add(url).catch((err) => {
+            console.warn(`[SW] Failed to cache ${url}, continuing:`, err?.message || err);
+          })
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
