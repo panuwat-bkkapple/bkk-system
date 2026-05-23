@@ -28,21 +28,24 @@ messaging.onBackgroundMessage((payload) => {
   const isChatMessage = data.type === 'chat_message';
 
   const notificationTitle = data.title || (isNewTicket ? '📱 Ticket ใหม่!' : 'BKK Admin');
+  // Keep options to the iOS-PWA-supported subset (body, icon, badge, tag,
+  // data). WebKit silently DROPS the notification when it encounters
+  // unsupported fields like `actions`, `vibrate`, `requireInteraction`,
+  // `renotify` — no error, no log, just nothing on screen. That mismatch is
+  // exactly why the rider PWA (which has only used these five fields all
+  // along) kept working while admin pushes silently disappeared after each
+  // iOS Safari update tightened option validation.
+  //
+  // Android still gets vibration/sound via the FCM `android.notification`
+  // block on the Cloud Function side (defaultVibrateTimings, defaultSound),
+  // so removing them here only loses the desktop "เปิดดู / ปิด" buttons —
+  // tapping the notification still opens the right page via notificationclick.
   const notificationOptions = {
     body: data.body || '',
     icon: '/android-chrome-192x192.png',
     badge: '/android-chrome-192x192.png',
     tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : isChatMessage ? `chat-${data.jobId}` : 'bkk-admin',
-    data: data,
-    vibrate: [200, 100, 200, 100, 200],
-    requireInteraction: isNewTicket || isStatusChange,
-    renotify: true,
-    actions: (isNewTicket || isStatusChange)
-      ? [
-          { action: 'open', title: 'เปิดดู' },
-          { action: 'dismiss', title: 'ปิด' },
-        ]
-      : [],
+    data,
   };
 
   return self.registration.showNotification(notificationTitle, notificationOptions);

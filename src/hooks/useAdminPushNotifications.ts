@@ -166,15 +166,21 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           // ถ้าเป็น new_ticket + tab กำลัง focus → useNewTicketAlert จัดการแล้ว
           if (data.type === 'new_ticket' && document.hasFocus()) return;
 
-          if (payload.notification) {
+          // All Cloud Functions in this codebase send data-only messages (no
+          // top-level `notification` field) so the SW's onBackgroundMessage
+          // can render the iOS-PWA-compatible notification itself. The old
+          // `if (payload.notification)` guard here meant foreground messages
+          // silently dropped because that field is always undefined for our
+          // payloads. Build the foreground notification from `data` to match.
+          if (data.title || data.body) {
             const tag =
               data.type === 'new_ticket' ? `ticket-${data.jobId}`
                 : data.type === 'status_change' ? `status-${data.jobId}`
                   : data.type === 'chat_message' ? `chat-${data.jobId}`
                     : undefined;
-            new Notification(payload.notification.title || 'BKK Admin', {
-              body: payload.notification.body,
-              icon: '/icons/icon-192.png',
+            new Notification(data.title || 'BKK Admin', {
+              body: data.body || '',
+              icon: '/android-chrome-192x192.png',
               tag,
             });
           }
