@@ -1051,7 +1051,16 @@ function buildAdminStatusLabel(after, job) {
 // authoritative regardless of which client wrote the status.
 const PAID_STATUSES = ["Paid", "PAID", "Payment Completed"];
 
-exports.onJobStatusChanged = onValueUpdated(
+// IMPORTANT: keep the export name globally unique across the bkk-system and
+// rider-notifications codebases. Firebase Cloud Functions identifies functions
+// by {region}/{name} project-wide — codebase is only a Firebase CLI deploy
+// concept, NOT a name-namespacing mechanism. Both repos previously exported
+// `onJobStatusChanged` against the same trigger path/region, so every admin
+// deploy silently overwrote rider-notifications' function with admin code (and
+// vice versa). Whoever deployed last won; the other side's pushes died until
+// their next deploy flipped the coin back. This was the recurring "ได้บ้างแต่
+// หายไปอีก" that the previous patches in this codebase kept failing to fix.
+exports.onAdminJobStatusNotify = onValueUpdated(
   {
     ref: "/jobs/{jobId}/status",
     region: "asia-southeast1",
