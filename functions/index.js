@@ -986,14 +986,27 @@ const NOTIFY_STATUS_MAP = {
   // Rider lifecycle — admins need real-time visibility of who's where without
   // having to open the dashboard. Both canonical (job-statuses.ts) and legacy
   // DB strings are listed so the trigger keeps firing through the rename.
-  // 'Rider Accepted' / 'Accepted' deliberately omitted — most flows fire it
-  // right after Rider Assigned, doubling the push for the same event.
-  "Rider Assigned": "🛵 ไรเดอร์รับงาน",
-  Assigned: "🛵 ไรเดอร์รับงาน",
+  //
+  // Rider Assigned vs Rider Accepted are DIFFERENT events:
+  //   - Rider Assigned  = admin manually picked a rider (the assigning admin
+  //                       knows; other admins might not).
+  //   - Rider Accepted  = rider tapped Accept in the PWA (or self-claimed a
+  //                       broadcast job where status jumps straight from
+  //                       Active Lead → Rider Accepted with no Rider Assigned
+  //                       in between). Admin definitely needs to know this.
+  // The earlier "double push" concern that omitted Rider Accepted was wrong
+  // for the broadcast/self-claim path — user reported "ตอนรับงานไม่เด้ง".
+  "Rider Assigned": "📋 จ่ายงานให้ไรเดอร์",
+  Assigned: "📋 จ่ายงานให้ไรเดอร์",
+  "Rider Accepted": "✋ ไรเดอร์รับงาน",
+  Accepted: "✋ ไรเดอร์รับงาน",
   "Rider En Route": "🛣️ ไรเดอร์ออกเดินทาง",
   "Heading to Customer": "🛣️ ไรเดอร์ออกเดินทาง",
   "Rider Arrived": "📍 ไรเดอร์ถึงจุดนัดหมาย",
   Arrived: "📍 ไรเดอร์ถึงจุดนัดหมาย",
+  // Mid-job events admin's owner needs to know so they can pre-stage approval
+  "Being Inspected": "🔍 ไรเดอร์เริ่มตรวจสภาพเครื่อง",
+  "QC Review": "⚠️ ส่งผลตรวจ — รออนุมัติ QC",
   "Rider Returning": "🔙 ไรเดอร์กำลังกลับสาขา",
   "In-Transit": "🔙 ไรเดอร์กำลังกลับสาขา", // Pickup overload — guarded below
   // B2B Pipeline Statuses
@@ -2526,6 +2539,136 @@ exports.checkOverdueReturns = onSchedule(
     }
 
     console.log(`[checkOverdueReturns] alerted on ${overdue.length} overdue job(s), threshold ${thresholdMin}m`);
+  }
+);
+
+// =============================================================================
+// Rider mid-job event notifications — Sickw + KYC don't change job.status, so
+// onAdminJobStatusNotify can't surface them. Admin needs them anyway so the
+// owning agent can pre-stage approval instead of finding out at QC time.
+// =============================================================================
+
+/**
+ * Rider tapped "Check Sickw" inside InspectionModal → recordSickwUsage pushed
+ * a log entry. Surface this to admins as a push so the owning agent knows the
+ * device is being verified in the field. Filter:
+ *   - source === 'rider'  (skip admin-desktop / admin-mobile self-checks)
+ *   - job_id present      (skip rider self-test / Internal QC scratch checks)
+ */
+exports.onRiderSickwCheck = onValueCreated(
+  {
+    ref: "/sickw_usage/{logId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const entry = event.data.val();
+    if (!entry) return;
+    if (entry.source !== "rider") return;
+    if (!entry.job_id) return;
+
+    const jobId = entry.job_id;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const riderName = entry.name || "ไรเดอร์";
+    const model = job.model || "ไม่ระบุรุ่น";
+    const custName = job.cust_name || "";
+    const services = Array.isArray(entry.service_ids) ? entry.service_ids.length : 1;
+
+    const title = "🔬 ไรเดอร์ตรวจ Sickw";
+    const body = `${riderName} ตรวจ ${services} service บน ${model}${custName ? ` (${custName})` : ""}`;
+
+    await dispatchAdminPush(
+      {
+        data: {
+          jobId,
+          type: "status_change",
+          title,
+          body,
+          newStatus: "Sickw Checked",
+          model,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "status_changes",
+            priority: "high",
+            defaultSound: true,
+            tag: `sickw-${jobId}`,
+          },
+        },
+        apns: {
+          headers: { "apns-priority": "10", "apns-push-type": "alert" },
+          payload: { aps: { "mutable-content": 1, sound: "default" } },
+        },
+        webpush: { headers: { Urgency: "high", TTL: "86400" } },
+      },
+      `onRiderSickwCheck(${jobId})`
+    );
+  }
+);
+
+/**
+ * Rider finished KYC → wrote kyc_verified_at on the job. Notify admin so the
+ * owning agent can review the captured ID / signature before payout. Differs
+ * by kyc_method:
+ *   - photo          → routine success
+ *   - typed_fallback → URGENT review needed (customer had no ID)
+ */
+exports.onJobKycVerified = onValueCreated(
+  {
+    ref: "/jobs/{jobId}/kyc_verified_at",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const ts = event.data.val();
+    if (!ts) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const kycMethod = job.kyc_method || "photo";
+    const model = job.model || "ไม่ระบุรุ่น";
+    const custName = job.cust_name || "";
+    const isFallback = kycMethod === "typed_fallback";
+
+    const title = isFallback
+      ? "🪪 ⚠️ KYC ผิดปกติ — ตรวจสอบลายเซ็น"
+      : "🪪 ไรเดอร์บันทึก KYC แล้ว";
+    const body = `${model}${custName ? ` - ${custName}` : ""}${isFallback ? " (ลูกค้าไม่มีบัตร)" : ""}`;
+
+    await dispatchAdminPush(
+      {
+        data: {
+          jobId,
+          type: "status_change",
+          title,
+          body,
+          newStatus: "KYC Verified",
+          model,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "status_changes",
+            priority: "high",
+            defaultSound: true,
+            tag: `kyc-${jobId}`,
+          },
+        },
+        apns: {
+          headers: { "apns-priority": "10", "apns-push-type": "alert" },
+          payload: { aps: { "mutable-content": 1, sound: "default" } },
+        },
+        webpush: { headers: { Urgency: "high", TTL: "86400" } },
+      },
+      `onJobKycVerified(${jobId}, ${kycMethod})`
+    );
   }
 );
 
