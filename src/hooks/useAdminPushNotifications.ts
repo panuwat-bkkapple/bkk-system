@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { getFirebaseMessaging } from '../api/firebase';
-import { getToken, onMessage, type Messaging } from 'firebase/messaging';
+import { getToken, onMessage, deleteToken, type Messaging } from 'firebase/messaging';
 import { ref, set, get } from 'firebase/database';
 import { db } from '../api/firebase';
 
@@ -48,19 +48,11 @@ export const useAdminPushNotifications = (staffId: string | null) => {
       const deviceId = getDeviceId();
       const path = `admin_fcm_tokens/${staffId}/${deviceId}`;
 
-      const snap = await get(ref(db, path));
-      const existing = snap.val() as { token?: string; updated_at?: number } | null;
-
-      // Skip the write if token + updated_at are still recent — saves an RTDB
-      // round-trip on every visibility flip.
-      if (
-        existing?.token === token &&
-        existing?.updated_at &&
-        Date.now() - existing.updated_at < REFRESH_INTERVAL_MS
-      ) {
-        return;
-      }
-
+      // Always write (no freshness skip). set() replaces the node so any
+      // first_failure_at / last_failure_at stamped by dispatchAdminPush gets
+      // cleared whenever the page successfully re-fetches a token. Keeping
+      // the skip would leave stale failure markers in place across refreshes
+      // — and the Cloud Function would keep treating the entry as failing.
       await set(ref(db, path), {
         token,
         device: isMobile ? 'mobile' : 'desktop',
@@ -73,6 +65,29 @@ export const useAdminPushNotifications = (staffId: string | null) => {
       if (!messagingInstance || cancelled) return;
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY?.trim();
       if (!vapidKey) return;
+
+      // If dispatchAdminPush has marked the stored token as failing, iOS PWA's
+      // FCM SDK is almost certainly handing us back the same dead token from
+      // its local cache. Force a clean re-subscription by deleting first —
+      // the next getToken() will register a fresh web-push endpoint.
+      let forceRefresh = false;
+      try {
+        const deviceId = getDeviceId();
+        const snap = await get(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`));
+        const existing = snap.val() as { last_failure_at?: number } | null;
+        if (existing?.last_failure_at) forceRefresh = true;
+      } catch {
+        // best-effort — fall through and try a normal getToken
+      }
+
+      if (forceRefresh && messagingInstance) {
+        try {
+          await deleteToken(messagingInstance);
+          console.log('[Push] Forced FCM token delete — Cloud Function reported delivery failures');
+        } catch (e) {
+          console.warn('[Push] deleteToken failed (continuing):', e);
+        }
+      }
 
       // Patch window.atob ชั่วคราว เพื่อให้ Firebase SDK decode VAPID key ได้
       // Firebase SDK ใช้ atob() ภายใน getToken() แต่ VAPID key เป็น base64url ไม่มี padding
@@ -151,15 +166,21 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           // ถ้าเป็น new_ticket + tab กำลัง focus → useNewTicketAlert จัดการแล้ว
           if (data.type === 'new_ticket' && document.hasFocus()) return;
 
-          if (payload.notification) {
+          // All Cloud Functions in this codebase send data-only messages (no
+          // top-level `notification` field) so the SW's onBackgroundMessage
+          // can render the iOS-PWA-compatible notification itself. The old
+          // `if (payload.notification)` guard here meant foreground messages
+          // silently dropped because that field is always undefined for our
+          // payloads. Build the foreground notification from `data` to match.
+          if (data.title || data.body) {
             const tag =
               data.type === 'new_ticket' ? `ticket-${data.jobId}`
                 : data.type === 'status_change' ? `status-${data.jobId}`
                   : data.type === 'chat_message' ? `chat-${data.jobId}`
                     : undefined;
-            new Notification(payload.notification.title || 'BKK Admin', {
-              body: payload.notification.body,
-              icon: '/icons/icon-192.png',
+            new Notification(data.title || 'BKK Admin', {
+              body: data.body || '',
+              icon: '/android-chrome-192x192.png',
               tag,
             });
           }
