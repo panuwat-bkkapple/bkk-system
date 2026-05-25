@@ -2912,7 +2912,7 @@ async function recordSickwUsage(db, entry) {
 // อย่าสลับ ไม่งั้นเครื่อง FMI=ON จะโชว์ clean ผิดทาง
 const SICKW_FIELD_MAP = {
   model: ["model", "model description", "model desc", "model name", "device name", "modal description"],
-  modelNumber: ["model number", "model no", "part number", "model code"],
+  modelNumber: ["model number", "model no", "part number", "model code", "material number"],
   capacity: ["capacity", "memory", "storage", "memory capacity"],
   color: ["color", "colour", "device color"],
   country: ["country", "purchase country", "sold by", "region", "sold by country", "purchased in", "country of purchase"],
@@ -3023,6 +3023,26 @@ function parseSickwResult(raw) {
       }
     }
   }
+
+  // บาง service (GSX/MDM status) ไม่ได้คืน capacity/color เป็น field แยก แต่ฝังรวมใน
+  // "model name" เช่น "iPhone 13 Pro Max 256GB Sierra Blue" — แกะออกมาเติมให้
+  // เฉพาะตอนที่ยังว่าง (ไม่ทับค่าที่ service คืนมาตรงๆ)
+  const modelName = parsed.model || fields["model name"] || "";
+  if (!parsed.capacity) {
+    const cap =
+      modelName.match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i) ||
+      (fields["device configuration"] || "").match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i);
+    if (cap) parsed.capacity = `${cap[1]}${cap[2].toUpperCase()}`;
+  }
+  if (!parsed.color && modelName) {
+    // สี = ข้อความที่อยู่หลัง token ความจุใน model name
+    const m = modelName.match(/(\d+(?:\.\d+)?)\s*(TB|GB)\b/i);
+    if (m && m.index != null) {
+      const after = modelName.slice(m.index + m[0].length).trim();
+      if (after) parsed.color = after;
+    }
+  }
+
   return { parsed, fields };
 }
 
