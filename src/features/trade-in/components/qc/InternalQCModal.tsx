@@ -360,6 +360,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                             {/* Sickw IMEI check — แอดมินยืนยันสถานะกับฐานข้อมูล Apple */}
                             {/* ส่ง jobId เพื่อให้ snapshot เก็บใน jobs/{id}/sickw_check */}
                             <SickwDeviceCheck
+                                key={devicesList[activeDeviceIndex]?.imei || devicesList[activeDeviceIndex]?.serial || activeDeviceIndex}
                                 jobId={job.id}
                                 initialImei={devicesList[activeDeviceIndex]?.imei || job.imei || ''}
                                 initialSerial={devicesList[activeDeviceIndex]?.serial || job.serial || ''}
