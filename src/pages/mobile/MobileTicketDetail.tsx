@@ -1331,24 +1331,23 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       break;
     case 'Paid':
     case 'PAID':
-      // Pickup: the device is still with the rider after payment until they
-      // hand it over at the branch (→ Pending QC, where the rider fee is
-      // computed). Jumping straight to In Stock here strands the rider's job
-      // and skips their pay, so offer only the handover confirmation — which
-      // routes through Pending QC. Store-in / Mail-in already hold the device
-      // at the branch, so In Stock is fine for them.
-      if (isPickup) {
-        actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
-      } else {
-        actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
-      }
-      break;
     case 'Waiting For Handover':
     case 'Waiting for Handover':
     case 'Rider Returning':
-      // Post-payment Pickup, device en route back to the branch. Only forward
-      // action is confirming the rider's handover (→ Pending QC, fee computed).
-      if (isPickup) actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
+      // Post-payment. Finance parks every B2C payout at "Waiting for Handover"
+      // (see TradeInPayouts), so this is the normal paid state for all methods.
+      if (isPickup) {
+        // Pickup: the device is still with the rider until they hand it over at
+        // the branch (→ Pending QC, where the rider fee is computed). Block the
+        // QC-lab / stock jump; only offer the handover confirmation, which
+        // routes through Pending QC so the rider always gets paid.
+        actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
+      } else {
+        // Store-in / Mail-in: device is already at the branch → send into the
+        // QC pipeline or straight to stock.
+        actions.push({ label: 'ส่งเข้า QC Lab', status: 'Sent to QC Lab', log: 'รับมอบเครื่องและส่งเข้าห้องแล็บ', style: 'bg-purple-600 text-white' });
+        actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
+      }
       break;
   }
 
