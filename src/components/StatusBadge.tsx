@@ -13,6 +13,7 @@ export const StatusBadge = ({ status }: { status: string }) => {
     'Completed': { label: 'Completed', color: 'bg-green-100 text-green-700' },
     'Returned': { label: 'Returned', color: 'bg-red-100 text-red-700' },
     'Cancelled': { label: 'Cancelled', color: 'bg-gray-100 text-gray-700' },
+    'Closed (Lost)': { label: 'Closed (Lost)', color: 'bg-slate-200 text-slate-600' },
   };
 
   const current = config[status] || { label: status, color: 'bg-gray-100 text-gray-600' };

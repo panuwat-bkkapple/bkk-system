@@ -18,6 +18,8 @@ interface PricingSidebarHandlers {
   handleApplyAdminCoupon: () => Promise<void>;
   handleRemoveCoupon: () => Promise<void>;
   handleSaveNotes: () => Promise<void>;
+  handleReopen: (keepRider: boolean) => Promise<void>;
+  handleCloseLost: () => Promise<void>;
   setIsQCModalOpen: (open: boolean) => void;
   setIsCancelModalOpen: (open: boolean) => void;
   setActiveChatJobId: (id: string | null) => void;
@@ -46,6 +48,8 @@ interface PricingCalculations {
   couponValue: number;
   netPayout: number;
   isCancelled: boolean;
+  isReopenable: boolean;
+  reopenDeadline: number | null;
   isNew: boolean;
   isLogistics: boolean;
   isQC: boolean;
@@ -68,7 +72,8 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const {
     handleUpdateStatus, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
-    handleSaveNotes, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId
+    handleSaveNotes, handleReopen, handleCloseLost,
+    setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId
   } = handlers;
 
   const {
@@ -83,9 +88,13 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
   const {
     basePrice, pickupFee, couponValue, netPayout,
-    isCancelled, isNew, isLogistics, isQC, isNegotiation,
+    isCancelled, isReopenable, reopenDeadline, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
+
+  const reopenDaysLeft = reopenDeadline
+    ? Math.max(0, Math.ceil((reopenDeadline - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
 
   const statusLower = String(job.status || '').trim().toLowerCase();
 
@@ -630,6 +639,35 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           <button onClick={() => setIsCancelModalOpen(true)} className="w-full py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
             ยกเลิกออเดอร์ / ปฏิเสธการรับซื้อ
           </button>
+        )}
+
+        {/* Soft-cancelled job — admin can reopen onto the same ticket (revised
+            offer price is preserved) or close it permanently. */}
+        {isReopenable && (
+          <div className="space-y-2 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">นำกลับมาขายใหม่ได้</p>
+              {reopenDaysLeft !== null && (
+                <span className="text-[9px] font-black text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  เหลือ {reopenDaysLeft} วันก่อนปิดถาวร
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-amber-700/80 font-bold leading-relaxed">
+              ใช้ราคา revised offer เดิม ({formatCurrency(netPayout)} ฿) บนใบงานเดิม
+            </p>
+            {job.rider_id && (
+              <button onClick={() => handleReopen(true)} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
+                เปิดงานใหม่ — ไรเดอร์เดิมกลับไปรับ
+              </button>
+            )}
+            <button onClick={() => handleReopen(false)} className="w-full py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
+              เปิดงานใหม่ — จ่ายงานให้ไรเดอร์ใหม่
+            </button>
+            <button onClick={handleCloseLost} className="w-full py-2.5 bg-white border border-red-200 text-red-500 hover:bg-red-50 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
+              ปิดงานถาวร (Closed)
+            </button>
+          </div>
         )}
 
         <div className="flex gap-2 pt-2">
