@@ -1397,7 +1397,12 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     const after = event.data.after.val();
 
     if (before === after) return;
-    if (after !== "Pending QC") return;
+    // Primary trigger: rider hands over at the branch (status → Pending QC).
+    // Safety-net triggers: if a Pickup job skips the handover step (e.g. admin
+    // jumps it straight to QC Lab / In Stock), still compute the fee below so
+    // the rider is never left unpaid by a status skip.
+    const FEE_TRIGGER_STATUSES = ["Pending QC", "Sent to QC Lab", "In Stock"];
+    if (!FEE_TRIGGER_STATUSES.includes(after)) return;
 
     const jobId = event.params.jobId;
     const db = getDatabase();
@@ -1408,6 +1413,16 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
       return;
     }
     const job = jobSnap.val();
+
+    // Safety-net path (entered via a non-"Pending QC" trigger): only fire for a
+    // Pickup job that skipped handover and still has an unpaid, rider-assigned
+    // fee. Everything else (Store-in/Mail-in, no rider, already paid) is a no-op.
+    if (after !== "Pending QC") {
+      if (job.receive_method !== "Pickup") return;
+      if (!job.rider_id) return;
+      if (typeof job.rider_fee === "number" && job.rider_fee > 0) return;
+      console.warn(`[riderFee] Job ${jobId} reached "${after}" without a handover — computing fee as safety net`);
+    }
 
     // ถ้า rider_fee ถูก set แล้ว (เช่น admin ตั้งเอง) ไม่ override
     if (typeof job.rider_fee === "number" && job.rider_fee > 0) {

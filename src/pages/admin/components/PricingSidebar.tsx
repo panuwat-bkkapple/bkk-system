@@ -20,6 +20,7 @@ interface PricingSidebarHandlers {
   handleSaveNotes: () => Promise<void>;
   handleReopen: (keepRider: boolean) => Promise<void>;
   handleCloseLost: () => Promise<void>;
+  handleRecoverHandover: () => Promise<void>;
   setIsQCModalOpen: (open: boolean) => void;
   setIsCancelModalOpen: (open: boolean) => void;
   setActiveChatJobId: (id: string | null) => void;
@@ -50,6 +51,7 @@ interface PricingCalculations {
   isCancelled: boolean;
   isReopenable: boolean;
   reopenDeadline: number | null;
+  needsFeeRecovery: boolean;
   isNew: boolean;
   isLogistics: boolean;
   isQC: boolean;
@@ -72,7 +74,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const {
     handleUpdateStatus, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
-    handleSaveNotes, handleReopen, handleCloseLost,
+    handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
     setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId
   } = handlers;
 
@@ -88,7 +90,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
   const {
     basePrice, pickupFee, couponValue, netPayout,
-    isCancelled, isReopenable, reopenDeadline, isNew, isLogistics, isQC, isNegotiation,
+    isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
 
@@ -576,15 +578,35 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
         {/* Post-Payment Handover */}
         {!isCancelled && hasBeenPaid && statusLower !== 'sent to qc lab' && statusLower !== 'in stock' && (
-          <div className="space-y-3">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ListChecks size={14} /> Post-Payment / Handover</p>
-            <button onClick={() => setIsQCModalOpen(true)} className="w-full flex items-center justify-between p-4 bg-blue-50 text-blue-700 rounded-2xl border border-blue-100 hover:bg-blue-100 transition-all font-black text-xs uppercase">
-              <span>ตรวจสอบเครื่อง (Internal QC)</span><ListChecks size={18} />
-            </button>
-            <button onClick={() => handleUpdateStatus('Sent to QC Lab', 'รับมอบเครื่องและส่งเข้าห้องแล็บ')} className="w-full flex items-center justify-between p-4 bg-purple-600 text-white rounded-2xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all font-black text-xs uppercase tracking-widest">
-              <span>Send to QC LAB (ส่งเข้าแล็บ)</span><ShieldCheck size={18} />
-            </button>
-          </div>
+          job.receive_method === 'Pickup' && statusLower !== 'pending qc' ? (
+            // Pickup: the device is still with the rider until they hand it over
+            // at the branch (status → Pending QC, which also computes the rider
+            // fee). Block the QC-lab jump here so a fast click can't strand the
+            // rider's job and skip their pay. Admin can confirm the handover on
+            // the rider's behalf if needed — that still routes through Pending QC.
+            <div className="space-y-3">
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> รอไรเดอร์ส่งมอบเครื่อง</p>
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2">
+                <p className="text-xs font-black text-amber-800">เครื่องยังอยู่กับไรเดอร์</p>
+                <p className="text-[11px] font-bold text-amber-700/80 leading-relaxed">
+                  รอไรเดอร์เดินทางกลับและส่งมอบเครื่องที่สาขา ระบบจะคำนวณค่าวิ่งให้ไรเดอร์ตอนรับเข้า (Pending QC) — ยังส่งเข้า QC Lab ไม่ได้จนกว่าจะรับเครื่องจริง
+                </p>
+              </div>
+              <button onClick={() => handleUpdateStatus('Pending QC', 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา')} className="w-full flex items-center justify-between p-4 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all font-black text-xs uppercase tracking-widest">
+                <span>ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)</span><PackageOpen size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ListChecks size={14} /> Post-Payment / Handover</p>
+              <button onClick={() => setIsQCModalOpen(true)} className="w-full flex items-center justify-between p-4 bg-blue-50 text-blue-700 rounded-2xl border border-blue-100 hover:bg-blue-100 transition-all font-black text-xs uppercase">
+                <span>ตรวจสอบเครื่อง (Internal QC)</span><ListChecks size={18} />
+              </button>
+              <button onClick={() => handleUpdateStatus('Sent to QC Lab', 'รับมอบเครื่องและส่งเข้าห้องแล็บ')} className="w-full flex items-center justify-between p-4 bg-purple-600 text-white rounded-2xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all font-black text-xs uppercase tracking-widest">
+                <span>Send to QC LAB (ส่งเข้าแล็บ)</span><ShieldCheck size={18} />
+              </button>
+            </div>
+          )
         )}
 
         {!isCancelled && statusLower === 'sent to qc lab' && (
@@ -601,6 +623,21 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center text-slate-400 mb-2"><PackageOpen size={32} /></div>
             <p className="text-sm font-black uppercase text-slate-800 tracking-wider">ออเดอร์นี้เสร็จสมบูรณ์</p>
             <p className="text-[10px] font-bold text-slate-500">เครื่องถูกล้างข้อมูลและนำเข้าคลังสินค้าเรียบร้อย</p>
+          </div>
+        )}
+
+        {/* Recovery — a Pickup job that was advanced past handover without the
+            rider fee being computed (the skip bug). Rewind to Pending QC so the
+            fee function runs and the rider gets paid; admin re-advances after. */}
+        {!isCancelled && needsFeeRecovery && (
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 mt-4">
+            <p className="text-[10px] font-black uppercase text-rose-600 tracking-wider flex items-center gap-2"><AlertOctagon size={14} /> ค่าวิ่งไรเดอร์ยังไม่ถูกคำนวณ</p>
+            <p className="text-[11px] font-bold text-rose-700/80 leading-relaxed">
+              งานนี้ถูกข้ามขั้นส่งมอบ (Pending QC) ไรเดอร์จึงยังไม่ได้ค่าวิ่ง กดเพื่อรับมอบย้อนหลัง — ระบบจะคำนวณค่าวิ่งให้ไรเดอร์ แล้วค่อยส่งเข้า QC Lab ใหม่
+            </p>
+            <button onClick={handleRecoverHandover} className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">
+              รับมอบย้อนหลัง + คำนวณค่าวิ่ง (→ Pending QC)
+            </button>
           </div>
         )}
 

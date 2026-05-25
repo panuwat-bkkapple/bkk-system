@@ -93,6 +93,12 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   // statuses are final — locked, no reopen.
   const isReopenable = statusLower === 'cancelled';
   const reopenDeadline = isReopenable && job.cancelled_at ? job.cancelled_at + REOPEN_WINDOW_MS : null;
+  // A Pickup job that reached the resale stage without the rider fee being
+  // computed means the handover (Pending QC) was skipped — the rider never got
+  // paid. Surface a recovery action to rewind and compute it.
+  const needsFeeRecovery = job.receive_method === 'Pickup' && !!job.rider_id &&
+    (!job.rider_fee || Number(job.rider_fee) <= 0) &&
+    ['sent to qc lab', 'in stock'].includes(statusLower);
   // Tolerant matching: each bucket carries both legacy DB strings and the
   // canonical names from src/types/job-statuses.ts so the workspace lights
   // up the right action panel regardless of which writer touched the job.
@@ -241,6 +247,20 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
       updated_at: Date.now()
     });
   };
+  // Rewind a skipped Pickup job to Pending QC so onJobHandedOverCalcRiderFee
+  // computes the rider fee the skip bypassed. Stamp completed_at if missing so
+  // it also surfaces in the rider's history.
+  const handleRecoverHandover = async () => {
+    if (!confirm('รับมอบเครื่องย้อนหลังและคำนวณค่าวิ่งให้ไรเดอร์? ใช้กรณีงานถูกข้ามขั้นส่งมอบ (Pending QC)')) return;
+    const payload: any = {
+      status: 'Pending QC',
+      qc_logs: [makeLog('Pending QC', 'แก้ย้อนหลัง: งานถูกข้ามขั้นส่งมอบ ทำให้ค่าวิ่งไม่ถูกคำนวณ — รับเข้า Pending QC เพื่อให้ระบบคำนวณค่าวิ่งให้ไรเดอร์'), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    };
+    if (!job.completed_at) payload.completed_at = Date.now();
+    await update(ref(db, `jobs/${job.id}`), payload);
+    toast.success('รับมอบย้อนหลังแล้ว ระบบกำลังคำนวณค่าวิ่งให้ไรเดอร์');
+  };
   const handleSaveNotes = async () => {
     if (!callNotes.trim()) return;
     await update(ref(db, `jobs/${job.id}`), { qc_logs: [makeLog('CRM Note', callNotes), ...(job.qc_logs || [])] });
@@ -344,9 +364,9 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
         </div>
         <PricingSidebar
           job={job}
-          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
+          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
-          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isReopenable, reopenDeadline, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
+          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}
         />
       </div>
