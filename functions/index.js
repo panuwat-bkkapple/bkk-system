@@ -380,6 +380,70 @@ exports.archiveOldJobs = onSchedule(
   }
 );
 
+// ----------------------------------------------------------------------------
+// Finalize soft-cancelled jobs
+// ----------------------------------------------------------------------------
+//
+// "Cancelled" is a SOFT close, not the end of the line: the customer was told
+// the job is off and the rider stood down, but admin can still reopen the same
+// ticket (preserving the revised offer) if the customer comes back. This
+// scheduler closes the loop — once a Cancelled job has sat untouched past the
+// 7-day reopen window, it's finalized to the true terminal "Closed (Lost)".
+//
+// Mirrors REOPEN_WINDOW_DAYS in src/types/job-statuses.ts. A reopen clears
+// cancelled_at, so reopened jobs naturally fall out of this sweep.
+const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+exports.finalizeCancelledJobs = onSchedule(
+  {
+    schedule: "0 */6 * * *",
+    timeZone: "Asia/Bangkok",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const db = getDatabase();
+    const jobsSnap = await db.ref("jobs").once("value");
+    if (!jobsSnap.exists()) return;
+
+    const now = Date.now();
+    const updates = {};
+    let count = 0;
+
+    jobsSnap.forEach((child) => {
+      const job = child.val();
+      if (job.status !== "Cancelled") return;
+      // No timestamp → can't age it out safely; leave for an admin to close.
+      if (!job.cancelled_at) return;
+      if (now - job.cancelled_at < REOPEN_WINDOW_MS) return;
+
+      const jobId = child.key;
+      const existingLogs = Array.isArray(job.qc_logs)
+        ? job.qc_logs
+        : job.qc_logs
+          ? Object.values(job.qc_logs)
+          : [];
+      updates[`jobs/${jobId}/status`] = "Closed (Lost)";
+      updates[`jobs/${jobId}/closed_at`] = now;
+      updates[`jobs/${jobId}/closed_by`] = "system";
+      updates[`jobs/${jobId}/qc_logs`] = [
+        {
+          action: "Closed (Lost)",
+          details: "ปิดงานอัตโนมัติ (พ้นหน้าต่างนำกลับมาขายใหม่ 7 วัน)",
+          by: "System",
+          timestamp: now,
+        },
+        ...existingLogs,
+      ];
+      updates[`jobs/${jobId}/updated_at`] = now;
+      count += 1;
+    });
+
+    if (count === 0) return;
+    console.log(`[finalize-cancelled] Closing ${count} expired soft-cancelled jobs`);
+    await db.ref().update(updates);
+  }
+);
+
 /**
  * HTTP Function: เรียกด้วยมือเพื่อ migrate งานเก่าทันที
  * ใช้สำหรับการ migrate ครั้งแรก หรือเรียกเมื่อต้องการ archive ทันที
@@ -1073,6 +1137,19 @@ function buildAdminStatusLabel(after, job) {
   const isCustomerCancel = cancelledBy === "customer" || cancelledBy.startsWith("customer:");
   const isAdminCancel = cancelledBy === "admin" || cancelledBy.startsWith("admin:");
   const isSystemCancel = cancelledBy === "system";
+
+  // Reopen — admin pulled a soft-cancelled job back onto the same ticket. The
+  // reopen writes a target status (Following Up / Rider En Route) that would
+  // otherwise push a misleading label, so intercept it here. reopened_at is
+  // freshly stamped by the reopen and cleared cancelled_at, so a short recency
+  // guard keeps this from hijacking later transitions on the same job.
+  if (
+    job.reopened_at &&
+    Date.now() - job.reopened_at < 2 * 60 * 1000 &&
+    (after === "Following Up" || after === "Rider En Route")
+  ) {
+    return "🔄 เปิดงานกลับมาขายใหม่";
+  }
 
   // Cancelled — vary the label by source so admin instantly knows blame.
   if (after === "Cancelled") {

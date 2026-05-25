@@ -8,7 +8,7 @@ import { InternalQCModal } from '@/features/trade-in/components/qc/InternalQCMod
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { B2BManager } from '@/features/trade-in/components/b2b/B2BManager';
 import { useToast } from '@/components/ui/ToastProvider';
-import { CANCEL_CATEGORY_LABEL_TH } from '@/types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
 
@@ -88,6 +88,11 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned', 'return confirmed', 'drop-off expired', 'shipping expired', 'parcel lost'].includes(statusLower) || statusLower.includes('cancel');
+  // Soft-close: "Cancelled" is reopenable (customer can come back on the same
+  // ticket) until the 7-day window lapses. "Closed (Lost)" and the other dead
+  // statuses are final — locked, no reopen.
+  const isReopenable = statusLower === 'cancelled';
+  const reopenDeadline = isReopenable && job.cancelled_at ? job.cancelled_at + REOPEN_WINDOW_MS : null;
   // Tolerant matching: each bucket carries both legacy DB strings and the
   // canonical names from src/types/job-statuses.ts so the workspace lights
   // up the right action panel regardless of which writer touched the job.
@@ -195,6 +200,47 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     });
     setIsCancelModalOpen(false);
   };
+
+  // Reopen a soft-cancelled job onto the SAME ticket. The revised offer price
+  // (price / final_price / net_payout) is never touched on cancel, so it's
+  // still there — we only clear the cancel marks and route the job back into
+  // the pipeline. keepRider=true means the rider was still nearby and turns
+  // around (Pickup must re-collect the device, so we can't skip logistics).
+  const handleReopen = async (keepRider: boolean) => {
+    const reuseRider = keepRider && !!job.rider_id;
+    const nextStatus = reuseRider ? 'Rider En Route' : 'Following Up';
+    const detail = reuseRider
+      ? 'นำงานกลับมาขายใหม่ (ลูกค้าตกลงราคา revised offer เดิม) — ไรเดอร์เดิมยังอยู่ใกล้ ให้กลับไปรับเครื่อง'
+      : 'นำงานกลับมาขายใหม่ (ลูกค้าตกลงราคา revised offer เดิม) — เคลียร์ไรเดอร์เดิม รอจ่ายงานใหม่';
+    const payload: any = {
+      status: nextStatus,
+      reopened_at: Date.now(),
+      reopened_by: `staff:${currentUser?.id || 'admin'}`,
+      // Drop the soft-cancel marks so the finalize scheduler skips this job and
+      // the workspace stops showing the cancelled panel.
+      cancel_category: null,
+      cancel_reason: null,
+      cancelled_by: null,
+      cancelled_at: null,
+      qc_logs: [makeLog('Reopened', detail), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    };
+    if (!reuseRider) payload.rider_id = null;
+    await update(ref(db, `jobs/${job.id}`), payload);
+  };
+
+  // Force-finalize a soft-cancelled job immediately (skip the 7-day window) —
+  // used for fraud / no-show where there's no chance the customer comes back.
+  const handleCloseLost = async () => {
+    if (!confirm('ปิดงานถาวร? หลังจากนี้จะไม่สามารถนำกลับมาขายใหม่ได้')) return;
+    await update(ref(db, `jobs/${job.id}`), {
+      status: 'Closed (Lost)',
+      closed_at: Date.now(),
+      closed_by: `staff:${currentUser?.id || 'admin'}`,
+      qc_logs: [makeLog('Closed (Lost)', 'ปิดงานถาวร (ไม่เปิดให้กลับมาขายใหม่)'), ...(job.qc_logs || [])],
+      updated_at: Date.now()
+    });
+  };
   const handleSaveNotes = async () => {
     if (!callNotes.trim()) return;
     await update(ref(db, `jobs/${job.id}`), { qc_logs: [makeLog('CRM Note', callNotes), ...(job.qc_logs || [])] });
@@ -298,9 +344,9 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
         </div>
         <PricingSidebar
           job={job}
-          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
+          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
-          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
+          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isReopenable, reopenDeadline, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}
         />
       </div>

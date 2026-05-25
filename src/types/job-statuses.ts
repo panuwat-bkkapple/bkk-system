@@ -100,6 +100,10 @@ export const PHASE = {
   PAYOUT: 'payout',
   RETURN_TO_STORE: 'return_to_store',
   INVENTORY: 'inventory',
+  // Soft-close: the customer has been told the job is cancelled and the rider
+  // stood down, but the ticket is NOT final yet — admin can still reopen it
+  // onto the same job until the reopen window lapses (see REOPENABLE_STATUS).
+  PENDING_CLOSE: 'pending_close',
   TERMINAL: 'terminal',
   EXCEPTION: 'exception',
 } as const;
@@ -143,7 +147,9 @@ const STATUS_TO_PHASE: Record<JobStatus, Phase> = {
   [JOB_STATUS.SOLD]: PHASE.INVENTORY,
   [JOB_STATUS.COMPLETED]: PHASE.TERMINAL,
 
-  [JOB_STATUS.CANCELLED]: PHASE.TERMINAL,
+  // Cancelled is a soft-close: reopenable until the grace window lapses, then a
+  // scheduled job finalizes it to Closed (Lost). Closed (Lost) is the true end.
+  [JOB_STATUS.CANCELLED]: PHASE.PENDING_CLOSE,
   [JOB_STATUS.CLOSED_LOST]: PHASE.TERMINAL,
   [JOB_STATUS.DROP_OFF_EXPIRED]: PHASE.TERMINAL,
   [JOB_STATUS.SHIPPING_EXPIRED]: PHASE.TERMINAL,
@@ -165,6 +171,40 @@ export function getPhase(status: JobStatus): Phase {
 
 export function isTerminal(status: JobStatus): boolean {
   return STATUS_TO_PHASE[status] === PHASE.TERMINAL;
+}
+
+// =============================================================================
+// Reopen window
+//
+// A "Cancelled" job is a soft-close, not the end of the line: the customer was
+// told the job is off and the rider stood down, but if the customer comes back
+// (e.g. "actually I'll sell at that revised offer") the admin can reopen the
+// SAME ticket — preserving the inspection, KYC and the revised price already on
+// the job. After REOPEN_WINDOW_DAYS with no reopen, a scheduled job finalizes
+// the soft-close into its terminal counterpart (Cancelled → Closed (Lost)).
+// =============================================================================
+
+export const REOPEN_WINDOW_DAYS = 7;
+export const REOPEN_WINDOW_MS = REOPEN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+// Soft-close statuses an admin can pull back into the active pipeline, mapped
+// to the terminal status they auto-finalize into once the window lapses.
+export const REOPENABLE_STATUS: Partial<Record<JobStatus, JobStatus>> = {
+  [JOB_STATUS.CANCELLED]: JOB_STATUS.CLOSED_LOST,
+};
+
+export function isReopenable(status: JobStatus): boolean {
+  return Boolean(REOPENABLE_STATUS[status]);
+}
+
+// Epoch-ms deadline after which a soft-cancelled job auto-finalizes, or null
+// when the status isn't reopenable or carries no cancellation timestamp.
+export function getReopenDeadline(
+  status: JobStatus,
+  cancelledAt: number | null | undefined
+): number | null {
+  if (!isReopenable(status) || !cancelledAt) return null;
+  return cancelledAt + REOPEN_WINDOW_MS;
 }
 
 // =============================================================================
