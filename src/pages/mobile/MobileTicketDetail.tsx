@@ -197,6 +197,11 @@ export const MobileTicketDetail = () => {
   const isReopenable = (job.status || '').toLowerCase() === 'cancelled';
   const reopenDeadline = isReopenable && job.cancelled_at ? job.cancelled_at + REOPEN_WINDOW_MS : null;
   const reopenDaysLeft = reopenDeadline ? Math.max(0, Math.ceil((reopenDeadline - Date.now()) / 86400000)) : null;
+  // Pickup job advanced to resale without the rider fee → handover was skipped,
+  // rider unpaid. Offer a recovery action that rewinds to Pending QC.
+  const needsFeeRecovery = job.receive_method === 'Pickup' && !!job.rider_id &&
+    (!job.rider_fee || Number(job.rider_fee) <= 0) &&
+    ['sent to qc lab', 'in stock'].includes((job.status || '').toLowerCase());
   const basePrice = Number(job.final_price || job.price || 0);
   const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
   const couponValue = Number(job.applied_coupon?.value || 0);
@@ -278,6 +283,20 @@ export const MobileTicketDetail = () => {
     if (!reuseRider) payload.rider_id = null;
     await update(ref(db, `jobs/${job.id}`), payload);
     toast.success('เปิดงานกลับมาแล้ว');
+  };
+
+  // Rewind a skipped Pickup job to Pending QC so the rider-fee cloud function
+  // runs and the rider gets paid. Stamp completed_at if missing for history.
+  const handleRecoverHandover = async () => {
+    if (!confirm('รับมอบเครื่องย้อนหลังและคำนวณค่าวิ่งให้ไรเดอร์? ใช้กรณีงานถูกข้ามขั้นส่งมอบ (Pending QC)')) return;
+    const payload: any = {
+      status: 'Pending QC',
+      qc_logs: [makeLog('Pending QC', 'แก้ย้อนหลัง: งานถูกข้ามขั้นส่งมอบ ทำให้ค่าวิ่งไม่ถูกคำนวณ — รับเข้า Pending QC เพื่อให้ระบบคำนวณค่าวิ่งให้ไรเดอร์'), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    };
+    if (!job.completed_at) payload.completed_at = Date.now();
+    await update(ref(db, `jobs/${job.id}`), payload);
+    toast.success('รับมอบย้อนหลังแล้ว ระบบกำลังคำนวณค่าวิ่งให้ไรเดอร์');
   };
 
   // Force-finalize a soft-cancelled job immediately (skip the 7-day window).
@@ -913,6 +932,19 @@ export const MobileTicketDetail = () => {
             </div>
           )}
 
+          {/* Recovery — Pickup job advanced past handover without a rider fee. */}
+          {needsFeeRecovery && (
+            <div className="bg-rose-50 rounded-2xl border border-rose-200 shadow-sm p-4 space-y-2">
+              <h3 className="text-xs font-black text-rose-600 uppercase tracking-wider">ค่าวิ่งไรเดอร์ยังไม่ถูกคำนวณ</h3>
+              <p className="text-[11px] font-bold text-rose-700/80 leading-relaxed">
+                งานนี้ถูกข้ามขั้นส่งมอบ (Pending QC) ไรเดอร์จึงยังไม่ได้ค่าวิ่ง กดเพื่อรับมอบย้อนหลัง — ระบบจะคำนวณค่าวิ่งให้
+              </p>
+              <button onClick={handleRecoverHandover} className="w-full py-3 rounded-xl text-sm font-bold bg-rose-600 text-white">
+                รับมอบย้อนหลัง + คำนวณค่าวิ่ง (→ Pending QC)
+              </button>
+            </div>
+          )}
+
           {/* Spacer for bottom bar */}
           <div className="h-20" />
         </div>
@@ -1299,7 +1331,24 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       break;
     case 'Paid':
     case 'PAID':
-      actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
+      // Pickup: the device is still with the rider after payment until they
+      // hand it over at the branch (→ Pending QC, where the rider fee is
+      // computed). Jumping straight to In Stock here strands the rider's job
+      // and skips their pay, so offer only the handover confirmation — which
+      // routes through Pending QC. Store-in / Mail-in already hold the device
+      // at the branch, so In Stock is fine for them.
+      if (isPickup) {
+        actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
+      } else {
+        actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
+      }
+      break;
+    case 'Waiting For Handover':
+    case 'Waiting for Handover':
+    case 'Rider Returning':
+      // Post-payment Pickup, device en route back to the branch. Only forward
+      // action is confirming the rider's handover (→ Pending QC, fee computed).
+      if (isPickup) actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
       break;
   }
 
