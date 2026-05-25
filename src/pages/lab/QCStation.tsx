@@ -191,8 +191,10 @@ export const QCStation = () => {
    // 🔥 2. Logic ส่งไม้ต่อ: แบบ Smart Dynamic (ป้องกันการวนลูป)
    const handleSubmitQC = async () => {
       if (!qcForm.data_erased) { toast.warning('กรุณายืนยันการล้างข้อมูลก่อนบันทึก'); return; }
-      if (!qcForm.actual_imei || qcForm.actual_imei.trim() === '') {
-         toast.warning('กรุณาสแกนหรือกรอกเลข IMEI เครื่องก่อนบันทึกเข้าคลัง'); return;
+      // เครื่องบางประเภทไม่มี IMEI (Apple Watch GPS, iPad Wi-Fi) — ยืนยันด้วย Serial ได้
+      // ขอแค่มี identifier อย่างน้อย 1 อย่าง (IMEI หรือ Serial)
+      if (!qcForm.actual_imei?.trim() && !qcForm.actual_serial?.trim()) {
+         toast.warning('กรุณาสแกน/กรอก IMEI หรือ Serial เครื่องก่อนบันทึกเข้าคลัง'); return;
       }
       // Sickw Gate — ห้ามส่ง QC pass / เข้าคลังถ้าเครื่องติด FMI/MDM/Blacklist
       // (ผูกตรงนี้กับ payout pipeline เลย — ป้องกันเครื่องผิดเข้าสต็อก)
