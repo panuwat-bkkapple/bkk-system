@@ -124,6 +124,9 @@ export const QCStation = () => {
 
    const handleOpenQC = (job: any) => {
       setSelectedJob(job);
+      // ถ้าเครื่องนี้เคยตรวจ Sickw มาแล้ว (rider/admin verify ก่อนถึง QC) ให้ใช้ค่าจาก
+      // Sickw เป็นหลัก (authoritative) เติมลงฟอร์มตั้งแต่เปิดงาน — ไม่ต้องกดตรวจซ้ำ
+      const sw = job.sickw_check?.last_check?.parsed || {};
       setQcForm({
          screen_touch: job.qc_details?.screen_touch ?? true,
          screen_display: job.qc_details?.screen_display ?? true,
@@ -141,11 +144,11 @@ export const QCStation = () => {
          final_grade: job.grade || 'A',
          battery_health: job.battery_health || 100,
          cycle_count: job.qc_details?.cycle_count || 0,
-         actual_color: job.color || '',
-         capacity: job.capacity || '',
-         model_code: job.qc_details?.model_code || job.model_code || '',
-         actual_imei: job.imei || '',
-         actual_serial: job.serial || '',
+         actual_color: sw.color || job.color || '',
+         capacity: sw.capacity || job.capacity || '',
+         model_code: sw.modelNumber || job.qc_details?.model_code || job.model_code || '',
+         actual_imei: sw.imei || job.imei || '',
+         actual_serial: sw.serial || job.serial || '',
          icloud_off: job.qc_details?.icloud_off ?? true,
          find_my_off: job.qc_details?.find_my_off ?? true,
          mdm_clear: job.qc_details?.mdm_clear ?? true,
