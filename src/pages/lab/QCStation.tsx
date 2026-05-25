@@ -124,9 +124,13 @@ export const QCStation = () => {
 
    const handleOpenQC = (job: any) => {
       setSelectedJob(job);
-      // ถ้าเครื่องนี้เคยตรวจ Sickw มาแล้ว (rider/admin verify ก่อนถึง QC) ให้ใช้ค่าจาก
-      // Sickw เป็นหลัก (authoritative) เติมลงฟอร์มตั้งแต่เปิดงาน — ไม่ต้องกดตรวจซ้ำ
-      const sw = job.sickw_check?.last_check?.parsed || {};
+      // ใช้ค่าจาก Sickw เติมฟอร์มได้เฉพาะเมื่อผลตรวจเป็นของเครื่องนี้จริง — คือ id ที่
+      // ส่งไปตรวจ (last_check.imei) ตรงกับ imei/serial ของใบงาน — กัน snapshot ที่เคย
+      // เขียนผิดเครื่องมาเติมข้อมูลมั่ว
+      const lc = job.sickw_check?.last_check;
+      const jobIds = [job.imei, job.serial].filter(Boolean).map((s: string) => String(s).toUpperCase());
+      const checkedId = lc?.imei ? String(lc.imei).toUpperCase() : '';
+      const sw = (lc && checkedId && jobIds.includes(checkedId)) ? (lc.parsed || {}) : {};
       setQcForm({
          screen_touch: job.qc_details?.screen_touch ?? true,
          screen_display: job.qc_details?.screen_display ?? true,
@@ -339,6 +343,7 @@ export const QCStation = () => {
 
                            <section className="space-y-4">
                               <SickwDeviceCheck
+                                 key={selectedJob.id}
                                  jobId={selectedJob.id}
                                  initialImei={qcForm.actual_imei || selectedJob.imei || ''}
                                  initialSerial={qcForm.actual_serial || selectedJob.serial || ''}
