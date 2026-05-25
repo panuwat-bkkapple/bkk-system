@@ -28,6 +28,8 @@ interface Props {
   className?: string;
   /** ส่ง jobId เพื่อให้ Cloud Function เก็บ snapshot ลง jobs/{id}/sickw_check */
   jobId?: string;
+  /** เรียกเมื่อตรวจสำเร็จ — ส่ง parsed กลับเพื่อ auto-fill ฟอร์ม (เช่นใน QC Lab) */
+  onResult?: (parsed: SickwParsedFields) => void;
 }
 
 // Unified shape: ทั้ง single + bundle map ลง interface เดียวกันเพื่อ render พาเนลเดียว
@@ -81,7 +83,7 @@ function toUnifiedFromBundle(r: SickwBundleResult): UnifiedResult {
   };
 }
 
-export function SickwDeviceCheck({ initialImei, initialSerial, className, jobId }: Props) {
+export function SickwDeviceCheck({ initialImei, initialSerial, className, jobId, onResult }: Props) {
   const [imei, setImei] = useState(initialImei || initialSerial || '');
   const [selectedServices, setSelectedServices] = useState<string[]>(() => {
     try {
@@ -120,17 +122,20 @@ export function SickwDeviceCheck({ initialImei, initialSerial, className, jobId 
     setError(null);
     setLoading(true);
     try {
+      let unified: UnifiedResult;
       if (selectedServices.length === 1) {
         const res = await checkDeviceWithSickw({
           imei, serviceId: selectedServices[0], forceRefresh, jobId, source,
         });
-        setResult(toUnifiedFromSingle(res));
+        unified = toUnifiedFromSingle(res);
       } else {
         const res = await checkDeviceWithSickwBundle({
           imei, serviceIds: selectedServices, forceRefresh, jobId, source,
         });
-        setResult(toUnifiedFromBundle(res));
+        unified = toUnifiedFromBundle(res);
       }
+      setResult(unified);
+      if (unified.status === 'success') onResult?.(unified.parsed);
       localStorage.setItem(BUNDLE_STORAGE_KEY, JSON.stringify(selectedServices));
     } catch (e: any) {
       setError(e?.message || 'ตรวจสอบไม่สำเร็จ');

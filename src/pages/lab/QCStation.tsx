@@ -11,8 +11,9 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
+import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
-import { getSickwGateStatus } from '../../utils/sickwApi';
+import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
 import { useAuth } from '../../hooks/useAuth';
 
 const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
@@ -31,7 +32,7 @@ export const QCStation = () => {
       screen_touch: true, screen_display: true, truetone: true, faceid: true,
       camera_front: true, camera_rear: true, speaker_mic: true, wifi_bt: true, buttons: true, charging: true,
       part_screen: 'Original', part_battery: 'Original', part_camera: 'Original',
-      final_grade: 'A', battery_health: 100, cycle_count: 0, actual_color: '', model_code: '', actual_imei: '', actual_serial: '',
+      final_grade: 'A', battery_health: 100, cycle_count: 0, actual_color: '', capacity: '', model_code: '', actual_imei: '', actual_serial: '',
       icloud_off: true, find_my_off: true, mdm_clear: true, sim_unlocked: true, data_erased: false,
       notes: ''
    });
@@ -62,6 +63,33 @@ export const QCStation = () => {
    }, [jobs, searchTerm]);
 
    const currentList = activeTab === 'todo' ? todoList : doneList;
+
+   // selectedJob เป็น snapshot ตอนกดเปิด — แต่หลังกดตรวจ Sickw จาก panel
+   // Cloud Function จะเขียน sickw_check ลง DB ใหม่. ดึงตัวล่าสุดจาก realtime jobs
+   // มาใช้กับ Gate / Sickw card เพื่อให้สะท้อนผลตรวจล่าสุดโดยไม่ต้องปิด-เปิดใหม่
+   const liveJob = useMemo(() => {
+      if (!selectedJob) return null;
+      const list = Array.isArray(jobs) ? jobs : [];
+      return list.find((j) => j.id === selectedJob.id) || selectedJob;
+   }, [jobs, selectedJob]);
+
+   // Auto-fill: เอาค่าจาก Sickw (authoritative — ดึงจาก Apple DB จริง) เติมลงฟอร์ม QC
+   // Sickw ชนะเสมอเมื่อมีค่า ช่างยังแก้ทับได้ทีหลัง
+   const applySickwToForm = (parsed: SickwParsedFields) => {
+      setQcForm(prev => ({
+         ...prev,
+         actual_serial: parsed.serial || prev.actual_serial,
+         actual_imei: parsed.imei || prev.actual_imei,
+         actual_color: parsed.color || prev.actual_color,
+         capacity: parsed.capacity || prev.capacity,
+         model_code: parsed.modelNumber || prev.model_code,
+      }));
+      const filled = [
+         parsed.serial && 'SN', parsed.imei && 'IMEI', parsed.color && 'สี',
+         parsed.capacity && 'ความจุ', parsed.modelNumber && 'Model No.',
+      ].filter(Boolean);
+      if (filled.length > 0) toast.success(`เติมข้อมูลจาก Sickw แล้ว: ${filled.join(', ')}`);
+   };
 
    const repairItems = useMemo(() => {
       const items = [];
@@ -114,7 +142,8 @@ export const QCStation = () => {
          battery_health: job.battery_health || 100,
          cycle_count: job.qc_details?.cycle_count || 0,
          actual_color: job.color || '',
-         model_code: job.qc_details?.model_code || 'TH/A',
+         capacity: job.capacity || '',
+         model_code: job.qc_details?.model_code || job.model_code || '',
          actual_imei: job.imei || '',
          actual_serial: job.serial || '',
          icloud_off: job.qc_details?.icloud_off ?? true,
@@ -160,7 +189,7 @@ export const QCStation = () => {
       }
       // Sickw Gate — ห้ามส่ง QC pass / เข้าคลังถ้าเครื่องติด FMI/MDM/Blacklist
       // (ผูกตรงนี้กับ payout pipeline เลย — ป้องกันเครื่องผิดเข้าสต็อก)
-      const freshGate = getSickwGateStatus(selectedJob?.sickw_check);
+      const freshGate = getSickwGateStatus(liveJob?.sickw_check);
       if (freshGate.blocked) {
          toast.warning(`Sickw Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
          return;
@@ -198,6 +227,7 @@ export const QCStation = () => {
             grade: qcForm.final_grade,
             battery_health: qcForm.battery_health,
             color: qcForm.actual_color || selectedJob.color,
+            capacity: qcForm.capacity || selectedJob.capacity,
             model_code: qcForm.model_code || selectedJob.model_code,
             serial: qcForm.actual_serial || selectedJob.serial,
             imei: qcForm.actual_imei || selectedJob.imei,
@@ -289,8 +319,8 @@ export const QCStation = () => {
                            {/* Sickw Gate Status — banner ด้านบนสุด */}
                            <SickwGateBanner
                               jobId={selectedJob.id}
-                              sickwCheck={selectedJob.sickw_check}
-                              gate={getSickwGateStatus(selectedJob.sickw_check)}
+                              sickwCheck={liveJob?.sickw_check}
+                              gate={getSickwGateStatus(liveJob?.sickw_check)}
                               currentRole={currentUser?.role}
                            />
                            <section className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
@@ -299,16 +329,20 @@ export const QCStation = () => {
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Confirm Serial Number</label><input type="text" value={qcForm.actual_serial} onChange={e => setQcForm({ ...qcForm, actual_serial: e.target.value })} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-mono text-sm font-bold outline-none" /></div>
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Confirm IMEI</label><input type="text" placeholder="Scan IMEI..." value={qcForm.actual_imei} onChange={e => setQcForm({ ...qcForm, actual_imei: e.target.value })} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-mono text-sm font-bold outline-none" /></div>
                                  <div><label className="text-[10px] font-bold text-slate-400 uppercase">Color</label><input type="text" value={qcForm.actual_color} onChange={e => setQcForm({ ...qcForm, actual_color: e.target.value })} placeholder={selectedJob.color} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
-                                 <div><label className="text-[10px] font-bold text-slate-400 uppercase">Capacity</label><input type="text" value={qcForm.model_code} onChange={e => setQcForm({ ...qcForm, model_code: e.target.value })} placeholder={selectedJob.capacity} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
+                                 <div><label className="text-[10px] font-bold text-slate-400 uppercase">Capacity</label><input type="text" value={qcForm.capacity} onChange={e => setQcForm({ ...qcForm, capacity: e.target.value })} placeholder={selectedJob.capacity} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold" /></div>
+                                 <div className="col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Model No. (Part No.)</label><input type="text" value={qcForm.model_code} onChange={e => setQcForm({ ...qcForm, model_code: e.target.value })} placeholder={selectedJob.model_code || 'MYWV3ZP/A'} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-mono text-sm font-bold outline-none" /></div>
                               </div>
                            </section>
 
-                           <section>
+                           <section className="space-y-4">
                               <SickwDeviceCheck
                                  jobId={selectedJob.id}
                                  initialImei={qcForm.actual_imei || selectedJob.imei || ''}
                                  initialSerial={qcForm.actual_serial || selectedJob.serial || ''}
+                                 onResult={applySickwToForm}
                               />
+                              {/* แสดงผลที่เก็บไว้ + ตรวจ mismatch กับใบงาน + ปุ่ม Sync to Job */}
+                              <SickwStoredResultCard sickwCheck={liveJob?.sickw_check} job={liveJob} />
                            </section>
 
                            <section>
@@ -389,7 +423,7 @@ export const QCStation = () => {
                            <button onClick={() => setSelectedJob(null)} className="px-6 py-4 rounded-xl font-bold text-slate-400 hover:bg-slate-50 uppercase text-xs tracking-widest">Cancel</button>
                            {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน + ถูก Sickw Gate block ได้ */}
                            {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (() => {
-                              const qcGate = getSickwGateStatus(selectedJob.sickw_check);
+                              const qcGate = getSickwGateStatus(liveJob?.sickw_check);
                               return (
                                  <button
                                     onClick={handleSubmitQC}
@@ -483,7 +517,7 @@ export const QCStation = () => {
                      <div className="grid grid-cols-2 gap-y-4 gap-x-12 text-sm">
                         <div><p className="font-black text-gray-400 uppercase tracking-widest text-[9px] mb-0.5">Serial Number</p><p className="font-mono font-bold text-black">{qcForm.actual_serial || selectedJob.serial || 'N/A'}</p></div>
                         <div><p className="font-black text-gray-400 uppercase tracking-widest text-[9px] mb-0.5">IMEI Number</p><p className="font-mono font-bold text-black">{qcForm.actual_imei || 'N/A'}</p></div>
-                        <div><p className="font-black text-gray-400 uppercase tracking-widest text-[9px] mb-0.5">Specifications</p><p className="font-bold text-black">{qcForm.model_code || selectedJob.capacity || 'N/A'} • {qcForm.actual_color || selectedJob.color || 'N/A'}</p></div>
+                        <div><p className="font-black text-gray-400 uppercase tracking-widest text-[9px] mb-0.5">Specifications</p><p className="font-bold text-black">{qcForm.capacity || selectedJob.capacity || 'N/A'} • {qcForm.actual_color || selectedJob.color || 'N/A'}{(qcForm.model_code || selectedJob.model_code) ? ` • ${qcForm.model_code || selectedJob.model_code}` : ''}</p></div>
                         <div><p className="font-black text-gray-400 uppercase tracking-widest text-[9px] mb-0.5">Inspection TXN</p><p className="font-mono font-bold text-black tracking-tight">{selectedJob.qc_txn_id || 'NEW-TXN'}</p></div>
                      </div>
                   </div>
