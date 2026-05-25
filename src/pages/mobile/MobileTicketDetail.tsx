@@ -22,7 +22,7 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
-import { CANCEL_CATEGORY_LABEL_TH } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -192,6 +192,11 @@ export const MobileTicketDetail = () => {
   if (!job) return <div className="flex items-center justify-center h-full text-red-500 font-bold">ไม่พบข้อมูลงาน</div>;
 
   const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes((job.status || '').toLowerCase());
+  // Soft-close: "Cancelled" is reopenable on the same ticket until the 7-day
+  // window lapses; "Closed (Lost)" and others are final.
+  const isReopenable = (job.status || '').toLowerCase() === 'cancelled';
+  const reopenDeadline = isReopenable && job.cancelled_at ? job.cancelled_at + REOPEN_WINDOW_MS : null;
+  const reopenDaysLeft = reopenDeadline ? Math.max(0, Math.ceil((reopenDeadline - Date.now()) / 86400000)) : null;
   const basePrice = Number(job.final_price || job.price || 0);
   const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
   const couponValue = Number(job.applied_coupon?.value || 0);
@@ -247,6 +252,45 @@ export const MobileTicketDetail = () => {
       updated_at: Date.now()
     });
     toast.success(`อัพเดทเป็น ${newStatus}`);
+  };
+
+  // Reopen a soft-cancelled job onto the SAME ticket. Revised offer price
+  // (price / final_price / net_payout) is untouched by cancel, so it's still
+  // there — clear the cancel marks and route the job back. keepRider=true means
+  // the rider was still nearby and turns around to re-collect the device.
+  const handleReopen = async (keepRider: boolean) => {
+    const reuseRider = keepRider && !!job.rider_id;
+    const nextStatus = reuseRider ? 'Rider En Route' : 'Following Up';
+    const detail = reuseRider
+      ? 'นำงานกลับมาขายใหม่ (ลูกค้าตกลงราคา revised offer เดิม) — ไรเดอร์เดิมยังอยู่ใกล้ ให้กลับไปรับเครื่อง'
+      : 'นำงานกลับมาขายใหม่ (ลูกค้าตกลงราคา revised offer เดิม) — เคลียร์ไรเดอร์เดิม รอจ่ายงานใหม่';
+    const payload: any = {
+      status: nextStatus,
+      reopened_at: Date.now(),
+      reopened_by: `staff:${currentUser?.uid || 'admin'}`,
+      cancel_category: null,
+      cancel_reason: null,
+      cancelled_by: null,
+      cancelled_at: null,
+      qc_logs: [makeLog('Reopened', detail), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    };
+    if (!reuseRider) payload.rider_id = null;
+    await update(ref(db, `jobs/${job.id}`), payload);
+    toast.success('เปิดงานกลับมาแล้ว');
+  };
+
+  // Force-finalize a soft-cancelled job immediately (skip the 7-day window).
+  const handleCloseLost = async () => {
+    if (!confirm('ปิดงานถาวร? หลังจากนี้จะไม่สามารถนำกลับมาขายใหม่ได้')) return;
+    await update(ref(db, `jobs/${job.id}`), {
+      status: 'Closed (Lost)',
+      closed_at: Date.now(),
+      closed_by: `staff:${currentUser?.uid || 'admin'}`,
+      qc_logs: [makeLog('Closed (Lost)', 'ปิดงานถาวร (ไม่เปิดให้กลับมาขายใหม่)'), ...(job.qc_logs || [])],
+      updated_at: Date.now()
+    });
+    toast.success('ปิดงานถาวรแล้ว');
   };
 
   const openEditModal = () => {
@@ -827,6 +871,44 @@ export const MobileTicketDetail = () => {
                 className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-red-50"
               >
                 ยกเลิกงาน
+              </button>
+            </div>
+          )}
+
+          {/* Soft-cancelled job — reopen onto the same ticket (revised offer
+              price preserved) or close permanently. */}
+          {isReopenable && (
+            <div className="bg-amber-50 rounded-2xl border border-amber-200 shadow-sm p-4 space-y-2">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-xs font-black text-amber-700 uppercase tracking-wider">นำกลับมาขายใหม่ได้</h3>
+                {reopenDaysLeft !== null && (
+                  <span className="text-[10px] font-black text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                    เหลือ {reopenDaysLeft} วันก่อนปิดถาวร
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] font-bold text-amber-700/80 leading-relaxed mb-1">
+                ใช้ราคา revised offer เดิมบนใบงานเดิม
+              </p>
+              {job.rider_id && (
+                <button
+                  onClick={() => handleReopen(true)}
+                  className="w-full py-3 rounded-xl text-sm font-bold bg-emerald-500 text-white"
+                >
+                  เปิดงานใหม่ — ไรเดอร์เดิมกลับไปรับ
+                </button>
+              )}
+              <button
+                onClick={() => handleReopen(false)}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-slate-900 text-white"
+              >
+                เปิดงานใหม่ — จ่ายงานให้ไรเดอร์ใหม่
+              </button>
+              <button
+                onClick={handleCloseLost}
+                className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-white"
+              >
+                ปิดงานถาวร (Closed)
               </button>
             </div>
           )}
