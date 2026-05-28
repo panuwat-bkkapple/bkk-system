@@ -639,11 +639,13 @@ export const MobileTicketDetail = () => {
           {/* === Rider check-in timeline (Phase 1A) — links each stage to Maps pin === */}
           <CheckpointsCard job={job} />
 
-          {/* === Store-in device verification — IMEI / Battery / Find My / Warranty === */}
-          {job.receive_method === 'Store-in'
+          {/* === Branch-intake device verification — IMEI / Battery / Find My / Warranty.
+              Store-in (dropped off) and Mail-in (parcel) both land at the branch and
+              are verified by admin (no rider in the loop). === */}
+          {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.verification_completed_at
             && !isCancelled
-            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(job.status) && (
+            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Being Inspected'].includes(job.status) && (
             <button
               onClick={() => setShowVerifyModal(true)}
               className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -658,11 +660,13 @@ export const MobileTicketDetail = () => {
             </button>
           )}
 
-          {/* === Store-in inspection card — only when admin still needs to QC the device === */}
-          {job.receive_method === 'Store-in'
+          {/* === Branch-intake inspection card — only when admin still needs to QC the device.
+              Shown for Store-in and Mail-in: both arrive at the branch and the admin runs
+              the assessment (the rider never touches these). === */}
+          {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.inspected_at
             && !isCancelled
-            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(job.status) && (
+            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Being Inspected'].includes(job.status) && (
             <button
               onClick={() => setShowInspectModal(true)}
               className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -1060,7 +1064,7 @@ export const MobileTicketDetail = () => {
         </div>
       )}
 
-      {/* === Admin KYC Modal (Store-in only) === */}
+      {/* === Admin KYC Modal (branch intake — Store-in / Mail-in) === */}
       {showKycModal && job && (
         <AdminKYCModal
           job={job}
@@ -1069,7 +1073,7 @@ export const MobileTicketDetail = () => {
         />
       )}
 
-      {/* === Admin Inspection Modal (Store-in only) === */}
+      {/* === Admin Inspection Modal (Store-in / Mail-in branch intake) === */}
       {showInspectModal && job && (
         <AdminInspectionModal
           job={job}
@@ -1078,7 +1082,7 @@ export const MobileTicketDetail = () => {
         />
       )}
 
-      {/* === Admin Device Verification Modal (Store-in only) === */}
+      {/* === Admin Device Verification Modal (Store-in / Mail-in branch intake) === */}
       {showVerifyModal && job && (
         <AdminDeviceVerificationModal
           job={job}
@@ -1257,18 +1261,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       break;
     case 'Active Lead':
     case 'Active Leads': {
-      // Mail-in / Store-in never have a rider in the loop — the customer ships
-      // the device or drops it at the branch, then admin opens the parcel,
-      // captures KYC at the counter, and starts inspection. The rider-centric
-      // logic below assumes a Pickup, so for these methods it would strand the
-      // job at Active Leads with only a backward "Following Up" button and no
-      // way to move the work forward.
-      if (!isPickup) {
-        actions.push({ label: 'รับเครื่องแล้ว เริ่มตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'รับเครื่องที่สาขา/พัสดุถึงแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
-        actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
-        break;
-      }
-      // Two distinct cases at Active Lead (Pickup):
+      // Two distinct cases at Active Lead:
       // 1) Fresh broadcast — rider hasn't claimed yet, rider_id is null,
       //    cancelled_at is unset. Only useful action is wait for a rider
       //    to pick it up; admin can move it back to Following Up if they
