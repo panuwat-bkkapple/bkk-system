@@ -1,9 +1,9 @@
 // src/pages/mobile/components/AdminInspectionModal.tsx
 //
-// Admin-side mirror of bkk-rider-app's InspectionModal. Used for Store-in
-// jobs where the customer brings the device to the branch — admin does
-// the same 6-angle photos + condition checklist + price recalculation
-// the rider does at pickup. Same /jobs/{id}/inspection/ Storage path,
+// Admin-side mirror of bkk-rider-app's InspectionModal. Used for branch-intake
+// jobs (Store-in drop-off and Mail-in parcel) where the device arrives at the
+// branch — admin does the same 6-angle photos + condition checklist + price
+// recalculation the rider does at pickup. Same /jobs/{id}/inspection/ Storage path,
 // same device shape (photos, deductions, final_price), same status
 // transition (→ "Pending QC") so existing admin/finance dashboards work
 // unchanged.
@@ -285,7 +285,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         by: staffName,
         by_uid: auth.currentUser.uid,
         timestamp: inspectedAt,
-        details: `Store-in inspection: ${updatedDevices.length} device(s), final ฿${jobTotalDevicePrice.toLocaleString()}`,
+        details: `${job.receive_method || 'Store-in'} inspection: ${updatedDevices.length} device(s), final ฿${jobTotalDevicePrice.toLocaleString()}`,
       };
       const updatedLogs = [newLog, ...((job.qc_logs as unknown[]) || [])];
       const updates: Record<string, unknown> = {
@@ -318,7 +318,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
           <div className="animate-in fade-in">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">ตรวจสภาพเครื่อง (Store-in)</h3>
+                <h3 className="text-xl font-bold text-gray-900">ตรวจสภาพเครื่อง{job.receive_method ? ` (${job.receive_method})` : ''}</h3>
                 <p className="text-sm text-gray-500 mt-1">ทั้งหมด {devicesList.length} เครื่อง</p>
               </div>
               <button onClick={onClose} className="bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200">
