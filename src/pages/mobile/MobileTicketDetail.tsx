@@ -1257,7 +1257,18 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       break;
     case 'Active Lead':
     case 'Active Leads': {
-      // Two distinct cases at Active Lead:
+      // Mail-in / Store-in never have a rider in the loop — the customer ships
+      // the device or drops it at the branch, then admin opens the parcel,
+      // captures KYC at the counter, and starts inspection. The rider-centric
+      // logic below assumes a Pickup, so for these methods it would strand the
+      // job at Active Leads with only a backward "Following Up" button and no
+      // way to move the work forward.
+      if (!isPickup) {
+        actions.push({ label: 'รับเครื่องแล้ว เริ่มตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'รับเครื่องที่สาขา/พัสดุถึงแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
+        actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
+        break;
+      }
+      // Two distinct cases at Active Lead (Pickup):
       // 1) Fresh broadcast — rider hasn't claimed yet, rider_id is null,
       //    cancelled_at is unset. Only useful action is wait for a rider
       //    to pick it up; admin can move it back to Following Up if they
