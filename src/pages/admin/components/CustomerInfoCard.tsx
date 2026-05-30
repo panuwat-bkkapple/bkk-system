@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
   User, Phone, MapPin, Store, Bike, Truck, Navigation, Map,
-  Pencil, Save, PackageOpen, X, MessageSquareText
+  Pencil, Save, PackageOpen, X, MessageSquareText, History
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { ThaiPostTracking } from './ThaiPostTracking';
+import { CustomerTimelineModal } from '@/components/customer/CustomerTimelineModal';
 
 interface CustomerInfoCardProps {
   job: any;
@@ -25,6 +26,7 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
   const [trackingInput, setTrackingInput] = useState('');
   const [courierInput, setCourierInput] = useState('');
   const [savingTracking, setSavingTracking] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
 
   const handleSaveTracking = async () => {
     if (!trackingInput.trim()) {
@@ -185,11 +187,18 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
         <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Customer Profile</p>
           {!isEditing && (
-            <button onClick={() => {
-              onToggleEdit(true, { name: job?.cust_name || '', phone: job?.cust_phone || '', email: job?.cust_email || '', address: job?.cust_address || job?.store_branch || '' });
-            }} className="text-slate-400 hover:text-blue-500 p-1.5 bg-slate-50 rounded-lg shadow-sm border border-slate-200 transition-colors flex gap-2 items-center text-[10px] font-bold uppercase">
-              <Pencil size={12} /> Edit
-            </button>
+            <div className="flex items-center gap-2">
+              {job?.cust_phone && (
+                <button onClick={() => setShowTimeline(true)} className="text-blue-500 hover:text-blue-600 p-1.5 bg-blue-50 rounded-lg shadow-sm border border-blue-100 transition-colors flex gap-2 items-center text-[10px] font-bold uppercase" title="ดูประวัติการซื้อ-ขายของลูกค้า">
+                  <History size={12} /> ประวัติ
+                </button>
+              )}
+              <button onClick={() => {
+                onToggleEdit(true, { name: job?.cust_name || '', phone: job?.cust_phone || '', email: job?.cust_email || '', address: job?.cust_address || job?.store_branch || '' });
+              }} className="text-slate-400 hover:text-blue-500 p-1.5 bg-slate-50 rounded-lg shadow-sm border border-slate-200 transition-colors flex gap-2 items-center text-[10px] font-bold uppercase">
+                <Pencil size={12} /> Edit
+              </button>
+            </div>
           )}
         </div>
 
@@ -248,6 +257,14 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
           </div>
         )}
       </div>
+
+      {showTimeline && job?.cust_phone && (
+        <CustomerTimelineModal
+          phone={job.cust_phone}
+          name={job.cust_name}
+          onClose={() => setShowTimeline(false)}
+        />
+      )}
     </div>
   );
 };

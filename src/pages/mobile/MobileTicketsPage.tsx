@@ -5,8 +5,9 @@ import { db } from '../../api/firebase';
 import { normalizeQcLogs } from '../../utils/jobNormalizer';
 import {
   Search, Filter, ChevronRight, Phone, MapPin,
-  Truck, Store, Mail, Clock, Package, RefreshCw
+  Truck, Store, Mail, Clock, Package, RefreshCw, History
 } from 'lucide-react';
+import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -76,6 +77,7 @@ export const MobileTicketsPage = () => {
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [timelineCust, setTimelineCust] = useState<{ phone: string; name?: string } | null>(null);
 
   useEffect(() => {
     const jobsRef = ref(db, 'jobs');
@@ -190,10 +192,23 @@ export const MobileTicketsPage = () => {
           </div>
         ) : (
           filtered.map((job) => (
-            <JobCard key={job.id} job={job} onClick={() => navigate(`/mobile/job/${job.id}`)} />
+            <JobCard
+              key={job.id}
+              job={job}
+              onClick={() => navigate(`/mobile/job/${job.id}`)}
+              onViewHistory={() => job.cust_phone && setTimelineCust({ phone: job.cust_phone, name: job.cust_name })}
+            />
           ))
         )}
       </div>
+
+      {timelineCust && (
+        <CustomerTimelineModal
+          phone={timelineCust.phone}
+          name={timelineCust.name}
+          onClose={() => setTimelineCust(null)}
+        />
+      )}
     </div>
   );
 };
@@ -202,16 +217,19 @@ export const MobileTicketsPage = () => {
 // Job Card
 // ---------------------------------------------------------------------------
 
-const JobCard = ({ job, onClick }: { job: any; onClick: () => void }) => {
+const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => void; onViewHistory: () => void }) => {
   const sc = STATUS_COLORS[job.status] || { bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400' };
   const isNew = job.status === 'New Lead' || job.status === 'New B2B Lead';
   const isB2B = job.type === 'B2B Trade-in' || job.status === 'New B2B Lead';
   const price = job.final_price || job.price;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className={`w-full bg-white rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] ${
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      className={`w-full bg-white rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] cursor-pointer ${
         isNew ? 'border-blue-300 shadow-md shadow-blue-100' : 'border-slate-100 shadow-sm'
       }`}
     >
@@ -236,15 +254,23 @@ const JobCard = ({ job, onClick }: { job: any; onClick: () => void }) => {
             )}
           </div>
 
-          {/* Row 2: Customer */}
-          <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
-            {job.cust_name && <span className="truncate">{job.cust_name}</span>}
-            {job.cust_phone && (
-              <span className="flex items-center gap-0.5 shrink-0">
-                <Phone size={10} /> {job.cust_phone}
-              </span>
-            )}
-          </div>
+          {/* Row 2: Customer — กดเพื่อดูประวัติลูกค้า (ไทม์ไลน์ซื้อ-ขาย) */}
+          {(job.cust_name || job.cust_phone) && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onViewHistory(); }}
+              className="flex items-center gap-2 text-xs text-slate-500 mb-2 -mx-1 px-1 py-0.5 rounded-md hover:bg-blue-50 active:bg-blue-100 transition-colors max-w-full"
+              title="ดูประวัติลูกค้า"
+            >
+              {job.cust_name && <span className="truncate text-blue-600 font-bold underline decoration-dotted underline-offset-2">{job.cust_name}</span>}
+              {job.cust_phone && (
+                <span className="flex items-center gap-0.5 shrink-0">
+                  <Phone size={10} /> {job.cust_phone}
+                </span>
+              )}
+              <History size={11} className="text-blue-400 shrink-0" />
+            </button>
+          )}
 
           {/* Row 3: Status + Method + Time */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -275,7 +301,7 @@ const JobCard = ({ job, onClick }: { job: any; onClick: () => void }) => {
 
         <ChevronRight size={18} className="text-slate-300 shrink-0 mt-2" />
       </div>
-    </button>
+    </div>
   );
 };
 

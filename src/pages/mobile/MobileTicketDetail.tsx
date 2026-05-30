@@ -8,8 +8,9 @@ import {
   ClipboardCheck, AlertTriangle, CheckCircle2, XCircle,
   Image as ImageIcon, RefreshCw, FileText, Camera,
   ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info,
-  Edit3, Trash2, X as CloseIcon
+  Edit3, Trash2, X as CloseIcon, History
 } from 'lucide-react';
+import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
@@ -105,6 +106,7 @@ export const MobileTicketDetail = () => {
   const [showKycModal, setShowKycModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -550,9 +552,20 @@ export const MobileTicketDetail = () => {
 
           {/* === Customer Info Card === */}
           <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <User size={16} className="text-blue-500" />
-              <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">ข้อมูลลูกค้า</h3>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <User size={16} className="text-blue-500" />
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">ข้อมูลลูกค้า</h3>
+              </div>
+              {job.cust_phone && (
+                <button
+                  onClick={() => setShowTimeline(true)}
+                  className="flex items-center gap-1 text-[10px] font-black text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors uppercase tracking-wider"
+                  title="ดูประวัติการซื้อ-ขายของลูกค้า"
+                >
+                  <History size={12} /> ประวัติลูกค้า
+                </button>
+              )}
             </div>
             <div className="space-y-2.5">
               {job.cust_name && (
@@ -1087,6 +1100,14 @@ export const MobileTicketDetail = () => {
         <AdminDeviceVerificationModal
           job={job}
           onClose={() => setShowVerifyModal(false)}
+        />
+      )}
+
+      {showTimeline && job?.cust_phone && (
+        <CustomerTimelineModal
+          phone={job.cust_phone}
+          name={job.cust_name}
+          onClose={() => setShowTimeline(false)}
         />
       )}
 

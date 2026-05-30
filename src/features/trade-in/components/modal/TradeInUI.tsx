@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays } from 'lucide-react';
+import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays, History } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 
 export const MethodBadge = ({ method }: { method: string }) => {
@@ -139,7 +139,7 @@ export const TicketPipeline = ({ status }: { status: string }) => {
   );
 };
 
-export const JobTable = ({ jobs, onRowClick }: { jobs: any[], onRowClick: (job: any) => void }) => (
+export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onRowClick: (job: any) => void, onViewHistory?: (job: any) => void }) => (
   <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
     <table className="w-full text-left">
       <thead className="bg-slate-50 border-b border-slate-100">
@@ -165,8 +165,25 @@ export const JobTable = ({ jobs, onRowClick }: { jobs: any[], onRowClick: (job: 
               <div className="text-[10px] font-bold text-slate-400">{formatDate(job.created_at)}</div>
             </td>
             <td className="p-6">
-              <div className="font-black text-slate-800 text-sm">{job.cust_name || 'Anonymous'}</div>
-              <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5"><Phone size={10} /> {job.cust_phone || 'N/A'}</div>
+              {onViewHistory && job.cust_phone ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onViewHistory(job); }}
+                  className="text-left group/cust -mx-1.5 px-1.5 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                  title="ดูประวัติลูกค้า"
+                >
+                  <div className="font-black text-slate-800 text-sm flex items-center gap-1.5 group-hover/cust:text-blue-600">
+                    {job.cust_name || 'Anonymous'}
+                    <History size={12} className="text-blue-400 opacity-0 group-hover/cust:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5"><Phone size={10} /> {job.cust_phone}</div>
+                </button>
+              ) : (
+                <>
+                  <div className="font-black text-slate-800 text-sm">{job.cust_name || 'Anonymous'}</div>
+                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5"><Phone size={10} /> {job.cust_phone || 'N/A'}</div>
+                </>
+              )}
             </td>
             
             {/* 🌟 1. จุดที่ถูกปรับปรุง: คอลัมน์ Device & Method 🌟 */}
