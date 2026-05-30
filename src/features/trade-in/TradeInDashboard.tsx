@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
-import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap } from 'lucide-react';
+import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap, History } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { JOB_STATUS } from '@/types/job-statuses';
 import { db } from '@/api/firebase';
@@ -13,6 +13,7 @@ import { JobTable } from './components/modal/TradeInUI';
 import { CreateTicketModal } from './components/CreateTicketModal';
 import { InstantSellModal } from './components/InstantSellModal';
 import { CreateB2BModal } from './components/CreateB2BModal';
+import { CustomerTimelineModal } from '@/components/customer/CustomerTimelineModal';
 
 export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: string) => void }) => {
   const toast = useToast();
@@ -38,6 +39,11 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isInstantSellOpen, setIsInstantSellOpen] = useState(false);
   const [isB2BCreateOpen, setIsB2BCreateOpen] = useState(false);
+  const [timelineCust, setTimelineCust] = useState<{ phone: string; name?: string } | null>(null);
+
+  const handleViewHistory = (job: any) => {
+    if (job?.cust_phone) setTimelineCust({ phone: job.cust_phone, name: job.cust_name });
+  };
 
   // 🎯 2. อัปเดตการกรองข้อมูล (แยก B2C และ B2B เด็ดขาด)
   const displayJobs = useMemo(() => {
@@ -420,7 +426,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       {/* 🚀 Rendering Tables based on Workspace */}
       {workspace === 'B2C' ? (
         // ตาราง B2C
-        <JobTable jobs={displayJobs} onRowClick={handleRowClick} />
+        <JobTable jobs={displayJobs} onRowClick={handleRowClick} onViewHistory={handleViewHistory} />
       ) : (
         // 🏢 ตาราง B2B
         <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden">
@@ -448,6 +454,16 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
                     <td className="p-4">
                       <div className="font-black text-sm text-slate-900 flex items-center gap-2"><Building2 size={14} className="text-blue-500"/> {(job.cust_name || '').split('(')[0]}</div>
                       <div className="text-xs text-slate-500 font-bold mt-1">ติดต่อ: {(job.cust_name || '').split('(')[1]?.replace(')','') || '-'}</div>
+                      {job.cust_phone && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleViewHistory(job); }}
+                          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md border border-blue-100 transition-colors uppercase tracking-wider"
+                          title="ดูประวัติลูกค้า"
+                        >
+                          <History size={11} /> ประวัติ
+                        </button>
+                      )}
                     </td>
                     <td className="p-4">
                       <div className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{job.asset_details || 'ยกล็อต (ดูไฟล์แนบ)'}</div>
@@ -500,6 +516,14 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
         <CreateB2BModal
           onClose={() => setIsB2BCreateOpen(false)}
           onSubmit={handleCreateB2B}
+        />
+      )}
+
+      {timelineCust && (
+        <CustomerTimelineModal
+          phone={timelineCust.phone}
+          name={timelineCust.name}
+          onClose={() => setTimelineCust(null)}
         />
       )}
     </div>
