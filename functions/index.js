@@ -146,6 +146,11 @@ async function fetchDrivingDistance(origin, destination) {
     routingPreference: "TRAFFIC_AWARE",
   };
 
+  // Hard timeout so a slow/hung Routes endpoint can never block the calling
+  // function until its own 60s timeout. Callers treat any error as a
+  // graceful fallback to min_fee, so an abort just means "no live distance".
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -155,6 +160,7 @@ async function fetchDrivingDistance(origin, destination) {
         "X-Goog-FieldMask": "routes.distanceMeters,routes.duration",
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (!res.ok) {
       console.error(`[routesApi] HTTP ${res.status}: ${await res.text()}`);
@@ -175,8 +181,14 @@ async function fetchDrivingDistance(origin, destination) {
       duration_min: durationSec / 60,
     };
   } catch (err) {
+    if (err && err.name === "AbortError") {
+      console.error("[routesApi] Fetch timed out after 8s");
+      return { error: "timeout" };
+    }
     console.error("[routesApi] Fetch failed:", err);
     return { error: "fetch_exception" };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -743,7 +755,89 @@ exports.onNewTicketCreated = onValueCreated(
       const jobId = event.params.jobId;
       const db = getDatabase();
 
-      // คำนวณ rider_fee_estimate ทันทีตอนสร้างงาน เพื่อให้ไรเดอร์เห็นก่อนรับงาน
+      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Lead).
+      // Accept both legacy "Active Leads" (plural) and the canonical
+      // "Active Lead" so the trigger keeps firing through Phase 2D's
+      // writer rename. functions/ can't import the canonical TS enum.
+      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
+
+      // Dispatch the admin push FIRST — before any external I/O. The
+      // rider-fee estimate below calls the Google Routes API, which can be
+      // slow, rate-limited, or hang. When it ran first (and was awaited),
+      // a slow Routes call delayed the push and a hung one let the 60s
+      // function timeout kill the invocation BEFORE dispatchAdminPush ever
+      // ran — so the "new ticket" push silently went missing on some orders
+      // ("บางครั้งก็แจ้งเตือน") while status-change pushes (which do no
+      // network call before dispatch) always arrived. Sending the push
+      // first decouples delivery from the Routes API entirely.
+      if (newStatuses.includes(job.status)) {
+        const model = job.model || "ไม่ระบุรุ่น";
+        const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
+        const method = job.receive_method || "";
+        const custName = job.cust_name || "";
+        const isB2B = job.status === "New B2B Lead";
+
+        const title = isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!";
+        const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
+
+        console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
+
+        // Data-only message: SW builds the notification from `data` so iOS
+        // PWA shows it once. Including a top-level `notification` field would
+        // cause iOS/FCM to auto-display ON TOP of the SW's showNotification
+        // call, producing two identical alerts per push.
+        await dispatchAdminPush(
+          {
+            data: {
+              jobId,
+              type: "new_ticket",
+              title,
+              body,
+              model,
+              price: String(job.price || ""),
+              status: job.status,
+              click_action: `/tickets`,
+            },
+            android: {
+              priority: "high",
+              notification: {
+                channelId: "new_tickets",
+                priority: "high",
+                defaultSound: true,
+                defaultVibrateTimings: true,
+              },
+            },
+            apns: {
+              headers: {
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+              },
+              payload: {
+                aps: {
+                  "mutable-content": 1,
+                  sound: "default",
+                  badge: 1,
+                },
+              },
+            },
+            webpush: {
+              headers: {
+                Urgency: "high",
+                TTL: "86400",
+              },
+              fcmOptions: {
+                link: `/tickets`,
+              },
+            },
+          },
+          "onNewTicket"
+        );
+      } else {
+        console.log(`[onNewTicket] Skipped push: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
+      }
+
+      // คำนวณ rider_fee_estimate เพื่อให้ไรเดอร์เห็นก่อนรับงาน — best-effort,
+      // หลังส่ง push แล้ว เพื่อไม่ให้ความล่าช้าของ Routes API กระทบการแจ้งเตือน.
       try {
         const result = await computeRiderFee(db, job);
         await db.ref(`jobs/${jobId}`).update({
@@ -761,78 +855,6 @@ exports.onNewTicketCreated = onValueCreated(
       } catch (err) {
         console.error(`[onNewTicket] Failed to compute rider_fee_estimate:`, err);
       }
-
-      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Lead).
-      // Accept both legacy "Active Leads" (plural) and the canonical
-      // "Active Lead" so the trigger keeps firing through Phase 2D's
-      // writer rename. functions/ can't import the canonical TS enum.
-      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
-      if (!newStatuses.includes(job.status)) {
-        console.log(`[onNewTicket] Skipped: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
-        return;
-      }
-
-      const model = job.model || "ไม่ระบุรุ่น";
-      const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
-      const method = job.receive_method || "";
-      const custName = job.cust_name || "";
-      const isB2B = job.status === "New B2B Lead";
-
-      const title = isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!";
-      const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
-
-      console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
-
-      // Data-only message: SW builds the notification from `data` so iOS
-      // PWA shows it once. Including a top-level `notification` field would
-      // cause iOS/FCM to auto-display ON TOP of the SW's showNotification
-      // call, producing two identical alerts per push.
-      await dispatchAdminPush(
-        {
-          data: {
-            jobId,
-            type: "new_ticket",
-            title,
-            body,
-            model,
-            price: String(job.price || ""),
-            status: job.status,
-            click_action: `/tickets`,
-          },
-          android: {
-            priority: "high",
-            notification: {
-              channelId: "new_tickets",
-              priority: "high",
-              defaultSound: true,
-              defaultVibrateTimings: true,
-            },
-          },
-          apns: {
-            headers: {
-              "apns-priority": "10",
-              "apns-push-type": "alert",
-            },
-            payload: {
-              aps: {
-                "mutable-content": 1,
-                sound: "default",
-                badge: 1,
-              },
-            },
-          },
-          webpush: {
-            headers: {
-              Urgency: "high",
-              TTL: "86400",
-            },
-            fcmOptions: {
-              link: `/tickets`,
-            },
-          },
-        },
-        "onNewTicket"
-      );
     } catch (err) {
       console.error("[onNewTicket] Unhandled error:", err);
     }
