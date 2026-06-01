@@ -14,6 +14,9 @@ import { SickwBalanceWidget } from '../../components/sickw/SickwBalanceWidget';
 export function SickwSettingsSection() {
   const toast = useToast();
   const [defaultBundle, setDefaultBundle] = useState<string[]>([]);
+  // service สำหรับ "เช็ครุ่นหน้าเว็บลูกค้า" (lookupDeviceForQuote) — เก็บเป็น string
+  // เดี่ยวใน settings/sickw/quote_lookup_service แต่ใช้ array กับ picker (singleOnly)
+  const [quoteService, setQuoteService] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -22,7 +25,11 @@ export function SickwSettingsSection() {
       const v = snap.val();
       if (Array.isArray(v)) setDefaultBundle(v.map(String));
     });
-    return () => unsub();
+    const unsubQuote = onValue(ref(db, 'settings/sickw/quote_lookup_service'), (snap) => {
+      const v = snap.val();
+      setQuoteService(v ? [String(v)] : []);
+    });
+    return () => { unsub(); unsubQuote(); };
   }, []);
 
   const handleSave = async () => {
@@ -31,6 +38,7 @@ export function SickwSettingsSection() {
     try {
       await update(ref(db, 'settings/sickw'), {
         default_bundle: defaultBundle,
+        quote_lookup_service: quoteService[0] || null,
         updated_at: Date.now(),
       });
       setShowSuccess(true);
@@ -87,6 +95,21 @@ export function SickwSettingsSection() {
         </p>
       </div>
 
+      {/* Service สำหรับเช็ครุ่นหน้าเว็บลูกค้า (lookupDeviceForQuote) */}
+      <div className="mb-5 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+        <p className="text-xs font-bold text-slate-300 mb-2">Service สำหรับเช็ครุ่นหน้าเว็บลูกค้า</p>
+        <SickwServicePicker
+          value={quoteService}
+          onChange={setQuoteService}
+          singleOnly
+        />
+        <p className="text-[11px] text-slate-400 mt-2">
+          ใช้ตอนลูกค้ากรอก Serial/IMEI ที่หน้า /sell — เลือกตัวที่คืน "รุ่น + ความจุ" และ
+          <span className="text-emerald-400 font-bold"> ราคาถูกที่สุด</span> (เช่น iPhone Model Color &amp; Capacity)
+          เพื่อคุมต้นทุน. ถ้าไม่ตั้ง ระบบจะ fallback ไปใช้ตัวแรกของ Default Bundle
+        </p>
+      </div>
+
       <button
         onClick={handleSave}
         disabled={saving}
@@ -94,7 +117,7 @@ export function SickwSettingsSection() {
       >
         {saving ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</>
           : showSuccess ? <><CheckCircle2 size={16} /> บันทึกเรียบร้อย</>
-          : <><Save size={16} /> บันทึก Default Bundle</>}
+          : <><Save size={16} /> บันทึกการตั้งค่า</>}
       </button>
     </div>
   );
