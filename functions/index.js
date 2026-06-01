@@ -3234,6 +3234,172 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
 });
 
 // =============================================================================
+// lookupDeviceForQuote: เวอร์ชัน public สำหรับเว็บลูกค้า (bkk-frontend-next)
+// ใช้ตอนลูกค้ากรอก Serial/IMEI ที่หน้า /sell เพื่อเด้ง "รุ่น + ความจุ" มาเติม
+// ในระบบประเมินราคา — แล้วฝั่ง client เอาไป match กับ catalog เอง
+//
+// ต่างจาก checkDeviceWithSickw (ของแอดมิน/ไรเดอร์) ตรงนี้:
+//   - คืนเฉพาะ { model, capacity } เท่านั้น — ตัด FMI/iCloud/MDM/blacklist/serial
+//     ทิ้งก่อนส่งกลับ (privacy + ขอบเขตงาน — เช็คสถานะติดล็อกค่อยทำตอนไรเดอร์)
+//   - Rate limit ต่อ uid (anonymous auth ก็ผ่าน) — กัน abuse/เครดิตหมด
+//   - ไม่เขียน sickw_usage_flags (no_job_id เป็นเรื่องปกติของ public traffic)
+//     แต่ยัง log แยกที่ quote_lookups/ ให้ตรวจย้อนได้
+//   - ใช้ cache 24h + parser ตัวเดียวกับของแอดมิน (reuse)
+// =============================================================================
+
+const QUOTE_LOOKUP_RATE_LIMIT = 10;          // ครั้งต่อหน้าต่าง
+const QUOTE_LOOKUP_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 ชั่วโมง
+
+// เลือก Sickw service สำหรับ quote lookup:
+//   1) settings/sickw/quote_lookup_service (ตั้งเฉพาะงานนี้)
+//   2) fallback เป็นตัวแรกของ settings/sickw/default_bundle ที่แอดมินตั้งไว้แล้ว
+async function resolveQuoteLookupService(db) {
+  const explicit = await db.ref("settings/sickw/quote_lookup_service").once("value");
+  if (explicit.exists()) {
+    const v = String(explicit.val()).trim();
+    if (/^\d{1,4}$/.test(v)) return v;
+  }
+  const bundle = await db.ref("settings/sickw/default_bundle").once("value");
+  if (bundle.exists()) {
+    const arr = bundle.val();
+    const first = Array.isArray(arr) ? arr[0] : (arr && Object.values(arr)[0]);
+    const v = String(first || "").trim();
+    if (/^\d{1,4}$/.test(v)) return v;
+  }
+  return null;
+}
+
+// Rate limit ต่อ uid — transaction กัน race เมื่อกดรัวๆ
+// คืน true ถ้าเกิน limit
+async function isQuoteLookupRateLimited(db, uid) {
+  const ref = db.ref(`quote_lookup_rate/${uid}`);
+  let limited = false;
+  await ref.transaction((cur) => {
+    const now = Date.now();
+    if (!cur || now - cur.window_start >= QUOTE_LOOKUP_RATE_WINDOW_MS) {
+      return { window_start: now, count: 1 };
+    }
+    if (cur.count >= QUOTE_LOOKUP_RATE_LIMIT) {
+      limited = true;
+      return cur; // ไม่เพิ่ม count
+    }
+    return { window_start: cur.window_start, count: cur.count + 1 };
+  });
+  return limited;
+}
+
+exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60 }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+
+  const apiKey = process.env.SICKW_API_KEY;
+  if (!apiKey) {
+    console.error("[quote-lookup] SICKW_API_KEY not configured");
+    throw new HttpsError("failed-precondition", "ระบบยังไม่พร้อมให้บริการค้นหา");
+  }
+
+  const { serial } = request.data || {};
+  if (!serial || typeof serial !== "string") {
+    throw new HttpsError("invalid-argument", "กรุณากรอกหมายเลขเครื่อง (Serial / IMEI)");
+  }
+  const cleanSerial = serial.trim().toUpperCase();
+  // IMEI 15 หลัก หรือ Serial 8–17 ตัวอักษร (Apple serial = 10–12)
+  if (!/^[A-Z0-9]{8,17}$/.test(cleanSerial)) {
+    throw new HttpsError("invalid-argument", "หมายเลขเครื่องไม่ถูกต้อง (ต้องเป็นตัวเลข/ตัวอักษร 8–17 หลัก)");
+  }
+  const deviceType = /^\d{15}$/.test(cleanSerial) ? "imei" : "serial";
+
+  const db = getDatabase();
+
+  // Rate limit ก่อนทำอย่างอื่น — กัน abuse เครดิต
+  if (await isQuoteLookupRateLimited(db, request.auth.uid)) {
+    throw new HttpsError("resource-exhausted", "ค้นหาบ่อยเกินไป กรุณาลองใหม่ในอีกสักครู่");
+  }
+
+  const svcId = await resolveQuoteLookupService(db);
+  if (!svcId) {
+    console.error("[quote-lookup] no service configured (settings/sickw/quote_lookup_service หรือ default_bundle)");
+    throw new HttpsError("failed-precondition", "ระบบยังไม่พร้อมให้บริการค้นหา");
+  }
+
+  const cacheRef = db.ref(`device_checks/${cleanSerial}/svc_${svcId}`);
+
+  // helper: log แยกที่ quote_lookups/ (ไม่ใช่ sickw_usage_flags)
+  async function logQuoteLookup(extra) {
+    try {
+      await db.ref("quote_lookups").push({
+        timestamp: Date.now(),
+        uid: request.auth.uid,
+        device_type: deviceType,
+        service_id: svcId,
+        ...extra,
+      });
+    } catch (e) {
+      console.warn("[quote-lookup] log failed:", e?.message || e);
+    }
+  }
+
+  // คืนเฉพาะ field ที่หน้าบ้านต้องใช้ — ตัดข้อมูล sensitive ทิ้ง
+  function publicResult(status, parsed) {
+    return {
+      ok: status === "success",
+      status,
+      deviceType,
+      model: parsed.model || "",
+      capacity: parsed.capacity || "",
+    };
+  }
+
+  // Cache hit (ภายใน TTL) — re-parse จาก raw แล้วคืนเลย ไม่ burn เครดิต
+  const cacheSnap = await cacheRef.once("value");
+  if (cacheSnap.exists()) {
+    const cached = cacheSnap.val();
+    if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
+      const reparsed = parseSickwResult(cached.raw || "");
+      await logQuoteLookup({ cached: true, status: cached.status });
+      return publicResult(cached.status, reparsed.parsed);
+    }
+  }
+
+  // Cache miss — เรียก Sickw
+  const url = `${SICKW_ENDPOINT}?format=JSON&key=${encodeURIComponent(apiKey)}&imei=${encodeURIComponent(cleanSerial)}&service=${encodeURIComponent(svcId)}`;
+  let sickwResp;
+  try {
+    const httpResp = await fetch(url, { method: "GET" });
+    const text = await httpResp.text();
+    sickwResp = JSON.parse(text);
+  } catch (e) {
+    console.error("[quote-lookup] fetch/parse failed:", e?.message || e);
+    await logQuoteLookup({ cached: false, status: "error" });
+    throw new HttpsError("internal", "ค้นหาไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+
+  const status = String(sickwResp.status || "unknown").toLowerCase();
+  const raw = typeof sickwResp.result === "string" ? sickwResp.result : JSON.stringify(sickwResp.result || sickwResp);
+  const { parsed, fields } = parseSickwResult(raw);
+
+  // เก็บ cache (full record เหมือน checkDeviceWithSickw เพื่อให้แอดมิน reuse ได้)
+  try {
+    await cacheRef.set({
+      checked_at: Date.now(),
+      checked_by_uid: request.auth.uid,
+      service_id: svcId,
+      imei: cleanSerial,
+      status,
+      raw,
+      parsed,
+      fields,
+    });
+  } catch (e) {
+    console.warn("[quote-lookup] cache write failed:", e?.message || e);
+  }
+
+  await logQuoteLookup({ cached: false, status });
+  return publicResult(status, parsed);
+});
+
+// =============================================================================
 // Sickw Gate Override: แอดมินระดับ MANAGER/CEO เขียนเหตุผลเพื่อปลดล็อก Gate
 // บนใบงานที่ Sickw รายงานว่าเครื่องติด FMI/MDM/Blacklist
 //
