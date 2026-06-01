@@ -2914,7 +2914,8 @@ async function recordSickwUsage(db, entry) {
 
     // ถ้าตรวจโดยไม่ผูก jobId → flag เป็น suspicious ใน sickw_usage_flags/
     // เผื่อ CEO เปิดดูแยก (น่าจะตรวจ IMEI ที่ไม่ใช่ของลูกค้า — ส่วนตัวหรือ test)
-    if (!entry.jobId) {
+    // ยกเว้น frontend_quote (ลูกค้าเช็ครุ่นเองหน้าเว็บ — ไม่มี jobId เป็นเรื่องปกติ)
+    if (!entry.jobId && entry.source !== "frontend_quote") {
       await db.ref("sickw_usage_flags").push({
         ...log,
         reason: "no_job_id",
@@ -3347,19 +3348,32 @@ exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60
 
   const cacheRef = db.ref(`device_checks/${cleanSerial}/svc_${svcId}`);
 
-  // helper: log แยกที่ quote_lookups/ (ไม่ใช่ sickw_usage_flags)
-  async function logQuoteLookup(extra) {
-    try {
-      await db.ref("quote_lookups").push({
-        timestamp: Date.now(),
-        uid: request.auth.uid,
-        device_type: deviceType,
-        service_id: svcId,
-        ...extra,
-      });
-    } catch (e) {
-      console.warn("[quote-lookup] log failed:", e?.message || e);
+  // บันทึก usage ลง sickw_usage/ เดียวกับแอดมิน เพื่อรวมต้นทุนเครดิตที่เดียว
+  // (source = frontend_quote → recordSickwUsage จะไม่ flag suspicious แม้ไม่มี jobId)
+  // คิด credit เฉพาะ cache-miss + status success (SickW ปกติไม่หักเครดิตกรณี error/rejected)
+  async function recordQuoteUsage(cached, status) {
+    let price = 0;
+    if (!cached && status === "success") {
+      try {
+        const catalogSnap = await db.ref(SICKW_CATALOG_CACHE_KEY).once("value");
+        if (catalogSnap.exists()) {
+          const cat = catalogSnap.val();
+          const found = (cat.services || []).find((s) => String(s.service) === svcId);
+          if (found) price = Number(found.price || 0);
+        }
+      } catch (_) { /* ignore — credit_used = 0 ก็ยังบันทึก log */ }
     }
+    await recordSickwUsage(db, {
+      uid: request.auth.uid,
+      authToken: request.auth.token,
+      imei: cleanSerial,
+      serviceIds: [svcId],
+      jobId: null,
+      cached: [cached],
+      creditUsed: price,
+      status,
+      source: "frontend_quote",
+    });
   }
 
   // คืนเฉพาะ field ที่หน้าบ้านต้องใช้ — ตัดข้อมูล sensitive ทิ้ง
@@ -3379,7 +3393,7 @@ exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     const cached = cacheSnap.val();
     if (cached.checked_at && Date.now() - cached.checked_at < SICKW_CACHE_TTL_MS) {
       const reparsed = parseSickwResult(cached.raw || "");
-      await logQuoteLookup({ cached: true, status: cached.status });
+      await recordQuoteUsage(true, cached.status);
       return publicResult(cached.status, reparsed.parsed);
     }
   }
@@ -3393,7 +3407,7 @@ exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     sickwResp = JSON.parse(text);
   } catch (e) {
     console.error("[quote-lookup] fetch/parse failed:", e?.message || e);
-    await logQuoteLookup({ cached: false, status: "error" });
+    await recordQuoteUsage(false, "error");
     throw new HttpsError("internal", "ค้นหาไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
   }
 
@@ -3417,7 +3431,7 @@ exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60
     console.warn("[quote-lookup] cache write failed:", e?.message || e);
   }
 
-  await logQuoteLookup({ cached: false, status });
+  await recordQuoteUsage(false, status);
   return publicResult(status, parsed);
 });
 
