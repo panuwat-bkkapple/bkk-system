@@ -10,11 +10,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { ref, onValue } from 'firebase/database';
 import {
   Search, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, HelpCircle,
-  Loader2, Wand2, User,
+  Loader2, Wand2, User, RefreshCw,
 } from 'lucide-react';
 import { db } from '../../api/firebase';
 import {
   interpretFmi, interpretMdm, interpretBlacklist, syncJobFromSickw,
+  checkDeviceWithSickw, checkDeviceWithSickwBundle,
   type JobSickwCheck, type SickwFlagState, type SyncableField,
 } from '../../utils/sickwApi';
 import { useToast } from '../ui/ToastProvider';
@@ -43,6 +44,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
   const [open, setOpen] = useState(defaultOpen);
   const [showRaw, setShowRaw] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   // ดึงชื่อผู้ตรวจจาก staff/{id} โดยใช้ uid ของ last_check.checked_by_uid
   // เพราะ snapshot บนใบงานเก็บแค่ uid — ต้อง resolve เป็นชื่อ
   const [checkedByName, setCheckedByName] = useState<string | null>(null);
@@ -112,6 +114,43 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
       toast.error(e?.message || 'Sync ไม่สำเร็จ');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // ตรวจ Sickw ใหม่ด้วย IMEI + service เดิม (forceRefresh ข้าม cache) แล้วเขียน
+  // snapshot ทับ last_check → Gate ประเมินใหม่ทันที. ใช้กรณีลูกค้าเพิ่งล้างเครื่อง
+  // / sign out iCloud หลังตกลงราคา แล้ว FMI ที่เคยติด (ON) เปลี่ยนเป็น OFF —
+  // เดิมหน้านี้ไม่มีปุ่มตรวจซ้ำ แอดมินเลยทำงานต่อไม่ได้
+  const handleRefresh = async () => {
+    if (!job?.id) {
+      toast.error('ไม่พบ jobId — ตรวจใหม่ผ่านหน้า QC แทน');
+      return;
+    }
+    const checkImei = (lc.imei || p.imei || '').trim();
+    const svcIds = String(lc.service_id || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!checkImei || svcIds.length === 0) {
+      toast.error('ไม่มี IMEI หรือ service เดิม — ตรวจใหม่ผ่านหน้า QC แทน');
+      return;
+    }
+    if (!window.confirm('ตรวจ Sickw ใหม่ด้วย IMEI เดิม? (ข้าม cache — ใช้เครดิตเพิ่ม 1 รอบ)')) return;
+
+    setRefreshing(true);
+    try {
+      const source = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile')
+        ? 'admin_mobile_refresh' : 'admin_desktop_refresh';
+      if (svcIds.length === 1) {
+        await checkDeviceWithSickw({ imei: checkImei, serviceId: svcIds[0], forceRefresh: true, jobId: job.id, source });
+      } else {
+        await checkDeviceWithSickwBundle({ imei: checkImei, serviceIds: svcIds, forceRefresh: true, jobId: job.id, source });
+      }
+      toast.success('ตรวจ Sickw ใหม่สำเร็จ — อัปเดตสถานะแล้ว');
+    } catch (e: any) {
+      toast.error(e?.message || 'ตรวจใหม่ไม่สำเร็จ');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -190,6 +229,21 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
             <FlagBadge label="MDM" state={flags.mdm} value={p.mdmStatus || '-'} />
             <FlagBadge label="Blacklist" state={flags.blacklist} value={p.blacklistStatus || p.iCloudStatus || '-'} />
           </div>
+
+          {/* ตรวจ Sickw ใหม่ — ใช้กรณีลูกค้าล้างเครื่อง/ปิด Find My หลังตกลงราคา
+              แล้วต้องอัปเดตสถานะ FMI ให้ Gate ปลดล็อก payout */}
+          {job?.id && (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="ตรวจ Sickw ใหม่ด้วย IMEI เดิม (ข้าม cache — ใช้เครดิตเพิ่ม)"
+              className="w-full px-3 py-2 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+            >
+              {refreshing
+                ? <><Loader2 size={12} className="animate-spin" /> กำลังตรวจใหม่...</>
+                : <><RefreshCw size={12} /> ตรวจ Sickw ใหม่ (Refresh สถานะ FMI)</>}
+            </button>
+          )}
 
           {/* Parsed info table */}
           <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
