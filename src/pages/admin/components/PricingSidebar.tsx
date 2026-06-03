@@ -9,6 +9,7 @@ import { db } from '@/api/firebase';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
+import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -105,38 +106,42 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   // separate field. Customers picking Store-in at /sell don't get a time
   // slot, so admin has to set it themselves; without this scheduler the
   // job had no calendar entry and admin had no way to add one.
-  const ps = job.pickup_schedule;
-  const existingApptDate = ps?.date && ps.date !== 'Instant' ? ps.date : '';
-  const existingApptTime = ps?.time && ps.time !== 'Instant' ? ps.time : '';
+  const existingApptDate = getApptDate(job.pickup_schedule);
+  const existingRange = parseTimeRange(job.pickup_schedule);
+  const existingApptTime = job.pickup_schedule?.time && job.pickup_schedule.time !== 'Instant' ? job.pickup_schedule.time : '';
   const [apptDate, setApptDate] = useState(existingApptDate);
-  const [apptTime, setApptTime] = useState(existingApptTime);
+  const [apptStart, setApptStart] = useState(existingRange.start);
+  const [apptEnd, setApptEnd] = useState(existingRange.end);
   const [savingAppt, setSavingAppt] = useState(false);
 
   const handleSaveAppointment = async () => {
-    if (!apptDate || !apptTime) return;
+    if (!apptDate || !apptStart) return;
+    if (apptEnd && apptEnd <= apptStart) return;
     setSavingAppt(true);
     try {
-      const isReschedule = !!existingApptDate;
+      const hadSchedule = !!existingApptDate;
+      const rangeLabel = apptEnd ? `${apptStart} - ${apptEnd}` : apptStart;
       const updates: Record<string, unknown> = {
-        pickup_schedule: { type: 'scheduled', date: apptDate, time: apptTime },
+        pickup_schedule: buildPickupSchedule(apptDate, apptStart, apptEnd, hadSchedule),
         qc_logs: [
           {
-            action: isReschedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            action: hadSchedule ? 'Appointment Rescheduled' : 'Appointment Set',
             by: currentUserName,
             timestamp: Date.now(),
-            details: `${isReschedule ? 'แก้ไขเวลานัด' : 'นัดหมาย'}เข้าสาขา ${apptDate} ${apptTime}`,
+            details: `${hadSchedule ? 'เลื่อนนัดหมายเป็น' : 'นัดหมาย'} ${apptDate} ${rangeLabel}`,
           },
           ...(job.qc_logs || []),
         ],
         updated_at: Date.now(),
       };
       // Only flip the status when we're setting an appointment for the
-      // first time on a Store-in New Lead / Following Up — Mail-in
+      // first time on a Pickup / Store-in New Lead / Following Up — Mail-in
       // flows via tracking_number → In-Transit → Pending QC and
       // shouldn't get pulled into the Appointment Set branch.
       const lower = (job.status || '').trim().toLowerCase();
       if (
-        job.receive_method === 'Store-in' &&
+        !hadSchedule &&
+        (job.receive_method === 'Store-in' || job.receive_method === 'Pickup') &&
         (lower === 'new lead' || lower === 'following up')
       ) {
         updates.status = JOB_STATUS.APPOINTMENT_SET;
@@ -343,7 +348,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Expected Arrival</p>
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลาที่คาดว่าพัสดุจะถึง</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <input
                   type="date"
                   value={apptDate}
@@ -352,10 +357,19 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 />
                 <input
                   type="time"
-                  value={apptTime}
-                  onChange={(e) => setApptTime(e.target.value)}
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
                   className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
                 />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
               </div>
               {existingApptDate && (
                 <p className="text-[10px] font-bold text-emerald-600">
@@ -364,7 +378,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               )}
               <button
                 onClick={handleSaveAppointment}
-                disabled={!apptDate || !apptTime || savingAppt}
+                disabled={!apptDate || !apptStart || savingAppt}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <CalendarClock size={16} />
@@ -416,6 +430,61 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
+        {/* Pickup appointment scheduler — lets admin set or reschedule the
+            pickup time window for a Pickup job. Visible for any non-cancelled
+            Pickup ticket so an urgent ("รับด่วน") job that a rider couldn't
+            reach in time can be moved to a new day/time, and a pre-booked
+            slot can be changed. Writes pickup_schedule (range), same shape as
+            Store-in/Mail-in, so the calendar and customer tracking stay in sync. */}
+        {!isCancelled && job.receive_method === 'Pickup' && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Pickup Appointment</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและช่วงเวลานัดรับเครื่อง</p>
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="date"
+                  value={apptDate}
+                  onChange={(e) => setApptDate(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
+              </div>
+              {existingApptDate && (
+                <p className="text-[10px] font-bold text-emerald-600">
+                  นัดปัจจุบัน: {existingApptDate} เวลา {existingApptTime || '—'}
+                </p>
+              )}
+              <button
+                onClick={handleSaveAppointment}
+                disabled={!apptDate || !apptStart || savingAppt}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+              >
+                <CalendarClock size={16} />
+                {savingAppt
+                  ? 'กำลังบันทึก...'
+                  : existingApptDate
+                    ? 'อัปเดตเวลานัดรับ'
+                    : 'ยืนยันเวลานัดรับ'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Store-in appointment scheduler — customers picking Store-in
             at /sell don't get a time slot, so admin enters it here.
             Visible for any non-cancelled Store-in ticket so admin can:
@@ -434,7 +503,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลานัดเข้าสาขา</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <input
                   type="date"
                   value={apptDate}
@@ -443,10 +512,19 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 />
                 <input
                   type="time"
-                  value={apptTime}
-                  onChange={(e) => setApptTime(e.target.value)}
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
                   className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
                 />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
               </div>
               {existingApptDate && (
                 <p className="text-[10px] font-bold text-emerald-600">
@@ -455,7 +533,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               )}
               <button
                 onClick={handleSaveAppointment}
-                disabled={!apptDate || !apptTime || savingAppt}
+                disabled={!apptDate || !apptStart || savingAppt}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <CalendarClock size={16} />

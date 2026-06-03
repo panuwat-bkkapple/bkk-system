@@ -1295,6 +1295,114 @@ exports.onAdminJobStatusNotify = onValueUpdated(
 );
 
 // =============================================================================
+// Appointment reschedule notifications
+// -----------------------------------------------------------------------------
+// Fires when an EXISTING pickup_schedule changes — i.e. an admin reschedules a
+// Pickup / Store-in / Mail-in job (from the mobile ticket detail edit modal or
+// the desktop PricingSidebar). Does two things:
+//   1) Push to the assigned rider (job.rider_id) via the existing FCM infra so
+//      a rider already holding the job learns the new day/time.
+//   2) Queue a customer email into /outbox_emails for the Resend worker (built
+//      separately). Contract for that node:
+//        outbox_emails/{pushId} = {
+//          status: "pending",            // worker flips to "sent" / "failed"
+//          type:   "appointment_rescheduled",
+//          to:     <customer email>,
+//          job_id: <jobId>,
+//          created_at: <epoch ms>,
+//          data: { ref_no, cust_name, model, receive_method,
+//                  old_date, old_time, new_date, new_time, location },
+//        }
+// First-time appointment SETS (before has no real date) are intentionally
+// ignored — this trigger is only about reschedules.
+// NOTE: do NOT rename to a generic id like `onJobUpdated` — Cloud Functions are
+// identified by {region}/{name} project-wide, so a clash with the
+// rider-notifications codebase would silently overwrite the other side.
+// =============================================================================
+exports.onPickupScheduleRescheduled = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/pickup_schedule",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (!after || typeof after !== "object") return;
+
+    // Only a genuine reschedule of a real (non-instant) slot counts.
+    const beforeDate = before && before.date && before.date !== "Instant" ? before.date : "";
+    const afterDate = after.date && after.date !== "Instant" ? after.date : "";
+    if (!beforeDate || !afterDate) return;
+    const beforeTime = (before && before.time) || "";
+    const afterTime = after.time || "";
+    if (beforeDate === afterDate && beforeTime === afterTime) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const model = job.model || "ไม่ระบุรุ่น";
+    const custName = job.cust_name || "";
+    const whenLabel = `${afterDate}${afterTime ? ` ${afterTime}` : ""}`;
+
+    // 1) Notify the assigned rider (if any).
+    if (job.rider_id) {
+      await pushToRider(
+        db,
+        job.rider_id,
+        {
+          notification: {
+            title: "🔄 นัดหมายถูกเลื่อน",
+            body: `${model}${custName ? ` · ${custName}` : ""} · เวลาใหม่ ${whenLabel}`,
+          },
+          data: {
+            type: "appointment_rescheduled",
+            jobId,
+            newDate: afterDate,
+            newTime: afterTime,
+          },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onPickupScheduleRescheduled(${jobId})`
+      );
+    }
+
+    // 2) Queue a customer email for the Resend worker (only if we have an email).
+    const custEmail = (job.cust_email || "").trim();
+    if (custEmail) {
+      const outboxRef = db.ref("outbox_emails").push();
+      await outboxRef.set({
+        status: "pending",
+        type: "appointment_rescheduled",
+        to: custEmail,
+        job_id: jobId,
+        created_at: Date.now(),
+        data: {
+          ref_no: job.ref_no || job.order_id || jobId,
+          cust_name: custName,
+          model,
+          receive_method: job.receive_method || "",
+          old_date: beforeDate,
+          old_time: beforeTime,
+          new_date: afterDate,
+          new_time: afterTime,
+          location: job.receive_method === "Store-in" ? (job.store_branch || "") : (job.cust_address || ""),
+        },
+      });
+      console.log(`[onPickupScheduleRescheduled] ${jobId} queued reschedule email to ${custEmail}`);
+    } else {
+      console.log(`[onPickupScheduleRescheduled] ${jobId} rescheduled — no cust_email, skipping email queue`);
+    }
+  }
+);
+
+// =============================================================================
 // Thailand Post Tracking — Database Trigger (ไม่ต้องใช้ HTTPS = ไม่ต้อง IAM)
 // =============================================================================
 

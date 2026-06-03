@@ -24,6 +24,7 @@ import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultC
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -107,7 +108,7 @@ export const MobileTicketDetail = () => {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
+  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '' });
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -315,12 +316,17 @@ export const MobileTicketDetail = () => {
   };
 
   const openEditModal = () => {
+    const { start, end } = parseTimeRange(job.pickup_schedule);
     setEditForm({
       model: job.model || '',
       price: String(job.price ?? ''),
       cust_name: job.cust_name || '',
       cust_phone: job.cust_phone || '',
-      cust_address: job.cust_address || '',
+      // Store-in keeps its location in store_branch; everyone else in cust_address.
+      cust_address: (job.receive_method === 'Store-in' ? job.store_branch : job.cust_address) || '',
+      appt_date: existingApptDate(job.pickup_schedule),
+      appt_start: start,
+      appt_end: end,
     });
     setShowEditModal(true);
   };
@@ -332,17 +338,64 @@ export const MobileTicketDetail = () => {
       toast.warning('ราคาต้องเป็นตัวเลข');
       return;
     }
+
+    // Appointment edit (optional). Validate the date/time-range up front.
+    const apptDate = editForm.appt_date.trim();
+    const apptStart = editForm.appt_start.trim();
+    const apptEnd = editForm.appt_end.trim();
+    if (apptDate || apptStart || apptEnd) {
+      if (!apptDate || !apptStart) {
+        toast.warning('กรุณาระบุวันและเวลาเริ่มของนัดหมาย');
+        return;
+      }
+      if (apptEnd && apptEnd <= apptStart) {
+        toast.warning('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่ม');
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
+      const isStoreIn = job.receive_method === 'Store-in';
+      const logs: any[] = [];
+
       const payload: any = {
         model: editForm.model.trim() || null,
         price: priceNum,
         cust_name: editForm.cust_name.trim() || null,
         cust_phone: editForm.cust_phone.trim() || null,
-        cust_address: editForm.cust_address.trim() || null,
-        qc_logs: [makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'), ...(job.qc_logs || [])],
         updated_at: Date.now(),
       };
+      // Location lives in store_branch for Store-in, cust_address otherwise.
+      if (isStoreIn) payload.store_branch = editForm.cust_address.trim() || null;
+      else payload.cust_address = editForm.cust_address.trim() || null;
+
+      // Reschedule: write the new date/time range into pickup_schedule (read by
+      // the calendar, customer tracking and this detail page). Only write when
+      // something actually changed so we don't re-stamp a no-op save.
+      if (apptDate && apptStart) {
+        const prev = parseTimeRange(job.pickup_schedule);
+        const prevDate = existingApptDate(job.pickup_schedule);
+        const hadSchedule = !!prevDate;
+        const changed = !hadSchedule || prevDate !== apptDate || prev.start !== apptStart || prev.end !== apptEnd;
+        if (changed) {
+          payload.pickup_schedule = buildPickupSchedule(apptDate, apptStart, apptEnd, hadSchedule);
+          const rangeLabel = apptEnd ? `${apptStart} - ${apptEnd}` : apptStart;
+          logs.push(makeLog(
+            hadSchedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            `${hadSchedule ? 'เลื่อนนัดหมายเป็น' : 'นัดหมาย'} ${apptDate} ${rangeLabel}`,
+          ));
+          // First appointment on a fresh Store-in moves it to Appointment Set,
+          // mirroring the desktop scheduler. Rescheduling never changes status.
+          if (isStoreIn && !hadSchedule) {
+            const lower = (job.status || '').trim().toLowerCase();
+            if (lower === 'new lead' || lower === 'following up') payload.status = 'Appointment Set';
+          }
+        }
+      }
+
+      logs.push(makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'));
+      payload.qc_logs = [...logs, ...(job.qc_logs || [])];
 
       if (priceNum !== null) {
         const oldBasePrice = Number(job.final_price || job.price || 0);
@@ -1172,13 +1225,48 @@ export const MobileTicketDetail = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">ที่อยู่</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">{job.receive_method === 'Store-in' ? 'สาขานัดหมาย' : 'ที่อยู่'}</label>
                 <textarea
                   value={editForm.cust_address}
                   onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}
                   rows={2}
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
                 />
+              </div>
+
+              {/* Reschedule — date + start/end time range. Works for every
+                  receive method; writes pickup_schedule so the calendar updates. */}
+              <div className="pt-2 mt-1 border-t border-slate-100">
+                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1.5">
+                  <Clock size={13} className="text-blue-500" /> วันและเวลานัดหมาย
+                </label>
+                <input
+                  type="date"
+                  value={editForm.appt_date}
+                  onChange={(e) => setEditForm({ ...editForm, appt_date: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-2"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 mb-1">เวลาเริ่ม</span>
+                    <input
+                      type="time"
+                      value={editForm.appt_start}
+                      onChange={(e) => setEditForm({ ...editForm, appt_start: e.target.value })}
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 mb-1">เวลาสิ้นสุด</span>
+                    <input
+                      type="time"
+                      value={editForm.appt_end}
+                      onChange={(e) => setEditForm({ ...editForm, appt_end: e.target.value })}
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">เว้นว่างไว้หากไม่ต้องการนัดหมาย • เวลาสิ้นสุดไม่บังคับ</p>
               </div>
             </div>
             <div className="flex gap-2 p-4 border-t bg-slate-50 rounded-b-2xl">
