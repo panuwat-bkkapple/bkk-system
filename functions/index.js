@@ -4,6 +4,12 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
+const {
+  sendEmail,
+  buildCustomerReceivedEmail,
+  buildCustomerConfirmedEmail,
+  buildAdminNewOrderEmail,
+} = require("./email");
 
 initializeApp();
 
@@ -857,6 +863,113 @@ exports.onNewTicketCreated = onValueCreated(
       }
     } catch (err) {
       console.error("[onNewTicket] Unhandled error:", err);
+    }
+  }
+);
+
+// =============================================================================
+// Order-confirmation emails (Resend). Two moments, per product decision:
+//   1. onJobCreatedSendEmails  — order lands  → customer "received" + admin notify
+//   2. onJobConfirmedSendEmail — admin accepts → customer "confirmed / นัดรับ"
+//
+// These live in THIS codebase (bkk-system) alongside the other /jobs triggers.
+// Both customer self-checkout (bkk-frontend-next's validateAndCreateOrder) and
+// admin-created tickets write to the same /jobs path in the same project, so a
+// DB trigger here covers every order source without touching the order-creation
+// path itself (decoupled, failure-isolated). Names are unique project-wide to
+// avoid the {region}/{name} collision documented for onAdminJobStatusNotify.
+// =============================================================================
+
+// Mirror onNewTicketCreated's "new order" status set (functions/ can't import
+// the canonical TS enum). Accept both "Active Lead" and legacy "Active Leads".
+const ORDER_CREATED_STATUSES = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
+const ACTIVE_LEAD_STATUSES = ["Active Lead", "Active Leads"];
+
+exports.onJobCreatedSendEmails = onValueCreated(
+  {
+    ref: "/jobs/{jobId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const job = event.data.val();
+      if (!job) return;
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+
+      if (job.is_test) return;
+      if (!ORDER_CREATED_STATUSES.includes(job.status)) return;
+
+      // Idempotency. onValueCreated fires once per node creation (child
+      // writes below don't re-trigger it), but a rare retry could double-fire
+      // — stamp first, then send, so a re-invocation no-ops.
+      if (job.confirmation_email_sent_at) return;
+      await db.ref(`jobs/${jobId}/confirmation_email_sent_at`).set(Date.now());
+
+      // 1) Customer "we received your order". Skip silently when there's no
+      //    email (admin-created tickets sometimes omit it).
+      if (job.cust_email) {
+        try {
+          const res = await sendEmail(buildCustomerReceivedEmail(job));
+          console.log(`[orderEmail] customer-received ${jobId}:`, JSON.stringify(res));
+        } catch (e) {
+          console.error(`[orderEmail] customer-received failed ${jobId}:`, e);
+        }
+      }
+
+      // 2) Admin central-inbox notification.
+      const adminTo = process.env.ORDER_NOTIFY_EMAIL;
+      if (adminTo) {
+        try {
+          const res = await sendEmail(buildAdminNewOrderEmail(job, adminTo));
+          console.log(`[orderEmail] admin-notify ${jobId}:`, JSON.stringify(res));
+        } catch (e) {
+          console.error(`[orderEmail] admin-notify failed ${jobId}:`, e);
+        }
+      } else {
+        console.warn(`[orderEmail] ORDER_NOTIFY_EMAIL not set — skipped admin notify for ${jobId}`);
+      }
+    } catch (err) {
+      console.error("[orderEmail] onJobCreatedSendEmails unhandled error:", err);
+    }
+  }
+);
+
+exports.onJobConfirmedSendEmail = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const before = event.data.before.val();
+      const after = event.data.after.val();
+      if (before === after) return;
+
+      // Fire only on the transition INTO an active lead (admin accepted the
+      // case). Instant-sell orders are CREATED at "Active Leads" — that's a
+      // create, not a status update, so this never double-sends for them.
+      if (!ACTIVE_LEAD_STATUSES.includes(after) || ACTIVE_LEAD_STATUSES.includes(before)) return;
+
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+      const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+      if (!jobSnap.exists()) return;
+      const job = jobSnap.val();
+
+      if (job.is_test) return;
+      if (!job.cust_email) return;
+      if (job.deal_confirmed_email_sent_at) return;
+      await db.ref(`jobs/${jobId}/deal_confirmed_email_sent_at`).set(Date.now());
+
+      try {
+        const res = await sendEmail(buildCustomerConfirmedEmail(job));
+        console.log(`[orderEmail] customer-confirmed ${jobId}:`, JSON.stringify(res));
+      } catch (e) {
+        console.error(`[orderEmail] customer-confirmed failed ${jobId}:`, e);
+      }
+    } catch (err) {
+      console.error("[orderEmail] onJobConfirmedSendEmail unhandled error:", err);
     }
   }
 );
