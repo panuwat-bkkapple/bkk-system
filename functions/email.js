@@ -144,8 +144,15 @@ function shell({ heading, intro, bodyHtml, footerNote }) {
 </html>`;
 }
 
-/** Render an order summary card shared by every template. */
-function orderSummaryCard(job) {
+/**
+ * Render an order summary card shared by every template. `payoutLabel`
+ * defaults to the pre-settlement wording ("ยอดที่จะได้รับโดยประมาณ"); pass
+ * "ยอดรับสุทธิ" once the money has actually been transferred (Paid).
+ */
+const PAYOUT_LABEL_ESTIMATE = "ยอดที่จะได้รับโดยประมาณ";
+const PAYOUT_LABEL_NET = "ยอดรับสุทธิ";
+
+function orderSummaryCard(job, payoutLabel = PAYOUT_LABEL_ESTIMATE) {
   const lines = deviceLines(job);
   const deviceRows = lines
     .map(
@@ -194,7 +201,7 @@ function orderSummaryCard(job) {
     <tr><td style="padding:12px 18px 16px;background:#f9fafb;border-top:1px solid #eef0f3;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td style="font-size:14px;color:#111827;font-weight:600;">ยอดที่จะได้รับโดยประมาณ</td>
+          <td style="font-size:14px;color:#111827;font-weight:600;">${esc(payoutLabel)}</td>
           <td style="font-size:18px;color:#059669;font-weight:700;text-align:right;">${esc(payout)}</td>
         </tr>
       </table>
@@ -632,13 +639,14 @@ function buildCustomerStatusEmail(job, status) {
   const c = entry.customer;
   const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
   const extra = c.extra ? c.extra(job) : "";
+  const payoutLabel = status === "Paid" ? PAYOUT_LABEL_NET : PAYOUT_LABEL_ESTIMATE;
   return {
     to: job.cust_email,
     subject: c.subject(job),
     html: shell({
       heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
       intro: `${name}${c.intro(job)}`,
-      bodyHtml: orderSummaryCard(job) + extra + trackingButton(job),
+      bodyHtml: orderSummaryCard(job, payoutLabel) + extra + trackingButton(job),
     }),
   };
 }
@@ -700,7 +708,7 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
       }`,
       bodyHtml:
         (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
-        orderSummaryCard(job) +
+        orderSummaryCard(job, PAYOUT_LABEL_NET) +
         paymentExtra(job) +
         sickwVerificationExtra(job) +
         kycExtra(kyc),
