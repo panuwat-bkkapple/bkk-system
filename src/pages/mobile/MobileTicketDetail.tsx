@@ -25,6 +25,7 @@ import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -108,7 +109,7 @@ export const MobileTicketDetail = () => {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '' });
+  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '' });
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -323,10 +324,11 @@ export const MobileTicketDetail = () => {
       cust_name: job.cust_name || '',
       cust_phone: job.cust_phone || '',
       // Store-in keeps its location in store_branch; everyone else in cust_address.
-      cust_address: (job.receive_method === 'Store-in' ? job.store_branch : job.cust_address) || '',
+      cust_address: currentLocation(job),
       appt_date: existingApptDate(job.pickup_schedule),
       appt_start: start,
       appt_end: end,
+      receive_method: job.receive_method || '',
     });
     setShowEditModal(true);
   };
@@ -354,9 +356,18 @@ export const MobileTicketDetail = () => {
       }
     }
 
+    // Trade method change (optional). Pricing + rider withdrawal are reconciled
+    // server-side by onReceiveMethodChanged; here we just gate by status.
+    const newMethod = editForm.receive_method || job.receive_method;
+    const methodChanged = newMethod !== job.receive_method;
+    if (methodChanged && !canChangeReceiveMethod(job.status)) {
+      toast.warning('เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const isStoreIn = job.receive_method === 'Store-in';
+      const isStoreIn = newMethod === 'Store-in';
       const logs: any[] = [];
 
       const payload: any = {
@@ -365,10 +376,17 @@ export const MobileTicketDetail = () => {
         cust_name: editForm.cust_name.trim() || null,
         cust_phone: editForm.cust_phone.trim() || null,
         updated_at: Date.now(),
+        // Location is written to the field that matches the (possibly new) method.
+        ...buildMethodLocationFields(newMethod, editForm.cust_address),
       };
-      // Location lives in store_branch for Store-in, cust_address otherwise.
-      if (isStoreIn) payload.store_branch = editForm.cust_address.trim() || null;
-      else payload.cust_address = editForm.cust_address.trim() || null;
+
+      if (methodChanged) {
+        payload.receive_method = newMethod;
+        logs.push(makeLog(
+          'Trade Method Changed',
+          `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+        ));
+      }
 
       // Reschedule: write the new date/time range into pickup_schedule (read by
       // the calendar, customer tracking and this detail page). Only write when
@@ -1224,8 +1242,37 @@ export const MobileTicketDetail = () => {
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
               </div>
+
+              {/* Trade method — switching recalculates the rider fee / payout and
+                  withdraws any assigned rider (handled server-side). */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">{job.receive_method === 'Store-in' ? 'สาขานัดหมาย' : 'ที่อยู่'}</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">วิธีรับเครื่อง (Trade Method)</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {RECEIVE_METHOD_OPTIONS.map((opt) => {
+                    const active = editForm.receive_method === opt.id;
+                    const locked = !canChangeReceiveMethod(job.status);
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={locked && !active}
+                        onClick={() => setEditForm({ ...editForm, receive_method: opt.id })}
+                        className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'} ${locked && !active ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!canChangeReceiveMethod(job.status) ? (
+                  <p className="text-[10px] text-amber-600 mt-1">เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)</p>
+                ) : editForm.receive_method !== job.receive_method ? (
+                  <p className="text-[10px] text-blue-600 mt-1">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">{locationLabel(editForm.receive_method)}</label>
                 <textarea
                   value={editForm.cust_address}
                   onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}

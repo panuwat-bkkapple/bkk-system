@@ -62,6 +62,7 @@
 - **`onChatMessageCreated`** — trigger เมื่อมีแชทใหม่ → ส่ง push ให้ admin หรือ rider
 - **`onAdminJobStatusNotify`** — trigger เมื่อ status เปลี่ยน (Cancelled, Returned, Negotiation ฯลฯ) → ส่ง push ให้ admin. **ห้ามตั้งชื่อชนกับ rider-notifications codebase** (เช่น `onJobStatusChanged`) เพราะ Firebase Cloud Functions identify ด้วย `{region}/{name}` ระดับ project — codebase แค่จัด deploy group ไม่ namespace name → deploy ของ codebase หนึ่งจะทับอีกฝั่งและ rider/admin notification จะหายสลับกันทุกครั้งที่ฝั่งใดฝั่งหนึ่ง deploy
 - **`onPickupScheduleRescheduled`** — trigger เมื่อ `jobs/{id}/pickup_schedule` ที่มีนัดอยู่แล้วถูกเปลี่ยน (admin เลื่อนนัด Pickup/Store-in/Mail-in) → (1) push ให้ไรเดอร์ที่ถืองาน (`job.rider_id`) ผ่าน `pushToRider` (2) เขียน event ลง `outbox_emails/{pushId}` (status `pending`, type `appointment_rescheduled`) ให้ Resend worker (ทำแยกอีก section) ดึงไปส่งเมลลูกค้า. การ "set นัดครั้งแรก" จะไม่ trigger (เช็ค before ต้องมี date จริงก่อน). ชื่อ function ห้ามตั้งทั่วไป (เช่น `onJobUpdated`) ด้วยเหตุผล namespace เดียวกับด้านบน
+- **`onReceiveMethodChanged`** — trigger เมื่อ `jobs/{id}/receive_method` ถูกเปลี่ยน (admin เปลี่ยน trade method) → เป็น **เจ้าของการคำนวณเงินฝั่ง server**: ถ้าเปลี่ยนเป็น Pickup จะ `computeRiderFee` แล้วเซ็ต `pickup_fee` + `rider_fee_estimate` และคิด `net_payout` ใหม่ (รวมค่าไรเดอร์), ถ้าเป็น Store-in/Mail-in จะเซ็ต `pickup_fee=0` และคิด `net_payout` ใหม่ (ไม่หักค่าไรเดอร์). ถ้าเดิมเป็น Pickup และมีไรเดอร์ถืออยู่ (`rider_id`) จะถอนงาน (push แจ้งไรเดอร์ + เคลียร์ `rider_id` + ดึง status กลับ `Following Up`). client เขียนแค่ `receive_method` + ฟิลด์สถานที่ + qc_log เท่านั้น ไม่แตะเงิน. ชื่อห้ามตั้งทั่วไป (เช่น `onJobUpdated`) ด้วยเหตุผล namespace เดียวกัน
 
 ## Appointment / pickup_schedule (เลื่อนนัด)
 - **`pickup_schedule`** ใช้ร่วมกันทุก receive_method เก็บ `{ type, date, time, time_start, time_end, rescheduled_at? }`
@@ -69,6 +70,12 @@
   - `time_start` / `time_end` = ช่วงเวลาแบบ structured (`time_end` ไม่บังคับ)
   - helper รวมอยู่ที่ `src/utils/appointment.ts` (`parseTimeRange`, `buildPickupSchedule`, `existingApptDate`) — ใช้ทั้ง mobile (`MobileTicketDetail` edit modal) และ desktop (`PricingSidebar`)
 - **UI เลื่อนนัด:** mobile = โมดอล "แก้ไขข้อมูลงาน" ใน `MobileTicketDetail.tsx`; desktop = scheduler ใน `PricingSidebar.tsx` (มีครบทั้ง Pickup / Store-in / Mail-in)
+
+## เปลี่ยน Trade Method (receive_method) หลังสร้างงาน
+- เปลี่ยนได้ทุกทิศทาง (Pickup ⇄ Store-in ⇄ Mail-in). helper อยู่ที่ `src/utils/receiveMethod.ts` (`canChangeReceiveMethod`, `locationLabel`, `currentLocation`, `buildMethodLocationFields`)
+- **client เขียนแค่ `receive_method` + ฟิลด์สถานที่ (`cust_address`/`store_branch`) + qc_log** — เรื่องเงิน (pickup_fee/net_payout) และการถอนไรเดอร์ให้ `onReceiveMethodChanged` (cloud function) จัดการ เพื่อให้ค่าไรเดอร์ใช้ `computeRiderFee` ที่เดียว
+- `canChangeReceiveMethod` block เมื่อเครื่องอยู่ในมือ/จ่ายเงินแล้ว/พัสดุส่งแล้ว/ปิดงาน (เช็ค status) — UI ทั้ง mobile + desktop ใช้ guard เดียวกัน
+- UI: mobile = ตัวเลือกในโมดอล "แก้ไขข้อมูลงาน"; desktop = section "Trade Method" ใน `PricingSidebar.tsx`
 
 ## Role-Based Access
 - **CEO:** เข้าถึงทุกฟีเจอร์

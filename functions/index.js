@@ -1403,6 +1403,129 @@ exports.onPickupScheduleRescheduled = onValueUpdated(
 );
 
 // =============================================================================
+// Trade method change — pricing reconciliation + rider withdrawal
+// -----------------------------------------------------------------------------
+// Fires when an admin changes a job's receive_method (Pickup ⇄ Store-in ⇄
+// Mail-in) from the ticket edit UI. The client only writes receive_method +
+// the location field; this function owns the money so the rider-fee estimate
+// uses the same computeRiderFee logic as everywhere else:
+//   - → Pickup:        pickup_fee = computeRiderFee() (distance-based, falls
+//                      back to min_fee without coords); net_payout recomputed
+//                      WITH the fee.
+//   - → Store-in/Mail-in: pickup_fee = 0; net_payout recomputed WITHOUT a fee.
+// If the job was Pickup and a rider was holding it, the rider is withdrawn
+// (notified + rider_id cleared + status pulled back to a sales phase).
+// Name must stay specific (not `onJobUpdated`) for the same {region}/{name}
+// namespace reason as the other triggers.
+// =============================================================================
+exports.onReceiveMethodChanged = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/receive_method",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (!after || before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const basePrice = Number(job.final_price ?? job.price ?? 0);
+    const coupon = Number(
+      (job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0
+    );
+
+    const updates = {};
+    const logs = [];
+
+    // 1) Pricing reconciliation.
+    if (after === "Pickup") {
+      let fee = Number(job.pickup_fee || 0);
+      try {
+        const result = await computeRiderFee(db, job);
+        fee = result.fee;
+        updates.rider_fee_estimate = result.fee;
+        updates.rider_fee_estimate_meta = {
+          distance_km: result.distance_km,
+          rates: result.rates,
+          reason: result.reason,
+          computed_at: Date.now(),
+        };
+      } catch (err) {
+        console.error(`[onReceiveMethodChanged] computeRiderFee failed for ${jobId}:`, err);
+      }
+      updates.pickup_fee = fee;
+      updates.net_payout = Math.max(0, basePrice - fee + coupon);
+      logs.push({
+        action: "Fee Recalculated",
+        by: "System",
+        timestamp: Date.now(),
+        details: `เปลี่ยนเป็น Pickup — คิดค่าไรเดอร์ ฿${fee.toLocaleString()}, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+      });
+    } else {
+      updates.pickup_fee = 0;
+      updates.net_payout = Math.max(0, basePrice + coupon);
+      logs.push({
+        action: "Fee Recalculated",
+        by: "System",
+        timestamp: Date.now(),
+        details: `เปลี่ยนเป็น ${after} — ไม่หักค่าไรเดอร์, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+      });
+    }
+
+    // 2) Withdraw any rider holding a job that's no longer Pickup.
+    if (before === "Pickup" && after !== "Pickup" && job.rider_id) {
+      const heldRider = job.rider_id;
+      updates.rider_id = null;
+      const lower = String(job.status || "").trim().toLowerCase();
+      const riderPhase = [
+        "active lead", "active leads", "assigned", "rider assigned",
+        "accepted", "rider accepted", "rider en route", "en route",
+        "rider arrived", "arrived",
+      ];
+      if (riderPhase.includes(lower)) updates.status = "Following Up";
+      logs.push({
+        action: "Rider Withdrawn",
+        by: "System",
+        timestamp: Date.now(),
+        details: `ถอนงานจากไรเดอร์เนื่องจากเปลี่ยนวิธีรับเป็น ${after}`,
+      });
+      await pushToRider(
+        db,
+        heldRider,
+        {
+          notification: {
+            title: "⚠️ งานถูกถอน",
+            body: `${job.model || "งาน"} เปลี่ยนเป็น ${after} — งานถูกถอนจากคุณแล้ว`,
+          },
+          data: { type: "job_withdrawn", jobId, reason: "receive_method_changed", newMethod: after },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onReceiveMethodChanged(${jobId})`
+      );
+    }
+
+    const existingLogs = Array.isArray(job.qc_logs)
+      ? job.qc_logs
+      : (job.qc_logs && typeof job.qc_logs === "object" ? Object.values(job.qc_logs) : []);
+    updates.updated_at = Date.now();
+    updates.qc_logs = [...logs, ...existingLogs];
+    await db.ref(`jobs/${jobId}`).update(updates);
+    console.log(
+      `[onReceiveMethodChanged] ${jobId}: ${before} → ${after}, pickup_fee=${updates.pickup_fee}, net_payout=${updates.net_payout}`
+    );
+  }
+);
+
+// =============================================================================
 // Thailand Post Tracking — Database Trigger (ไม่ต้องใช้ HTTPS = ไม่ต้อง IAM)
 // =============================================================================
 

@@ -10,6 +10,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -113,6 +114,37 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const [apptStart, setApptStart] = useState(existingRange.start);
   const [apptEnd, setApptEnd] = useState(existingRange.end);
   const [savingAppt, setSavingAppt] = useState(false);
+
+  // Trade method change. Client writes method + location only; pricing
+  // (pickup_fee/net_payout) and rider withdrawal are reconciled server-side by
+  // the onReceiveMethodChanged Cloud Function.
+  const [methodEdit, setMethodEdit] = useState(job.receive_method || '');
+  const [methodLoc, setMethodLoc] = useState(currentLocation(job));
+  const [savingMethod, setSavingMethod] = useState(false);
+
+  const handleSaveMethod = async () => {
+    const newMethod = methodEdit || job.receive_method;
+    if (newMethod === job.receive_method || !canChangeReceiveMethod(job.status)) return;
+    setSavingMethod(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        receive_method: newMethod,
+        ...buildMethodLocationFields(newMethod, methodLoc),
+        qc_logs: [
+          {
+            action: 'Trade Method Changed',
+            by: currentUserName,
+            timestamp: Date.now(),
+            details: `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+          },
+          ...(job.qc_logs || []),
+        ],
+        updated_at: Date.now(),
+      });
+    } finally {
+      setSavingMethod(false);
+    }
+  };
 
   const handleSaveAppointment = async () => {
     if (!apptDate || !apptStart) return;
@@ -427,6 +459,57 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             >
               จ่ายงานให้ไรเดอร์ (Dispatch Rider)
             </button>
+          </div>
+        )}
+
+        {/* Trade method changer — switching recalculates fee/payout and
+            withdraws any assigned rider (handled server-side by
+            onReceiveMethodChanged). */}
+        {!isCancelled && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Trade Method</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {RECEIVE_METHOD_OPTIONS.map((opt) => {
+                  const active = methodEdit === opt.id;
+                  const locked = !canChangeReceiveMethod(job.status);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={locked && !active}
+                      onClick={() => { setMethodEdit(opt.id); setMethodLoc(currentLocation(job)); }}
+                      className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'} ${locked && !active ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!canChangeReceiveMethod(job.status) ? (
+                <p className="text-[10px] font-bold text-amber-600">เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)</p>
+              ) : methodEdit !== job.receive_method ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{locationLabel(methodEdit)}</p>
+                    <textarea
+                      value={methodLoc}
+                      onChange={(e) => setMethodLoc(e.target.value)}
+                      rows={2}
+                      className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400 resize-none"
+                    />
+                  </div>
+                  <p className="text-[10px] font-bold text-blue-600">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
+                  <button
+                    onClick={handleSaveMethod}
+                    disabled={savingMethod}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+                  >
+                    <Truck size={16} /> {savingMethod ? 'กำลังบันทึก...' : `เปลี่ยนเป็น ${methodEdit}`}
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
         )}
 
