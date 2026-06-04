@@ -11,6 +11,7 @@ import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
+import PickupLocationPicker from '@/components/PickupLocationPicker';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -120,6 +121,8 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   // the onReceiveMethodChanged Cloud Function.
   const [methodEdit, setMethodEdit] = useState(job.receive_method || '');
   const [methodLoc, setMethodLoc] = useState(currentLocation(job));
+  const [methodLat, setMethodLat] = useState<number | undefined>(typeof job.cust_lat === 'number' ? job.cust_lat : undefined);
+  const [methodLng, setMethodLng] = useState<number | undefined>(typeof job.cust_lng === 'number' ? job.cust_lng : undefined);
   const [savingMethod, setSavingMethod] = useState(false);
 
   const handleSaveMethod = async () => {
@@ -130,6 +133,11 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
       await update(ref(db, `jobs/${job.id}`), {
         receive_method: newMethod,
         ...buildMethodLocationFields(newMethod, methodLoc),
+        // Switching to Pickup: send the pin so the fee is computed from the
+        // real distance (onReceiveMethodChanged / onPickupLocationChanged).
+        ...(newMethod === 'Pickup' && typeof methodLat === 'number' && typeof methodLng === 'number'
+          ? { cust_lat: methodLat, cust_lng: methodLng }
+          : {}),
         qc_logs: [
           {
             action: 'Trade Method Changed',
@@ -499,6 +507,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                       className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400 resize-none"
                     />
                   </div>
+                  {methodEdit === 'Pickup' && (
+                    <PickupLocationPicker
+                      address={methodLoc}
+                      lat={methodLat}
+                      lng={methodLng}
+                      onChange={({ lat, lng }) => { setMethodLat(lat); setMethodLng(lng); }}
+                    />
+                  )}
                   <p className="text-[10px] font-bold text-blue-600">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
                   <button
                     onClick={handleSaveMethod}

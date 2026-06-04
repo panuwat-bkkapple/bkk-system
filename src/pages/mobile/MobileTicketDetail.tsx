@@ -26,6 +26,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
+import PickupLocationPicker from '../../components/PickupLocationPicker';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -109,7 +110,7 @@ export const MobileTicketDetail = () => {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '' });
+  const [editForm, setEditForm] = useState<{ model: string; price: string; cust_name: string; cust_phone: string; cust_address: string; appt_date: string; appt_start: string; appt_end: string; receive_method: string; cust_lat?: number; cust_lng?: number }>({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '', cust_lat: undefined, cust_lng: undefined });
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -329,6 +330,8 @@ export const MobileTicketDetail = () => {
       appt_start: start,
       appt_end: end,
       receive_method: job.receive_method || '',
+      cust_lat: typeof job.cust_lat === 'number' ? job.cust_lat : undefined,
+      cust_lng: typeof job.cust_lng === 'number' ? job.cust_lng : undefined,
     });
     setShowEditModal(true);
   };
@@ -386,6 +389,18 @@ export const MobileTicketDetail = () => {
           'Trade Method Changed',
           `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
         ));
+      }
+
+      // Pickup pin → write coords so onPickupLocationChanged recomputes the
+      // rider fee from the real distance. Only writes when they actually moved,
+      // so a no-op save doesn't re-trigger the fee compute.
+      if (newMethod === 'Pickup' && typeof editForm.cust_lat === 'number' && typeof editForm.cust_lng === 'number') {
+        const moved = editForm.cust_lat !== job.cust_lat || editForm.cust_lng !== job.cust_lng;
+        if (moved) {
+          payload.cust_lat = editForm.cust_lat;
+          payload.cust_lng = editForm.cust_lng;
+          logs.push(makeLog('Pickup Location Updated', `ปรับจุดรับเครื่อง (${editForm.cust_lat.toFixed(5)}, ${editForm.cust_lng.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+        }
       }
 
       // Reschedule: write the new date/time range into pickup_schedule (read by
@@ -1279,6 +1294,18 @@ export const MobileTicketDetail = () => {
                   rows={2}
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
                 />
+                {/* Pickup only — pin the location so the rider fee / payout can
+                    be recomputed from the real distance (auto after save). */}
+                {editForm.receive_method === 'Pickup' && (
+                  <div className="mt-2">
+                    <PickupLocationPicker
+                      address={editForm.cust_address}
+                      lat={editForm.cust_lat}
+                      lng={editForm.cust_lng}
+                      onChange={({ lat, lng }) => setEditForm((f) => ({ ...f, cust_lat: lat, cust_lng: lng }))}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Reschedule — date + start/end time range. Works for every

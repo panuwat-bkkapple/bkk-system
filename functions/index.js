@@ -1526,6 +1526,80 @@ exports.onReceiveMethodChanged = onValueUpdated(
 );
 
 // =============================================================================
+// Pickup location change — recompute the rider fee from the new distance
+// -----------------------------------------------------------------------------
+// Fires when an admin moves the pickup pin (writes jobs/{id}/cust_lat) from the
+// ticket edit UI. The admin sets coordinates client-side (geocode the typed
+// address and/or drag the map pin); this function turns the new coordinate into
+// money: it re-runs computeRiderFee and updates pickup_fee + rider_fee_estimate
+// + net_payout. Only relevant for Pickup jobs (Store-in/Mail-in charge no fee).
+// Writes no coordinate fields, so it can't re-trigger itself. Name stays
+// specific for the same {region}/{name} namespace reason as the other triggers.
+// =============================================================================
+exports.onPickupLocationChanged = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/cust_lat",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (typeof after !== "number" || before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    // Only Pickup jobs deduct a rider fee; other methods are unaffected by
+    // the pickup coordinate, so leave their pricing alone.
+    if (job.receive_method !== "Pickup") return;
+
+    const basePrice = Number(job.final_price ?? job.price ?? 0);
+    const coupon = Number(
+      (job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0
+    );
+
+    let fee = Number(job.pickup_fee || 0);
+    const updates = {};
+    try {
+      const result = await computeRiderFee(db, job);
+      fee = result.fee;
+      updates.rider_fee_estimate = result.fee;
+      updates.rider_fee_estimate_meta = {
+        distance_km: result.distance_km,
+        rates: result.rates,
+        reason: result.reason,
+        computed_at: Date.now(),
+      };
+    } catch (err) {
+      console.error(`[onPickupLocationChanged] computeRiderFee failed for ${jobId}:`, err);
+    }
+    updates.pickup_fee = fee;
+    updates.net_payout = Math.max(0, basePrice - fee + coupon);
+
+    const existingLogs = Array.isArray(job.qc_logs)
+      ? job.qc_logs
+      : (job.qc_logs && typeof job.qc_logs === "object" ? Object.values(job.qc_logs) : []);
+    updates.qc_logs = [
+      {
+        action: "Fee Recalculated",
+        by: "System",
+        timestamp: Date.now(),
+        details: `ปรับจุดรับเครื่อง — คิดค่าไรเดอร์ใหม่ ฿${fee.toLocaleString()}, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+      },
+      ...existingLogs,
+    ];
+    updates.updated_at = Date.now();
+    await db.ref(`jobs/${jobId}`).update(updates);
+    console.log(
+      `[onPickupLocationChanged] ${jobId}: pin moved → fee=${fee}, net_payout=${updates.net_payout}`
+    );
+  }
+);
+
+// =============================================================================
 // Thailand Post Tracking — Database Trigger (ไม่ต้องใช้ HTTPS = ไม่ต้อง IAM)
 // =============================================================================
 
