@@ -230,32 +230,6 @@ function buildCustomerReceivedEmail(job) {
   };
 }
 
-/** Customer: "your deal is confirmed" — sent when admin accepts the case. */
-function buildCustomerConfirmedEmail(job) {
-  const name = job.cust_name ? `คุณ${esc(job.cust_name)}` : "ลูกค้า";
-  const method = job.receive_method;
-  let intro = `สวัสดี ${name} ทีมงาน ${esc(BRAND)} ได้ยืนยันรับคำสั่งขายของคุณเรียบร้อยแล้ว`;
-  if (method === "Pickup") {
-    const schedule = pickupScheduleText(job);
-    intro += schedule
-      ? ` เจ้าหน้าที่จะเข้ารับเครื่องตามนัดหมาย: ${esc(schedule)}`
-      : " เจ้าหน้าที่จะติดต่อนัดหมายเข้ารับเครื่องกับคุณอีกครั้ง";
-  } else if (method === "Mail-in") {
-    intro += " กรุณาจัดส่งอุปกรณ์ตามรายละเอียดที่ทีมงานแจ้ง และเก็บหลักฐานการส่งไว้";
-  } else if (method === "Store-in") {
-    intro += " คุณสามารถนำอุปกรณ์เข้ามาที่สาขาได้ตามรายละเอียดด้านล่าง";
-  }
-  return {
-    to: job.cust_email,
-    subject: `ยืนยันรับคำสั่งขาย — ${job.ref_no || "BKK APPLE"}`,
-    html: shell({
-      heading: "ยืนยันรับคำสั่งขายเรียบร้อย",
-      intro,
-      bodyHtml: orderSummaryCard(job) + trackingButton(job),
-    }),
-  };
-}
-
 /** Admin central inbox: a new order just landed. */
 function buildAdminNewOrderEmail(job, to) {
   const contact = [
@@ -284,9 +258,328 @@ function buildAdminNewOrderEmail(job, to) {
   };
 }
 
+// ── Status normalisation (ported from src/types/job-statuses.ts) ─────────────
+// functions/ is plain JS and can't import the canonical TS enum, so the legacy
+// aliasing + "In-Transit" overload rule are mirrored here. Keep in sync with
+// LEGACY_ALIAS / normalizeStatus in job-statuses.ts.
+
+const CANONICAL_STATUSES = new Set([
+  "New Lead", "Active Lead", "Following Up", "Appointment Set", "Waiting Drop-off",
+  "Awaiting Shipping", "Rider Assigned", "Rider Accepted", "Rider En Route",
+  "Rider Arrived", "Drop-off Received", "Parcel In Transit", "Parcel Received",
+  "Being Inspected", "Discrepancy Reported", "QC Review", "Revised Offer",
+  "Negotiation", "Price Accepted", "Payout Processing", "Waiting For Handover",
+  "Paid", "Rider Returning", "Pending QC", "Sent To QC Lab", "In Stock",
+  "Ready To Sell", "Sold", "Completed", "Cancelled", "Closed (Lost)",
+  "Drop-off Expired", "Shipping Expired", "Investigating Carrier", "Parcel Lost",
+  "Returning To Customer", "Return Confirmed", "Disputed", "Refund Initiated",
+  "Refund Completed",
+]);
+
+const LEGACY_ALIAS = {
+  PAID: "Paid",
+  "Payment Completed": "Paid",
+  "Active Leads": "Active Lead",
+  "Waiting for Handover": "Waiting For Handover",
+  Assigned: "Rider Assigned",
+  Accepted: "Rider Accepted",
+  "Heading to Customer": "Rider En Route",
+  Arrived: "Rider Arrived",
+  Returned: "Return Confirmed",
+};
+
+function normalizeStatus(legacy, receiveMethod) {
+  if (!legacy) return null;
+  if (CANONICAL_STATUSES.has(legacy)) return legacy;
+  if (legacy === "In-Transit") {
+    return receiveMethod === "Pickup" ? "Rider Returning" : "Parcel In Transit";
+  }
+  return LEGACY_ALIAS[legacy] || null;
+}
+
+const CANCEL_CATEGORY_LABEL_TH = {
+  customer_changed_mind: "ลูกค้าเปลี่ยนใจ",
+  customer_no_show: "ลูกค้าไม่มา / ติดต่อไม่ได้",
+  rider_issue: "ปัญหาฝั่งไรเดอร์",
+  device_mismatch: "เครื่องไม่ตรงใบสั่ง",
+  hidden_damage: "พบความเสียหายซ่อน",
+  price_disagreement: "เจรจาราคาไม่ลงตัว",
+  fraud_suspected: "สงสัยฉ้อโกง",
+  parcel_lost: "ขนส่งทำพัสดุหาย",
+  sla_timeout: "หมดเวลา (ระบบยกเลิกอัตโนมัติ)",
+  other: "อื่น ๆ",
+};
+
+/** RTDB-safe idempotency key for "we already emailed about this status". */
+function statusEmailKey(status) {
+  return String(status).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+// ── Per-status extras (HTML appended after the summary card) ──────────────────
+
+function maskAccount(n) {
+  const s = String(n || "").replace(/\s+/g, "");
+  return s.length > 4 ? `${"x".repeat(s.length - 4)}${s.slice(-4)}` : s;
+}
+
+function paymentExtra(job) {
+  const pi = job.payment_info || {};
+  const rows = [
+    pi.bank && ["ธนาคาร", esc(pi.bank)],
+    pi.account_name && ["ชื่อบัญชี", esc(pi.account_name)],
+    pi.account_number && ["เลขบัญชี", esc(maskAccount(pi.account_number))],
+  ].filter(Boolean);
+  if (rows.length === 0) return "";
+  const body = rows
+    .map(
+      ([k, v]) => `<tr><td style="padding:3px 0;font-size:13px;color:#6b7280;">${k}</td>
+        <td style="padding:3px 0 3px 16px;font-size:13px;color:#111827;text-align:right;">${v}</td></tr>`
+    )
+    .join("");
+  return `<p style="margin:18px 0 6px;font-size:13px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.4px;">โอนเข้าบัญชี</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef0f3;border-radius:8px;padding:8px 14px;">${body}</table>`;
+}
+
+function cancelExtra(job) {
+  const cat = job.cancel_category ? CANCEL_CATEGORY_LABEL_TH[job.cancel_category] : "";
+  const reason = [cat, job.cancel_reason].filter(Boolean).join(" — ");
+  if (!reason) return "";
+  return `<p style="margin:16px 0 0;font-size:14px;color:#b91c1c;">เหตุผล: ${esc(reason)}</p>`;
+}
+
+// ── Milestone copy map ────────────────────────────────────────────────────────
+// The map IS the allowlist: a (canonical) status not present here sends no mail.
+// `customer` (optional) drives the customer email; `adminLabel` is the short TH
+// label used for the admin milestone email (admin gets one for every entry).
+// Add a future status = add one entry here, no logic changes.
+
+const REF = (j) => j.ref_no || "BKK APPLE";
+
+const STATUS_COPY = {
+  "Active Lead": {
+    adminLabel: "รับเคสแล้ว",
+    customer: {
+      subject: (j) => `ยืนยันรับคำสั่งขาย — ${REF(j)}`,
+      heading: "ยืนยันรับคำสั่งขายเรียบร้อย",
+      intro: (j) => {
+        let t = `ทีมงาน ${esc(BRAND)} ได้ยืนยันรับคำสั่งขายของคุณเรียบร้อยแล้ว`;
+        if (j.receive_method === "Pickup") {
+          const s = pickupScheduleText(j);
+          t += s ? ` เจ้าหน้าที่จะเข้ารับเครื่องตามนัดหมาย: ${esc(s)}` : " เจ้าหน้าที่จะติดต่อนัดหมายเข้ารับเครื่องอีกครั้ง";
+        } else if (j.receive_method === "Mail-in") {
+          t += " กรุณาจัดส่งอุปกรณ์ตามรายละเอียดที่ทีมงานแจ้ง และเก็บหลักฐานการส่งไว้";
+        } else if (j.receive_method === "Store-in") {
+          t += " คุณสามารถนำอุปกรณ์เข้ามาที่สาขาได้ตามรายละเอียดด้านล่าง";
+        }
+        return t;
+      },
+    },
+  },
+  "Appointment Set": {
+    adminLabel: "ตั้งนัดหมาย",
+    customer: {
+      subject: (j) => `นัดหมายเรียบร้อย — ${REF(j)}`,
+      heading: "นัดหมายรับเครื่องเรียบร้อย",
+      intro: (j) => {
+        const s = pickupScheduleText(j);
+        return `เราได้นัดหมายรับเครื่องของคุณแล้ว${s ? `: ${esc(s)}` : " เจ้าหน้าที่จะยืนยันเวลากับคุณอีกครั้ง"}`;
+      },
+    },
+  },
+  "Drop-off Received": {
+    adminLabel: "รับเครื่องที่สาขา",
+    customer: {
+      subject: (j) => `รับเครื่องของคุณแล้ว — ${REF(j)}`,
+      heading: "เราได้รับเครื่องของคุณแล้ว",
+      intro: () => "เราได้รับเครื่องที่สาขาเรียบร้อยแล้ว และกำลังเข้าสู่ขั้นตอนตรวจสอบสภาพเครื่อง",
+    },
+  },
+  "Parcel Received": {
+    adminLabel: "รับพัสดุแล้ว",
+    customer: {
+      subject: (j) => `รับพัสดุของคุณแล้ว — ${REF(j)}`,
+      heading: "เราได้รับพัสดุของคุณแล้ว",
+      intro: () => "เราได้รับพัสดุเรียบร้อยแล้ว และกำลังเข้าสู่ขั้นตอนตรวจสอบสภาพเครื่อง",
+    },
+  },
+  "Being Inspected": {
+    adminLabel: "กำลังตรวจเครื่อง",
+    customer: {
+      subject: (j) => `กำลังตรวจสอบเครื่อง — ${REF(j)}`,
+      heading: "กำลังตรวจสอบสภาพเครื่อง",
+      intro: () => "ทีมงานกำลังตรวจสอบสภาพเครื่องของคุณ หากตรงตามที่ประเมินไว้ เราจะดำเนินการโอนเงินทันที",
+    },
+  },
+  "Revised Offer": {
+    adminLabel: "เสนอราคาใหม่",
+    customer: {
+      subject: (j) => `มีข้อเสนอราคาใหม่ รอการยืนยัน — ${REF(j)}`,
+      heading: "มีข้อเสนอราคาใหม่",
+      intro: () => "หลังตรวจสอบสภาพเครื่อง เรามีข้อเสนอราคาใหม่ตามด้านล่าง กรุณายืนยันผ่านระบบหรือกับเจ้าหน้าที่เพื่อดำเนินการต่อ",
+    },
+  },
+  Negotiation: {
+    adminLabel: "ต่อรองราคา",
+    customer: {
+      subject: (j) => `ปรับราคา รอการยืนยัน — ${REF(j)}`,
+      heading: "มีการปรับราคา รอการยืนยัน",
+      intro: () => "ราคารับซื้อมีการปรับตามสภาพเครื่องจริง กรุณายืนยันราคาใหม่ตามด้านล่างเพื่อให้เราดำเนินการต่อ",
+    },
+  },
+  Paid: {
+    adminLabel: "โอนเงินแล้ว",
+    customer: {
+      subject: (j) => `โอนเงินเรียบร้อย — ${REF(j)}`,
+      heading: "โอนเงินเรียบร้อยแล้ว",
+      intro: () => `เราได้โอนเงินค่าขายอุปกรณ์ให้คุณเรียบร้อยแล้ว ขอบคุณที่ใช้บริการ ${esc(BRAND)}`,
+      extra: paymentExtra,
+    },
+  },
+  Cancelled: {
+    adminLabel: "ยกเลิก",
+    customer: {
+      subject: (j) => `คำสั่งขายถูกยกเลิก — ${REF(j)}`,
+      heading: "คำสั่งขายถูกยกเลิก",
+      intro: () => "คำสั่งขายของคุณถูกยกเลิก หากต้องการดำเนินการต่อหรือมีข้อสงสัย กรุณาติดต่อทีมงาน",
+      extra: cancelExtra,
+    },
+  },
+  "Closed (Lost)": {
+    adminLabel: "ปิดงาน",
+    customer: {
+      subject: (j) => `ปิดคำสั่งขาย — ${REF(j)}`,
+      heading: "ปิดคำสั่งขาย",
+      intro: () => "คำสั่งขายนี้ถูกปิดเรียบร้อยแล้ว หากต้องการขายใหม่ คุณสามารถเริ่มคำสั่งขายใหม่ได้ทุกเมื่อ",
+      extra: cancelExtra,
+    },
+  },
+  "Drop-off Expired": {
+    adminLabel: "หมดเวลานำเข้าสาขา",
+    customer: {
+      subject: (j) => `หมดเวลานำเครื่องเข้าสาขา — ${REF(j)}`,
+      heading: "หมดเวลานำเครื่องเข้าสาขา",
+      intro: () => "เลยกำหนดการนำเครื่องเข้าสาขาแล้ว คำสั่งขายถูกพักไว้ หากยังต้องการขาย กรุณาติดต่อทีมงานเพื่อนัดหมายใหม่",
+    },
+  },
+  "Shipping Expired": {
+    adminLabel: "หมดเวลาจัดส่ง",
+    customer: {
+      subject: (j) => `หมดเวลาจัดส่งพัสดุ — ${REF(j)}`,
+      heading: "หมดเวลาจัดส่งพัสดุ",
+      intro: () => "เลยกำหนดการจัดส่งพัสดุแล้ว คำสั่งขายถูกพักไว้ หากยังต้องการขาย กรุณาติดต่อทีมงาน",
+    },
+  },
+  "Investigating Carrier": {
+    adminLabel: "ตรวจสอบกับขนส่ง",
+    customer: {
+      subject: (j) => `กำลังตรวจสอบพัสดุกับขนส่ง — ${REF(j)}`,
+      heading: "กำลังตรวจสอบพัสดุกับขนส่ง",
+      intro: () => "เรากำลังประสานกับบริษัทขนส่งเพื่อติดตามพัสดุของคุณ และจะแจ้งความคืบหน้าให้ทราบโดยเร็ว",
+    },
+  },
+  "Parcel Lost": {
+    adminLabel: "พัสดุสูญหาย",
+    customer: {
+      subject: (j) => `แจ้งพัสดุสูญหาย — ${REF(j)}`,
+      heading: "พัสดุสูญหายระหว่างขนส่ง",
+      intro: () => "เราตรวจสอบแล้วพบว่าพัสดุสูญหายระหว่างขนส่ง ทีมงานจะติดต่อคุณเพื่อดำเนินการชดเชยตามนโยบาย",
+    },
+  },
+  "Returning To Customer": {
+    adminLabel: "ส่งเครื่องคืน",
+    customer: {
+      subject: (j) => `กำลังส่งเครื่องคืน — ${REF(j)}`,
+      heading: "กำลังส่งเครื่องคืนให้คุณ",
+      intro: () => "เรากำลังดำเนินการส่งเครื่องคืนให้คุณ และจะแจ้งรายละเอียดการจัดส่งให้ทราบ",
+    },
+  },
+  "Return Confirmed": {
+    adminLabel: "ยืนยันส่งคืน",
+    customer: {
+      subject: (j) => `ยืนยันการส่งเครื่องคืน — ${REF(j)}`,
+      heading: "ยืนยันการส่งเครื่องคืน",
+      intro: () => "เครื่องของคุณถูกส่งคืนเรียบร้อยแล้ว หากมีข้อสงสัยกรุณาติดต่อทีมงาน",
+    },
+  },
+  "Refund Initiated": {
+    adminLabel: "เริ่มคืนเงิน",
+    customer: {
+      subject: (j) => `เริ่มดำเนินการคืนเงิน — ${REF(j)}`,
+      heading: "เริ่มดำเนินการคืนเงิน",
+      intro: () => "เราได้เริ่มดำเนินการคืนเงินให้คุณแล้ว โดยปกติใช้เวลา 1-3 วันทำการ",
+    },
+  },
+  "Refund Completed": {
+    adminLabel: "คืนเงินเสร็จ",
+    customer: {
+      subject: (j) => `คืนเงินเรียบร้อย — ${REF(j)}`,
+      heading: "คืนเงินเรียบร้อยแล้ว",
+      intro: () => "เราได้คืนเงินให้คุณเรียบร้อยแล้ว ขอบคุณที่ใช้บริการ",
+      extra: paymentExtra,
+    },
+  },
+};
+
+/**
+ * Build the customer milestone email for a canonical status, or null when the
+ * status isn't a customer-facing milestone / there's no customer copy.
+ */
+function buildCustomerStatusEmail(job, status) {
+  const entry = STATUS_COPY[status];
+  if (!entry || !entry.customer) return null;
+  const c = entry.customer;
+  const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
+  const extra = c.extra ? c.extra(job) : "";
+  return {
+    to: job.cust_email,
+    subject: c.subject(job),
+    html: shell({
+      heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
+      intro: `${name}${c.intro(job)}`,
+      bodyHtml: orderSummaryCard(job) + extra + trackingButton(job),
+    }),
+  };
+}
+
+/**
+ * Build the admin milestone notification for a canonical status, or null when
+ * the status isn't a tracked milestone.
+ */
+function buildAdminStatusEmail(job, status, to) {
+  const entry = STATUS_COPY[status];
+  if (!entry) return null;
+  const contact = [
+    job.cust_name && `ชื่อ: ${esc(job.cust_name)}`,
+    job.cust_phone && `โทร: ${esc(job.cust_phone)}`,
+  ]
+    .filter(Boolean)
+    .join(" &nbsp;|&nbsp; ");
+  return {
+    to,
+    subject: `[${entry.adminLabel}] ${job.ref_no || ""} — ${esc(job.model || "")}`.trim(),
+    html: shell({
+      heading: `อัปเดตสถานะ: ${esc(entry.adminLabel)}`,
+      intro: `สถานะปัจจุบัน: <strong>${esc(status)}</strong>`,
+      bodyHtml:
+        (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
+        orderSummaryCard(job),
+      footerNote: "อีเมลแจ้งความคืบหน้าภายในทีม BKK APPLE",
+    }),
+  };
+}
+
+/** True when a canonical status is a tracked milestone (drives admin email). */
+function isMilestone(status) {
+  return Boolean(STATUS_COPY[status]);
+}
+
 module.exports = {
   sendEmail,
+  normalizeStatus,
+  statusEmailKey,
+  isMilestone,
   buildCustomerReceivedEmail,
-  buildCustomerConfirmedEmail,
   buildAdminNewOrderEmail,
+  buildCustomerStatusEmail,
+  buildAdminStatusEmail,
 };

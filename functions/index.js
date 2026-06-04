@@ -6,9 +6,13 @@ const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 const {
   sendEmail,
+  normalizeStatus,
+  statusEmailKey,
+  isMilestone,
   buildCustomerReceivedEmail,
-  buildCustomerConfirmedEmail,
   buildAdminNewOrderEmail,
+  buildCustomerStatusEmail,
+  buildAdminStatusEmail,
 } = require("./email");
 
 initializeApp();
@@ -883,7 +887,6 @@ exports.onNewTicketCreated = onValueCreated(
 // Mirror onNewTicketCreated's "new order" status set (functions/ can't import
 // the canonical TS enum). Accept both "Active Lead" and legacy "Active Leads".
 const ORDER_CREATED_STATUSES = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
-const ACTIVE_LEAD_STATUSES = ["Active Lead", "Active Leads"];
 
 exports.onJobCreatedSendEmails = onValueCreated(
   {
@@ -935,7 +938,11 @@ exports.onJobCreatedSendEmails = onValueCreated(
   }
 );
 
-exports.onJobConfirmedSendEmail = onValueUpdated(
+// Milestone emails on status change. Fires on every /jobs/{jobId}/status write
+// but only sends for canonical statuses present in the email.js copy map (the
+// map is the allowlist). Customer mail when there's customer copy + an email;
+// admin mail to the central inbox for every milestone (per product decision).
+exports.onJobStatusEmail = onValueUpdated(
   {
     ref: "/jobs/{jobId}/status",
     region: "asia-southeast1",
@@ -946,30 +953,53 @@ exports.onJobConfirmedSendEmail = onValueUpdated(
       const after = event.data.after.val();
       if (before === after) return;
 
-      // Fire only on the transition INTO an active lead (admin accepted the
-      // case). Instant-sell orders are CREATED at "Active Leads" — that's a
-      // create, not a status update, so this never double-sends for them.
-      if (!ACTIVE_LEAD_STATUSES.includes(after) || ACTIVE_LEAD_STATUSES.includes(before)) return;
-
       const jobId = event.params.jobId;
       const db = getDatabase();
       const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
       if (!jobSnap.exists()) return;
       const job = jobSnap.val();
-
       if (job.is_test) return;
-      if (!job.cust_email) return;
-      if (job.deal_confirmed_email_sent_at) return;
-      await db.ref(`jobs/${jobId}/deal_confirmed_email_sent_at`).set(Date.now());
 
-      try {
-        const res = await sendEmail(buildCustomerConfirmedEmail(job));
-        console.log(`[orderEmail] customer-confirmed ${jobId}:`, JSON.stringify(res));
-      } catch (e) {
-        console.error(`[orderEmail] customer-confirmed failed ${jobId}:`, e);
+      // Normalize legacy/aliased values to canonical before map lookup. The
+      // "In-Transit" overload needs receive_method to disambiguate.
+      const status = normalizeStatus(after, job.receive_method);
+      if (!status || !isMilestone(status)) return;
+
+      // Per-status idempotency: a retry / re-entry into the same status won't
+      // re-send. Keys are RTDB-safe slugs under jobs/{id}/status_email_sent.
+      const key = statusEmailKey(status);
+      const sentRef = db.ref(`jobs/${jobId}/status_email_sent/${key}`);
+      if ((await sentRef.once("value")).exists()) return;
+      await sentRef.set(Date.now());
+
+      // Customer milestone email (skip silently when no email / no customer copy).
+      if (job.cust_email) {
+        const msg = buildCustomerStatusEmail(job, status);
+        if (msg) {
+          try {
+            const res = await sendEmail(msg);
+            console.log(`[orderEmail] customer ${status} ${jobId}:`, JSON.stringify(res));
+          } catch (e) {
+            console.error(`[orderEmail] customer ${status} failed ${jobId}:`, e);
+          }
+        }
+      }
+
+      // Admin milestone notification to the central inbox.
+      const adminTo = process.env.ORDER_NOTIFY_EMAIL;
+      if (adminTo) {
+        const msg = buildAdminStatusEmail(job, status, adminTo);
+        if (msg) {
+          try {
+            const res = await sendEmail(msg);
+            console.log(`[orderEmail] admin ${status} ${jobId}:`, JSON.stringify(res));
+          } catch (e) {
+            console.error(`[orderEmail] admin ${status} failed ${jobId}:`, e);
+          }
+        }
       }
     } catch (err) {
-      console.error("[orderEmail] onJobConfirmedSendEmail unhandled error:", err);
+      console.error("[orderEmail] onJobStatusEmail unhandled error:", err);
     }
   }
 );
