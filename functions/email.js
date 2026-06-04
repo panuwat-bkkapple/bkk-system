@@ -24,6 +24,19 @@
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const BRAND = "BKK APPLE";
 
+// Registered company identity — MIRROR of the source of truth in
+// bkk-frontend-next (app/utils/company.ts / functions/src/legal.ts). Used to
+// render the ใบสำคัญรับเงิน (payment voucher) the company issues when buying
+// from an individual who can't issue a receipt. Keep in sync if the registered
+// entity changes.
+const COMPANY = {
+  legalName: "บริษัท เก็ทโมบี้ จำกัด",
+  tradeName: "BKK APPLE",
+  taxId: "0105565094088",
+  address:
+    "596/163 ซอย 6/1 โครงการ อารียา ทูบี ถนนลาดปลาเค้า แขวงจรเข้บัว เขตลาดพร้าว กรุงเทพฯ 10230",
+};
+
 /**
  * Send one email via Resend. No-ops (returns { skipped }) when the provider
  * isn't configured or there are no recipients, so a missing secret degrades
@@ -78,6 +91,55 @@ function formatTHB(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n === 0) return "-";
   return `฿${n.toLocaleString("th-TH")}`;
+}
+
+// Thai baht-in-words for the payment voucher (e.g. 31800 → "สามหมื่นหนึ่งพัน
+// แปดร้อยบาทถ้วน"). Handles เอ็ด / ยี่สิบ / ล้าน and satang.
+const THAI_DIGITS = ["", "หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า"];
+const THAI_PLACES = ["", "สิบ", "ร้อย", "พัน", "หมื่น", "แสน"];
+
+function readThaiChunk(group, hasHigher) {
+  const g = String(group);
+  const len = g.length;
+  let seenNonZero = Boolean(hasHigher);
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    const d = parseInt(g[i], 10);
+    const place = len - i - 1; // 0..5
+    if (d === 0) continue;
+    if (place === 0) {
+      out += d === 1 && seenNonZero ? "เอ็ด" : THAI_DIGITS[d];
+    } else if (place === 1) {
+      out += d === 1 ? "สิบ" : d === 2 ? "ยี่สิบ" : THAI_DIGITS[d] + "สิบ";
+    } else {
+      out += THAI_DIGITS[d] + THAI_PLACES[place];
+    }
+    seenNonZero = true;
+  }
+  return out;
+}
+
+function readThaiInt(numStr) {
+  const s = String(numStr).replace(/^0+/, "");
+  if (s === "") return "";
+  if (s.length > 6) {
+    const high = s.slice(0, s.length - 6);
+    const low = s.slice(s.length - 6);
+    return readThaiChunk(high, false) + "ล้าน" + readThaiChunk(low, true);
+  }
+  return readThaiChunk(s, false);
+}
+
+function bahtText(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "";
+  const fixed = (Math.round(Math.abs(n) * 100) / 100).toFixed(2);
+  const [intPart, satPart] = fixed.split(".");
+  const bahtWords = readThaiInt(intPart) || "ศูนย์";
+  let out = bahtWords + "บาท";
+  if (satPart === "00") out += "ถ้วน";
+  else out += readThaiInt(satPart) + "สตางค์";
+  return out;
 }
 
 const RECEIVE_METHOD_TH = {
@@ -261,6 +323,80 @@ function buildAdminNewOrderEmail(job, to) {
           ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>`
           : "") + orderSummaryCard(job),
       footerNote: "อีเมลแจ้งเตือนภายในทีม BKK APPLE — เปิดแอดมินเพื่อดูรายละเอียดและรับเคส",
+    }),
+  };
+}
+
+// ── Payment voucher (ใบสำคัญรับเงิน) ──────────────────────────────────────────
+// When BKK buys a device from an individual, the seller (a natural person)
+// can't issue a tax receipt, so the company issues a ใบสำคัญรับเงิน instead:
+// the buyer-prepared voucher the payee acknowledges, used as the company's
+// accounting/tax evidence of the expense. This replaces the plain "receipt"
+// framing for the customer Paid email.
+
+/** Company (payer) + customer (payee) identity block for the voucher. */
+function voucherPartiesCard(job) {
+  const docMeta = kvTable([
+    ["เลขที่เอกสาร", esc(job.ref_no || "-")],
+    job.paid_at && ["วันที่จ่ายเงิน", esc(formatThaiDateTime(job.paid_at))],
+  ]);
+  const payer = kvTable([
+    ["ผู้จ่ายเงิน", esc(COMPANY.legalName)],
+    ["เลขประจำตัวผู้เสียภาษี", esc(COMPANY.taxId)],
+    ["ที่อยู่", esc(COMPANY.address)],
+  ]);
+  const payee = kvTable([
+    ["ผู้รับเงิน", esc(job.cust_name || "-")],
+    (job.cust_id_address || job.cust_address) && [
+      "ที่อยู่",
+      esc(job.cust_id_address || job.cust_address),
+    ],
+  ]);
+  return (
+    sectionCard("รายละเอียดเอกสาร", docMeta) +
+    sectionCard("ผู้จ่ายเงิน (บริษัท)", payer) +
+    sectionCard("ผู้รับเงิน", payee)
+  );
+}
+
+/** Amount-in-words line ("จำนวนเงิน (ตัวอักษร): (... บาทถ้วน)"). */
+function bahtTextLine(amount) {
+  const t = bahtText(amount);
+  if (!t) return "";
+  return `<p style="margin:12px 2px 0;font-size:14px;color:#111827;">จำนวนเงิน (ตัวอักษร): <strong>(${esc(t)})</strong></p>`;
+}
+
+function voucherLegalNote() {
+  return `<p style="margin:16px 2px 0;font-size:12px;line-height:1.7;color:#6b7280;">
+    เนื่องจากผู้รับเงินเป็นบุคคลธรรมดาซึ่งไม่สามารถออกใบเสร็จรับเงินได้
+    ${esc(COMPANY.legalName)} จึงออกใบสำคัญรับเงินฉบับนี้ไว้เป็นหลักฐานการจ่ายเงิน
+    เพื่อประกอบการบันทึกบัญชีและภาษีตามกฎหมาย — เอกสารฉบับนี้เป็นสำเนาอิเล็กทรอนิกส์
+    โดยผู้รับเงินได้ลงลายมือชื่อรับเงินไว้แล้ว ณ จุดส่งมอบเครื่อง
+  </p>`;
+}
+
+/**
+ * Customer Paid document = ใบสำคัญรับเงิน (payment voucher), not a receipt.
+ * Sensitive verification (SickW/KYC) is NOT included — only the parties,
+ * the device, and the net amount paid.
+ */
+function buildCustomerPaymentVoucherEmail(job) {
+  const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
+  const amount = job.net_payout ?? job.price;
+  return {
+    to: job.cust_email,
+    subject: `ใบสำคัญรับเงิน — ${job.ref_no || "BKK APPLE"}`,
+    html: shell({
+      heading: "ใบสำคัญรับเงิน",
+      intro: `${name}${esc(COMPANY.legalName)} ได้จ่ายเงินค่ารับซื้ออุปกรณ์ให้คุณเรียบร้อยแล้ว รายละเอียดตามเอกสารด้านล่าง`,
+      bodyHtml:
+        voucherPartiesCard(job) +
+        orderSummaryCard(job, PAYOUT_LABEL_NET) +
+        bahtTextLine(amount) +
+        paymentExtra(job) +
+        voucherLegalNote() +
+        trackingButton(job),
+      footerNote: `${COMPANY.legalName} (${COMPANY.tradeName}) • เลขประจำตัวผู้เสียภาษี ${COMPANY.taxId}`,
     }),
   };
 }
@@ -536,13 +672,10 @@ const STATUS_COPY = {
     },
   },
   Paid: {
+    // Customer copy is the ใบสำคัญรับเงิน (buildCustomerPaymentVoucherEmail),
+    // delegated in buildCustomerStatusEmail; admin copy is the full sale
+    // summary (buildAdminPaidSummaryEmail). Entry kept so Paid is a milestone.
     adminLabel: "โอนเงินแล้ว",
-    customer: {
-      subject: (j) => `โอนเงินเรียบร้อย — ${REF(j)}`,
-      heading: "โอนเงินเรียบร้อยแล้ว",
-      intro: () => `เราได้โอนเงินค่าขายอุปกรณ์ให้คุณเรียบร้อยแล้ว ขอบคุณที่ใช้บริการ ${esc(BRAND)}`,
-      extra: paymentExtra,
-    },
   },
   Cancelled: {
     adminLabel: "ยกเลิก",
@@ -631,15 +764,17 @@ const STATUS_COPY = {
 
 /**
  * Build the customer milestone email for a canonical status, or null when the
- * status isn't a customer-facing milestone / there's no customer copy.
+ * status isn't a customer-facing milestone / there's no customer copy. Paid is
+ * special-cased to the ใบสำคัญรับเงิน (payment voucher).
  */
 function buildCustomerStatusEmail(job, status) {
+  if (status === "Paid") return buildCustomerPaymentVoucherEmail(job);
   const entry = STATUS_COPY[status];
   if (!entry || !entry.customer) return null;
   const c = entry.customer;
   const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
   const extra = c.extra ? c.extra(job) : "";
-  const payoutLabel = status === "Paid" ? PAYOUT_LABEL_NET : PAYOUT_LABEL_ESTIMATE;
+  const payoutLabel = PAYOUT_LABEL_ESTIMATE;
   return {
     to: job.cust_email,
     subject: c.subject(job),
@@ -684,9 +819,10 @@ function isMilestone(status) {
 }
 
 /**
- * Admin-only full sale record sent at Paid: order + payout + SickW device
- * verification (GSX/FMI/iCloud) + KYC. `kyc` is the /jobs_kyc/{jobId} record
- * (or null). Sensitive — must never be sent to a customer.
+ * Admin/finance full sale record sent at Paid. Doubles as the company's
+ * ใบสำคัญรับเงิน backing: parties + order + payout + amount-in-words, plus the
+ * internal-only SickW device verification (GSX/FMI/iCloud) + KYC. `kyc` is the
+ * /jobs_kyc/{jobId} record (or null). Sensitive — never sent to a customer.
  */
 function buildAdminPaidSummaryEmail(job, kyc, to) {
   const contact = [
@@ -702,18 +838,20 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
       job.net_payout ?? job.price
     )}`.trim(),
     html: shell({
-      heading: "สรุปการขาย (โอนเงินเรียบร้อย)",
+      heading: "สรุปการขาย / ใบสำคัญรับเงิน (โอนเงินเรียบร้อย)",
       intro: `เลขที่ <strong>${esc(job.ref_no || "-")}</strong>${
         job.paid_at ? ` • โอนเมื่อ ${esc(formatThaiDateTime(job.paid_at))}` : ""
       }`,
       bodyHtml:
         (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
+        voucherPartiesCard(job) +
         orderSummaryCard(job, PAYOUT_LABEL_NET) +
+        bahtTextLine(job.net_payout ?? job.price) +
         paymentExtra(job) +
         sickwVerificationExtra(job) +
         kycExtra(kyc),
       footerNote:
-        "บันทึกการขายภายในทีม BKK APPLE — มีข้อมูลส่วนบุคคล (PDPA) โปรดเก็บเป็นความลับ ห้ามส่งต่อ",
+        "บันทึกการขาย / ใบสำคัญรับเงินภายในทีม BKK APPLE — มีข้อมูลส่วนบุคคล (PDPA) โปรดเก็บเป็นความลับ ห้ามส่งต่อ",
     }),
   };
 }
@@ -726,6 +864,7 @@ module.exports = {
   buildCustomerReceivedEmail,
   buildAdminNewOrderEmail,
   buildCustomerStatusEmail,
+  buildCustomerPaymentVoucherEmail,
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
 };
