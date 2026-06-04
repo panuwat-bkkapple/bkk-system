@@ -91,10 +91,13 @@
 1. **จุดรับเครื่อง:** `cust_address` (ข้อความ) ↔ `cust_lat`/`cust_lng` (หมุด) ↔ `cust_address_geocoded_*`
    - คนอ่านข้าม repo: **ไรเดอร์นำทาง/geofence ใช้หมุดเป็นหลัก** (ดู section "จุดรับเครื่อง / หมุด"). แก้ที่อยู่ต้อง reconcile หมุดเสมอ
 2. **ราคา/ยอดเงินลูกค้า:** `price`/`final_price` ↔ `pickup_fee` ↔ `applied_coupon` ↔ `net_payout`
-   - สูตรเดียวที่ใช้ทุกที่: `net_payout = max(0, base − (receive_method==='Pickup' ? pickup_fee : 0) + coupon)` (client: `MobileTicketDetail` ~บรรทัด 423; server: `functions/index.js`). แก้สูตร = แก้ทั้ง client + functions
-   - **หลังสร้างงาน เรื่องเงินเป็นของ cloud function** (`onReceiveMethodChanged`, `onPickupLocationChanged`) — client เขียนได้แค่ `final_price` (ตอนแก้ราคา) แล้วปล่อยให้ function คิด `pickup_fee`/`net_payout` ต่อ
+   - สูตรเดียวที่ใช้ทุกที่: `net_payout = max(0, base − (receive_method==='Pickup' ? pickup_fee : 0) + coupon)` (client: `MobileTicketDetail` ~บรรทัด 423; server: ทั้ง bkk-system + bkk-frontend-next functions). แก้สูตร = แก้ทุกที่
    - คนอ่านข้าม repo: `bkk-frontend-next` แสดง `net_payout` ให้ลูกค้า (track/profile/history/analytics); finance pages อ่าน `net_payout`
-3. **ค่าธรรมเนียม — คนละตัว อย่าสับสน:** `pickup_fee` = หักจาก**ลูกค้า** (อยู่ในสูตร net_payout) | `rider_fee`/`rider_fee_estimate` = จ่ายให้**ไรเดอร์** (อ่านโดย finance settlement + ไรเดอร์เห็น estimate ก่อนรับงาน). คนละความหมาย ห้ามเอามาใช้แทนกัน
+3. **ค่าธรรมเนียม — คนละตัว อย่าสับสน:** `pickup_fee` = ค่าส่งหักจาก**ลูกค้า** (อยู่ในสูตร net_payout, คิดด้วย **zone pricing** `settings/store/delivery_pricing`) | `rider_fee`/`rider_fee_estimate` = ค่าจ้าง**ไรเดอร์** (คิดด้วย `settings/logistics_rates` = `computeRiderFee`, อ่านโดย finance settlement + ไรเดอร์เห็น estimate ก่อนรับงาน). **คนละสูตร คนละ config — ห้ามเอาสูตรหนึ่งไปคิดอีกตัว** (เคยพลาด: เอาสูตรไรเดอร์ไปคิด pickup_fee)
+   - **เจ้าของการคิดเงินหลังสร้างงาน (แยกตาม domain):**
+     - **ค่าส่งลูกค้า `pickup_fee` + `net_payout` ตอน Pickup** = `bkk-frontend-next` functions (`onPickupPinCustomerFee`, `onMethodChangeCustomerFee`) — single source ของ zone pricing. bkk-system **ห้ามแตะ pickup_fee ตอน Pickup**
+     - **ค่าส่ง=0 ตอน Store-in/Mail-in** + **ค่าจ้างไรเดอร์ `rider_fee_estimate`** = `bkk-system` functions (`onReceiveMethodChanged`, `onPickupLocationChanged`)
+   - client เขียนแค่ `final_price` (ตอนแก้ราคา) + `cust_lat/lng` (ตอนแก้จุดรับ) + `receive_method` แล้วปล่อยให้ functions คิดเงินต่อ
 4. **วิธีรับเครื่อง:** `receive_method` ↔ `pickup_fee` ↔ `rider_id` ↔ `status` ↔ location fields (`cust_address`/`store_branch`)
    - เจ้าของ reconcile = `onReceiveMethodChanged` (ดู section Cloud Functions + Trade Method)
 5. **นัดหมาย:** `pickup_schedule.time` (string `"12:00 - 14:00"`, backward-compat) ↔ `time_start`/`time_end`
