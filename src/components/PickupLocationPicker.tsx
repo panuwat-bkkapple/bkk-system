@@ -19,6 +19,28 @@ const BANGKOK = { lat: 13.7563, lng: 100.5018 };
 // keyed by options, and mismatched options throw at runtime.
 const LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry'];
 
+// Resolve an address string to coordinates via the Maps JS Geocoder. Returns
+// null if Maps isn't loaded, the address is blank, or no match is found.
+// Exported so save handlers can reconcile a stale pin when the admin edits the
+// address text without touching the map (the rider navigates by the pin, so a
+// stale pin sends them to the wrong place).
+export function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.google || !address?.trim()) {
+      resolve(null);
+      return;
+    }
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ address }, (results, status) => {
+      if (status === 'OK' && results?.[0]) {
+        resolve({ lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
 interface Props {
   address: string;
   lat?: number;
@@ -37,23 +59,19 @@ export default function PickupLocationPicker({ address, lat, lng, onChange, heig
   const hasPin = typeof lat === 'number' && typeof lng === 'number';
   const center = hasPin ? { lat: lat as number, lng: lng as number } : BANGKOK;
 
-  const geocodeAddress = () => {
-    if (!window.google || !address?.trim()) return;
+  const handleGeocode = async () => {
+    if (!address?.trim()) return;
     setSearching(true);
-    const geocoder = new window.google.maps.Geocoder();
-    geocoder.geocode({ address }, (results, status) => {
-      setSearching(false);
-      if (status === 'OK' && results?.[0]) {
-        onChange({ lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() });
-      }
-    });
+    const coords = await geocodeAddress(address);
+    setSearching(false);
+    if (coords) onChange(coords);
   };
 
   return (
     <div className="space-y-2">
       <button
         type="button"
-        onClick={geocodeAddress}
+        onClick={handleGeocode}
         disabled={!isLoaded || searching || !address?.trim()}
         className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >

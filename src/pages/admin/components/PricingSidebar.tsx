@@ -11,7 +11,7 @@ import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
-import PickupLocationPicker from '@/components/PickupLocationPicker';
+import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -130,14 +130,25 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
     if (newMethod === job.receive_method || !canChangeReceiveMethod(job.status)) return;
     setSavingMethod(true);
     try {
+      // Switching to Pickup: the rider navigates by cust_lat/cust_lng, so send a
+      // pin. Prefer the one the admin set; otherwise geocode the address. Don't
+      // leave a stale pin from a previous Pickup — clear it if we have none.
+      let pinFields: Record<string, number | null> = {};
+      if (newMethod === 'Pickup') {
+        let lat = methodLat;
+        let lng = methodLng;
+        if (typeof lat !== 'number' || typeof lng !== 'number') {
+          const coords = await geocodeAddress(methodLoc);
+          if (coords) { lat = coords.lat; lng = coords.lng; }
+        }
+        pinFields = (typeof lat === 'number' && typeof lng === 'number')
+          ? { cust_lat: lat, cust_lng: lng }
+          : { cust_lat: null, cust_lng: null };
+      }
       await update(ref(db, `jobs/${job.id}`), {
         receive_method: newMethod,
         ...buildMethodLocationFields(newMethod, methodLoc),
-        // Switching to Pickup: send the pin so the fee is computed from the
-        // real distance (onReceiveMethodChanged / onPickupLocationChanged).
-        ...(newMethod === 'Pickup' && typeof methodLat === 'number' && typeof methodLng === 'number'
-          ? { cust_lat: methodLat, cust_lng: methodLng }
-          : {}),
+        ...pinFields,
         qc_logs: [
           {
             action: 'Trade Method Changed',

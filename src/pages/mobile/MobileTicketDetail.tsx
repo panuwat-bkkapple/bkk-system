@@ -26,7 +26,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
-import PickupLocationPicker from '../../components/PickupLocationPicker';
+import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -391,15 +391,37 @@ export const MobileTicketDetail = () => {
         ));
       }
 
-      // Pickup pin → write coords so onPickupLocationChanged recomputes the
-      // rider fee from the real distance. Only writes when they actually moved,
-      // so a no-op save doesn't re-trigger the fee compute.
-      if (newMethod === 'Pickup' && typeof editForm.cust_lat === 'number' && typeof editForm.cust_lng === 'number') {
-        const moved = editForm.cust_lat !== job.cust_lat || editForm.cust_lng !== job.cust_lng;
-        if (moved) {
+      // Pickup pin reconciliation. The rider navigates by cust_lat/cust_lng and
+      // ignores the text address when a pin exists, so the pin must NEVER be
+      // left stale after the address changes — otherwise the rider drives to the
+      // old spot. Priority:
+      //   1. admin moved the pin    → use those coords
+      //   2. address text changed   → geocode it to a fresh pin
+      //   3. geocode failed         → clear the pin so the rider falls back to
+      //                               the (correct) text address
+      if (newMethod === 'Pickup') {
+        const pinMoved = typeof editForm.cust_lat === 'number' && typeof editForm.cust_lng === 'number'
+          && (editForm.cust_lat !== job.cust_lat || editForm.cust_lng !== job.cust_lng);
+        const addressChanged = (editForm.cust_address || '').trim() !== (job.cust_address || '').trim();
+
+        if (pinMoved) {
           payload.cust_lat = editForm.cust_lat;
           payload.cust_lng = editForm.cust_lng;
-          logs.push(makeLog('Pickup Location Updated', `ปรับจุดรับเครื่อง (${editForm.cust_lat.toFixed(5)}, ${editForm.cust_lng.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+          logs.push(makeLog('Pickup Location Updated', `ปรับจุดรับเครื่อง (${editForm.cust_lat!.toFixed(5)}, ${editForm.cust_lng!.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+        } else if (addressChanged) {
+          const coords = await geocodeAddress(editForm.cust_address);
+          if (coords) {
+            payload.cust_lat = coords.lat;
+            payload.cust_lng = coords.lng;
+            logs.push(makeLog('Pickup Location Updated', `อัปเดตหมุดตามที่อยู่ใหม่ (${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+          } else {
+            // No coords for the new address — drop the old pin so the rider
+            // doesn't navigate to the previous (wrong) location.
+            payload.cust_lat = null;
+            payload.cust_lng = null;
+            logs.push(makeLog('Pickup Location Updated', 'ที่อยู่เปลี่ยนแต่หาพิกัดไม่ได้ — ล้างหมุดเดิม ไรเดอร์จะนำทางด้วยที่อยู่ข้อความ'));
+            toast.warning('หาพิกัดจากที่อยู่ใหม่ไม่ได้ — ล้างหมุดเดิมแล้ว แนะนำให้ปักหมุดเองบนแผนที่');
+          }
         }
       }
 

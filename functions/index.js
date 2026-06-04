@@ -1596,6 +1596,28 @@ exports.onPickupLocationChanged = onValueUpdated(
     console.log(
       `[onPickupLocationChanged] ${jobId}: pin moved → fee=${fee}, net_payout=${updates.net_payout}`
     );
+
+    // A rider already holding the job may be on the way to the OLD pin — tell
+    // them the pickup point moved so they re-open navigation.
+    if (job.rider_id) {
+      await pushToRider(
+        db,
+        job.rider_id,
+        {
+          notification: {
+            title: "📍 จุดรับเครื่องเปลี่ยน",
+            body: `${job.model || "งาน"} — แอดมินอัปเดตจุดรับเครื่องใหม่ กรุณาเปิดนำทางอีกครั้ง`,
+          },
+          data: { type: "pickup_location_changed", jobId },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onPickupLocationChanged(${jobId})`
+      );
+    }
   }
 );
 
