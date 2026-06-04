@@ -83,6 +83,25 @@
 - **กฎเหล็ก:** แก้ที่อยู่ Pickup แล้ว**ห้ามปล่อยหมุดเก่าค้าง** มิฉะนั้นไรเดอร์วิ่งไปที่เดิม. UI admin (`PickupLocationPicker` ใน `src/components`) ให้ปักหมุด/geocode ได้ และ save handler จะ reconcile หมุด: ขยับหมุดเอง→ใช้พิกัดนั้น, แค่แก้ข้อความ→geocode ที่อยู่ใหม่, geocode ไม่ได้→**ล้างหมุด** (ให้ fallback ไปใช้ข้อความ)
 - helper geocode ฝั่ง client: `geocodeAddress()` export จาก `PickupLocationPicker.tsx` (ใช้ Maps JS Geocoder)
 
+## Data Contracts / Invariants (กันบั๊ก "แก้ไม่ครบวง")
+> บั๊กร้ายแรงเกือบทั้งหมดของระบบนี้คือ "แก้ฟิลด์เดียวของชุดที่ผูกกัน" หรือ "ลืมคนอ่านอีก repo". **ก่อนแก้ฟิลด์ข้อมูลใน Firebase หรือพฤติกรรมที่ข้าม repo ให้ `grep` ทั้ง `/home/user` (ครบทั้ง 3 repo + `functions/`) หาคนเขียน/คนอ่านก่อนเสมอ** แล้วแก้ให้ครบทุกทางเข้าและทุกคนอ่าน. ข้อมูลงานเดียวกันถูกใช้โดย: `bkk-system` (admin), `bkk-rider-app` (ไรเดอร์), `bkk-frontend-next` (เว็บลูกค้า + customer functions).
+
+ชุดฟิลด์ที่ **ต้องไปด้วยกันเสมอ** (ห้ามมีตัวใดค้างค่าเก่า):
+
+1. **จุดรับเครื่อง:** `cust_address` (ข้อความ) ↔ `cust_lat`/`cust_lng` (หมุด) ↔ `cust_address_geocoded_*`
+   - คนอ่านข้าม repo: **ไรเดอร์นำทาง/geofence ใช้หมุดเป็นหลัก** (ดู section "จุดรับเครื่อง / หมุด"). แก้ที่อยู่ต้อง reconcile หมุดเสมอ
+2. **ราคา/ยอดเงินลูกค้า:** `price`/`final_price` ↔ `pickup_fee` ↔ `applied_coupon` ↔ `net_payout`
+   - สูตรเดียวที่ใช้ทุกที่: `net_payout = max(0, base − (receive_method==='Pickup' ? pickup_fee : 0) + coupon)` (client: `MobileTicketDetail` ~บรรทัด 423; server: `functions/index.js`). แก้สูตร = แก้ทั้ง client + functions
+   - **หลังสร้างงาน เรื่องเงินเป็นของ cloud function** (`onReceiveMethodChanged`, `onPickupLocationChanged`) — client เขียนได้แค่ `final_price` (ตอนแก้ราคา) แล้วปล่อยให้ function คิด `pickup_fee`/`net_payout` ต่อ
+   - คนอ่านข้าม repo: `bkk-frontend-next` แสดง `net_payout` ให้ลูกค้า (track/profile/history/analytics); finance pages อ่าน `net_payout`
+3. **ค่าธรรมเนียม — คนละตัว อย่าสับสน:** `pickup_fee` = หักจาก**ลูกค้า** (อยู่ในสูตร net_payout) | `rider_fee`/`rider_fee_estimate` = จ่ายให้**ไรเดอร์** (อ่านโดย finance settlement + ไรเดอร์เห็น estimate ก่อนรับงาน). คนละความหมาย ห้ามเอามาใช้แทนกัน
+4. **วิธีรับเครื่อง:** `receive_method` ↔ `pickup_fee` ↔ `rider_id` ↔ `status` ↔ location fields (`cust_address`/`store_branch`)
+   - เจ้าของ reconcile = `onReceiveMethodChanged` (ดู section Cloud Functions + Trade Method)
+5. **นัดหมาย:** `pickup_schedule.time` (string `"12:00 - 14:00"`, backward-compat) ↔ `time_start`/`time_end`
+   - **ต้องเขียนผ่าน `buildPickupSchedule()` (`src/utils/appointment.ts`) เสมอ** เพื่อให้ `.time` ถูกเซ็ตคู่ไปด้วย — คนอ่าน `.time` ตรงๆ: calendar, `bkk-frontend-next` (track/DeliverySection), `bkk-rider-app` (`jobHelpers`), ticket detail
+6. **สถานะงาน:** `job-statuses.ts` มี **3 ก๊อปปี้** (`bkk-system`, `bkk-rider-app`, `bkk-frontend-next`/`app/types`) — เพิ่ม/แก้ status ต้อง sync ทั้ง 3 ไฟล์ และเช็ค notification triggers + archive (`TERMINAL_STATUSES`) + guard ต่างๆ
+7. **Cloud Functions naming:** ชื่อ function ห้ามชนกับ rider-notifications codebase (identify ด้วย `{region}/{name}` ระดับ project — ดูหมายเหตุใน section Cloud Functions)
+
 ## Role-Based Access
 - **CEO:** เข้าถึงทุกฟีเจอร์
 - **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings)
