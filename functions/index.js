@@ -1443,11 +1443,14 @@ exports.onReceiveMethodChanged = onValueUpdated(
     const logs = [];
 
     // 1) Pricing reconciliation.
+    //    Customer delivery fee (pickup_fee) uses the WEBSITE's zone pricing and
+    //    is owned/recomputed by the bkk-frontend-next functions (single source)
+    //    — bkk-system must NEVER compute it from the rider rate card. Here we
+    //    only own (a) the rider-side estimate and (b) the no-fee case for
+    //    non-Pickup methods, which needs no pricing formula.
     if (after === "Pickup") {
-      let fee = Number(job.pickup_fee || 0);
       try {
         const result = await computeRiderFee(db, job);
-        fee = result.fee;
         updates.rider_fee_estimate = result.fee;
         updates.rider_fee_estimate_meta = {
           distance_km: result.distance_km,
@@ -1455,25 +1458,24 @@ exports.onReceiveMethodChanged = onValueUpdated(
           reason: result.reason,
           computed_at: Date.now(),
         };
+        logs.push({
+          action: "Rider Estimate Updated",
+          by: "System",
+          timestamp: Date.now(),
+          details: `เปลี่ยนเป็น Pickup — ประเมินค่าจ้างไรเดอร์ ฿${result.fee.toLocaleString()} (ค่าส่งลูกค้าคิดโดยระบบราคาเว็บ)`,
+        });
       } catch (err) {
         console.error(`[onReceiveMethodChanged] computeRiderFee failed for ${jobId}:`, err);
       }
-      updates.pickup_fee = fee;
-      updates.net_payout = Math.max(0, basePrice - fee + coupon);
-      logs.push({
-        action: "Fee Recalculated",
-        by: "System",
-        timestamp: Date.now(),
-        details: `เปลี่ยนเป็น Pickup — คิดค่าไรเดอร์ ฿${fee.toLocaleString()}, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
-      });
     } else {
+      // Store-in / Mail-in: customer pays no delivery fee — safe to own here.
       updates.pickup_fee = 0;
       updates.net_payout = Math.max(0, basePrice + coupon);
       logs.push({
         action: "Fee Recalculated",
         by: "System",
         timestamp: Date.now(),
-        details: `เปลี่ยนเป็น ${after} — ไม่หักค่าไรเดอร์, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+        details: `เปลี่ยนเป็น ${after} — ไม่หักค่าส่ง, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
       });
     }
 
@@ -1520,7 +1522,7 @@ exports.onReceiveMethodChanged = onValueUpdated(
     updates.qc_logs = [...logs, ...existingLogs];
     await db.ref(`jobs/${jobId}`).update(updates);
     console.log(
-      `[onReceiveMethodChanged] ${jobId}: ${before} → ${after}, pickup_fee=${updates.pickup_fee}, net_payout=${updates.net_payout}`
+      `[onReceiveMethodChanged] ${jobId}: ${before} → ${after} (customer fee owned by frontend pricing)`
     );
   }
 );
@@ -1556,12 +1558,11 @@ exports.onPickupLocationChanged = onValueUpdated(
     // the pickup coordinate, so leave their pricing alone.
     if (job.receive_method !== "Pickup") return;
 
-    const basePrice = Number(job.final_price ?? job.price ?? 0);
-    const coupon = Number(
-      (job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0
-    );
-
-    let fee = Number(job.pickup_fee || 0);
+    // Rider-side estimate only. The customer delivery fee (pickup_fee) +
+    // net_payout are recomputed from the new pin by the bkk-frontend-next
+    // functions using the website's zone pricing (single source) — do NOT
+    // touch customer money here with the rider rate card.
+    let fee = null;
     const updates = {};
     try {
       const result = await computeRiderFee(db, job);
@@ -1576,25 +1577,23 @@ exports.onPickupLocationChanged = onValueUpdated(
     } catch (err) {
       console.error(`[onPickupLocationChanged] computeRiderFee failed for ${jobId}:`, err);
     }
-    updates.pickup_fee = fee;
-    updates.net_payout = Math.max(0, basePrice - fee + coupon);
 
     const existingLogs = Array.isArray(job.qc_logs)
       ? job.qc_logs
       : (job.qc_logs && typeof job.qc_logs === "object" ? Object.values(job.qc_logs) : []);
     updates.qc_logs = [
       {
-        action: "Fee Recalculated",
+        action: "Rider Estimate Updated",
         by: "System",
         timestamp: Date.now(),
-        details: `ปรับจุดรับเครื่อง — คิดค่าไรเดอร์ใหม่ ฿${fee.toLocaleString()}, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+        details: `ปรับจุดรับเครื่อง — ประเมินค่าจ้างไรเดอร์ใหม่ ฿${(fee ?? 0).toLocaleString()} (ค่าส่งลูกค้าคิดโดยระบบราคาเว็บ)`,
       },
       ...existingLogs,
     ];
     updates.updated_at = Date.now();
     await db.ref(`jobs/${jobId}`).update(updates);
     console.log(
-      `[onPickupLocationChanged] ${jobId}: pin moved → fee=${fee}, net_payout=${updates.net_payout}`
+      `[onPickupLocationChanged] ${jobId}: pin moved → rider_fee_estimate=${fee}`
     );
 
     // A rider already holding the job may be on the way to the OLD pin — tell
