@@ -347,6 +347,108 @@ function cancelExtra(job) {
   return `<p style="margin:16px 0 0;font-size:14px;color:#b91c1c;">เหตุผล: ${esc(reason)}</p>`;
 }
 
+// ── Admin Paid summary helpers (sensitive — admin-only record) ─────────────────
+// GSX/FMI/iCloud verification + KYC are internal/sensitive (PDPA). They appear
+// only in the admin Paid summary, never in customer mail. The data is already
+// persisted on the job (sickw_check.last_check, written during inspection) and
+// at /jobs_kyc/{jobId}, so the email READS the stored snapshot — it never
+// re-calls the SickW API (no extra credit burn; the inspection-time result is
+// the figure the purchase was decided on).
+
+function formatThaiDateTime(ms) {
+  if (!ms) return "";
+  try {
+    return new Date(ms).toLocaleString("th-TH", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Asia/Bangkok",
+    });
+  } catch (e) {
+    return "";
+  }
+}
+
+/** Mask a Thai national ID (or any number), showing only the last 4 digits. */
+function maskId(id) {
+  const s = String(id || "").replace(/\s+/g, "");
+  return s.length > 4 ? `${"x".repeat(s.length - 4)}${s.slice(-4)}` : s;
+}
+
+function flagBadge(state) {
+  const map = {
+    clean: ["ผ่าน", "#059669", "#ecfdf5"],
+    flagged: ["ผิดปกติ", "#b91c1c", "#fef2f2"],
+    unknown: ["ไม่ทราบ", "#6b7280", "#f3f4f6"],
+  };
+  const [label, color, bg] = map[state] || map.unknown;
+  return `<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;color:${color};background:${bg};">${label}</span>`;
+}
+
+/** Key/value table. Values are interpolated as-is — caller escapes plain text. */
+function kvTable(rows) {
+  const body = rows
+    .filter(Boolean)
+    .map(
+      ([k, v]) => `<tr>
+        <td style="padding:4px 0;font-size:13px;color:#6b7280;white-space:nowrap;vertical-align:top;">${k}</td>
+        <td style="padding:4px 0 4px 16px;font-size:13px;color:#111827;text-align:right;">${v}</td>
+      </tr>`
+    )
+    .join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${body}</table>`;
+}
+
+function sectionCard(title, innerHtml) {
+  return `<p style="margin:18px 0 6px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.4px;">${title}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef0f3;border-radius:8px;">
+      <tr><td style="padding:10px 14px;">${innerHtml}</td></tr>
+    </table>`;
+}
+
+/** GSX basic info + FMI/iCloud/MDM flags from the stored SickW snapshot. */
+function sickwVerificationExtra(job) {
+  const lc = job.sickw_check && job.sickw_check.last_check;
+  if (!lc) return "";
+  const p = lc.parsed || {};
+  const f = lc.flags || {};
+  const info = [
+    p.model && ["รุ่น (GSX)", esc(p.model)],
+    p.capacity && ["ความจุ", esc(p.capacity)],
+    p.color && ["สี", esc(p.color)],
+    p.serial && ["Serial", esc(p.serial)],
+    p.imei && ["IMEI", esc(p.imei)],
+    p.country && ["ประเทศ", esc(p.country)],
+    p.warrantyStatus && ["ประกัน", esc(p.warrantyStatus)],
+    p.estimatedPurchaseDate && ["วันเริ่มประกัน", esc(p.estimatedPurchaseDate)],
+  ];
+  const flagRows = [
+    ["Find My (FMI)", flagBadge(f.fmi)],
+    ["iCloud / Blacklist", flagBadge(f.blacklist)],
+    ["MDM", flagBadge(f.mdm)],
+  ];
+  const checkedAt = formatThaiDateTime(lc.checked_at);
+  return sectionCard(
+    `ผลตรวจเครื่อง (SickW)${checkedAt ? ` — ตรวจ ${esc(checkedAt)}` : ""}`,
+    kvTable([...info, ...flagRows])
+  );
+}
+
+/** KYC summary from /jobs_kyc/{jobId}. ID number is masked (last 4 only). */
+function kycExtra(kyc) {
+  if (!kyc) return "";
+  const methodLabel = kyc.method === "typed_fallback" ? "กรอกมือ (Fallback)" : "ถ่ายบัตร";
+  const rows = [
+    kyc.id_name && ["ชื่อตามบัตร", esc(kyc.id_name)],
+    kyc.id_number && ["เลขบัตร ปชช.", esc(maskId(kyc.id_number))],
+    kyc.id_address && ["ที่อยู่ตามบัตร", esc(kyc.id_address)],
+    ["วิธี KYC", esc(methodLabel)],
+    kyc.verified_by_rider_name && ["ตรวจโดย", esc(kyc.verified_by_rider_name)],
+    kyc.verified_at && ["เวลา KYC", esc(formatThaiDateTime(kyc.verified_at))],
+    kyc.fallback_reason && ["เหตุผล fallback", esc(kyc.fallback_reason)],
+  ];
+  return sectionCard("ข้อมูลผู้ขาย (KYC)", kvTable(rows));
+}
+
 // ── Milestone copy map ────────────────────────────────────────────────────────
 // The map IS the allowlist: a (canonical) status not present here sends no mail.
 // `customer` (optional) drives the customer email; `adminLabel` is the short TH
@@ -573,6 +675,41 @@ function isMilestone(status) {
   return Boolean(STATUS_COPY[status]);
 }
 
+/**
+ * Admin-only full sale record sent at Paid: order + payout + SickW device
+ * verification (GSX/FMI/iCloud) + KYC. `kyc` is the /jobs_kyc/{jobId} record
+ * (or null). Sensitive — must never be sent to a customer.
+ */
+function buildAdminPaidSummaryEmail(job, kyc, to) {
+  const contact = [
+    job.cust_name && `ชื่อ: ${esc(job.cust_name)}`,
+    job.cust_phone && `โทร: ${esc(job.cust_phone)}`,
+  ]
+    .filter(Boolean)
+    .join(" &nbsp;|&nbsp; ");
+
+  return {
+    to,
+    subject: `[สรุปการขาย • โอนแล้ว] ${job.ref_no || ""} — ${esc(job.model || "")} ${formatTHB(
+      job.net_payout ?? job.price
+    )}`.trim(),
+    html: shell({
+      heading: "สรุปการขาย (โอนเงินเรียบร้อย)",
+      intro: `เลขที่ <strong>${esc(job.ref_no || "-")}</strong>${
+        job.paid_at ? ` • โอนเมื่อ ${esc(formatThaiDateTime(job.paid_at))}` : ""
+      }`,
+      bodyHtml:
+        (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
+        orderSummaryCard(job) +
+        paymentExtra(job) +
+        sickwVerificationExtra(job) +
+        kycExtra(kyc),
+      footerNote:
+        "บันทึกการขายภายในทีม BKK APPLE — มีข้อมูลส่วนบุคคล (PDPA) โปรดเก็บเป็นความลับ ห้ามส่งต่อ",
+    }),
+  };
+}
+
 module.exports = {
   sendEmail,
   normalizeStatus,
@@ -582,4 +719,5 @@ module.exports = {
   buildAdminNewOrderEmail,
   buildCustomerStatusEmail,
   buildAdminStatusEmail,
+  buildAdminPaidSummaryEmail,
 };

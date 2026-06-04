@@ -13,6 +13,7 @@ const {
   buildAdminNewOrderEmail,
   buildCustomerStatusEmail,
   buildAdminStatusEmail,
+  buildAdminPaidSummaryEmail,
 } = require("./email");
 
 initializeApp();
@@ -985,10 +986,25 @@ exports.onJobStatusEmail = onValueUpdated(
         }
       }
 
-      // Admin milestone notification to the central inbox.
+      // Admin milestone notification to the central inbox. At Paid we send a
+      // richer full-sale record (order + payout + SickW verification + KYC)
+      // instead of the generic milestone note. KYC lives at the locked
+      // /jobs_kyc path; this function runs with admin credentials so it can
+      // read it. SickW data is read from the job snapshot — no API re-call.
       const adminTo = process.env.ORDER_NOTIFY_EMAIL;
       if (adminTo) {
-        const msg = buildAdminStatusEmail(job, status, adminTo);
+        let msg;
+        if (status === "Paid") {
+          let kyc = null;
+          try {
+            kyc = (await db.ref(`jobs_kyc/${jobId}`).once("value")).val();
+          } catch (e) {
+            console.warn(`[orderEmail] jobs_kyc read failed ${jobId}:`, e?.message || e);
+          }
+          msg = buildAdminPaidSummaryEmail(job, kyc, adminTo);
+        } else {
+          msg = buildAdminStatusEmail(job, status, adminTo);
+        }
         if (msg) {
           try {
             const res = await sendEmail(msg);
