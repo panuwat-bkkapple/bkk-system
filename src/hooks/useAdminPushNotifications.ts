@@ -130,9 +130,15 @@ export const useAdminPushNotifications = (staffId: string | null) => {
           return;
         }
 
-        const permission = await Notification.requestPermission();
+        // Only prompt when the user hasn't decided yet. Re-calling
+        // requestPermission() on every mount re-asks on iOS and is fragile;
+        // once granted we re-use the grant and just refresh the token.
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
         if (permission !== 'granted') {
-          console.warn('[Push] Notification permission denied');
+          console.warn('[Push] Notification permission not granted:', permission);
           return;
         }
 
