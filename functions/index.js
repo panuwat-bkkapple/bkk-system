@@ -133,6 +133,7 @@ async function dispatchTelegram(text, tag) {
       body: JSON.stringify({
         chat_id: chatId,
         text,
+        parse_mode: "HTML",
         disable_web_page_preview: true,
       }),
       signal: controller.signal,
@@ -150,6 +151,44 @@ async function dispatchTelegram(text, tag) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// Escape dynamic values before embedding in a Telegram HTML message so a
+// customer name / address containing < > & can never break parsing.
+function tgEscape(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Thai baht with thousands separators, or "" when the amount is missing.
+function tgBaht(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && v !== "" && v != null ? `฿${n.toLocaleString()}` : "";
+}
+
+// Location line by receive method (Pickup → address, Store-in → branch,
+// Mail-in → postal). Returns "" when nothing useful is known.
+function tgLocationLine(job) {
+  const m = job.receive_method || "";
+  if (m === "Pickup" && job.cust_address) return `📍 ${tgEscape(job.cust_address)}`;
+  if (m === "Store-in") {
+    const b = job.branch_name || job.store_branch || "";
+    if (b) return `🏬 สาขา: ${tgEscape(b)}`;
+  }
+  if (m === "Mail-in") return "📮 ส่งทางไปรษณีย์";
+  return "";
+}
+
+// Appointment line from the shared pickup_schedule shape. "Instant" means
+// "รับเลย"; a real date shows date + time range.
+function tgAppointmentLine(job) {
+  const ps = job.pickup_schedule;
+  if (!ps || !ps.date) return "";
+  if (ps.date === "Instant") return "📅 รับเลย (Instant)";
+  const time = ps.time && ps.time !== "Instant" ? ` ${ps.time}` : "";
+  return `📅 ${tgEscape(ps.date)}${tgEscape(time)}`;
 }
 
 // =============================================================================
@@ -882,8 +921,26 @@ exports.onNewTicketCreated = onValueCreated(
 
         // Guaranteed channel — lands even when every admin web-push token is
         // dead (the usual case for new orders, which arrive while the app is
-        // closed). No-ops until Telegram is configured.
-        await dispatchTelegram(`${title}\n${body}`, "onNewTicket");
+        // closed). Richer than the FCM body since Telegram has room. No-ops
+        // until Telegram is configured.
+        const tgLines = [`<b>${tgEscape(title)}</b>`, "", `📱 <b>${tgEscape(model)}</b>`];
+        const offer = tgBaht(job.price);
+        if (offer) tgLines.push(`💰 ราคาเสนอ: ${offer}`);
+        const net = tgBaht(job.net_payout);
+        if (net) tgLines.push(`💵 ลูกค้าได้รับสุทธิ: ${net}`);
+        if (Number(job.total_devices) > 1) tgLines.push(`🔢 รวม ${job.total_devices} เครื่อง`);
+        if (custName) tgLines.push(`👤 ${tgEscape(custName)}`);
+        if (job.cust_phone) tgLines.push(`📞 ${tgEscape(job.cust_phone)}`);
+        if (method) tgLines.push(`🚚 ${tgEscape(method)}`);
+        const locLine = tgLocationLine(job);
+        if (locLine) tgLines.push(locLine);
+        const apptLine = tgAppointmentLine(job);
+        if (apptLine) tgLines.push(apptLine);
+        if (job.applied_coupon && job.applied_coupon.code) {
+          tgLines.push(`🎟 คูปอง: ${tgEscape(job.applied_coupon.code)}`);
+        }
+        if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
+        await dispatchTelegram(tgLines.join("\n"), "onNewTicket");
       } else {
         console.log(`[onNewTicket] Skipped push: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
       }
@@ -1346,7 +1403,13 @@ exports.onAdminJobStatusNotify = onValueUpdated(
 
     // Guaranteed channel alongside FCM — same curated set of transitions
     // (buildAdminStatusLabel already filtered to notable ones above).
-    await dispatchTelegram(`${title}\n${body}`, `onJobStatusChanged(${before}→${after})`);
+    const tgLines = [`<b>${tgEscape(title)}</b>`, "", `📱 ${tgEscape(model)}`];
+    if (custName) tgLines.push(`👤 ${tgEscape(custName)}`);
+    if (job.cust_phone) tgLines.push(`📞 ${tgEscape(job.cust_phone)}`);
+    if (job.receive_method) tgLines.push(`🚚 ${tgEscape(job.receive_method)}`);
+    if (job.cancel_reason) tgLines.push(`📝 ${tgEscape(job.cancel_reason)}`);
+    if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
+    await dispatchTelegram(tgLines.join("\n"), `onJobStatusChanged(${before}→${after})`);
   }
 );
 
