@@ -106,6 +106,53 @@ async function dispatchAdminPush(message, tag) {
 }
 
 // =============================================================================
+// Telegram fallback channel — GUARANTEED admin delivery
+//
+// iOS PWA web-push tokens die within minutes (registration-token-not-registered)
+// and the desktop ones rotate too, so FCM alone silently drops the most
+// important alerts (new orders) whenever the admin app hasn't been opened
+// recently. Telegram delivers server-to-server into an app iOS keeps alive, so
+// it lands every time regardless of any PWA push subscription.
+//
+// Configured via TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (GitHub Secrets →
+// functions/.env, same pattern as GOOGLE_MAPS_API_KEY). No-ops when unset, so
+// deploying this before the secrets exist is safe. Sent as plain text (no
+// parse_mode) so customer names with < & etc. can never break the message.
+// =============================================================================
+async function dispatchTelegram(text, tag) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return; // not configured yet — silently skip
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        disable_web_page_preview: true,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error(`[${tag}] Telegram HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    } else {
+      console.log(`[${tag}] Telegram sent`);
+    }
+  } catch (err) {
+    console.error(
+      `[${tag}] Telegram send failed:`,
+      err && err.name === "AbortError" ? "timeout" : err
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// =============================================================================
 // Rider Fee Calculation: คำนวณค่าวิ่งไรเดอร์ตามระยะทางจริง
 // =============================================================================
 
@@ -832,6 +879,11 @@ exports.onNewTicketCreated = onValueCreated(
           },
           "onNewTicket"
         );
+
+        // Guaranteed channel — lands even when every admin web-push token is
+        // dead (the usual case for new orders, which arrive while the app is
+        // closed). No-ops until Telegram is configured.
+        await dispatchTelegram(`${title}\n${body}`, "onNewTicket");
       } else {
         console.log(`[onNewTicket] Skipped push: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
       }
@@ -1291,6 +1343,10 @@ exports.onAdminJobStatusNotify = onValueUpdated(
       },
       `onJobStatusChanged(${before}→${after})`
     );
+
+    // Guaranteed channel alongside FCM — same curated set of transitions
+    // (buildAdminStatusLabel already filtered to notable ones above).
+    await dispatchTelegram(`${title}\n${body}`, `onJobStatusChanged(${before}→${after})`);
   }
 );
 
