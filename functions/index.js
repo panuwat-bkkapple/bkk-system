@@ -3395,7 +3395,11 @@ const SICKW_FIELD_MAP = {
   carrier: ["carrier", "initial carrier", "carrier country", "network", "sold carrier"],
   simLock: ["sim-lock", "sim lock", "simlock", "lock status", "simpolicy unlock status"],
   warrantyStatus: ["warranty status", "warranty", "limited warranty"],
-  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation", "coverage start date"],
+  // service 72 (GSX) คืน "Coverage Duration: Ends on DD/MM/YY" = วันหมดประกัน/AppleCare
+  // และ "AppleCare Description" = ชนิดความคุ้มครอง — เราจ่ายค่า GSX แล้ว เก็บให้ครบ
+  warrantyExpiry: ["coverage duration", "coverage end date", "estimated expiry date", "warranty end date", "coverage ends"],
+  appleCareDescription: ["applecare description"],
+  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation", "coverage start date", "initial unbrick"],
 };
 
 function normalizeSickwKey(rawKey) {
