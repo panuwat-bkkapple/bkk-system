@@ -146,8 +146,11 @@ export const QCStation = () => {
          part_battery: job.qc_details?.part_battery || 'Original',
          part_camera: job.qc_details?.part_camera || 'Original',
          final_grade: job.grade || 'A',
-         battery_health: job.battery_health || 100,
-         cycle_count: job.qc_details?.cycle_count || 0,
+         // Rider inspection writes battery_health_pct (and mirrors it to
+         // battery_health). Read either so the rider's reading auto-fills here
+         // instead of always defaulting to 100.
+         battery_health: job.battery_health ?? job.battery_health_pct ?? 100,
+         cycle_count: job.qc_details?.cycle_count ?? job.battery_cycle_count ?? 0,
          actual_color: sw.color || job.color || '',
          capacity: sw.capacity || job.capacity || '',
          model_code: sw.modelNumber || job.qc_details?.model_code || job.model_code || '',
