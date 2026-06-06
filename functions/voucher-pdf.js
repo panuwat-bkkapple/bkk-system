@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const { PDFDocument, rgb } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
-const { COMPANY, bahtText } = require("./email");
+const { COMPANY, bahtText, serviceFeeBreakdown } = require("./email");
 
 const FONT_DIR = path.join(__dirname, "assets", "fonts");
 let _regular = null;
@@ -183,7 +183,22 @@ async function buildVoucherPdf(job) {
   y -= 4;
   hr(y + 6);
   y -= 14;
-  const net = job.net_payout ?? job.price;
+  const net = Number(job.net_payout ?? job.price) || 0;
+
+  // VAT-registered: show the service fee (pickup_fee) as a deduction with its
+  // 7% output VAT backed out (fee treated as VAT-inclusive).
+  const fee = serviceFeeBreakdown(job);
+  if (fee) {
+    draw("รวมราคารับซื้อ", M, 11, { color: gray });
+    drawRight(thb(net + fee.feeIncl), amountColX, 11, { color: gray });
+    y -= 16;
+    draw("หักค่าบริการรับเครื่อง (รวม VAT)", M, 11, { color: gray });
+    drawRight(`-${thb(fee.feeIncl)}`, amountColX, 11, { color: gray });
+    y -= 14;
+    draw(`(ค่าบริการ ${thb(fee.base)} + VAT 7% ${thb(fee.vat)})`, M + 12, 9, { color: gray });
+    y -= 16;
+  }
+
   draw("ยอดรับสุทธิ", M, 13, { bold: true });
   drawRight(thb(net), amountColX, 13, { bold: true, color: rgb(0.02, 0.45, 0.34) });
   y -= 20;

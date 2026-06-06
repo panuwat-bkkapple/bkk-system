@@ -216,7 +216,27 @@ function shell({ heading, intro, bodyHtml, footerNote }) {
 const PAYOUT_LABEL_ESTIMATE = "ยอดที่จะได้รับโดยประมาณ";
 const PAYOUT_LABEL_NET = "ยอดรับสุทธิ";
 
-function orderSummaryCard(job, payoutLabel = PAYOUT_LABEL_ESTIMATE) {
+// The company is VAT-registered. The pickup/service fee charged to the
+// customer is treated as VAT-INCLUSIVE, so we back out the 7% for the
+// company's output-VAT records and to disclose it on the voucher.
+const VAT_RATE = 0.07;
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+/**
+ * Service-fee (pickup_fee) breakdown for a job, or null when there's no fee.
+ * `feeIncl` is the VAT-inclusive fee deducted from the payout; `base` + `vat`
+ * are its VAT-exclusive base and the 7% output VAT.
+ */
+function serviceFeeBreakdown(job) {
+  const feeIncl = Number(job && job.pickup_fee) || 0;
+  if (feeIncl <= 0) return null;
+  const base = round2(feeIncl / (1 + VAT_RATE));
+  return { feeIncl: round2(feeIncl), base, vat: round2(feeIncl - base) };
+}
+
+function orderSummaryCard(job, opts = {}) {
+  const { payoutLabel = PAYOUT_LABEL_ESTIMATE, showVatDetail = false } =
+    typeof opts === "string" ? { payoutLabel: opts } : opts;
   const lines = deviceLines(job);
   const deviceRows = lines
     .map(
@@ -249,7 +269,27 @@ function orderSummaryCard(job, payoutLabel = PAYOUT_LABEL_ESTIMATE) {
     )
     .join("");
 
-  const payout = formatTHB(job.net_payout ?? job.price);
+  const net = Number(job.net_payout ?? job.price) || 0;
+  const fee = serviceFeeBreakdown(job);
+  // Gross-before-fee reconciles exactly with the net regardless of coupons,
+  // since the fee is the only line we break out: gross − fee = net.
+  const grossBeforeFee = fee ? net + fee.feeIncl : net;
+
+  const totalRow = (label, value, opts2 = {}) => `<tr>
+          <td style="font-size:${opts2.big ? 14 : 13}px;color:${opts2.muted ? "#6b7280" : "#111827"};${opts2.big ? "font-weight:600;" : ""}">${label}</td>
+          <td style="font-size:${opts2.big ? 18 : 13}px;color:${opts2.color || (opts2.muted ? "#6b7280" : "#111827")};${opts2.big ? "font-weight:700;" : ""}text-align:right;white-space:nowrap;">${value}</td>
+        </tr>`;
+
+  let totalsRows = "";
+  if (fee) {
+    totalsRows += totalRow("รวมราคารับซื้อ", esc(formatTHB(grossBeforeFee)), { muted: true });
+    totalsRows += totalRow("หักค่าบริการรับเครื่อง (รวม VAT)", `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
+    if (showVatDetail) {
+      totalsRows += `<tr><td colspan="2" style="padding:1px 0 4px 14px;font-size:11px;color:#9ca3af;">
+        ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}</td></tr>`;
+    }
+  }
+  totalsRows += totalRow(esc(payoutLabel), esc(formatTHB(net)), { big: true, color: "#059669" });
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef0f3;border-radius:10px;">
     <tr><td style="padding:16px 18px;">
@@ -264,10 +304,7 @@ function orderSummaryCard(job, payoutLabel = PAYOUT_LABEL_ESTIMATE) {
     </td></tr>
     <tr><td style="padding:12px 18px 16px;background:#f9fafb;border-top:1px solid #eef0f3;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="font-size:14px;color:#111827;font-weight:600;">${esc(payoutLabel)}</td>
-          <td style="font-size:18px;color:#059669;font-weight:700;text-align:right;">${esc(payout)}</td>
-        </tr>
+        ${totalsRows}
       </table>
     </td></tr>
   </table>`;
@@ -393,7 +430,7 @@ function buildCustomerPaymentVoucherEmail(job) {
       intro: `${name}${esc(COMPANY.legalName)} ได้จ่ายเงินค่ารับซื้ออุปกรณ์ให้คุณเรียบร้อยแล้ว รายละเอียดตามเอกสารด้านล่าง`,
       bodyHtml:
         voucherPartiesCard(job) +
-        orderSummaryCard(job, PAYOUT_LABEL_NET) +
+        orderSummaryCard(job, { payoutLabel: PAYOUT_LABEL_NET, showVatDetail: true }) +
         bahtTextLine(amount) +
         paymentExtra(job) +
         voucherLegalNote() +
@@ -847,7 +884,7 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
       bodyHtml:
         (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
         voucherPartiesCard(job) +
-        orderSummaryCard(job, PAYOUT_LABEL_NET) +
+        orderSummaryCard(job, { payoutLabel: PAYOUT_LABEL_NET, showVatDetail: true }) +
         bahtTextLine(job.net_payout ?? job.price) +
         paymentExtra(job) +
         sickwVerificationExtra(job) +
@@ -862,6 +899,8 @@ module.exports = {
   sendEmail,
   COMPANY,
   bahtText,
+  VAT_RATE,
+  serviceFeeBreakdown,
   normalizeStatus,
   statusEmailKey,
   isMilestone,
