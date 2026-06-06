@@ -5,7 +5,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
-const { buildVoucherPdf, buildTaxInvoicePdf } = require("./voucher-pdf");
+const { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf } = require("./voucher-pdf");
 const {
   sendEmail,
   serviceFeeBreakdown,
@@ -1344,6 +1344,106 @@ exports.onJobStatusEmail = onValueUpdated(
       }
     } catch (err) {
       console.error("[orderEmail] onJobStatusEmail unhandled error:", err);
+    }
+  }
+);
+
+// =============================================================================
+// Phase 3 — Sales tax invoice (output VAT on selling refurbished devices/SKUs).
+// POS checkout writes /sales/{saleId}; this issues a ใบกำกับภาษีขาย (full when
+// the buyer gives tax id/address, else abbreviated ม.86/6 for retail), archives
+// the PDF, and registers it in /accounting_documents so it joins the same ภ.พ.30
+// sales-VAT report as the service-fee invoices. Uses the SAME running-number
+// series (one tax-invoice book for the whole company). Gated + idempotent.
+// =============================================================================
+exports.onSaleCreated = onValueCreated(
+  {
+    ref: "/sales/{saleId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const sale = event.data.val();
+      if (!sale || sale.is_test) return;
+      const saleId = event.params.saleId;
+      const db = getDatabase();
+
+      if (sale.tax_invoice && sale.tax_invoice.number) return; // idempotent
+      const total = Number(sale.grand_total) || 0;
+      if (total <= 0) return;
+
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled || !acct.vatRegistered) return; // master gate / VAT off
+
+      // Prices are VAT-inclusive — back out the output VAT.
+      const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+      const base = round2(total / (1 + acct.vatRate));
+      const vat = round2(total - base);
+
+      const alloc = await allocateTaxInvoiceNumber(db, acct, sale.sold_at || Date.now());
+      const ti = {
+        number: alloc.number,
+        issued_at: sale.sold_at || alloc.issued_at,
+        base,
+        vat,
+        total,
+      };
+      await db.ref(`sales/${saleId}/tax_invoice`).set(ti);
+
+      // PDF (best-effort) → archive + attach to register.
+      let url = null;
+      try {
+        const pdf = await buildSalesTaxInvoicePdf(sale, ti, acct.company);
+        try {
+          const token = `${saleId}-${Date.now()}`;
+          const bucket = getStorage().bucket();
+          const storagePath = `sales_tax_invoices/${saleId}.pdf`;
+          await bucket.file(storagePath).save(pdf, {
+            contentType: "application/pdf",
+            metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+          });
+          url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+          await db.ref(`sales/${saleId}/tax_invoice/storage_path`).set(storagePath);
+          await db.ref(`sales/${saleId}/tax_invoice/url`).set(url);
+        } catch (e) {
+          console.error(`[salesTax] archive failed ${saleId}:`, e?.message || e);
+        }
+        // Optional: email the buyer if an address was captured.
+        if (sale.customer_email) {
+          try {
+            await sendEmail({
+              to: sale.customer_email,
+              subject: `ใบกำกับภาษี/ใบเสร็จรับเงิน — ${ti.number}`,
+              html: `<p>ขอบคุณที่อุดหนุน ${acct.company && acct.company.legalName ? acct.company.legalName : "BKK APPLE"} — แนบใบกำกับภาษี/ใบเสร็จรับเงินเลขที่ ${ti.number}</p>`,
+              attachments: [{ filename: `ใบกำกับภาษี-${ti.number}.pdf`, content: pdf.toString("base64") }],
+            });
+          } catch (e) {
+            console.error(`[salesTax] email failed ${saleId}:`, e?.message || e);
+          }
+        }
+      } catch (e) {
+        console.error(`[salesTax] PDF build failed ${saleId}:`, e?.message || e);
+      }
+
+      await writeAccountingDocument(db, `TI_${statusEmailKey(ti.number)}`, {
+        type: "tax_invoice",
+        category: "goods",
+        number: ti.number,
+        sale_id: saleId,
+        ref_no: sale.receipt_no || null,
+        issued_at: ti.issued_at,
+        period: bangkokYM(ti.issued_at).ym,
+        customer_name: sale.customer_name || null,
+        base: ti.base,
+        vat: ti.vat,
+        total: ti.total,
+        vat_rate: acct.vatRate,
+        description: "ขายสินค้า (POS)",
+        url,
+      });
+      console.log(`[salesTax] issued ${ti.number} for sale ${saleId}`);
+    } catch (err) {
+      console.error("[salesTax] onSaleCreated unhandled error:", err);
     }
   }
 );

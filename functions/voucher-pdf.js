@@ -424,4 +424,133 @@ async function buildTaxInvoicePdf(job, taxInvoice) {
   return Buffer.from(bytes);
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf };
+/**
+ * Sales tax invoice (ใบกำกับภาษี/ใบเสร็จรับเงิน) for a POS sale of goods.
+ * `sale` is a /sales record; `ti` has the allocated number + base/vat/total;
+ * `company` is the resolved seller identity. When the buyer gives no tax id /
+ * address it renders an abbreviated tax invoice (ใบกำกับภาษีอย่างย่อ, ม.86/6),
+ * which is allowed for retail sales to the general public.
+ */
+async function buildSalesTaxInvoicePdf(sale, ti, company) {
+  const CO = companyOf({ _company: company || {} });
+  const isFull = Boolean(sale.customer_tax_id || sale.customer_address);
+
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  let y = height - M;
+
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) =>
+    page.drawText(String(t == null ? "" : t), { x, y: opts.y != null ? opts.y : y, size, font: opts.bold ? fontB : font, color: opts.color || black });
+  const drawRight = (t, rightX, size, opts = {}) => draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const s = String(t == null ? "" : t); const out = []; let cur = "";
+    for (const ch of s) { if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
+    if (cur) out.push(cur); return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  // Seller header
+  draw(CO.legalName, M, 16, { bold: true });
+  y -= 18;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M, 10, contentW, 13, { color: gray });
+
+  // Title
+  y -= 14;
+  const title = isFull ? "ใบกำกับภาษี / ใบเสร็จรับเงิน" : "ใบกำกับภาษีอย่างย่อ / ใบเสร็จรับเงิน";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 26;
+
+  // Meta
+  draw(`เลขที่ใบกำกับภาษี: ${ti.number || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่: ${formatDate(sale.sold_at) || "-"}`, width - M, 11);
+  y -= 15;
+  if (sale.receipt_no) { draw(`เลขที่ใบเสร็จ: ${sale.receipt_no}`, M, 10, { color: gray }); y -= 16; }
+
+  // Buyer
+  draw("ลูกค้า:", M, 11, { color: gray });
+  draw(sale.customer_name || "ลูกค้าทั่วไป", M + 42, 11, { bold: true });
+  y -= 15;
+  if (isFull) {
+    if (sale.customer_tax_id) { draw(`เลขผู้เสียภาษี: ${sale.customer_tax_id}`, M, 10, { color: gray }); y -= 14; }
+    if (sale.customer_address) { draw("ที่อยู่:", M, 10, { color: gray }); drawWrapped(sale.customer_address, M + 36, 10, contentW - 36, 13); }
+  }
+  y -= 10;
+
+  // Items table
+  const colQty = width - M - 200;
+  const colPrice = width - M - 110;
+  const colAmt = width - M;
+  hr(y + 4); y -= 12;
+  draw("รายการ", M, 11, { bold: true, color: gray });
+  drawRight("จำนวน", colQty + 30, 11, { bold: true, color: gray });
+  drawRight("ราคา", colPrice + 40, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน", colAmt, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  for (const it of items) {
+    const qty = Number(it.qty) || 1;
+    const price = Number(it.price) || 0;
+    const nameLines = wrap(`${it.name || "สินค้า"}${it.code ? ` (${it.code})` : ""}`, 10, font, colQty - M - 8);
+    nameLines.forEach((ln, i) => {
+      draw(ln, M, 10);
+      if (i === 0) {
+        drawRight(String(qty), colQty + 30, 10);
+        drawRight(thb(price), colPrice + 40, 10);
+        drawRight(thb(price * qty), colAmt, 10);
+      }
+      y -= 15;
+    });
+  }
+
+  y -= 4; hr(y + 6); y -= 14;
+  if (Number(sale.discount) > 0) {
+    draw("ส่วนลด", M, 11, { color: gray });
+    drawRight(`-${thb(sale.discount)}`, colAmt, 11, { color: gray });
+    y -= 16;
+  }
+  // VAT breakdown (prices are VAT-inclusive)
+  draw("มูลค่าสินค้า (ก่อน VAT)", M, 11, { color: gray });
+  drawRight(thb(ti.base), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("ภาษีมูลค่าเพิ่ม 7%", M, 11, { color: gray });
+  drawRight(thb(ti.vat), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("ยอดรวมทั้งสิ้น", M, 13, { bold: true });
+  drawRight(thb(ti.total), colAmt, 13, { bold: true, color: rgb(0.02, 0.45, 0.34) });
+  y -= 20;
+
+  const words = bahtText(ti.total);
+  if (words) { draw(`(${words})`, M, 11); y -= 18; }
+  if (sale.payment_method) { draw(`ชำระโดย: ${sale.payment_method}`, M, 10, { color: gray }); y -= 16; }
+
+  // Signature
+  const sigY = Math.max(y - 50, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้รับเงิน / ผู้มีอำนาจออกใบกำกับภาษี";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+  page.drawText(`${CO.legalName} (${CO.tradeName}) • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+
+  const bytes = await pdf.save();
+  return Buffer.from(bytes);
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf };
