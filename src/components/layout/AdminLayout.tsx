@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet
+  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -171,6 +171,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
+              {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/general-ledger" icon={<BookOpen size={18} />} label="สมุดรายวัน & งบทดลอง" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/financial-report" icon={<TrendingUp size={18} />} label="รายงานการเงิน (P&L)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/vat-report" icon={<FileSpreadsheet size={18} />} label="รายงานภาษีขาย (ภ.พ.30)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/accounting-settings" icon={<Calculator size={18} />} label="ตั้งค่าระบบบัญชี" />}
