@@ -4,6 +4,20 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
+const { getStorage } = require("firebase-admin/storage");
+const { buildVoucherPdf, buildTaxInvoicePdf } = require("./voucher-pdf");
+const {
+  sendEmail,
+  serviceFeeBreakdown,
+  normalizeStatus,
+  statusEmailKey,
+  isMilestone,
+  buildCustomerReceivedEmail,
+  buildAdminNewOrderEmail,
+  buildCustomerStatusEmail,
+  buildAdminStatusEmail,
+  buildAdminPaidSummaryEmail,
+} = require("./email");
 
 initializeApp();
 
@@ -966,6 +980,283 @@ exports.onNewTicketCreated = onValueCreated(
       }
     } catch (err) {
       console.error("[onNewTicket] Unhandled error:", err);
+    }
+  }
+);
+
+// =============================================================================
+// Order-confirmation emails (Resend). Two moments, per product decision:
+//   1. onJobCreatedSendEmails  — order lands  → customer "received" + admin notify
+//   2. onJobConfirmedSendEmail — admin accepts → customer "confirmed / นัดรับ"
+//
+// These live in THIS codebase (bkk-system) alongside the other /jobs triggers.
+// Both customer self-checkout (bkk-frontend-next's validateAndCreateOrder) and
+// admin-created tickets write to the same /jobs path in the same project, so a
+// DB trigger here covers every order source without touching the order-creation
+// path itself (decoupled, failure-isolated). Names are unique project-wide to
+// avoid the {region}/{name} collision documented for onAdminJobStatusNotify.
+// =============================================================================
+
+// Master gate + accounting config, set from the admin "ตั้งค่าระบบบัญชี" page
+// (settings/accounting). The whole order-email/document system is INERT until
+// an admin enables it — so deploying before Resend is configured consumes no
+// tax-invoice numbers and writes nothing. Defaults: disabled; VAT-registered.
+async function loadAccountingSettings(db) {
+  let s = {};
+  try {
+    s = (await db.ref("settings/accounting").once("value")).val() || {};
+  } catch (e) {
+    console.warn("[orderEmail] read settings/accounting failed:", e?.message || e);
+  }
+  const ratePercent = Number(s.vat_rate_percent);
+  return {
+    enabled: s.order_emails_enabled === true,
+    vatRegistered: s.vat_registered !== false,
+    vatRate: ratePercent > 0 ? ratePercent / 100 : 0.07,
+    taxInvoicePrefix: typeof s.tax_invoice_prefix === "string" && s.tax_invoice_prefix ? s.tax_invoice_prefix : "IV-",
+  };
+}
+
+// Stash resolved accounting config on the in-memory job so the email/PDF
+// builders (which have no DB access) compute VAT consistently. Not persisted.
+function applyAccounting(job, acct) {
+  job._accounting = { vat_registered: acct.vatRegistered, vat_rate: acct.vatRate };
+  return job;
+}
+
+// Mirror onNewTicketCreated's "new order" status set (functions/ can't import
+// the canonical TS enum). Accept both "Active Lead" and legacy "Active Leads".
+const ORDER_CREATED_STATUSES = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
+
+exports.onJobCreatedSendEmails = onValueCreated(
+  {
+    ref: "/jobs/{jobId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const job = event.data.val();
+      if (!job) return;
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+
+      if (job.is_test) return;
+      if (!ORDER_CREATED_STATUSES.includes(job.status)) return;
+
+      // Master gate: do nothing until an admin enables the system.
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      applyAccounting(job, acct);
+
+      // Idempotency. onValueCreated fires once per node creation (child
+      // writes below don't re-trigger it), but a rare retry could double-fire
+      // — stamp first, then send, so a re-invocation no-ops.
+      if (job.confirmation_email_sent_at) return;
+      await db.ref(`jobs/${jobId}/confirmation_email_sent_at`).set(Date.now());
+
+      // 1) Customer "we received your order". Skip silently when there's no
+      //    email (admin-created tickets sometimes omit it).
+      if (job.cust_email) {
+        try {
+          const res = await sendEmail(buildCustomerReceivedEmail(job));
+          console.log(`[orderEmail] customer-received ${jobId}:`, JSON.stringify(res));
+        } catch (e) {
+          console.error(`[orderEmail] customer-received failed ${jobId}:`, e);
+        }
+      }
+
+      // 2) Admin central-inbox notification.
+      const adminTo = process.env.ORDER_NOTIFY_EMAIL;
+      if (adminTo) {
+        try {
+          const res = await sendEmail(buildAdminNewOrderEmail(job, adminTo));
+          console.log(`[orderEmail] admin-notify ${jobId}:`, JSON.stringify(res));
+        } catch (e) {
+          console.error(`[orderEmail] admin-notify failed ${jobId}:`, e);
+        }
+      } else {
+        console.warn(`[orderEmail] ORDER_NOTIFY_EMAIL not set — skipped admin notify for ${jobId}`);
+      }
+    } catch (err) {
+      console.error("[orderEmail] onJobCreatedSendEmails unhandled error:", err);
+    }
+  }
+);
+
+// Milestone emails on status change. Fires on every /jobs/{jobId}/status write
+// but only sends for canonical statuses present in the email.js copy map (the
+// map is the allowlist). Customer mail when there's customer copy + an email;
+// admin mail to the central inbox for every milestone (per product decision).
+exports.onJobStatusEmail = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const before = event.data.before.val();
+      const after = event.data.after.val();
+      if (before === after) return;
+
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+      const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+      if (!jobSnap.exists()) return;
+      const job = jobSnap.val();
+      if (job.is_test) return;
+
+      // Master gate: inert until enabled in ตั้งค่าระบบบัญชี.
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      applyAccounting(job, acct);
+
+      // Normalize legacy/aliased values to canonical before map lookup. The
+      // "In-Transit" overload needs receive_method to disambiguate.
+      const status = normalizeStatus(after, job.receive_method);
+      if (!status || !isMilestone(status)) return;
+
+      // Per-status idempotency: a retry / re-entry into the same status won't
+      // re-send. Keys are RTDB-safe slugs under jobs/{id}/status_email_sent.
+      const key = statusEmailKey(status);
+      const sentRef = db.ref(`jobs/${jobId}/status_email_sent/${key}`);
+      if ((await sentRef.once("value")).exists()) return;
+      await sentRef.set(Date.now());
+
+      // At Paid, generate the ใบสำคัญรับเงิน (payment voucher) PDF once,
+      // archive it to Storage + reference it on the job (so it shows in the
+      // sales history and can be re-downloaded), and attach it to BOTH the
+      // customer and admin emails. Best-effort: a PDF/Storage failure must not
+      // block the emails themselves.
+      // Upload a generated PDF to Storage with a download token and return a
+      // stable URL (best-effort; null on failure).
+      const archivePdf = async (storagePath, pdf) => {
+        const token = `${jobId}-${Date.now()}`;
+        const bucket = getStorage().bucket();
+        await bucket.file(storagePath).save(pdf, {
+          contentType: "application/pdf",
+          metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+        });
+        return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+          storagePath
+        )}?alt=media&token=${token}`;
+      };
+
+      const paidAttachments = [];
+      if (status === "Paid") {
+        // 1) ใบสำคัญรับเงิน (payment voucher) for the device purchase.
+        try {
+          const pdf = await buildVoucherPdf(job);
+          paidAttachments.push({
+            filename: `ใบสำคัญรับเงิน-${job.ref_no || jobId}.pdf`,
+            content: pdf.toString("base64"),
+          });
+          try {
+            const url = await archivePdf(`vouchers/${jobId}.pdf`, pdf);
+            await db.ref(`jobs/${jobId}/payment_voucher`).set({
+              storage_path: `vouchers/${jobId}.pdf`,
+              url,
+              ref_no: job.ref_no || null,
+              amount: job.net_payout ?? job.price ?? null,
+              generated_at: Date.now(),
+            });
+          } catch (e) {
+            console.error(`[orderEmail] voucher archive failed ${jobId}:`, e?.message || e);
+          }
+        } catch (e) {
+          console.error(`[orderEmail] voucher PDF build failed ${jobId}:`, e?.message || e);
+        }
+
+        // 2) ใบกำกับภาษี (tax invoice) for the pickup-service fee, when one was
+        //    charged AND the company is VAT-registered. Allocate a sequential
+        //    tax-invoice number once (atomic counter; re-uses the existing
+        //    number on retry) — running/sequential under ป.รัษฎากร ม.86/4.
+        const fee = serviceFeeBreakdown(job);
+        if (fee && fee.vatRegistered) {
+          try {
+            let ti = job.tax_invoice;
+            if (!ti || !ti.number) {
+              // Counter lives under settings/accounting so the admin page can
+              // read it live and reset it before go-live. Transaction keeps the
+              // allocation atomic/sequential.
+              const seqRef = db.ref("settings/accounting/tax_invoice_seq");
+              const txn = await seqRef.transaction((cur) => (cur || 0) + 1);
+              const seq = txn.snapshot.val() || 1;
+              ti = {
+                number: `${acct.taxInvoicePrefix}${String(seq).padStart(6, "0")}`,
+                issued_at: Date.now(),
+                base: fee.base,
+                vat: fee.vat,
+                total: fee.feeIncl,
+              };
+              await db.ref(`jobs/${jobId}/tax_invoice`).set(ti);
+            }
+            const tiPdf = await buildTaxInvoicePdf(job, ti);
+            if (tiPdf) {
+              paidAttachments.push({
+                filename: `ใบกำกับภาษี-${ti.number}.pdf`,
+                content: tiPdf.toString("base64"),
+              });
+              try {
+                const url = await archivePdf(`tax_invoices/${jobId}.pdf`, tiPdf);
+                await db.ref(`jobs/${jobId}/tax_invoice/storage_path`).set(`tax_invoices/${jobId}.pdf`);
+                await db.ref(`jobs/${jobId}/tax_invoice/url`).set(url);
+              } catch (e) {
+                console.error(`[orderEmail] tax-invoice archive failed ${jobId}:`, e?.message || e);
+              }
+            }
+          } catch (e) {
+            console.error(`[orderEmail] tax-invoice build failed ${jobId}:`, e?.message || e);
+          }
+        }
+      }
+      const voucherAttachments = paidAttachments.length ? paidAttachments : undefined;
+
+      // Customer milestone email (skip silently when no email / no customer copy).
+      if (job.cust_email) {
+        const msg = buildCustomerStatusEmail(job, status);
+        if (msg) {
+          if (voucherAttachments) msg.attachments = voucherAttachments;
+          try {
+            const res = await sendEmail(msg);
+            console.log(`[orderEmail] customer ${status} ${jobId}:`, JSON.stringify(res));
+          } catch (e) {
+            console.error(`[orderEmail] customer ${status} failed ${jobId}:`, e);
+          }
+        }
+      }
+
+      // Admin milestone notification to the central inbox. At Paid we send a
+      // richer full-sale record (order + payout + SickW verification + KYC)
+      // instead of the generic milestone note, with the voucher PDF attached.
+      // KYC lives at the locked /jobs_kyc path; this function runs with admin
+      // credentials so it can read it. SickW data is read from the job
+      // snapshot — no API re-call.
+      const adminTo = process.env.ORDER_NOTIFY_EMAIL;
+      if (adminTo) {
+        let msg;
+        if (status === "Paid") {
+          let kyc = null;
+          try {
+            kyc = (await db.ref(`jobs_kyc/${jobId}`).once("value")).val();
+          } catch (e) {
+            console.warn(`[orderEmail] jobs_kyc read failed ${jobId}:`, e?.message || e);
+          }
+          msg = buildAdminPaidSummaryEmail(job, kyc, adminTo);
+          if (voucherAttachments) msg.attachments = voucherAttachments;
+        } else {
+          msg = buildAdminStatusEmail(job, status, adminTo);
+        }
+        if (msg) {
+          try {
+            const res = await sendEmail(msg);
+            console.log(`[orderEmail] admin ${status} ${jobId}:`, JSON.stringify(res));
+          } catch (e) {
+            console.error(`[orderEmail] admin ${status} failed ${jobId}:`, e);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[orderEmail] onJobStatusEmail unhandled error:", err);
     }
   }
 );

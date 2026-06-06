@@ -41,6 +41,11 @@ jobs:
             printf 'THAILAND_POST_API_KEY=%s\n' "$THAI_POST_KEY"
             printf 'GOOGLE_MAPS_API_KEY=%s\n' "$GOOGLE_MAPS_KEY"
             printf 'SICKW_API_KEY=%s\n' "$SICKW_KEY"
+            printf 'RESEND_API_KEY=%s\n' "$RESEND_KEY"
+            printf 'EMAIL_FROM=%s\n' "$EMAIL_FROM"
+            printf 'ORDER_NOTIFY_EMAIL=%s\n' "$ORDER_NOTIFY_EMAIL"
+            printf 'EMAIL_REPLY_TO=%s\n' "$EMAIL_REPLY_TO"
+            printf 'CUSTOMER_TRACKING_BASE_URL=%s\n' "$CUSTOMER_TRACKING_BASE_URL"
             printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
             printf 'TELEGRAM_CHAT_ID=%s\n' "$TELEGRAM_CHAT_ID"
           } > functions/.env
@@ -48,6 +53,11 @@ jobs:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
           GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           SICKW_KEY: ${{ secrets.SICKW_API_KEY }}
+          RESEND_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          ORDER_NOTIFY_EMAIL: ${{ secrets.ORDER_NOTIFY_EMAIL }}
+          EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
+          CUSTOMER_TRACKING_BASE_URL: ${{ secrets.CUSTOMER_TRACKING_BASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 

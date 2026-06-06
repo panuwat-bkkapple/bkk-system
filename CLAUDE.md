@@ -18,6 +18,7 @@
 - **Cloud Functions:** Deploy พร้อม Hosting ใน workflow เดียวกัน (region: asia-southeast1)
 - **ต้องเช็ค GitHub Actions ผ่านก่อนบอกให้ user เทส** — ถ้า workflow fail = โค้ดใหม่ยังไม่ขึ้น
 - **Secrets ที่ต้องมี:** VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_DATABASE_URL, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY, VITE_GOOGLE_MAPS_API_KEY, FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN
+- **Secrets (Cloud Functions):** THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL (optional: EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL) — ดู Order Confirmation Emails ด้านล่าง
 
 ## Mobile App (PWA)
 - **URL:** `bkk-apple-admin.web.app/mobile`
@@ -101,6 +102,25 @@
    - **ต้องเขียนผ่าน `buildPickupSchedule()` (`src/utils/appointment.ts`) เสมอ** เพื่อให้ `.time` ถูกเซ็ตคู่ไปด้วย — คนอ่าน `.time` ตรงๆ: calendar, `bkk-frontend-next` (track/DeliverySection), `bkk-rider-app` (`jobHelpers`), ticket detail
 6. **สถานะงาน:** `job-statuses.ts` มี **3 ก๊อปปี้** (`bkk-system`, `bkk-rider-app`, `bkk-frontend-next`/`app/types`) — เพิ่ม/แก้ status ต้อง sync ทั้ง 3 ไฟล์ และเช็ค notification triggers + archive (`TERMINAL_STATUSES`) + guard ต่างๆ
 7. **Cloud Functions naming:** ชื่อ function ห้ามชนกับ rider-notifications codebase (identify ด้วย `{region}/{name}` ระดับ project — ดูหมายเหตุใน section Cloud Functions)
+
+## Order Confirmation Emails (Resend)
+- **Provider:** Resend ผ่าน REST API ตรงๆ ด้วย `fetch` (Node 22) — ไม่เพิ่ม npm dependency. Logic + templates อยู่ใน `/functions/email.js`
+- **`onJobCreatedSendEmails`** (trigger: `onValueCreated /jobs/{jobId}`) — ออเดอร์เข้ามา → ส่งอีเมล "เราได้รับคำสั่งขาย" ให้ลูกค้า (`cust_email`) + แจ้งอีเมลกลางของแอดมิน (`ORDER_NOTIFY_EMAIL`)
+- **`onJobStatusEmail`** (trigger: `onValueUpdated /jobs/{jobId}/status`) — ส่งอีเมลตาม milestone ของ lifecycle (Active Lead, รับเครื่อง, ปรับราคา, โอนเงิน, ยกเลิก, ส่งคืน, คืนเงิน ฯลฯ) ให้ลูกค้า + แจ้งแอดมินกลางทุก milestone
+- **Milestone copy-map = allowlist:** `STATUS_COPY` ใน `email.js` — สถานะไหนไม่อยู่ใน map = ไม่ส่งอีเมล (เฟส Inventory/Logistics ภายในไม่ส่ง). เพิ่มสถานะใหม่ = เพิ่ม 1 entry ไม่ต้องแตะ logic. **ใช้ template กลางตัวเดียว** ไม่แยกต่อสถานะ
+- **Paid = ใบสำคัญรับเงิน (ไม่ใช่ใบเสร็จ):** เราเป็นผู้ซื้อจ่ายเงินให้บุคคลธรรมดาที่ออกใบเสร็จไม่ได้ → ลูกค้าได้ `buildCustomerPaymentVoucherEmail` = **ใบสำคัญรับเงิน** (ผู้จ่าย=นิติบุคคล+เลขผู้เสียภาษี+ที่อยู่, ผู้รับเงิน, จำนวนเงินตัวอักษร `bahtText()` "บาทถ้วน", หมายเหตุเหตุผลออกแทนใบเสร็จ) — สินค้า/ยอด/บัญชี mask เท่านั้น **ห้ามใส่ SickW/FMI/KYC** (PDPA)
+- **Paid แอดมิน = สรุปเต็ม + voucher backing:** `buildAdminPaidSummaryEmail` = parties + order + payout + ตัวอักษร + ผลตรวจ SickW GSX/FMI/iCloud (จาก `job.sickw_check.last_check`) + KYC (จาก `/jobs_kyc/{jobId}` เลขบัตร mask 4 ตัวท้าย). อ่าน snapshot ที่เก็บตอน inspection — **ไม่ call SickW API ซ้ำ**
+- **COMPANY mirror:** ข้อมูลนิติบุคคล (`COMPANY` ใน `email.js`) เป็น mirror ของ source of truth ที่ `bkk-frontend-next` (`app/utils/company.ts` / `functions/src/legal.ts`) — แก้ entity ต้อง sync
+- **ค่าบริการรับเครื่อง = รายได้บริษัท (VAT):** บริษัทจด VAT — `pickup_fee` (ค่าบริการไรเดอร์ที่หักจาก payout) เป็น**รายได้ค่าบริการ** ถือเป็น VAT-inclusive. `serviceFeeBreakdown()` ใน `email.js` แตก base + VAT 7% ออกมา. voucher/admin Paid โชว์บรรทัด 2 ทาง "ราคารับซื้อเครื่อง (เราจ่ายคุณ) − ค่าบริการรับเครื่อง (คุณชำระเรา รวม VAT) = ยอดรับสุทธิ" + รายละเอียด VAT (ทั้ง HTML + PDF). คนละก้อนกับค่าวิ่งที่จ่ายไรเดอร์ (expense + อาจมี WHT)
+- **ใบกำกับภาษีค่าบริการ:** ที่ Paid ถ้ามี `pickup_fee` → ออก **ใบกำกับภาษี/ใบเสร็จรับเงิน** แยกสำหรับค่าบริการ (`buildTaxInvoicePdf` ตาม ม.86/4: เลขที่ running, ผู้ขาย=บริษัท สนญ., ผู้ซื้อ=ลูกค้า, มูลค่าบริการ + VAT แยก). เลขที่จองจาก atomic counter `settings/accounting/tax_invoice_seq` (transaction; format `{prefix}000123`) เก็บที่ `jobs/{id}/tax_invoice` (กัน allocate ซ้ำ) + archive `tax_invoices/{jobId}.pdf`. แนบไปทั้งลูกค้า+แอดมินคู่กับใบสำคัญรับเงิน. **เลขรัน reset ได้** จากหน้าตั้งค่าระบบบัญชี (เก็บใต้ settings/accounting แอดมินจึงอ่าน/เขียนได้) — ใช้เฉพาะก่อน go-live เพื่อล้างเลขทดสอบ, ห้าม reset หลังออกใบจริง (เลขซ้ำ ผิดกฎหมาย)
+- **Voucher PDF:** ที่ Paid `onJobStatusEmail` สร้างไฟล์ PDF ใบสำคัญรับเงิน (`functions/voucher-pdf.js` ใช้ `pdf-lib` + ฟอนต์ `functions/assets/fonts/Sarabun-*.ttf` — TH Sarabun New OFL, ต้องมีไม่งั้นภาษาไทยเป็นกล่อง) → **แนบไปทั้งอีเมลลูกค้า + แอดมิน** และ **archive ที่ Storage `vouchers/{jobId}.pdf`** + เขียน reference `jobs/{jobId}/payment_voucher` (storage_path, url ผ่าน download token, amount, generated_at) ให้โชว์ในประวัติการขายได้. PDF/Storage เป็น best-effort — ถ้าล้มเหลวอีเมลยังส่ง. Deps: `pdf-lib`, `@pdf-lib/fontkit` (pure JS ไม่มี native binary)
+- **Normalize ก่อน lookup:** `normalizeStatus()` ใน `email.js` mirror จาก `src/types/job-statuses.ts` (LEGACY_ALIAS + In-Transit overload) เพราะ functions เป็น JS import TS enum ไม่ได้ — **แก้ status enum ต้อง sync 2 ที่**
+- **กันส่งซ้ำ:** create ใช้ `confirmation_email_sent_at`; milestone ใช้ `status_email_sent/{slug}` (per-status) guard ที่ต้นฟังก์ชัน
+- **ครอบคลุมทั้ง 2 ทางสร้างออเดอร์:** ลูกค้า self-checkout (`validateAndCreateOrder` ใน bkk-frontend-next) กับแอดมินสร้างเอง เขียน `/jobs` path เดียวกัน project เดียวกัน → DB trigger ตัวเดียวครอบคลุมหมด
+- **ชื่อ function ต้อง unique ระดับ project** เช่นเดียวกับ `onAdminJobStatusNotify` (กฎ `{region}/{name}` collision)
+- **Deliverability:** ต้อง verify sending domain `bkkapple.com` ใน Resend (SPF/DKIM/DMARC) ก่อนส่งจริง ไม่งั้นเข้า spam หรือถูก reject
+- **Master gate (ตั้งค่าระบบบัญชี):** ทั้ง `onJobCreatedSendEmails` + `onJobStatusEmail` อ่าน `settings/accounting` (`loadAccountingSettings`) — ถ้า `order_emails_enabled !== true` = **inert สนิท** (ไม่ส่ง ไม่จองเลขใบกำกับ ไม่เขียน Storage) deploy ก่อนตั้ง Resend ได้ปลอดภัย. config อื่น: `vat_registered` (ปิด=ไม่ออกใบกำกับภาษี+ไม่แตก VAT), `vat_rate_percent` (default 7), `tax_invoice_prefix` (default `IV-`). resolve แล้ว stash ที่ `job._accounting` (in-memory) ให้ `serviceFeeBreakdown` ใช้. หน้า UI: `/accounting-settings` (`src/pages/admin/AccountingSettings.tsx`, CEO+FINANCE)
+- **Secrets ที่ต้องเพิ่ม:** `RESEND_API_KEY`, `EMAIL_FROM` (เช่น `BKK APPLE <noreply@bkkapple.com>`), `ORDER_NOTIFY_EMAIL` (อีเมลกลางแอดมิน). Optional: `EMAIL_REPLY_TO`, `CUSTOMER_TRACKING_BASE_URL` (ลิงก์ติดตามในอีเมลลูกค้า). ถ้าไม่ตั้ง `RESEND_API_KEY`/`EMAIL_FROM` → ระบบ skip การส่งเงียบๆ ไม่ crash
 
 ## Role-Based Access
 - **CEO:** เข้าถึงทุกฟีเจอร์
