@@ -44,7 +44,7 @@ export function SickwSettingsSection() {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (e: any) {
-      toast.error('บันทึก Sickw settings ไม่สำเร็จ: ' + (e?.message || e));
+      toast.error('บันทึกการตั้งค่า IMEI Check ไม่สำเร็จ: ' + (e?.message || e));
     } finally {
       setSaving(false);
     }
@@ -57,7 +57,7 @@ export function SickwSettingsSection() {
           <ShieldCheck size={20} className="text-blue-400" />
         </div>
         <div className="flex-1">
-          <h2 className="text-lg font-black text-white uppercase tracking-tight">Sickw IMEI Check</h2>
+          <h2 className="text-lg font-black text-white uppercase tracking-tight">IMEI Check</h2>
           <p className="text-xs text-slate-400">
             ตั้ง default bundle ของ service ที่ระบบจะใช้ตรวจ — ไรเดอร์/แอดมินกดปุ่ม "ใช้ default" ทีเดียวเรียกครบ
           </p>

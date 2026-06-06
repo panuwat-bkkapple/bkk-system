@@ -381,7 +381,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
             <button
               onClick={() => {
                 if (gate.blocked) {
-                  toast.error(`Sickw Gate: ${gate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
+                  toast.error(`IMEI Gate: ${gate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
                   return;
                 }
                 handleSubmitAll();
@@ -396,7 +396,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
               {isUploading
                 ? <><div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> อัปโหลด...</>
                 : gate.blocked
-                  ? <>Sickw Gate Block — ต้อง Override</>
+                  ? <>IMEI Gate Block — ต้อง Override</>
                   : <><Upload size={22} /> ส่งผลตรวจ → Pending QC</>
               }
             </button>
