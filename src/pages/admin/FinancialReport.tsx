@@ -8,9 +8,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
-import { TrendingUp, Loader2, Download } from 'lucide-react';
+import { TrendingUp, Loader2, Download, AlertTriangle } from 'lucide-react';
 import { db } from '../../api/firebase';
-import { useToast } from '../../components/ui/ToastProvider';
 
 function currentBangkokMonth(): string {
   const d = new Date(Date.now() + 7 * 3600 * 1000);
@@ -36,57 +35,68 @@ interface Totals {
 const ZERO: Totals = { salesGross: 0, cogs: 0, grossProfit: 0, serviceBase: 0, opex: 0, outputVat: 0, salesCount: 0 };
 
 export default function FinancialReport() {
-  const toast = useToast();
   const [month, setMonth] = useState<string>(currentBangkokMonth());
   const [loading, setLoading] = useState(false);
   const [t, setT] = useState<Totals>(ZERO);
+  const [err, setErr] = useState<string | null>(null);
 
   const period = month.replace('-', '');
 
+  // NOTE: `toast` intentionally NOT in deps — useToast() returns a fresh object
+  // each render, so including it would re-run this effect endlessly (and spam
+  // errors). allSettled keeps a single denied source from blanking the rest.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setErr(null);
     const [start, end] = bangkokMonthRange(month);
 
-    Promise.all([
+    Promise.allSettled([
       get(ref(db, 'sales')),
       get(ref(db, 'expenses')),
       get(query(ref(db, 'accounting_documents'), orderByChild('period'), equalTo(period))),
     ])
-      .then(([salesSnap, expSnap, docSnap]) => {
+      .then(([salesRes, expRes, docRes]) => {
         if (cancelled) return;
         const out: Totals = { ...ZERO };
+        const failed: string[] = [];
 
-        salesSnap.forEach((c) => {
-          const s = c.val();
-          const at = Number(s?.sold_at) || 0;
-          if (at >= start && at < end && !s?.is_test) {
-            out.salesGross += Number(s.grand_total) || 0;
-            out.cogs += Number(s.total_cost) || 0;
-            out.grossProfit += Number(s.net_profit) || 0;
-            out.salesCount += 1;
-          }
-        });
+        if (salesRes.status === 'fulfilled') {
+          salesRes.value.forEach((c) => {
+            const s = c.val();
+            const at = Number(s?.sold_at) || 0;
+            if (at >= start && at < end && !s?.is_test) {
+              out.salesGross += Number(s.grand_total) || 0;
+              out.cogs += Number(s.total_cost) || 0;
+              out.grossProfit += Number(s.net_profit) || 0;
+              out.salesCount += 1;
+            }
+          });
+        } else failed.push('ยอดขาย');
 
-        expSnap.forEach((c) => {
-          const e = c.val();
-          const at = Number(e?.created_at) || 0;
-          if (at >= start && at < end) out.opex += Number(e.amount) || 0;
-        });
+        if (expRes.status === 'fulfilled') {
+          expRes.value.forEach((c) => {
+            const e = c.val();
+            const at = Number(e?.created_at) || 0;
+            if (at >= start && at < end) out.opex += Number(e.amount) || 0;
+          });
+        } else failed.push('ค่าใช้จ่าย');
 
-        docSnap.forEach((c) => {
-          const d = c.val();
-          if (d?.type !== 'tax_invoice') return;
-          out.outputVat += Number(d.vat) || 0;
-          if (d.category !== 'goods') out.serviceBase += Number(d.base) || 0; // service fee revenue
-        });
+        if (docRes.status === 'fulfilled') {
+          docRes.value.forEach((c) => {
+            const d = c.val();
+            if (d?.type !== 'tax_invoice') return;
+            out.outputVat += Number(d.vat) || 0;
+            if (d.category !== 'goods') out.serviceBase += Number(d.base) || 0;
+          });
+        } else failed.push('เอกสารภาษี');
 
         setT(out);
+        setErr(failed.length ? `อ่านข้อมูลบางส่วนไม่ได้ (${failed.join(', ')}) — อาจกำลัง deploy rules หรือสิทธิ์ไม่พอ` : null);
       })
-      .catch((e) => { if (!cancelled) toast.error('โหลดรายงานไม่สำเร็จ: ' + (e?.message || e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [month, period, toast]);
+  }, [month, period]);
 
   const netProfit = useMemo(() => t.grossProfit + t.serviceBase - t.opex, [t]);
 
@@ -144,6 +154,13 @@ export default function FinancialReport() {
           <Download size={15} /> Export CSV
         </button>
       </div>
+
+      {err && (
+        <div className="rounded-2xl p-4 bg-amber-950/30 border border-amber-700/40 flex gap-3">
+          <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-200/90 leading-relaxed">{err}</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="p-10 text-center text-slate-400"><Loader2 className="animate-spin inline mr-2" size={18} /> กำลังคำนวณ...</div>
