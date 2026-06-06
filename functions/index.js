@@ -3496,6 +3496,17 @@ function parseSickwResult(raw) {
     }
   }
 
+  // FMI/Activation Lock: iPad/Mac/Watch คืน key เป็น "Find My iPad/Mac/Watch"
+  // ซึ่ง endsWith-match ของ generic map จับไม่โดน (candidate มีแค่ "find my
+  // iphone"). เก็บ fallback แบบ startsWith เพื่อให้ Find My มาจาก lookup ครบทุก
+  // ชนิดอุปกรณ์ ไม่ต้องให้ไรเดอร์กรอกเอง
+  if (!parsed.fmiStatus) {
+    const k = Object.keys(fields).find(
+      (key) => key.startsWith("find my") || key === "icloud lock" || key.endsWith("activation lock")
+    );
+    if (k) parsed.fmiStatus = fields[k];
+  }
+
   // บาง service (GSX/MDM status) ไม่ได้คืน capacity/color เป็น field แยก แต่ฝังรวมใน
   // "model name" เช่น "iPhone 13 Pro Max 256GB Sierra Blue" — แกะออกมาเติมให้
   // เฉพาะตอนที่ยังว่าง (ไม่ทับค่าที่ service คืนมาตรงๆ)
