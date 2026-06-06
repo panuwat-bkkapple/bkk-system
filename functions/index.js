@@ -1031,15 +1031,20 @@ function applyAccounting(job, acct) {
   return job;
 }
 
+// Year/month in Asia/Bangkok (UTC+7) for tax-period grouping — Thai VAT periods
+// are local-month based. Returns { yyyy, mm, ym }.
+function bangkokYM(now) {
+  const d = new Date(now + 7 * 60 * 60 * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return { yyyy, mm, ym: `${yyyy}${mm}` };
+}
+
 // Allocate the next tax-invoice number per the configured format. Uses an
 // atomic per-period counter so 'year_month'/'year' reset cleanly, and a global
 // counter for 'plain'. Returns { number, issued_at, seq, period }.
 async function allocateTaxInvoiceNumber(db, acct, now) {
-  const d = new Date(now);
-  // Buddhist-era-agnostic: use Gregorian for the counter key; the visible
-  // prefix uses the same Gregorian year/month to stay sequential per period.
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const { yyyy, mm } = bangkokYM(now);
   let period = "all";
   let infix = "";
   if (acct.taxInvoiceFormat === "year_month") {
@@ -1058,6 +1063,19 @@ async function allocateTaxInvoiceNumber(db, acct, now) {
   const pad = period === "all" ? 6 : 4;
   const number = `${acct.taxInvoicePrefix}${infix}${String(seq).padStart(pad, "0")}`;
   return { number, issued_at: now, seq, period };
+}
+
+// Phase 2 — document register. Every issued accounting document is logged to
+// /accounting_documents/{docId} so the VAT sales report (ภ.พ.30) and a document
+// register can be built without scanning /jobs (which gets archived). Keyed by
+// a stable id to stay idempotent on retry. Best-effort. Read access is granted
+// to admins via bkk-frontend-next/database.rules.json (accounting_documents).
+async function writeAccountingDocument(db, docId, record) {
+  try {
+    await db.ref(`accounting_documents/${docId}`).set(record);
+  } catch (e) {
+    console.error(`[orderEmail] register write failed ${docId}:`, e?.message || e);
+  }
 }
 
 // Mirror onNewTicketCreated's "new order" status set (functions/ can't import
@@ -1188,12 +1206,27 @@ exports.onJobStatusEmail = onValueUpdated(
           });
           try {
             const url = await archivePdf(`vouchers/${jobId}.pdf`, pdf);
+            const amount = job.net_payout ?? job.price ?? null;
             await db.ref(`jobs/${jobId}/payment_voucher`).set({
               storage_path: `vouchers/${jobId}.pdf`,
               url,
               ref_no: job.ref_no || null,
-              amount: job.net_payout ?? job.price ?? null,
+              amount,
               generated_at: Date.now(),
+            });
+            // Register the purchase voucher (expense side; no input VAT — seller
+            // is an individual). Keyed by job so retries don't duplicate.
+            await writeAccountingDocument(db, `PV_${jobId}`, {
+              type: "payment_voucher",
+              number: job.ref_no || jobId,
+              job_id: jobId,
+              ref_no: job.ref_no || null,
+              issued_at: job.paid_at || Date.now(),
+              period: bangkokYM(job.paid_at || Date.now()).ym,
+              customer_name: job.cust_name || null,
+              amount,
+              storage_path: `vouchers/${jobId}.pdf`,
+              url,
             });
           } catch (e) {
             console.error(`[orderEmail] voucher archive failed ${jobId}:`, e?.message || e);
@@ -1234,9 +1267,29 @@ exports.onJobStatusEmail = onValueUpdated(
                 const url = await archivePdf(`tax_invoices/${jobId}.pdf`, tiPdf);
                 await db.ref(`jobs/${jobId}/tax_invoice/storage_path`).set(`tax_invoices/${jobId}.pdf`);
                 await db.ref(`jobs/${jobId}/tax_invoice/url`).set(url);
+                ti.storage_path = `tax_invoices/${jobId}.pdf`;
+                ti.url = url;
               } catch (e) {
                 console.error(`[orderEmail] tax-invoice archive failed ${jobId}:`, e?.message || e);
               }
+              // Register the output-VAT document for the ภ.พ.30 sales report.
+              // Keyed by the (unique) tax-invoice number for idempotency.
+              await writeAccountingDocument(db, `TI_${statusEmailKey(ti.number)}`, {
+                type: "tax_invoice",
+                number: ti.number,
+                job_id: jobId,
+                ref_no: job.ref_no || null,
+                issued_at: ti.issued_at || Date.now(),
+                period: bangkokYM(ti.issued_at || Date.now()).ym,
+                customer_name: job.cust_name || null,
+                base: ti.base,
+                vat: ti.vat,
+                total: ti.total,
+                vat_rate: acct.vatRate,
+                description: "ค่าบริการรับเครื่องถึงที่ (Pickup Service)",
+                storage_path: ti.storage_path || null,
+                url: ti.url || null,
+              });
             }
           } catch (e) {
             console.error(`[orderEmail] tax-invoice build failed ${jobId}:`, e?.message || e);
