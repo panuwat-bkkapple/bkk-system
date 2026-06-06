@@ -24,18 +24,29 @@
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const BRAND = "BKK APPLE";
 
-// Registered company identity — MIRROR of the source of truth in
-// bkk-frontend-next (app/utils/company.ts / functions/src/legal.ts). Used to
-// render the ใบสำคัญรับเงิน (payment voucher) the company issues when buying
-// from an individual who can't issue a receipt. Keep in sync if the registered
-// entity changes.
+// Registered company identity — DEFAULT/fallback, mirror of the source of truth
+// in bkk-frontend-next (app/utils/company.ts / functions/src/legal.ts). Admins
+// can override these in the "ตั้งค่าระบบบัญชี" page (settings/accounting/company);
+// the resolved value is stashed on job._company by the trigger. Keep the legal
+// name/tax id/address in sync with the entity registered on the customer site.
 const COMPANY = {
   legalName: "บริษัท เก็ทโมบี้ จำกัด",
   tradeName: "BKK APPLE",
   taxId: "0105565094088",
   address:
     "596/163 ซอย 6/1 โครงการ อารียา ทูบี ถนนลาดปลาเค้า แขวงจรเข้บัว เขตลาดพร้าว กรุงเทพฯ 10230",
+  branch: "สำนักงานใหญ่",
+  nameEn: "",
+  addressEn: "",
+  phone: "",
 };
+
+// Resolve the company to use for a job: admin override (job._company) merged
+// over the hardcoded defaults, so partial overrides still render fully.
+function companyOf(job) {
+  const o = (job && job._company) || {};
+  return { ...COMPANY, ...o };
+}
 
 /**
  * Send one email via Resend. No-ops (returns { skipped }) when the provider
@@ -387,14 +398,15 @@ function buildAdminNewOrderEmail(job, to) {
 
 /** Company (payer) + customer (payee) identity block for the voucher. */
 function voucherPartiesCard(job) {
+  const co = companyOf(job);
   const docMeta = kvTable([
     ["เลขที่เอกสาร", esc(job.ref_no || "-")],
     job.paid_at && ["วันที่จ่ายเงิน", esc(formatThaiDateTime(job.paid_at))],
   ]);
   const payer = kvTable([
-    ["ผู้จ่ายเงิน", esc(COMPANY.legalName)],
-    ["เลขประจำตัวผู้เสียภาษี", esc(COMPANY.taxId)],
-    ["ที่อยู่", esc(COMPANY.address)],
+    ["ผู้จ่ายเงิน", esc(co.legalName)],
+    ["เลขประจำตัวผู้เสียภาษี", esc(co.taxId)],
+    ["ที่อยู่", esc(co.address)],
   ]);
   const payee = kvTable([
     ["ผู้รับเงิน", esc(job.cust_name || "-")],
@@ -417,10 +429,10 @@ function bahtTextLine(amount) {
   return `<p style="margin:12px 2px 0;font-size:14px;color:#111827;">จำนวนเงิน (ตัวอักษร): <strong>(${esc(t)})</strong></p>`;
 }
 
-function voucherLegalNote() {
+function voucherLegalNote(job) {
   return `<p style="margin:16px 2px 0;font-size:12px;line-height:1.7;color:#6b7280;">
     เนื่องจากผู้รับเงินเป็นบุคคลธรรมดาซึ่งไม่สามารถออกใบเสร็จรับเงินได้
-    ${esc(COMPANY.legalName)} จึงออกใบสำคัญรับเงินฉบับนี้ไว้เป็นหลักฐานการจ่ายเงิน
+    ${esc(companyOf(job).legalName)} จึงออกใบสำคัญรับเงินฉบับนี้ไว้เป็นหลักฐานการจ่ายเงิน
     เพื่อประกอบการบันทึกบัญชีและภาษีตามกฎหมาย — เอกสารฉบับนี้เป็นสำเนาอิเล็กทรอนิกส์
     โดยผู้รับเงินได้ลงลายมือชื่อรับเงินไว้แล้ว ณ จุดส่งมอบเครื่อง
   </p>`;
@@ -432,6 +444,7 @@ function voucherLegalNote() {
  * the device, and the net amount paid.
  */
 function buildCustomerPaymentVoucherEmail(job) {
+  const co = companyOf(job);
   const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
   const amount = job.net_payout ?? job.price;
   return {
@@ -439,15 +452,15 @@ function buildCustomerPaymentVoucherEmail(job) {
     subject: `ใบสำคัญรับเงิน — ${job.ref_no || "BKK APPLE"}`,
     html: shell({
       heading: "ใบสำคัญรับเงิน",
-      intro: `${name}${esc(COMPANY.legalName)} ได้จ่ายเงินค่ารับซื้ออุปกรณ์ให้คุณเรียบร้อยแล้ว รายละเอียดตามเอกสารด้านล่าง`,
+      intro: `${name}${esc(co.legalName)} ได้จ่ายเงินค่ารับซื้ออุปกรณ์ให้คุณเรียบร้อยแล้ว รายละเอียดตามเอกสารด้านล่าง`,
       bodyHtml:
         voucherPartiesCard(job) +
         orderSummaryCard(job, { payoutLabel: PAYOUT_LABEL_NET, showVatDetail: true }) +
         bahtTextLine(amount) +
         paymentExtra(job) +
-        voucherLegalNote() +
+        voucherLegalNote(job) +
         trackingButton(job),
-      footerNote: `${COMPANY.legalName} (${COMPANY.tradeName}) • เลขประจำตัวผู้เสียภาษี ${COMPANY.taxId}`,
+      footerNote: `${co.legalName} (${co.tradeName}) • เลขประจำตัวผู้เสียภาษี ${co.taxId}`,
     }),
   };
 }
@@ -910,6 +923,7 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
 module.exports = {
   sendEmail,
   COMPANY,
+  companyOf,
   bahtText,
   VAT_RATE,
   serviceFeeBreakdown,
