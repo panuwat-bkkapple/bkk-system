@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays
+  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -171,6 +171,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
+              {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/accounting-settings" icon={<Calculator size={18} />} label="ตั้งค่าระบบบัญชี" />}
               <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
               {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />

@@ -888,6 +888,33 @@ exports.onNewTicketCreated = onValueCreated(
 // avoid the {region}/{name} collision documented for onAdminJobStatusNotify.
 // =============================================================================
 
+// Master gate + accounting config, set from the admin "ตั้งค่าระบบบัญชี" page
+// (settings/accounting). The whole order-email/document system is INERT until
+// an admin enables it — so deploying before Resend is configured consumes no
+// tax-invoice numbers and writes nothing. Defaults: disabled; VAT-registered.
+async function loadAccountingSettings(db) {
+  let s = {};
+  try {
+    s = (await db.ref("settings/accounting").once("value")).val() || {};
+  } catch (e) {
+    console.warn("[orderEmail] read settings/accounting failed:", e?.message || e);
+  }
+  const ratePercent = Number(s.vat_rate_percent);
+  return {
+    enabled: s.order_emails_enabled === true,
+    vatRegistered: s.vat_registered !== false,
+    vatRate: ratePercent > 0 ? ratePercent / 100 : 0.07,
+    taxInvoicePrefix: typeof s.tax_invoice_prefix === "string" && s.tax_invoice_prefix ? s.tax_invoice_prefix : "IV-",
+  };
+}
+
+// Stash resolved accounting config on the in-memory job so the email/PDF
+// builders (which have no DB access) compute VAT consistently. Not persisted.
+function applyAccounting(job, acct) {
+  job._accounting = { vat_registered: acct.vatRegistered, vat_rate: acct.vatRate };
+  return job;
+}
+
 // Mirror onNewTicketCreated's "new order" status set (functions/ can't import
 // the canonical TS enum). Accept both "Active Lead" and legacy "Active Leads".
 const ORDER_CREATED_STATUSES = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
@@ -906,6 +933,11 @@ exports.onJobCreatedSendEmails = onValueCreated(
 
       if (job.is_test) return;
       if (!ORDER_CREATED_STATUSES.includes(job.status)) return;
+
+      // Master gate: do nothing until an admin enables the system.
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      applyAccounting(job, acct);
 
       // Idempotency. onValueCreated fires once per node creation (child
       // writes below don't re-trigger it), but a rare retry could double-fire
@@ -964,6 +996,11 @@ exports.onJobStatusEmail = onValueUpdated(
       const job = jobSnap.val();
       if (job.is_test) return;
 
+      // Master gate: inert until enabled in ตั้งค่าระบบบัญชี.
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      applyAccounting(job, acct);
+
       // Normalize legacy/aliased values to canonical before map lookup. The
       // "In-Transit" overload needs receive_method to disambiguate.
       const status = normalizeStatus(after, job.receive_method);
@@ -1021,11 +1058,11 @@ exports.onJobStatusEmail = onValueUpdated(
         }
 
         // 2) ใบกำกับภาษี (tax invoice) for the pickup-service fee, when one was
-        //    charged. Allocate a sequential tax-invoice number once (atomic
-        //    counter; re-uses the existing number on retry) — required to be
-        //    running/sequential under ป.รัษฎากร ม.86/4.
+        //    charged AND the company is VAT-registered. Allocate a sequential
+        //    tax-invoice number once (atomic counter; re-uses the existing
+        //    number on retry) — running/sequential under ป.รัษฎากร ม.86/4.
         const fee = serviceFeeBreakdown(job);
-        if (fee) {
+        if (fee && fee.vatRegistered) {
           try {
             let ti = job.tax_invoice;
             if (!ti || !ti.number) {
@@ -1033,7 +1070,7 @@ exports.onJobStatusEmail = onValueUpdated(
               const txn = await seqRef.transaction((cur) => (cur || 0) + 1);
               const seq = txn.snapshot.val() || 1;
               ti = {
-                number: `IV-${String(seq).padStart(6, "0")}`,
+                number: `${acct.taxInvoicePrefix}${String(seq).padStart(6, "0")}`,
                 issued_at: Date.now(),
                 base: fee.base,
                 vat: fee.vat,

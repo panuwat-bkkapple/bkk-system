@@ -42,6 +42,7 @@ const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').the
 const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(m => ({ default: m.CouponManager })));
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
+const AccountingSettings = lazy(() => import('./pages/admin/AccountingSettings'));
 const SickwUsagePage = lazy(() => import('./pages/admin/SickwUsagePage'));
 const BranchManager = lazy(() => import('./pages/admin/BranchManager'));
 const ReviewManager = lazy(() => import('./pages/admin/ReviewManager'));
@@ -186,6 +187,7 @@ export default function App() {
               <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
+              <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/appointments" element={<AppointmentCalendar />} />

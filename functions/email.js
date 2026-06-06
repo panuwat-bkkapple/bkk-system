@@ -230,8 +230,17 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 function serviceFeeBreakdown(job) {
   const feeIncl = Number(job && job.pickup_fee) || 0;
   if (feeIncl <= 0) return null;
-  const base = round2(feeIncl / (1 + VAT_RATE));
-  return { feeIncl: round2(feeIncl), base, vat: round2(feeIncl - base) };
+  // Resolved accounting config is stashed on the job in-memory by the trigger
+  // (job._accounting), read from settings/accounting. Defaults preserve the
+  // VAT-registered, 7% VAT-inclusive behaviour when unset.
+  const acct = (job && job._accounting) || {};
+  const vatRegistered = acct.vat_registered !== false;
+  if (!vatRegistered) {
+    return { feeIncl: round2(feeIncl), base: round2(feeIncl), vat: 0, vatRegistered: false };
+  }
+  const rate = Number(acct.vat_rate) > 0 ? Number(acct.vat_rate) : VAT_RATE;
+  const base = round2(feeIncl / (1 + rate));
+  return { feeIncl: round2(feeIncl), base, vat: round2(feeIncl - base), vatRegistered: true };
 }
 
 function orderSummaryCard(job, opts = {}) {
@@ -282,9 +291,12 @@ function orderSummaryCard(job, opts = {}) {
 
   let totalsRows = "";
   if (fee) {
+    const feeLabel = fee.vatRegistered
+      ? "ค่าบริการรับเครื่อง (คุณชำระเรา · รวม VAT)"
+      : "ค่าบริการรับเครื่อง (คุณชำระเรา)";
     totalsRows += totalRow("ราคารับซื้อเครื่อง (เราจ่ายคุณ)", esc(formatTHB(grossBeforeFee)), { muted: true });
-    totalsRows += totalRow("ค่าบริการรับเครื่อง (คุณชำระเรา · รวม VAT)", `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
-    if (showVatDetail) {
+    totalsRows += totalRow(feeLabel, `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
+    if (showVatDetail && fee.vatRegistered) {
       totalsRows += `<tr><td colspan="2" style="padding:1px 0 4px 14px;font-size:11px;color:#9ca3af;">
         ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}</td></tr>`;
     }
