@@ -6,9 +6,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ref, query, orderByChild, equalTo, get } from 'firebase/database';
-import { FileSpreadsheet, Loader2, Download, ExternalLink, ReceiptText } from 'lucide-react';
+import { FileSpreadsheet, Loader2, Download, ExternalLink, ReceiptText, AlertTriangle } from 'lucide-react';
 import { db } from '../../api/firebase';
-import { useToast } from '../../components/ui/ToastProvider';
 
 interface TaxDoc {
   type: string;
@@ -40,16 +39,18 @@ const fmtDate = (ms: number) => {
 };
 
 export default function VatReport() {
-  const toast = useToast();
   const [month, setMonth] = useState<string>(currentBangkokMonth()); // YYYY-MM
   const [rows, setRows] = useState<TaxDoc[]>([]);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const period = month.replace('-', ''); // YYYYMM
 
+  // `toast` intentionally NOT in deps (fresh object each render → infinite loop).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setErr(null);
     const q = query(ref(db, 'accounting_documents'), orderByChild('period'), equalTo(period));
     get(q)
       .then((snap) => {
@@ -63,11 +64,11 @@ export default function VatReport() {
         setRows(out);
       })
       .catch((e) => {
-        if (!cancelled) toast.error('โหลดรายงานไม่สำเร็จ: ' + (e?.message || e));
+        if (!cancelled) { setRows([]); setErr('อ่านข้อมูลไม่ได้: ' + (e?.message || e) + ' (อาจกำลัง deploy rules หรือสิทธิ์ไม่พอ)'); }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [period, toast]);
+  }, [period]);
 
   const totals = useMemo(
     () => rows.reduce((a, r) => ({ base: a.base + (Number(r.base) || 0), vat: a.vat + (Number(r.vat) || 0), total: a.total + (Number(r.total) || 0) }), { base: 0, vat: 0, total: 0 }),
@@ -126,6 +127,13 @@ export default function VatReport() {
           <Download size={15} /> Export CSV
         </button>
       </div>
+
+      {err && (
+        <div className="rounded-2xl p-4 bg-amber-950/30 border border-amber-700/40 flex gap-3">
+          <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-200/90 leading-relaxed">{err}</p>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
