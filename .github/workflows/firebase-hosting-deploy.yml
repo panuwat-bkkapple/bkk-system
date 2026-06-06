@@ -46,6 +46,8 @@ jobs:
             printf 'ORDER_NOTIFY_EMAIL=%s\n' "$ORDER_NOTIFY_EMAIL"
             printf 'EMAIL_REPLY_TO=%s\n' "$EMAIL_REPLY_TO"
             printf 'CUSTOMER_TRACKING_BASE_URL=%s\n' "$CUSTOMER_TRACKING_BASE_URL"
+            printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
+            printf 'TELEGRAM_CHAT_ID=%s\n' "$TELEGRAM_CHAT_ID"
           } > functions/.env
         env:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
@@ -56,6 +58,8 @@ jobs:
           ORDER_NOTIFY_EMAIL: ${{ secrets.ORDER_NOTIFY_EMAIL }}
           EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
           CUSTOMER_TRACKING_BASE_URL: ${{ secrets.CUSTOMER_TRACKING_BASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
       # One-time pre-delete of the colliding function name `onJobStatusChanged`.
       # Renamed to `onAdminJobStatusNotify` in this codebase to stop

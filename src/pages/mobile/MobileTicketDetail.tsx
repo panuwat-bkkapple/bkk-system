@@ -24,6 +24,9 @@ import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultC
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
+import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -107,7 +110,7 @@ export const MobileTicketDetail = () => {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const [editForm, setEditForm] = useState({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '' });
+  const [editForm, setEditForm] = useState<{ model: string; price: string; cust_name: string; cust_phone: string; cust_address: string; appt_date: string; appt_start: string; appt_end: string; receive_method: string; cust_lat?: number; cust_lng?: number }>({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '', cust_lat: undefined, cust_lng: undefined });
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -315,12 +318,20 @@ export const MobileTicketDetail = () => {
   };
 
   const openEditModal = () => {
+    const { start, end } = parseTimeRange(job.pickup_schedule);
     setEditForm({
       model: job.model || '',
       price: String(job.price ?? ''),
       cust_name: job.cust_name || '',
       cust_phone: job.cust_phone || '',
-      cust_address: job.cust_address || '',
+      // Store-in keeps its location in store_branch; everyone else in cust_address.
+      cust_address: currentLocation(job),
+      appt_date: existingApptDate(job.pickup_schedule),
+      appt_start: start,
+      appt_end: end,
+      receive_method: job.receive_method || '',
+      cust_lat: typeof job.cust_lat === 'number' ? job.cust_lat : undefined,
+      cust_lng: typeof job.cust_lng === 'number' ? job.cust_lng : undefined,
     });
     setShowEditModal(true);
   };
@@ -332,17 +343,114 @@ export const MobileTicketDetail = () => {
       toast.warning('ราคาต้องเป็นตัวเลข');
       return;
     }
+
+    // Appointment edit (optional). Validate the date/time-range up front.
+    const apptDate = editForm.appt_date.trim();
+    const apptStart = editForm.appt_start.trim();
+    const apptEnd = editForm.appt_end.trim();
+    if (apptDate || apptStart || apptEnd) {
+      if (!apptDate || !apptStart) {
+        toast.warning('กรุณาระบุวันและเวลาเริ่มของนัดหมาย');
+        return;
+      }
+      if (apptEnd && apptEnd <= apptStart) {
+        toast.warning('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่ม');
+        return;
+      }
+    }
+
+    // Trade method change (optional). Pricing + rider withdrawal are reconciled
+    // server-side by onReceiveMethodChanged; here we just gate by status.
+    const newMethod = editForm.receive_method || job.receive_method;
+    const methodChanged = newMethod !== job.receive_method;
+    if (methodChanged && !canChangeReceiveMethod(job.status)) {
+      toast.warning('เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)');
+      return;
+    }
+
     setIsSaving(true);
     try {
+      const isStoreIn = newMethod === 'Store-in';
+      const logs: any[] = [];
+
       const payload: any = {
         model: editForm.model.trim() || null,
         price: priceNum,
         cust_name: editForm.cust_name.trim() || null,
         cust_phone: editForm.cust_phone.trim() || null,
-        cust_address: editForm.cust_address.trim() || null,
-        qc_logs: [makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'), ...(job.qc_logs || [])],
         updated_at: Date.now(),
+        // Location is written to the field that matches the (possibly new) method.
+        ...buildMethodLocationFields(newMethod, editForm.cust_address),
       };
+
+      if (methodChanged) {
+        payload.receive_method = newMethod;
+        logs.push(makeLog(
+          'Trade Method Changed',
+          `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+        ));
+      }
+
+      // Pickup pin reconciliation. The rider navigates by cust_lat/cust_lng and
+      // ignores the text address when a pin exists, so the pin must NEVER be
+      // left stale after the address changes — otherwise the rider drives to the
+      // old spot. Priority:
+      //   1. admin moved the pin    → use those coords
+      //   2. address text changed   → geocode it to a fresh pin
+      //   3. geocode failed         → clear the pin so the rider falls back to
+      //                               the (correct) text address
+      if (newMethod === 'Pickup') {
+        const pinMoved = typeof editForm.cust_lat === 'number' && typeof editForm.cust_lng === 'number'
+          && (editForm.cust_lat !== job.cust_lat || editForm.cust_lng !== job.cust_lng);
+        const addressChanged = (editForm.cust_address || '').trim() !== (job.cust_address || '').trim();
+
+        if (pinMoved) {
+          payload.cust_lat = editForm.cust_lat;
+          payload.cust_lng = editForm.cust_lng;
+          logs.push(makeLog('Pickup Location Updated', `ปรับจุดรับเครื่อง (${editForm.cust_lat!.toFixed(5)}, ${editForm.cust_lng!.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+        } else if (addressChanged) {
+          const coords = await geocodeAddress(editForm.cust_address);
+          if (coords) {
+            payload.cust_lat = coords.lat;
+            payload.cust_lng = coords.lng;
+            logs.push(makeLog('Pickup Location Updated', `อัปเดตหมุดตามที่อยู่ใหม่ (${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}) — คิดค่าไรเดอร์ใหม่อัตโนมัติ`));
+          } else {
+            // No coords for the new address — drop the old pin so the rider
+            // doesn't navigate to the previous (wrong) location.
+            payload.cust_lat = null;
+            payload.cust_lng = null;
+            logs.push(makeLog('Pickup Location Updated', 'ที่อยู่เปลี่ยนแต่หาพิกัดไม่ได้ — ล้างหมุดเดิม ไรเดอร์จะนำทางด้วยที่อยู่ข้อความ'));
+            toast.warning('หาพิกัดจากที่อยู่ใหม่ไม่ได้ — ล้างหมุดเดิมแล้ว แนะนำให้ปักหมุดเองบนแผนที่');
+          }
+        }
+      }
+
+      // Reschedule: write the new date/time range into pickup_schedule (read by
+      // the calendar, customer tracking and this detail page). Only write when
+      // something actually changed so we don't re-stamp a no-op save.
+      if (apptDate && apptStart) {
+        const prev = parseTimeRange(job.pickup_schedule);
+        const prevDate = existingApptDate(job.pickup_schedule);
+        const hadSchedule = !!prevDate;
+        const changed = !hadSchedule || prevDate !== apptDate || prev.start !== apptStart || prev.end !== apptEnd;
+        if (changed) {
+          payload.pickup_schedule = buildPickupSchedule(apptDate, apptStart, apptEnd, hadSchedule);
+          const rangeLabel = apptEnd ? `${apptStart} - ${apptEnd}` : apptStart;
+          logs.push(makeLog(
+            hadSchedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            `${hadSchedule ? 'เลื่อนนัดหมายเป็น' : 'นัดหมาย'} ${apptDate} ${rangeLabel}`,
+          ));
+          // First appointment on a fresh Store-in moves it to Appointment Set,
+          // mirroring the desktop scheduler. Rescheduling never changes status.
+          if (isStoreIn && !hadSchedule) {
+            const lower = (job.status || '').trim().toLowerCase();
+            if (lower === 'new lead' || lower === 'following up') payload.status = 'Appointment Set';
+          }
+        }
+      }
+
+      logs.push(makeLog('Edited', 'แก้ไขข้อมูลงานผ่าน Mobile'));
+      payload.qc_logs = [...logs, ...(job.qc_logs || [])];
 
       if (priceNum !== null) {
         const oldBasePrice = Number(job.final_price || job.price || 0);
@@ -1171,14 +1279,90 @@ export const MobileTicketDetail = () => {
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
               </div>
+
+              {/* Trade method — switching recalculates the rider fee / payout and
+                  withdraws any assigned rider (handled server-side). */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">ที่อยู่</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">วิธีรับเครื่อง (Trade Method)</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {RECEIVE_METHOD_OPTIONS.map((opt) => {
+                    const active = editForm.receive_method === opt.id;
+                    const locked = !canChangeReceiveMethod(job.status);
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={locked && !active}
+                        onClick={() => setEditForm({ ...editForm, receive_method: opt.id })}
+                        className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'} ${locked && !active ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!canChangeReceiveMethod(job.status) ? (
+                  <p className="text-[10px] text-amber-600 mt-1">เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)</p>
+                ) : editForm.receive_method !== job.receive_method ? (
+                  <p className="text-[10px] text-blue-600 mt-1">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">{locationLabel(editForm.receive_method)}</label>
                 <textarea
                   value={editForm.cust_address}
                   onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}
                   rows={2}
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
                 />
+                {/* Pickup only — pin the location so the rider fee / payout can
+                    be recomputed from the real distance (auto after save). */}
+                {editForm.receive_method === 'Pickup' && (
+                  <div className="mt-2">
+                    <PickupLocationPicker
+                      address={editForm.cust_address}
+                      lat={editForm.cust_lat}
+                      lng={editForm.cust_lng}
+                      onChange={({ lat, lng }) => setEditForm((f) => ({ ...f, cust_lat: lat, cust_lng: lng }))}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Reschedule — date + start/end time range. Works for every
+                  receive method; writes pickup_schedule so the calendar updates. */}
+              <div className="pt-2 mt-1 border-t border-slate-100">
+                <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1.5">
+                  <Clock size={13} className="text-blue-500" /> วันและเวลานัดหมาย
+                </label>
+                <input
+                  type="date"
+                  value={editForm.appt_date}
+                  onChange={(e) => setEditForm({ ...editForm, appt_date: e.target.value })}
+                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-2"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 mb-1">เวลาเริ่ม</span>
+                    <input
+                      type="time"
+                      value={editForm.appt_start}
+                      onChange={(e) => setEditForm({ ...editForm, appt_start: e.target.value })}
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 mb-1">เวลาสิ้นสุด</span>
+                    <input
+                      type="time"
+                      value={editForm.appt_end}
+                      onChange={(e) => setEditForm({ ...editForm, appt_end: e.target.value })}
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">เว้นว่างไว้หากไม่ต้องการนัดหมาย • เวลาสิ้นสุดไม่บังคับ</p>
               </div>
             </div>
             <div className="flex gap-2 p-4 border-t bg-slate-50 rounded-b-2xl">

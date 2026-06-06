@@ -88,7 +88,7 @@ export const QCStation = () => {
          parsed.serial && 'SN', parsed.imei && 'IMEI', parsed.color && 'สี',
          parsed.capacity && 'ความจุ', parsed.modelNumber && 'Model No.',
       ].filter(Boolean);
-      if (filled.length > 0) toast.success(`เติมข้อมูลจาก Sickw แล้ว: ${filled.join(', ')}`);
+      if (filled.length > 0) toast.success(`เติมข้อมูลจากผลตรวจ IMEI แล้ว: ${filled.join(', ')}`);
    };
 
    const repairItems = useMemo(() => {
@@ -146,8 +146,11 @@ export const QCStation = () => {
          part_battery: job.qc_details?.part_battery || 'Original',
          part_camera: job.qc_details?.part_camera || 'Original',
          final_grade: job.grade || 'A',
-         battery_health: job.battery_health || 100,
-         cycle_count: job.qc_details?.cycle_count || 0,
+         // Rider inspection writes battery_health_pct (and mirrors it to
+         // battery_health). Read either so the rider's reading auto-fills here
+         // instead of always defaulting to 100.
+         battery_health: job.battery_health ?? job.battery_health_pct ?? 100,
+         cycle_count: job.qc_details?.cycle_count ?? job.battery_cycle_count ?? 0,
          actual_color: sw.color || job.color || '',
          capacity: sw.capacity || job.capacity || '',
          model_code: sw.modelNumber || job.qc_details?.model_code || job.model_code || '',
@@ -200,7 +203,7 @@ export const QCStation = () => {
       // (ผูกตรงนี้กับ payout pipeline เลย — ป้องกันเครื่องผิดเข้าสต็อก)
       const freshGate = getSickwGateStatus(liveJob?.sickw_check);
       if (freshGate.blocked) {
-         toast.warning(`Sickw Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
+         toast.warning(`IMEI Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
          return;
       }
       if (!confirm('ยืนยันผลการตรวจสอบอุปกรณ์?')) return;
@@ -446,7 +449,7 @@ export const QCStation = () => {
                                  >
                                     {qcGate.blocked ? <AlertTriangle size={18} /> : <Save size={18} />}
                                     {qcGate.blocked
-                                       ? 'Sickw Gate Block — ต้อง Override'
+                                       ? 'IMEI Gate Block — ต้อง Override'
                                        : (() => {
                                           const isPaid = selectedJob.qc_logs?.some((log: any) => ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
                                           if (isPaid || selectedJob.receive_method === 'Pickup') return 'Approve & Send to Stock';

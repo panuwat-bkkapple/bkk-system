@@ -9,6 +9,9 @@ import { db } from '@/api/firebase';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
+import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
+import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -105,38 +108,91 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   // separate field. Customers picking Store-in at /sell don't get a time
   // slot, so admin has to set it themselves; without this scheduler the
   // job had no calendar entry and admin had no way to add one.
-  const ps = job.pickup_schedule;
-  const existingApptDate = ps?.date && ps.date !== 'Instant' ? ps.date : '';
-  const existingApptTime = ps?.time && ps.time !== 'Instant' ? ps.time : '';
+  const existingApptDate = getApptDate(job.pickup_schedule);
+  const existingRange = parseTimeRange(job.pickup_schedule);
+  const existingApptTime = job.pickup_schedule?.time && job.pickup_schedule.time !== 'Instant' ? job.pickup_schedule.time : '';
   const [apptDate, setApptDate] = useState(existingApptDate);
-  const [apptTime, setApptTime] = useState(existingApptTime);
+  const [apptStart, setApptStart] = useState(existingRange.start);
+  const [apptEnd, setApptEnd] = useState(existingRange.end);
   const [savingAppt, setSavingAppt] = useState(false);
 
-  const handleSaveAppointment = async () => {
-    if (!apptDate || !apptTime) return;
-    setSavingAppt(true);
+  // Trade method change. Client writes method + location only; pricing
+  // (pickup_fee/net_payout) and rider withdrawal are reconciled server-side by
+  // the onReceiveMethodChanged Cloud Function.
+  const [methodEdit, setMethodEdit] = useState(job.receive_method || '');
+  const [methodLoc, setMethodLoc] = useState(currentLocation(job));
+  const [methodLat, setMethodLat] = useState<number | undefined>(typeof job.cust_lat === 'number' ? job.cust_lat : undefined);
+  const [methodLng, setMethodLng] = useState<number | undefined>(typeof job.cust_lng === 'number' ? job.cust_lng : undefined);
+  const [savingMethod, setSavingMethod] = useState(false);
+
+  const handleSaveMethod = async () => {
+    const newMethod = methodEdit || job.receive_method;
+    if (newMethod === job.receive_method || !canChangeReceiveMethod(job.status)) return;
+    setSavingMethod(true);
     try {
-      const isReschedule = !!existingApptDate;
-      const updates: Record<string, unknown> = {
-        pickup_schedule: { type: 'scheduled', date: apptDate, time: apptTime },
+      // Switching to Pickup: the rider navigates by cust_lat/cust_lng, so send a
+      // pin. Prefer the one the admin set; otherwise geocode the address. Don't
+      // leave a stale pin from a previous Pickup — clear it if we have none.
+      let pinFields: Record<string, number | null> = {};
+      if (newMethod === 'Pickup') {
+        let lat = methodLat;
+        let lng = methodLng;
+        if (typeof lat !== 'number' || typeof lng !== 'number') {
+          const coords = await geocodeAddress(methodLoc);
+          if (coords) { lat = coords.lat; lng = coords.lng; }
+        }
+        pinFields = (typeof lat === 'number' && typeof lng === 'number')
+          ? { cust_lat: lat, cust_lng: lng }
+          : { cust_lat: null, cust_lng: null };
+      }
+      await update(ref(db, `jobs/${job.id}`), {
+        receive_method: newMethod,
+        ...buildMethodLocationFields(newMethod, methodLoc),
+        ...pinFields,
         qc_logs: [
           {
-            action: isReschedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            action: 'Trade Method Changed',
             by: currentUserName,
             timestamp: Date.now(),
-            details: `${isReschedule ? 'แก้ไขเวลานัด' : 'นัดหมาย'}เข้าสาขา ${apptDate} ${apptTime}`,
+            details: `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+          },
+          ...(job.qc_logs || []),
+        ],
+        updated_at: Date.now(),
+      });
+    } finally {
+      setSavingMethod(false);
+    }
+  };
+
+  const handleSaveAppointment = async () => {
+    if (!apptDate || !apptStart) return;
+    if (apptEnd && apptEnd <= apptStart) return;
+    setSavingAppt(true);
+    try {
+      const hadSchedule = !!existingApptDate;
+      const rangeLabel = apptEnd ? `${apptStart} - ${apptEnd}` : apptStart;
+      const updates: Record<string, unknown> = {
+        pickup_schedule: buildPickupSchedule(apptDate, apptStart, apptEnd, hadSchedule),
+        qc_logs: [
+          {
+            action: hadSchedule ? 'Appointment Rescheduled' : 'Appointment Set',
+            by: currentUserName,
+            timestamp: Date.now(),
+            details: `${hadSchedule ? 'เลื่อนนัดหมายเป็น' : 'นัดหมาย'} ${apptDate} ${rangeLabel}`,
           },
           ...(job.qc_logs || []),
         ],
         updated_at: Date.now(),
       };
       // Only flip the status when we're setting an appointment for the
-      // first time on a Store-in New Lead / Following Up — Mail-in
+      // first time on a Pickup / Store-in New Lead / Following Up — Mail-in
       // flows via tracking_number → In-Transit → Pending QC and
       // shouldn't get pulled into the Appointment Set branch.
       const lower = (job.status || '').trim().toLowerCase();
       if (
-        job.receive_method === 'Store-in' &&
+        !hadSchedule &&
+        (job.receive_method === 'Store-in' || job.receive_method === 'Pickup') &&
         (lower === 'new lead' || lower === 'following up')
       ) {
         updates.status = JOB_STATUS.APPOINTMENT_SET;
@@ -343,7 +399,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Expected Arrival</p>
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลาที่คาดว่าพัสดุจะถึง</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <input
                   type="date"
                   value={apptDate}
@@ -352,10 +408,19 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 />
                 <input
                   type="time"
-                  value={apptTime}
-                  onChange={(e) => setApptTime(e.target.value)}
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
                   className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
                 />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
               </div>
               {existingApptDate && (
                 <p className="text-[10px] font-bold text-emerald-600">
@@ -364,7 +429,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               )}
               <button
                 onClick={handleSaveAppointment}
-                disabled={!apptDate || !apptTime || savingAppt}
+                disabled={!apptDate || !apptStart || savingAppt}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <CalendarClock size={16} />
@@ -416,6 +481,120 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           </div>
         )}
 
+        {/* Trade method changer — switching recalculates fee/payout and
+            withdraws any assigned rider (handled server-side by
+            onReceiveMethodChanged). */}
+        {!isCancelled && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> Trade Method</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {RECEIVE_METHOD_OPTIONS.map((opt) => {
+                  const active = methodEdit === opt.id;
+                  const locked = !canChangeReceiveMethod(job.status);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={locked && !active}
+                      onClick={() => { setMethodEdit(opt.id); setMethodLoc(currentLocation(job)); }}
+                      className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'} ${locked && !active ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!canChangeReceiveMethod(job.status) ? (
+                <p className="text-[10px] font-bold text-amber-600">เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)</p>
+              ) : methodEdit !== job.receive_method ? (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{locationLabel(methodEdit)}</p>
+                    <textarea
+                      value={methodLoc}
+                      onChange={(e) => setMethodLoc(e.target.value)}
+                      rows={2}
+                      className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400 resize-none"
+                    />
+                  </div>
+                  {methodEdit === 'Pickup' && (
+                    <PickupLocationPicker
+                      address={methodLoc}
+                      lat={methodLat}
+                      lng={methodLng}
+                      onChange={({ lat, lng }) => { setMethodLat(lat); setMethodLng(lng); }}
+                    />
+                  )}
+                  <p className="text-[10px] font-bold text-blue-600">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
+                  <button
+                    onClick={handleSaveMethod}
+                    disabled={savingMethod}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+                  >
+                    <Truck size={16} /> {savingMethod ? 'กำลังบันทึก...' : `เปลี่ยนเป็น ${methodEdit}`}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {/* Pickup appointment scheduler — lets admin set or reschedule the
+            pickup time window for a Pickup job. Visible for any non-cancelled
+            Pickup ticket so an urgent ("รับด่วน") job that a rider couldn't
+            reach in time can be moved to a new day/time, and a pre-booked
+            slot can be changed. Writes pickup_schedule (range), same shape as
+            Store-in/Mail-in, so the calendar and customer tracking stay in sync. */}
+        {!isCancelled && job.receive_method === 'Pickup' && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><CalendarClock size={14} /> Pickup Appointment</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและช่วงเวลานัดรับเครื่อง</p>
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="date"
+                  value={apptDate}
+                  onChange={(e) => setApptDate(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
+              </div>
+              {existingApptDate && (
+                <p className="text-[10px] font-bold text-emerald-600">
+                  นัดปัจจุบัน: {existingApptDate} เวลา {existingApptTime || '—'}
+                </p>
+              )}
+              <button
+                onClick={handleSaveAppointment}
+                disabled={!apptDate || !apptStart || savingAppt}
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+              >
+                <CalendarClock size={16} />
+                {savingAppt
+                  ? 'กำลังบันทึก...'
+                  : existingApptDate
+                    ? 'อัปเดตเวลานัดรับ'
+                    : 'ยืนยันเวลานัดรับ'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Store-in appointment scheduler — customers picking Store-in
             at /sell don't get a time slot, so admin enters it here.
             Visible for any non-cancelled Store-in ticket so admin can:
@@ -434,7 +613,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">วันและเวลานัดเข้าสาขา</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <input
                   type="date"
                   value={apptDate}
@@ -443,10 +622,19 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 />
                 <input
                   type="time"
-                  value={apptTime}
-                  onChange={(e) => setApptTime(e.target.value)}
+                  value={apptStart}
+                  onChange={(e) => setApptStart(e.target.value)}
                   className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
                 />
+                <input
+                  type="time"
+                  value={apptEnd}
+                  onChange={(e) => setApptEnd(e.target.value)}
+                  className="bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider -mt-1">
+                <span>วันที่</span><span>เริ่ม</span><span>สิ้นสุด (ไม่บังคับ)</span>
               </div>
               {existingApptDate && (
                 <p className="text-[10px] font-bold text-emerald-600">
@@ -455,7 +643,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               )}
               <button
                 onClick={handleSaveAppointment}
-                disabled={!apptDate || !apptTime || savingAppt}
+                disabled={!apptDate || !apptStart || savingAppt}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <CalendarClock size={16} />

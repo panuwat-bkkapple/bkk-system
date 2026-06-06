@@ -135,7 +135,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
       toast.error('ไม่มี IMEI หรือ service เดิม — ตรวจใหม่ผ่านหน้า QC แทน');
       return;
     }
-    if (!window.confirm('ตรวจ Sickw ใหม่ด้วย IMEI เดิม? (ข้าม cache — ใช้เครดิตเพิ่ม 1 รอบ)')) return;
+    if (!window.confirm('ตรวจ IMEI ใหม่ด้วยเลขเดิม? (ข้าม cache — ใช้เครดิตเพิ่ม 1 รอบ)')) return;
 
     setRefreshing(true);
     try {
@@ -146,7 +146,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
       } else {
         await checkDeviceWithSickwBundle({ imei: checkImei, serviceIds: svcIds, forceRefresh: true, jobId: job.id, source });
       }
-      toast.success('ตรวจ Sickw ใหม่สำเร็จ — อัปเดตสถานะแล้ว');
+      toast.success('ตรวจ IMEI ใหม่สำเร็จ — อัปเดตสถานะแล้ว');
     } catch (e: any) {
       toast.error(e?.message || 'ตรวจใหม่ไม่สำเร็จ');
     } finally {
@@ -166,7 +166,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-bold text-slate-800">ข้อมูลจาก Sickw</p>
+            <p className="text-sm font-bold text-slate-800">ข้อมูลจากการตรวจ IMEI</p>
             {mismatches.length > 0 && (
               <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
                 {mismatches.length} field ไม่ตรงงาน
@@ -200,7 +200,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
             <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 mt-3 space-y-2">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={14} className="text-amber-700" />
-                <p className="text-xs font-black uppercase text-amber-900">ข้อมูลในใบงานไม่ตรงกับ Sickw</p>
+                <p className="text-xs font-black uppercase text-amber-900">ข้อมูลในใบงานไม่ตรงกับผลตรวจ</p>
               </div>
               <ul className="text-[11px] text-amber-900 space-y-0.5 pl-5">
                 {mismatches.map((m) => (
@@ -218,7 +218,7 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
                 className="w-full mt-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
                 {syncing ? <><Loader2 size={12} className="animate-spin" /> กำลัง sync...</>
-                  : <><Wand2 size={12} /> ใช้ข้อมูลจาก Sickw แทน ({mismatches.length} field)</>}
+                  : <><Wand2 size={12} /> ใช้ข้อมูลจากผลตรวจแทน ({mismatches.length} field)</>}
               </button>
             </div>
           )}
@@ -236,12 +236,12 @@ export function SickwStoredResultCard({ sickwCheck, job, defaultOpen = true, cla
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              title="ตรวจ Sickw ใหม่ด้วย IMEI เดิม (ข้าม cache — ใช้เครดิตเพิ่ม)"
+              title="ตรวจ IMEI ใหม่ด้วยเลขเดิม (ข้าม cache — ใช้เครดิตเพิ่ม)"
               className="w-full px-3 py-2 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
             >
               {refreshing
                 ? <><Loader2 size={12} className="animate-spin" /> กำลังตรวจใหม่...</>
-                : <><RefreshCw size={12} /> ตรวจ Sickw ใหม่ (Refresh สถานะ FMI)</>}
+                : <><RefreshCw size={12} /> ตรวจ IMEI ใหม่ (Refresh สถานะ FMI)</>}
             </button>
           )}
 

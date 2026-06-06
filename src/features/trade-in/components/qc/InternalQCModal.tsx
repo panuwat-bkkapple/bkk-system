@@ -214,7 +214,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
         // อ่าน fresh จาก job เผื่อ user เพิ่งกดตรวจหรือ override ระหว่างเปิดโมดอลอยู่
         const freshGate = getSickwGateStatus(job?.sickw_check);
         if (freshGate.blocked) {
-            toast.error(`Sickw Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อนถึงจะส่ง QC ได้`);
+            toast.error(`IMEI Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อนถึงจะส่ง QC ได้`);
             return;
         }
         setIsUploadingQC(true);
@@ -340,7 +340,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                                 }`}
                             >
                                 {isUploadingQC ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึกและอัปโหลดรูป...</>
-                                    : gate.blocked ? <><AlertTriangle size={18} /> Sickw Gate Block — ต้อง Override ก่อน</>
+                                    : gate.blocked ? <><AlertTriangle size={18} /> IMEI Gate Block — ต้อง Override ก่อน</>
                                     : 'สรุปผลและส่งรายงาน QC'}
                             </button>
                         </div>

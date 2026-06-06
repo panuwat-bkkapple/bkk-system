@@ -120,6 +120,92 @@ async function dispatchAdminPush(message, tag) {
 }
 
 // =============================================================================
+// Telegram fallback channel — GUARANTEED admin delivery
+//
+// iOS PWA web-push tokens die within minutes (registration-token-not-registered)
+// and the desktop ones rotate too, so FCM alone silently drops the most
+// important alerts (new orders) whenever the admin app hasn't been opened
+// recently. Telegram delivers server-to-server into an app iOS keeps alive, so
+// it lands every time regardless of any PWA push subscription.
+//
+// Configured via TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (GitHub Secrets →
+// functions/.env, same pattern as GOOGLE_MAPS_API_KEY). No-ops when unset, so
+// deploying this before the secrets exist is safe. Sent as plain text (no
+// parse_mode) so customer names with < & etc. can never break the message.
+// =============================================================================
+async function dispatchTelegram(text, tag) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return; // not configured yet — silently skip
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error(`[${tag}] Telegram HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    } else {
+      console.log(`[${tag}] Telegram sent`);
+    }
+  } catch (err) {
+    console.error(
+      `[${tag}] Telegram send failed:`,
+      err && err.name === "AbortError" ? "timeout" : err
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Escape dynamic values before embedding in a Telegram HTML message so a
+// customer name / address containing < > & can never break parsing.
+function tgEscape(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Thai baht with thousands separators, or "" when the amount is missing.
+function tgBaht(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && v !== "" && v != null ? `฿${n.toLocaleString()}` : "";
+}
+
+// Location line by receive method (Pickup → address, Store-in → branch,
+// Mail-in → postal). Returns "" when nothing useful is known.
+function tgLocationLine(job) {
+  const m = job.receive_method || "";
+  if (m === "Pickup" && job.cust_address) return `📍 ${tgEscape(job.cust_address)}`;
+  if (m === "Store-in") {
+    const b = job.branch_name || job.store_branch || "";
+    if (b) return `🏬 สาขา: ${tgEscape(b)}`;
+  }
+  if (m === "Mail-in") return "📮 ส่งทางไปรษณีย์";
+  return "";
+}
+
+// Appointment line from the shared pickup_schedule shape. "Instant" means
+// "รับเลย"; a real date shows date + time range.
+function tgAppointmentLine(job) {
+  const ps = job.pickup_schedule;
+  if (!ps || !ps.date) return "";
+  if (ps.date === "Instant") return "📅 รับเลย (Instant)";
+  const time = ps.time && ps.time !== "Instant" ? ` ${ps.time}` : "";
+  return `📅 ${tgEscape(ps.date)}${tgEscape(time)}`;
+}
+
+// =============================================================================
 // Rider Fee Calculation: คำนวณค่าวิ่งไรเดอร์ตามระยะทางจริง
 // =============================================================================
 
@@ -846,6 +932,29 @@ exports.onNewTicketCreated = onValueCreated(
           },
           "onNewTicket"
         );
+
+        // Guaranteed channel — lands even when every admin web-push token is
+        // dead (the usual case for new orders, which arrive while the app is
+        // closed). Richer than the FCM body since Telegram has room. No-ops
+        // until Telegram is configured.
+        const tgLines = [`<b>${tgEscape(title)}</b>`, "", `📱 <b>${tgEscape(model)}</b>`];
+        const offer = tgBaht(job.price);
+        if (offer) tgLines.push(`💰 ราคาเสนอ: ${offer}`);
+        const net = tgBaht(job.net_payout);
+        if (net) tgLines.push(`💵 ลูกค้าได้รับสุทธิ: ${net}`);
+        if (Number(job.total_devices) > 1) tgLines.push(`🔢 รวม ${job.total_devices} เครื่อง`);
+        if (custName) tgLines.push(`👤 ${tgEscape(custName)}`);
+        if (job.cust_phone) tgLines.push(`📞 ${tgEscape(job.cust_phone)}`);
+        if (method) tgLines.push(`🚚 ${tgEscape(method)}`);
+        const locLine = tgLocationLine(job);
+        if (locLine) tgLines.push(locLine);
+        const apptLine = tgAppointmentLine(job);
+        if (apptLine) tgLines.push(apptLine);
+        if (job.applied_coupon && job.applied_coupon.code) {
+          tgLines.push(`🎟 คูปอง: ${tgEscape(job.applied_coupon.code)}`);
+        }
+        if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
+        await dispatchTelegram(tgLines.join("\n"), "onNewTicket");
       } else {
         console.log(`[onNewTicket] Skipped push: status="${job.status}" not in ${JSON.stringify(newStatuses)}`);
       }
@@ -1582,6 +1691,342 @@ exports.onAdminJobStatusNotify = onValueUpdated(
       },
       `onJobStatusChanged(${before}→${after})`
     );
+
+    // Guaranteed channel alongside FCM — same curated set of transitions
+    // (buildAdminStatusLabel already filtered to notable ones above).
+    const tgLines = [`<b>${tgEscape(title)}</b>`, "", `📱 ${tgEscape(model)}`];
+    if (custName) tgLines.push(`👤 ${tgEscape(custName)}`);
+    if (job.cust_phone) tgLines.push(`📞 ${tgEscape(job.cust_phone)}`);
+    if (job.receive_method) tgLines.push(`🚚 ${tgEscape(job.receive_method)}`);
+    if (job.cancel_reason) tgLines.push(`📝 ${tgEscape(job.cancel_reason)}`);
+    if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
+    await dispatchTelegram(tgLines.join("\n"), `onJobStatusChanged(${before}→${after})`);
+  }
+);
+
+// =============================================================================
+// Appointment reschedule notifications
+// -----------------------------------------------------------------------------
+// Fires when an EXISTING pickup_schedule changes — i.e. an admin reschedules a
+// Pickup / Store-in / Mail-in job (from the mobile ticket detail edit modal or
+// the desktop PricingSidebar). Does two things:
+//   1) Push to the assigned rider (job.rider_id) via the existing FCM infra so
+//      a rider already holding the job learns the new day/time.
+//   2) Queue a customer email into /outbox_emails for the Resend worker (built
+//      separately). Contract for that node:
+//        outbox_emails/{pushId} = {
+//          status: "pending",            // worker flips to "sent" / "failed"
+//          type:   "appointment_rescheduled",
+//          to:     <customer email>,
+//          job_id: <jobId>,
+//          created_at: <epoch ms>,
+//          data: { ref_no, cust_name, model, receive_method,
+//                  old_date, old_time, new_date, new_time, location },
+//        }
+// First-time appointment SETS (before has no real date) are intentionally
+// ignored — this trigger is only about reschedules.
+// NOTE: do NOT rename to a generic id like `onJobUpdated` — Cloud Functions are
+// identified by {region}/{name} project-wide, so a clash with the
+// rider-notifications codebase would silently overwrite the other side.
+// =============================================================================
+exports.onPickupScheduleRescheduled = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/pickup_schedule",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (!after || typeof after !== "object") return;
+
+    // Only a genuine reschedule of a real (non-instant) slot counts.
+    const beforeDate = before && before.date && before.date !== "Instant" ? before.date : "";
+    const afterDate = after.date && after.date !== "Instant" ? after.date : "";
+    if (!beforeDate || !afterDate) return;
+    const beforeTime = (before && before.time) || "";
+    const afterTime = after.time || "";
+    if (beforeDate === afterDate && beforeTime === afterTime) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const model = job.model || "ไม่ระบุรุ่น";
+    const custName = job.cust_name || "";
+    const whenLabel = `${afterDate}${afterTime ? ` ${afterTime}` : ""}`;
+
+    // 1) Notify the assigned rider (if any).
+    if (job.rider_id) {
+      await pushToRider(
+        db,
+        job.rider_id,
+        {
+          notification: {
+            title: "🔄 นัดหมายถูกเลื่อน",
+            body: `${model}${custName ? ` · ${custName}` : ""} · เวลาใหม่ ${whenLabel}`,
+          },
+          data: {
+            type: "appointment_rescheduled",
+            jobId,
+            newDate: afterDate,
+            newTime: afterTime,
+          },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onPickupScheduleRescheduled(${jobId})`
+      );
+    }
+
+    // 2) Queue a customer email for the Resend worker (only if we have an email).
+    const custEmail = (job.cust_email || "").trim();
+    if (custEmail) {
+      const outboxRef = db.ref("outbox_emails").push();
+      await outboxRef.set({
+        status: "pending",
+        type: "appointment_rescheduled",
+        to: custEmail,
+        job_id: jobId,
+        created_at: Date.now(),
+        data: {
+          ref_no: job.ref_no || job.order_id || jobId,
+          cust_name: custName,
+          model,
+          receive_method: job.receive_method || "",
+          old_date: beforeDate,
+          old_time: beforeTime,
+          new_date: afterDate,
+          new_time: afterTime,
+          location: job.receive_method === "Store-in" ? (job.store_branch || "") : (job.cust_address || ""),
+        },
+      });
+      console.log(`[onPickupScheduleRescheduled] ${jobId} queued reschedule email to ${custEmail}`);
+    } else {
+      console.log(`[onPickupScheduleRescheduled] ${jobId} rescheduled — no cust_email, skipping email queue`);
+    }
+  }
+);
+
+// =============================================================================
+// Trade method change — pricing reconciliation + rider withdrawal
+// -----------------------------------------------------------------------------
+// Fires when an admin changes a job's receive_method (Pickup ⇄ Store-in ⇄
+// Mail-in) from the ticket edit UI. The client only writes receive_method +
+// the location field; this function owns the money so the rider-fee estimate
+// uses the same computeRiderFee logic as everywhere else:
+//   - → Pickup:        pickup_fee = computeRiderFee() (distance-based, falls
+//                      back to min_fee without coords); net_payout recomputed
+//                      WITH the fee.
+//   - → Store-in/Mail-in: pickup_fee = 0; net_payout recomputed WITHOUT a fee.
+// If the job was Pickup and a rider was holding it, the rider is withdrawn
+// (notified + rider_id cleared + status pulled back to a sales phase).
+// Name must stay specific (not `onJobUpdated`) for the same {region}/{name}
+// namespace reason as the other triggers.
+// =============================================================================
+exports.onReceiveMethodChanged = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/receive_method",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (!after || before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    const basePrice = Number(job.final_price ?? job.price ?? 0);
+    const coupon = Number(
+      (job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0
+    );
+
+    const updates = {};
+    const logs = [];
+
+    // 1) Pricing reconciliation.
+    //    Customer delivery fee (pickup_fee) uses the WEBSITE's zone pricing and
+    //    is owned/recomputed by the bkk-frontend-next functions (single source)
+    //    — bkk-system must NEVER compute it from the rider rate card. Here we
+    //    only own (a) the rider-side estimate and (b) the no-fee case for
+    //    non-Pickup methods, which needs no pricing formula.
+    if (after === "Pickup") {
+      try {
+        const result = await computeRiderFee(db, job);
+        updates.rider_fee_estimate = result.fee;
+        updates.rider_fee_estimate_meta = {
+          distance_km: result.distance_km,
+          rates: result.rates,
+          reason: result.reason,
+          computed_at: Date.now(),
+        };
+        logs.push({
+          action: "Rider Estimate Updated",
+          by: "System",
+          timestamp: Date.now(),
+          details: `เปลี่ยนเป็น Pickup — ประเมินค่าจ้างไรเดอร์ ฿${result.fee.toLocaleString()} (ค่าส่งลูกค้าคิดโดยระบบราคาเว็บ)`,
+        });
+      } catch (err) {
+        console.error(`[onReceiveMethodChanged] computeRiderFee failed for ${jobId}:`, err);
+      }
+    } else {
+      // Store-in / Mail-in: customer pays no delivery fee — safe to own here.
+      updates.pickup_fee = 0;
+      updates.net_payout = Math.max(0, basePrice + coupon);
+      logs.push({
+        action: "Fee Recalculated",
+        by: "System",
+        timestamp: Date.now(),
+        details: `เปลี่ยนเป็น ${after} — ไม่หักค่าส่ง, ยอดโอนใหม่ ฿${updates.net_payout.toLocaleString()}`,
+      });
+    }
+
+    // 2) Withdraw any rider holding a job that's no longer Pickup.
+    if (before === "Pickup" && after !== "Pickup" && job.rider_id) {
+      const heldRider = job.rider_id;
+      updates.rider_id = null;
+      const lower = String(job.status || "").trim().toLowerCase();
+      const riderPhase = [
+        "active lead", "active leads", "assigned", "rider assigned",
+        "accepted", "rider accepted", "rider en route", "en route",
+        "rider arrived", "arrived",
+      ];
+      if (riderPhase.includes(lower)) updates.status = "Following Up";
+      logs.push({
+        action: "Rider Withdrawn",
+        by: "System",
+        timestamp: Date.now(),
+        details: `ถอนงานจากไรเดอร์เนื่องจากเปลี่ยนวิธีรับเป็น ${after}`,
+      });
+      await pushToRider(
+        db,
+        heldRider,
+        {
+          notification: {
+            title: "⚠️ งานถูกถอน",
+            body: `${job.model || "งาน"} เปลี่ยนเป็น ${after} — งานถูกถอนจากคุณแล้ว`,
+          },
+          data: { type: "job_withdrawn", jobId, reason: "receive_method_changed", newMethod: after },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onReceiveMethodChanged(${jobId})`
+      );
+    }
+
+    const existingLogs = Array.isArray(job.qc_logs)
+      ? job.qc_logs
+      : (job.qc_logs && typeof job.qc_logs === "object" ? Object.values(job.qc_logs) : []);
+    updates.updated_at = Date.now();
+    updates.qc_logs = [...logs, ...existingLogs];
+    await db.ref(`jobs/${jobId}`).update(updates);
+    console.log(
+      `[onReceiveMethodChanged] ${jobId}: ${before} → ${after} (customer fee owned by frontend pricing)`
+    );
+  }
+);
+
+// =============================================================================
+// Pickup location change — recompute the rider fee from the new distance
+// -----------------------------------------------------------------------------
+// Fires when an admin moves the pickup pin (writes jobs/{id}/cust_lat) from the
+// ticket edit UI. The admin sets coordinates client-side (geocode the typed
+// address and/or drag the map pin); this function turns the new coordinate into
+// money: it re-runs computeRiderFee and updates pickup_fee + rider_fee_estimate
+// + net_payout. Only relevant for Pickup jobs (Store-in/Mail-in charge no fee).
+// Writes no coordinate fields, so it can't re-trigger itself. Name stays
+// specific for the same {region}/{name} namespace reason as the other triggers.
+// =============================================================================
+exports.onPickupLocationChanged = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/cust_lat",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (typeof after !== "number" || before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    // Only Pickup jobs deduct a rider fee; other methods are unaffected by
+    // the pickup coordinate, so leave their pricing alone.
+    if (job.receive_method !== "Pickup") return;
+
+    // Rider-side estimate only. The customer delivery fee (pickup_fee) +
+    // net_payout are recomputed from the new pin by the bkk-frontend-next
+    // functions using the website's zone pricing (single source) — do NOT
+    // touch customer money here with the rider rate card.
+    let fee = null;
+    const updates = {};
+    try {
+      const result = await computeRiderFee(db, job);
+      fee = result.fee;
+      updates.rider_fee_estimate = result.fee;
+      updates.rider_fee_estimate_meta = {
+        distance_km: result.distance_km,
+        rates: result.rates,
+        reason: result.reason,
+        computed_at: Date.now(),
+      };
+    } catch (err) {
+      console.error(`[onPickupLocationChanged] computeRiderFee failed for ${jobId}:`, err);
+    }
+
+    const existingLogs = Array.isArray(job.qc_logs)
+      ? job.qc_logs
+      : (job.qc_logs && typeof job.qc_logs === "object" ? Object.values(job.qc_logs) : []);
+    updates.qc_logs = [
+      {
+        action: "Rider Estimate Updated",
+        by: "System",
+        timestamp: Date.now(),
+        details: `ปรับจุดรับเครื่อง — ประเมินค่าจ้างไรเดอร์ใหม่ ฿${(fee ?? 0).toLocaleString()} (ค่าส่งลูกค้าคิดโดยระบบราคาเว็บ)`,
+      },
+      ...existingLogs,
+    ];
+    updates.updated_at = Date.now();
+    await db.ref(`jobs/${jobId}`).update(updates);
+    console.log(
+      `[onPickupLocationChanged] ${jobId}: pin moved → rider_fee_estimate=${fee}`
+    );
+
+    // A rider already holding the job may be on the way to the OLD pin — tell
+    // them the pickup point moved so they re-open navigation.
+    if (job.rider_id) {
+      await pushToRider(
+        db,
+        job.rider_id,
+        {
+          notification: {
+            title: "📍 จุดรับเครื่องเปลี่ยน",
+            body: `${job.model || "งาน"} — แอดมินอัปเดตจุดรับเครื่องใหม่ กรุณาเปิดนำทางอีกครั้ง`,
+          },
+          data: { type: "pickup_location_changed", jobId },
+          android: { priority: "high" },
+          apns: {
+            headers: { "apns-priority": "10", "apns-push-type": "alert" },
+            payload: { aps: { sound: "default" } },
+          },
+        },
+        `onPickupLocationChanged(${jobId})`
+      );
+    }
   }
 );
 
@@ -3241,7 +3686,11 @@ const SICKW_FIELD_MAP = {
   carrier: ["carrier", "initial carrier", "carrier country", "network", "sold carrier"],
   simLock: ["sim-lock", "sim lock", "simlock", "lock status", "simpolicy unlock status"],
   warrantyStatus: ["warranty status", "warranty", "limited warranty"],
-  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation", "coverage start date"],
+  // service 72 (GSX) คืน "Coverage Duration: Ends on DD/MM/YY" = วันหมดประกัน/AppleCare
+  // และ "AppleCare Description" = ชนิดความคุ้มครอง — เราจ่ายค่า GSX แล้ว เก็บให้ครบ
+  warrantyExpiry: ["coverage duration", "coverage end date", "estimated expiry date", "warranty end date", "coverage ends"],
+  appleCareDescription: ["applecare description"],
+  estimatedPurchaseDate: ["estimated purchase date", "purchase date", "initial activation", "coverage start date", "initial unbrick"],
 };
 
 function normalizeSickwKey(rawKey) {
@@ -3336,6 +3785,17 @@ function parseSickwResult(raw) {
         break;
       }
     }
+  }
+
+  // FMI/Activation Lock: iPad/Mac/Watch คืน key เป็น "Find My iPad/Mac/Watch"
+  // ซึ่ง endsWith-match ของ generic map จับไม่โดน (candidate มีแค่ "find my
+  // iphone"). เก็บ fallback แบบ startsWith เพื่อให้ Find My มาจาก lookup ครบทุก
+  // ชนิดอุปกรณ์ ไม่ต้องให้ไรเดอร์กรอกเอง
+  if (!parsed.fmiStatus) {
+    const k = Object.keys(fields).find(
+      (key) => key.startsWith("find my") || key === "icloud lock" || key.endsWith("activation lock")
+    );
+    if (k) parsed.fmiStatus = fields[k];
   }
 
   // บาง service (GSX/MDM status) ไม่ได้คืน capacity/color เป็น field แยก แต่ฝังรวมใน
