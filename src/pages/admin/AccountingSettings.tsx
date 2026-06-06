@@ -9,24 +9,76 @@
 import { useEffect, useState } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import {
-  Calculator, Save, Loader2, CheckCircle2, Power, ReceiptText, Percent, Info, AlertTriangle, RotateCcw,
+  Calculator, Save, Loader2, CheckCircle2, Power, ReceiptText, Percent, Info, AlertTriangle, RotateCcw, Building2,
 } from 'lucide-react';
 import { db, auth } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
+
+type TaxInvoiceFormat = 'plain' | 'year_month' | 'year';
+
+interface CompanyProfile {
+  legalName: string;
+  tradeName: string;
+  taxId: string;
+  address: string;
+  branch: string;
+  nameEn: string;
+  addressEn: string;
+  phone: string;
+}
 
 interface AccountingSettings {
   order_emails_enabled: boolean;
   vat_registered: boolean;
   vat_rate_percent: number;
   tax_invoice_prefix: string;
+  tax_invoice_format: TaxInvoiceFormat;
+  company: CompanyProfile;
 }
+
+// Defaults mirror functions/email.js COMPANY (the hardcoded fallback).
+const DEFAULT_COMPANY: CompanyProfile = {
+  legalName: 'บริษัท เก็ทโมบี้ จำกัด',
+  tradeName: 'BKK APPLE',
+  taxId: '0105565094088',
+  address: '596/163 ซอย 6/1 โครงการ อารียา ทูบี ถนนลาดปลาเค้า แขวงจรเข้บัว เขตลาดพร้าว กรุงเทพฯ 10230',
+  branch: 'สำนักงานใหญ่',
+  nameEn: '',
+  addressEn: '',
+  phone: '',
+};
 
 const DEFAULTS: AccountingSettings = {
   order_emails_enabled: false,
   vat_registered: true,
   vat_rate_percent: 7,
   tax_invoice_prefix: 'IV-',
+  tax_invoice_format: 'plain',
+  company: DEFAULT_COMPANY,
 };
+
+function previewNumber(prefix: string, fmt: TaxInvoiceFormat, seq: number): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  if (fmt === 'year_month') return `${prefix}${y}${m}${String(seq).padStart(4, '0')}`;
+  if (fmt === 'year') return `${prefix}${y}${String(seq).padStart(4, '0')}`;
+  return `${prefix}${String(seq).padStart(6, '0')}`;
+}
+
+function Field({ label, value, onChange, textarea, placeholder }: { label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string }) {
+  const cls = 'w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500';
+  return (
+    <label className="block">
+      <span className="text-xs font-bold text-slate-300">{label}</span>
+      {textarea ? (
+        <textarea rows={2} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${cls} mt-1 resize-none`} />
+      ) : (
+        <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${cls} mt-1`} />
+      )}
+    </label>
+  );
+}
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
@@ -53,6 +105,7 @@ export default function AccountingSettings() {
   const toast = useToast();
   const [s, setS] = useState<AccountingSettings>(DEFAULTS);
   const [seq, setSeq] = useState<number>(0);
+  const [seqByPeriod, setSeqByPeriod] = useState<Record<string, number>>({});
   const [resetting, setResetting] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -61,23 +114,36 @@ export default function AccountingSettings() {
   useEffect(() => {
     const unsub = onValue(ref(db, 'settings/accounting'), (snap) => {
       const v = snap.val() || {};
+      const c = v.company || {};
       setS({
         order_emails_enabled: v.order_emails_enabled === true,
         vat_registered: v.vat_registered !== false,
         vat_rate_percent: typeof v.vat_rate_percent === 'number' ? v.vat_rate_percent : 7,
         tax_invoice_prefix: typeof v.tax_invoice_prefix === 'string' && v.tax_invoice_prefix ? v.tax_invoice_prefix : 'IV-',
+        tax_invoice_format: (['plain', 'year_month', 'year'].includes(v.tax_invoice_format) ? v.tax_invoice_format : 'plain') as TaxInvoiceFormat,
+        company: { ...DEFAULT_COMPANY, ...c },
       });
       setSeq(typeof v.tax_invoice_seq === 'number' ? v.tax_invoice_seq : 0);
+      setSeqByPeriod(v.tax_invoice_seq_by_period && typeof v.tax_invoice_seq_by_period === 'object' ? v.tax_invoice_seq_by_period : {});
       setLoaded(true);
     });
     return () => { unsub(); };
   }, []);
 
-  const nextNumber = (s.tax_invoice_prefix || 'IV-') + String(seq + 1).padStart(6, '0');
+  const setCompany = (patch: Partial<CompanyProfile>) => setS((prev) => ({ ...prev, company: { ...prev.company, ...patch } }));
+
+  // Effective "issued so far" for the active format: global counter for 'plain',
+  // current-period counter for 'year_month'/'year'.
+  const now = new Date();
+  const periodKey = s.tax_invoice_format === 'year_month'
+    ? `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+    : s.tax_invoice_format === 'year' ? `${now.getFullYear()}` : null;
+  const currentSeq = periodKey ? (seqByPeriod[periodKey] || 0) : seq;
+  const nextNumber = previewNumber(s.tax_invoice_prefix || 'IV-', s.tax_invoice_format, currentSeq + 1);
 
   const handleResetSeq = async () => {
     const ok = window.confirm(
-      `รีเซ็ตเลขรันใบกำกับภาษีกลับเป็น 0?\n\nใบถัดไปจะเริ่มที่ ${(s.tax_invoice_prefix || 'IV-')}000001\n\n` +
+      `รีเซ็ตเลขรันใบกำกับภาษีกลับเป็น 0?\n\nใบถัดไปจะเริ่มที่ ${previewNumber(s.tax_invoice_prefix || 'IV-', s.tax_invoice_format, 1)}\n\n` +
       `คำเตือน: ทำเฉพาะ "ก่อนเปิดใช้งานจริง" เพื่อล้างเลขจากการทดสอบ — ` +
       `ห้ามรีเซ็ตหลังออกใบกำกับภาษีจริงไปแล้ว เพราะจะทำให้เลขซ้ำ (ผิดกฎหมายภาษี)`
     );
@@ -86,6 +152,7 @@ export default function AccountingSettings() {
     try {
       await update(ref(db, 'settings/accounting'), {
         tax_invoice_seq: 0,
+        tax_invoice_seq_by_period: null,
         tax_invoice_seq_reset_at: Date.now(),
         tax_invoice_seq_reset_by: auth.currentUser?.email || 'unknown',
       });
@@ -102,11 +169,23 @@ export default function AccountingSettings() {
     setShowSuccess(false);
     try {
       const rate = Number(s.vat_rate_percent);
+      const c = s.company;
       await update(ref(db, 'settings/accounting'), {
         order_emails_enabled: s.order_emails_enabled,
         vat_registered: s.vat_registered,
         vat_rate_percent: Number.isFinite(rate) && rate > 0 ? rate : 7,
         tax_invoice_prefix: (s.tax_invoice_prefix || 'IV-').trim(),
+        tax_invoice_format: s.tax_invoice_format,
+        company: {
+          legalName: (c.legalName || '').trim(),
+          tradeName: (c.tradeName || '').trim(),
+          taxId: (c.taxId || '').trim(),
+          address: (c.address || '').trim(),
+          branch: (c.branch || 'สำนักงานใหญ่').trim(),
+          nameEn: (c.nameEn || '').trim(),
+          addressEn: (c.addressEn || '').trim(),
+          phone: (c.phone || '').trim(),
+        },
         updated_at: Date.now(),
         updated_by: auth.currentUser?.email || 'unknown',
       });
@@ -168,6 +247,32 @@ export default function AccountingSettings() {
         </p>
       </div>
 
+      {/* Business profile */}
+      <div className="bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-700/50 space-y-4">
+        <div className="flex items-center gap-2">
+          <Building2 size={18} className="text-sky-400" />
+          <h2 className="text-base font-black text-white">ข้อมูลธุรกิจ (สำหรับออกเอกสาร)</h2>
+        </div>
+        <div className="flex items-start gap-2 text-[11px] text-amber-300/80 bg-amber-950/20 rounded-lg p-2.5">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>ชื่อนิติบุคคล / เลขผู้เสียภาษี / ที่อยู่ ต้องตรงกับที่จดทะเบียนจริง และควร sync กับหน้านโยบาย (PDPA) ของเว็บลูกค้า — ค่าที่นี่มีผลกับเอกสารบัญชี (ใบสำคัญรับเงิน / ใบกำกับภาษี)</span>
+        </div>
+        <Field label="ชื่อนิติบุคคล" value={s.company.legalName} onChange={(v) => setCompany({ legalName: v })} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="ชื่อทางการค้า (Trade name)" value={s.company.tradeName} onChange={(v) => setCompany({ tradeName: v })} />
+          <Field label="เลขประจำตัวผู้เสียภาษี" value={s.company.taxId} onChange={(v) => setCompany({ taxId: v })} />
+        </div>
+        <Field label="ที่อยู่" value={s.company.address} onChange={(v) => setCompany({ address: v })} textarea />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="สำนักงานใหญ่ / สาขา" value={s.company.branch} onChange={(v) => setCompany({ branch: v })} placeholder="สำนักงานใหญ่" />
+          <Field label="เบอร์ติดต่อ (บนเอกสาร)" value={s.company.phone} onChange={(v) => setCompany({ phone: v })} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Business Name (EN, ไม่บังคับ)" value={s.company.nameEn} onChange={(v) => setCompany({ nameEn: v })} />
+          <Field label="Address (EN, ไม่บังคับ)" value={s.company.addressEn} onChange={(v) => setCompany({ addressEn: v })} />
+        </div>
+      </div>
+
       {/* VAT settings */}
       <div className="bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-700/50 space-y-5">
         <div className="flex items-center gap-2">
@@ -210,7 +315,7 @@ export default function AccountingSettings() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-bold text-slate-200">คำนำหน้าเลขที่ใบกำกับภาษี</p>
-            <p className="text-xs text-slate-400 mt-0.5">เลขรันต่อท้าย 6 หลักอัตโนมัติ เช่น <code className="px-1 rounded bg-black/30">{(s.tax_invoice_prefix || 'IV-')}000123</code></p>
+            <p className="text-xs text-slate-400 mt-0.5">ตัวอย่างเลขถัดไป: <code className="px-1 rounded bg-black/30">{nextNumber}</code></p>
           </div>
           <input
             type="text"
@@ -221,6 +326,22 @@ export default function AccountingSettings() {
             className="w-28 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-right font-bold focus:outline-none focus:border-purple-500 disabled:opacity-50"
           />
         </div>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-slate-200">รูปแบบเลขรัน</p>
+            <p className="text-xs text-slate-400 mt-0.5">ปี/เดือน และ ปี จะรีเซ็ตเลขรันอัตโนมัติเมื่อขึ้นงวดใหม่</p>
+          </div>
+          <select
+            disabled={!s.vat_registered}
+            value={s.tax_invoice_format}
+            onChange={(e) => setS({ ...s, tax_invoice_format: e.target.value as TaxInvoiceFormat })}
+            className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
+          >
+            <option value="plain">ต่อเนื่อง (000001)</option>
+            <option value="year_month">ปี/เดือน (2026060001)</option>
+            <option value="year">ปี (20260001)</option>
+          </select>
+        </div>
         <div className="text-xs text-slate-400 bg-slate-900/50 rounded-xl p-3 flex items-start gap-2">
           <Info size={14} className="shrink-0 mt-0.5" />
           <span>ออกใบกำกับภาษีเฉพาะออเดอร์ที่มีค่าบริการรับเครื่อง (pickup) ตอนสถานะ "จ่ายเงินแล้ว" — เลขรันเดินหน้าต่อเนื่องอัตโนมัติ</span>
@@ -230,8 +351,8 @@ export default function AccountingSettings() {
         <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <p className="text-xs text-slate-400">ออกใบกำกับภาษีไปแล้ว</p>
-              <p className="text-lg font-black text-white">{seq.toLocaleString()} <span className="text-sm font-normal text-slate-400">ใบ</span></p>
+              <p className="text-xs text-slate-400">ออกใบกำกับภาษีไปแล้ว{periodKey ? ` (งวด ${periodKey})` : ''}</p>
+              <p className="text-lg font-black text-white">{currentSeq.toLocaleString()} <span className="text-sm font-normal text-slate-400">ใบ</span></p>
               <p className="text-xs text-slate-400 mt-1">ใบถัดไป: <span className="text-emerald-400 font-bold">{nextNumber}</span></p>
             </div>
             <button

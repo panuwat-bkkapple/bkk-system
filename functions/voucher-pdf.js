@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const { PDFDocument, rgb } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
-const { COMPANY, bahtText, serviceFeeBreakdown } = require("./email");
+const { companyOf, bahtText, serviceFeeBreakdown } = require("./email");
 
 const FONT_DIR = path.join(__dirname, "assets", "fonts");
 let _regular = null;
@@ -79,6 +79,7 @@ async function buildVoucherPdf(job) {
   const black = rgb(0.1, 0.1, 0.1);
   const gray = rgb(0.42, 0.45, 0.5);
   const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = companyOf(job);
 
   let y = height - M;
 
@@ -119,11 +120,11 @@ async function buildVoucherPdf(job) {
   };
 
   // ── Company header ─────────────────────────────────────────────────────────
-  draw(COMPANY.legalName, M, 16, { bold: true });
+  draw(CO.legalName, M, 16, { bold: true });
   y -= 18;
-  draw(`เลขประจำตัวผู้เสียภาษี ${COMPANY.taxId}`, M, 10, { color: gray });
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId}`, M, 10, { color: gray });
   y -= 14;
-  drawWrapped(COMPANY.address, M, 10, contentW, 13, { color: gray });
+  drawWrapped(CO.address, M, 10, contentW, 13, { color: gray });
 
   // ── Title ──────────────────────────────────────────────────────────────────
   y -= 14;
@@ -142,7 +143,7 @@ async function buildVoucherPdf(job) {
   // ── Payee ───────────────────────────────────────────────────────────────────
   draw("ได้รับเงินจาก (ผู้จ่ายเงิน):", M, 11, { color: gray });
   y -= 15;
-  draw(COMPANY.legalName, M + 12, 11, { bold: true });
+  draw(CO.legalName, M + 12, 11, { bold: true });
   y -= 20;
   draw("ผู้รับเงิน:", M, 11, { color: gray });
   y -= 15;
@@ -225,7 +226,7 @@ async function buildVoucherPdf(job) {
   // ── Legal note ──────────────────────────────────────────────────────────────
   y -= 6;
   const note =
-    `เนื่องจากผู้รับเงินเป็นบุคคลธรรมดาซึ่งไม่สามารถออกใบเสร็จรับเงินได้ ${COMPANY.legalName} ` +
+    `เนื่องจากผู้รับเงินเป็นบุคคลธรรมดาซึ่งไม่สามารถออกใบเสร็จรับเงินได้ ${CO.legalName} ` +
     `จึงออกใบสำคัญรับเงินฉบับนี้ไว้เป็นหลักฐานการจ่ายเงินเพื่อประกอบการบันทึกบัญชีและภาษีตามกฎหมาย`;
   drawWrapped(note, M, 9, contentW, 12, { color: gray });
 
@@ -260,7 +261,7 @@ async function buildVoucherPdf(job) {
 
   // Footer
   page.drawText(
-    `${COMPANY.legalName} (${COMPANY.tradeName}) • ออกโดยระบบอัตโนมัติ`,
+    `${CO.legalName} (${CO.tradeName}) • ออกโดยระบบอัตโนมัติ`,
     { x: M, y: 50, size: 8, font, color: gray }
   );
 
@@ -292,6 +293,7 @@ async function buildTaxInvoicePdf(job, taxInvoice) {
   const black = rgb(0.1, 0.1, 0.1);
   const gray = rgb(0.42, 0.45, 0.5);
   const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = companyOf(job);
   let y = height - M;
 
   const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
@@ -327,11 +329,11 @@ async function buildTaxInvoicePdf(job, taxInvoice) {
   };
 
   // Seller header (the company sells the service)
-  draw(COMPANY.legalName, M, 16, { bold: true });
+  draw(CO.legalName, M, 16, { bold: true });
   y -= 18;
-  draw(`เลขประจำตัวผู้เสียภาษี ${COMPANY.taxId} (สำนักงานใหญ่)`, M, 10, { color: gray });
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M, 10, { color: gray });
   y -= 14;
-  drawWrapped(COMPANY.address, M, 10, contentW, 13, { color: gray });
+  drawWrapped(CO.address, M, 10, contentW, 13, { color: gray });
 
   // Title
   y -= 14;
@@ -410,7 +412,7 @@ async function buildTaxInvoicePdf(job, taxInvoice) {
   const lbl = "ผู้รับเงิน / ผู้มีอำนาจออกใบกำกับภาษี";
   page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
 
-  page.drawText(`${COMPANY.legalName} (${COMPANY.tradeName}) • ออกโดยระบบอัตโนมัติ`, {
+  page.drawText(`${CO.legalName} (${CO.tradeName}) • ออกโดยระบบอัตโนมัติ`, {
     x: M,
     y: 50,
     size: 8,

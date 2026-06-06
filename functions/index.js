@@ -1009,19 +1009,55 @@ async function loadAccountingSettings(db) {
     console.warn("[orderEmail] read settings/accounting failed:", e?.message || e);
   }
   const ratePercent = Number(s.vat_rate_percent);
+  const fmt = s.tax_invoice_format;
   return {
     enabled: s.order_emails_enabled === true,
     vatRegistered: s.vat_registered !== false,
     vatRate: ratePercent > 0 ? ratePercent / 100 : 0.07,
     taxInvoicePrefix: typeof s.tax_invoice_prefix === "string" && s.tax_invoice_prefix ? s.tax_invoice_prefix : "IV-",
+    // 'plain' = continuous {prefix}{NNNNNN}; 'year_month' = {prefix}{YYYYMM}{NNNN}
+    // (resets monthly); 'year' = {prefix}{YYYY}{NNNN} (resets yearly).
+    taxInvoiceFormat: fmt === "year_month" || fmt === "year" ? fmt : "plain",
+    // Admin-editable company identity (overrides the hardcoded default).
+    company: s.company && typeof s.company === "object" ? s.company : null,
   };
 }
 
 // Stash resolved accounting config on the in-memory job so the email/PDF
-// builders (which have no DB access) compute VAT consistently. Not persisted.
+// builders (which have no DB access) compute VAT/company consistently. Not persisted.
 function applyAccounting(job, acct) {
   job._accounting = { vat_registered: acct.vatRegistered, vat_rate: acct.vatRate };
+  if (acct.company) job._company = acct.company;
   return job;
+}
+
+// Allocate the next tax-invoice number per the configured format. Uses an
+// atomic per-period counter so 'year_month'/'year' reset cleanly, and a global
+// counter for 'plain'. Returns { number, issued_at, seq, period }.
+async function allocateTaxInvoiceNumber(db, acct, now) {
+  const d = new Date(now);
+  // Buddhist-era-agnostic: use Gregorian for the counter key; the visible
+  // prefix uses the same Gregorian year/month to stay sequential per period.
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  let period = "all";
+  let infix = "";
+  if (acct.taxInvoiceFormat === "year_month") {
+    period = `${yyyy}${mm}`;
+    infix = `${yyyy}${mm}`;
+  } else if (acct.taxInvoiceFormat === "year") {
+    period = `${yyyy}`;
+    infix = `${yyyy}`;
+  }
+  const counterRef =
+    period === "all"
+      ? db.ref("settings/accounting/tax_invoice_seq")
+      : db.ref(`settings/accounting/tax_invoice_seq_by_period/${period}`);
+  const txn = await counterRef.transaction((cur) => (cur || 0) + 1);
+  const seq = txn.snapshot.val() || 1;
+  const pad = period === "all" ? 6 : 4;
+  const number = `${acct.taxInvoicePrefix}${infix}${String(seq).padStart(pad, "0")}`;
+  return { number, issued_at: now, seq, period };
 }
 
 // Mirror onNewTicketCreated's "new order" status set (functions/ can't import
@@ -1175,15 +1211,13 @@ exports.onJobStatusEmail = onValueUpdated(
           try {
             let ti = job.tax_invoice;
             if (!ti || !ti.number) {
-              // Counter lives under settings/accounting so the admin page can
-              // read it live and reset it before go-live. Transaction keeps the
-              // allocation atomic/sequential.
-              const seqRef = db.ref("settings/accounting/tax_invoice_seq");
-              const txn = await seqRef.transaction((cur) => (cur || 0) + 1);
-              const seq = txn.snapshot.val() || 1;
+              // Counter(s) live under settings/accounting so the admin page can
+              // read them live and reset before go-live. allocateTaxInvoiceNumber
+              // keeps the allocation atomic/sequential per the chosen format.
+              const alloc = await allocateTaxInvoiceNumber(db, acct, Date.now());
               ti = {
-                number: `${acct.taxInvoicePrefix}${String(seq).padStart(6, "0")}`,
-                issued_at: Date.now(),
+                number: alloc.number,
+                issued_at: alloc.issued_at,
                 base: fee.base,
                 vat: fee.vat,
                 total: fee.feeIncl,
