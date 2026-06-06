@@ -4,6 +4,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
+const { getStorage } = require("firebase-admin/storage");
+const { buildVoucherPdf } = require("./voucher-pdf");
 const {
   sendEmail,
   normalizeStatus,
@@ -973,10 +975,50 @@ exports.onJobStatusEmail = onValueUpdated(
       if ((await sentRef.once("value")).exists()) return;
       await sentRef.set(Date.now());
 
+      // At Paid, generate the ใบสำคัญรับเงิน (payment voucher) PDF once,
+      // archive it to Storage + reference it on the job (so it shows in the
+      // sales history and can be re-downloaded), and attach it to BOTH the
+      // customer and admin emails. Best-effort: a PDF/Storage failure must not
+      // block the emails themselves.
+      let voucherAttachments;
+      if (status === "Paid") {
+        try {
+          const pdf = await buildVoucherPdf(job);
+          const filename = `ใบสำคัญรับเงิน-${job.ref_no || jobId}.pdf`;
+          voucherAttachments = [{ filename, content: pdf.toString("base64") }];
+
+          try {
+            const storagePath = `vouchers/${jobId}.pdf`;
+            const token = `${jobId}-${Date.now()}`;
+            const bucket = getStorage().bucket();
+            await bucket.file(storagePath).save(pdf, {
+              contentType: "application/pdf",
+              metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+            });
+            const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+              storagePath
+            )}?alt=media&token=${token}`;
+            await db.ref(`jobs/${jobId}/payment_voucher`).set({
+              storage_path: storagePath,
+              url,
+              ref_no: job.ref_no || null,
+              amount: job.net_payout ?? job.price ?? null,
+              generated_at: Date.now(),
+            });
+            console.log(`[orderEmail] voucher archived ${jobId}: ${storagePath}`);
+          } catch (e) {
+            console.error(`[orderEmail] voucher archive failed ${jobId}:`, e?.message || e);
+          }
+        } catch (e) {
+          console.error(`[orderEmail] voucher PDF build failed ${jobId}:`, e?.message || e);
+        }
+      }
+
       // Customer milestone email (skip silently when no email / no customer copy).
       if (job.cust_email) {
         const msg = buildCustomerStatusEmail(job, status);
         if (msg) {
+          if (voucherAttachments) msg.attachments = voucherAttachments;
           try {
             const res = await sendEmail(msg);
             console.log(`[orderEmail] customer ${status} ${jobId}:`, JSON.stringify(res));
@@ -988,9 +1030,10 @@ exports.onJobStatusEmail = onValueUpdated(
 
       // Admin milestone notification to the central inbox. At Paid we send a
       // richer full-sale record (order + payout + SickW verification + KYC)
-      // instead of the generic milestone note. KYC lives at the locked
-      // /jobs_kyc path; this function runs with admin credentials so it can
-      // read it. SickW data is read from the job snapshot — no API re-call.
+      // instead of the generic milestone note, with the voucher PDF attached.
+      // KYC lives at the locked /jobs_kyc path; this function runs with admin
+      // credentials so it can read it. SickW data is read from the job
+      // snapshot — no API re-call.
       const adminTo = process.env.ORDER_NOTIFY_EMAIL;
       if (adminTo) {
         let msg;
@@ -1002,6 +1045,7 @@ exports.onJobStatusEmail = onValueUpdated(
             console.warn(`[orderEmail] jobs_kyc read failed ${jobId}:`, e?.message || e);
           }
           msg = buildAdminPaidSummaryEmail(job, kyc, adminTo);
+          if (voucherAttachments) msg.attachments = voucherAttachments;
         } else {
           msg = buildAdminStatusEmail(job, status, adminTo);
         }

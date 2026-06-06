@@ -43,7 +43,7 @@ const COMPANY = {
  * to "no email" rather than crashing the order pipeline. Throws on a real
  * Resend API error so the caller can log it.
  */
-async function sendEmail({ to, subject, html, replyTo }) {
+async function sendEmail({ to, subject, html, replyTo, attachments }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
   if (!apiKey || !from) {
@@ -59,6 +59,8 @@ async function sendEmail({ to, subject, html, replyTo }) {
   const payload = { from, to: recipients, subject, html };
   const reply = replyTo || process.env.EMAIL_REPLY_TO;
   if (reply) payload.reply_to = reply;
+  // Resend attachments: [{ filename, content: base64 }]
+  if (Array.isArray(attachments) && attachments.length > 0) payload.attachments = attachments;
 
   const res = await fetch(RESEND_ENDPOINT, {
     method: "POST",
@@ -858,6 +860,8 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
 
 module.exports = {
   sendEmail,
+  COMPANY,
+  bahtText,
   normalizeStatus,
   statusEmailKey,
   isMilestone,
