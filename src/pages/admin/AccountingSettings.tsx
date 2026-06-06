@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import {
-  Calculator, Save, Loader2, CheckCircle2, Power, ReceiptText, Percent, Info, AlertTriangle,
+  Calculator, Save, Loader2, CheckCircle2, Power, ReceiptText, Percent, Info, AlertTriangle, RotateCcw,
 } from 'lucide-react';
 import { db, auth } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -52,6 +52,8 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 export default function AccountingSettings() {
   const toast = useToast();
   const [s, setS] = useState<AccountingSettings>(DEFAULTS);
+  const [seq, setSeq] = useState<number>(0);
+  const [resetting, setResetting] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -65,10 +67,35 @@ export default function AccountingSettings() {
         vat_rate_percent: typeof v.vat_rate_percent === 'number' ? v.vat_rate_percent : 7,
         tax_invoice_prefix: typeof v.tax_invoice_prefix === 'string' && v.tax_invoice_prefix ? v.tax_invoice_prefix : 'IV-',
       });
+      setSeq(typeof v.tax_invoice_seq === 'number' ? v.tax_invoice_seq : 0);
       setLoaded(true);
     });
     return () => { unsub(); };
   }, []);
+
+  const nextNumber = (s.tax_invoice_prefix || 'IV-') + String(seq + 1).padStart(6, '0');
+
+  const handleResetSeq = async () => {
+    const ok = window.confirm(
+      `รีเซ็ตเลขรันใบกำกับภาษีกลับเป็น 0?\n\nใบถัดไปจะเริ่มที่ ${(s.tax_invoice_prefix || 'IV-')}000001\n\n` +
+      `คำเตือน: ทำเฉพาะ "ก่อนเปิดใช้งานจริง" เพื่อล้างเลขจากการทดสอบ — ` +
+      `ห้ามรีเซ็ตหลังออกใบกำกับภาษีจริงไปแล้ว เพราะจะทำให้เลขซ้ำ (ผิดกฎหมายภาษี)`
+    );
+    if (!ok) return;
+    setResetting(true);
+    try {
+      await update(ref(db, 'settings/accounting'), {
+        tax_invoice_seq: 0,
+        tax_invoice_seq_reset_at: Date.now(),
+        tax_invoice_seq_reset_by: auth.currentUser?.email || 'unknown',
+      });
+      toast.success('รีเซ็ตเลขรันใบกำกับภาษีเรียบร้อย (เริ่มใหม่ที่ 1)');
+    } catch (e: any) {
+      toast.error('รีเซ็ตไม่สำเร็จ: ' + (e?.message || e));
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -194,9 +221,34 @@ export default function AccountingSettings() {
             className="w-28 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-right font-bold focus:outline-none focus:border-purple-500 disabled:opacity-50"
           />
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-900/50 rounded-xl p-3">
-          <Info size={14} className="shrink-0" />
-          <span>เลขรันเดินหน้าต่อเนื่องอัตโนมัติ ไม่รีเซ็ต — ออกใบกำกับภาษีเฉพาะออเดอร์ที่มีค่าบริการรับเครื่อง (pickup) ตอนสถานะ "จ่ายเงินแล้ว"</span>
+        <div className="text-xs text-slate-400 bg-slate-900/50 rounded-xl p-3 flex items-start gap-2">
+          <Info size={14} className="shrink-0 mt-0.5" />
+          <span>ออกใบกำกับภาษีเฉพาะออเดอร์ที่มีค่าบริการรับเครื่อง (pickup) ตอนสถานะ "จ่ายเงินแล้ว" — เลขรันเดินหน้าต่อเนื่องอัตโนมัติ</span>
+        </div>
+
+        {/* Running number + reset */}
+        <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-xs text-slate-400">ออกใบกำกับภาษีไปแล้ว</p>
+              <p className="text-lg font-black text-white">{seq.toLocaleString()} <span className="text-sm font-normal text-slate-400">ใบ</span></p>
+              <p className="text-xs text-slate-400 mt-1">ใบถัดไป: <span className="text-emerald-400 font-bold">{nextNumber}</span></p>
+            </div>
+            <button
+              onClick={handleResetSeq}
+              disabled={resetting || !s.vat_registered}
+              className="px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-600/50 text-rose-300 font-bold rounded-xl text-sm flex items-center gap-2 disabled:opacity-40"
+            >
+              {resetting ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />} รีเซ็ตเลขรันเป็น 0
+            </button>
+          </div>
+          <div className="mt-3 flex items-start gap-2 text-[11px] text-amber-300/80 bg-amber-950/20 rounded-lg p-2.5">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+            <span>
+              ใช้ "รีเซ็ต" เฉพาะ<span className="font-bold">ก่อนเปิดใช้งานจริง</span>เพื่อล้างเลขจากการทดสอบ —
+              <span className="font-bold"> ห้ามรีเซ็ตหลังออกใบกำกับภาษีจริง</span> เพราะจะทำให้เลขซ้ำ (ผิดกฎหมายภาษี)
+            </span>
+          </div>
         </div>
       </div>
 

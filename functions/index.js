@@ -1066,7 +1066,10 @@ exports.onJobStatusEmail = onValueUpdated(
           try {
             let ti = job.tax_invoice;
             if (!ti || !ti.number) {
-              const seqRef = db.ref("counters/tax_invoice_seq");
+              // Counter lives under settings/accounting so the admin page can
+              // read it live and reset it before go-live. Transaction keeps the
+              // allocation atomic/sequential.
+              const seqRef = db.ref("settings/accounting/tax_invoice_seq");
               const txn = await seqRef.transaction((cur) => (cur || 0) + 1);
               const seq = txn.snapshot.val() || 1;
               ti = {
