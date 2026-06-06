@@ -97,7 +97,7 @@ export default function SickwUsagePage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sickw-usage-${windowDays}d-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `imei-check-usage-${windowDays}d-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -109,9 +109,9 @@ export default function SickwUsagePage() {
           <ShieldCheck size={20} className="text-blue-400" />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-black uppercase tracking-tight">Sickw Usage Audit</h1>
+          <h1 className="text-xl font-black uppercase tracking-tight">IMEI Check — Usage Audit</h1>
           <p className="text-xs text-slate-400">
-            ทุก call ของ Sickw ถูกบันทึก พร้อม user / IMEI / credit — กันใช้ส่วนตัว
+            ทุกการตรวจ IMEI ถูกบันทึก พร้อม user / IMEI / credit — กันใช้ส่วนตัว
           </p>
         </div>
         <button

@@ -33,7 +33,7 @@ export function SickwGateBanner({ jobId, sickwCheck, gate, currentRole, onOverri
     return (
       <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900">
         <Info size={14} className="text-amber-600 shrink-0" />
-        <span>ใบงานนี้ <b>ยังไม่ได้ตรวจ Sickw</b> — ตรวจก่อนผ่าน QC เพื่อรักษาความปลอดภัยของ payout</span>
+        <span>ใบงานนี้ <b>ยังไม่ได้ตรวจ IMEI</b> — ตรวจก่อนผ่าน QC เพื่อรักษาความปลอดภัยของ payout</span>
       </div>
     );
   }
@@ -42,7 +42,7 @@ export function SickwGateBanner({ jobId, sickwCheck, gate, currentRole, onOverri
     return (
       <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-[11px] text-slate-700">
         <Info size={14} className="text-slate-500 shrink-0" />
-        <span>Sickw ตรวจไม่สำเร็จ (<code className="font-mono">{sickwCheck?.last_check?.status}</code>) — ผ่านได้ตามดุลพินิจ</span>
+        <span>ตรวจ IMEI ไม่สำเร็จ (<code className="font-mono">{sickwCheck?.last_check?.status}</code>) — ผ่านได้ตามดุลพินิจ</span>
       </div>
     );
   }
@@ -51,7 +51,7 @@ export function SickwGateBanner({ jobId, sickwCheck, gate, currentRole, onOverri
     return (
       <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900">
         <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-        <span>Sickw ผ่าน — Find My ปิด / ไม่ติด MDM / ไม่อยู่ใน Blacklist</span>
+        <span>ตรวจ IMEI ผ่าน — Find My ปิด / ไม่ติด MDM / ไม่อยู่ใน Blacklist</span>
       </div>
     );
   }
@@ -92,7 +92,7 @@ export function SickwGateBanner({ jobId, sickwCheck, gate, currentRole, onOverri
       <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={18} className="text-red-600" />
-          <h4 className="text-sm font-black uppercase tracking-tight text-red-900">เครื่องไม่ผ่าน Sickw — ห้ามผ่าน QC</h4>
+          <h4 className="text-sm font-black uppercase tracking-tight text-red-900">เครื่องไม่ผ่านการตรวจ IMEI — ห้ามผ่าน QC</h4>
         </div>
         <ul className="text-xs text-red-800 list-disc pl-5 space-y-0.5 mb-3">
           {gate.reasons.map((r) => <li key={r}>{r}</li>)}
@@ -160,7 +160,7 @@ function OverrideModal({
         <div className="bg-red-600 text-white p-5 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <ShieldAlert size={20} />
-            <h3 className="font-black text-sm uppercase tracking-wide">Override Sickw Gate</h3>
+            <h3 className="font-black text-sm uppercase tracking-wide">Override IMEI Gate</h3>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full"><X size={18} /></button>
         </div>
@@ -176,7 +176,7 @@ function OverrideModal({
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value.slice(0, 500))}
-              placeholder="เช่น: ลูกค้า sign out จาก iCloud ต่อหน้าแล้ว Sickw ยังไม่ refresh — ตรวจสอบด้วยตาเปล่าผ่านแล้ว"
+              placeholder="เช่น: ลูกค้า sign out จาก iCloud ต่อหน้าแล้ว ระบบยังไม่ refresh — ตรวจสอบด้วยตาเปล่าผ่านแล้ว"
               rows={4}
               className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-red-400 resize-none"
             />
