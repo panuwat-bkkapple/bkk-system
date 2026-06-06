@@ -189,10 +189,10 @@ async function buildVoucherPdf(job) {
   // 7% output VAT backed out (fee treated as VAT-inclusive).
   const fee = serviceFeeBreakdown(job);
   if (fee) {
-    draw("รวมราคารับซื้อ", M, 11, { color: gray });
+    draw("ราคารับซื้อเครื่อง (เราจ่ายคุณ)", M, 11, { color: gray });
     drawRight(thb(net + fee.feeIncl), amountColX, 11, { color: gray });
     y -= 16;
-    draw("หักค่าบริการรับเครื่อง (รวม VAT)", M, 11, { color: gray });
+    draw("ค่าบริการรับเครื่อง (คุณชำระเรา รวม VAT)", M, 11, { color: gray });
     drawRight(`-${thb(fee.feeIncl)}`, amountColX, 11, { color: gray });
     y -= 14;
     draw(`(ค่าบริการ ${thb(fee.base)} + VAT 7% ${thb(fee.vat)})`, M + 12, 9, { color: gray });
@@ -268,4 +268,158 @@ async function buildVoucherPdf(job) {
   return Buffer.from(bytes);
 }
 
-module.exports = { buildVoucherPdf };
+/**
+ * Render the ใบกำกับภาษี/ใบเสร็จรับเงิน for the pickup SERVICE fee (the company
+ * is the seller of the service here, so this is a real tax invoice under
+ * ป.รัษฎากร ม.86/4). `taxInvoice` carries the allocated running number + issue
+ * date; amounts come from serviceFeeBreakdown(job). Returns a Buffer, or null
+ * when there's no service fee.
+ */
+async function buildTaxInvoicePdf(job, taxInvoice) {
+  const fee = serviceFeeBreakdown(job);
+  if (!fee) return null;
+
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  let y = height - M;
+
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) =>
+    page.drawText(String(t == null ? "" : t), {
+      x,
+      y: opts.y != null ? opts.y : y,
+      size,
+      font: opts.bold ? fontB : font,
+      color: opts.color || black,
+    });
+  const drawRight = (t, rightX, size, opts = {}) =>
+    draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const s = String(t == null ? "" : t);
+    const out = [];
+    let cur = "";
+    for (const ch of s) {
+      if (cur && widthOf(cur + ch, size, f) > maxW) {
+        out.push(cur);
+        cur = ch;
+      } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) {
+      draw(ln, x, size, opts);
+      y -= lineH;
+    }
+  };
+
+  // Seller header (the company sells the service)
+  draw(COMPANY.legalName, M, 16, { bold: true });
+  y -= 18;
+  draw(`เลขประจำตัวผู้เสียภาษี ${COMPANY.taxId} (สำนักงานใหญ่)`, M, 10, { color: gray });
+  y -= 14;
+  drawWrapped(COMPANY.address, M, 10, contentW, 13, { color: gray });
+
+  // Title
+  y -= 14;
+  const title = "ใบกำกับภาษี / ใบเสร็จรับเงิน";
+  draw(title, (width - widthOf(title, 20, fontB)) / 2, 20, { bold: true });
+  y -= 16;
+  const subtitle = "Tax Invoice / Receipt";
+  draw(subtitle, (width - widthOf(subtitle, 11, font)) / 2, 11, { color: gray });
+  y -= 26;
+
+  // Meta
+  draw(`เลขที่ใบกำกับภาษี: ${taxInvoice.number || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่: ${formatDate(taxInvoice.issued_at) || "-"}`, width - M, 11);
+  y -= 16;
+  if (job.ref_no) {
+    draw(`อ้างอิงคำสั่งซื้อ: ${job.ref_no}`, M, 10, { color: gray });
+    y -= 20;
+  } else {
+    y -= 4;
+  }
+
+  // Buyer (customer)
+  draw("ลูกค้า (ผู้ซื้อบริการ):", M, 11, { color: gray });
+  y -= 15;
+  draw(job.cust_name || "-", M + 12, 11, { bold: true });
+  y -= 16;
+  const buyerAddr = job.cust_id_address || job.cust_address;
+  if (buyerAddr) {
+    draw("ที่อยู่:", M, 10, { color: gray });
+    drawWrapped(buyerAddr, M + 36, 10, contentW - 36, 13);
+    y -= 4;
+  }
+  y -= 10;
+
+  // Line item table
+  const amountX = width - M;
+  hr(y + 4);
+  y -= 12;
+  draw("รายการ", M, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน (บาท)", amountX, 11, { bold: true, color: gray });
+  y -= 8;
+  hr(y + 2);
+  y -= 16;
+  draw("ค่าบริการรับเครื่องถึงที่ (Pickup Service)", M, 11);
+  drawRight(thb(fee.base), amountX, 11);
+  y -= 20;
+  hr(y + 6);
+  y -= 14;
+  draw("มูลค่าบริการ (ก่อน VAT)", M, 11, { color: gray });
+  drawRight(thb(fee.base), amountX, 11, { color: gray });
+  y -= 16;
+  draw("ภาษีมูลค่าเพิ่ม 7%", M, 11, { color: gray });
+  drawRight(thb(fee.vat), amountX, 11, { color: gray });
+  y -= 16;
+  draw("จำนวนเงินรวมทั้งสิ้น", M, 13, { bold: true });
+  drawRight(thb(fee.feeIncl), amountX, 13, { bold: true, color: rgb(0.02, 0.45, 0.34) });
+  y -= 20;
+
+  const words = bahtText(fee.feeIncl);
+  if (words) {
+    draw(`(${words})`, M, 11);
+    y -= 22;
+  }
+
+  draw(
+    "หมายเหตุ: ค่าบริการนี้หักจากยอดรับซื้อเครื่องของลูกค้า (ดูใบสำคัญรับเงินประกอบ)",
+    M,
+    9,
+    { color: gray }
+  );
+
+  // Signature (issuer)
+  const sigY = Math.max(y - 60, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้รับเงิน / ผู้มีอำนาจออกใบกำกับภาษี";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+
+  page.drawText(`${COMPANY.legalName} (${COMPANY.tradeName}) • ออกโดยระบบอัตโนมัติ`, {
+    x: M,
+    y: 50,
+    size: 8,
+    font,
+    color: gray,
+  });
+
+  const bytes = await pdf.save();
+  return Buffer.from(bytes);
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf };

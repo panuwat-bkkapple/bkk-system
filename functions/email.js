@@ -282,8 +282,8 @@ function orderSummaryCard(job, opts = {}) {
 
   let totalsRows = "";
   if (fee) {
-    totalsRows += totalRow("รวมราคารับซื้อ", esc(formatTHB(grossBeforeFee)), { muted: true });
-    totalsRows += totalRow("หักค่าบริการรับเครื่อง (รวม VAT)", `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
+    totalsRows += totalRow("ราคารับซื้อเครื่อง (เราจ่ายคุณ)", esc(formatTHB(grossBeforeFee)), { muted: true });
+    totalsRows += totalRow("ค่าบริการรับเครื่อง (คุณชำระเรา · รวม VAT)", `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
     if (showVatDetail) {
       totalsRows += `<tr><td colspan="2" style="padding:1px 0 4px 14px;font-size:11px;color:#9ca3af;">
         ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}</td></tr>`;

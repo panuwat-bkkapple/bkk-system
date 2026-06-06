@@ -5,9 +5,10 @@ const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
-const { buildVoucherPdf } = require("./voucher-pdf");
+const { buildVoucherPdf, buildTaxInvoicePdf } = require("./voucher-pdf");
 const {
   sendEmail,
+  serviceFeeBreakdown,
   normalizeStatus,
   statusEmailKey,
   isMilestone,
@@ -980,39 +981,86 @@ exports.onJobStatusEmail = onValueUpdated(
       // sales history and can be re-downloaded), and attach it to BOTH the
       // customer and admin emails. Best-effort: a PDF/Storage failure must not
       // block the emails themselves.
-      let voucherAttachments;
+      // Upload a generated PDF to Storage with a download token and return a
+      // stable URL (best-effort; null on failure).
+      const archivePdf = async (storagePath, pdf) => {
+        const token = `${jobId}-${Date.now()}`;
+        const bucket = getStorage().bucket();
+        await bucket.file(storagePath).save(pdf, {
+          contentType: "application/pdf",
+          metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+        });
+        return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+          storagePath
+        )}?alt=media&token=${token}`;
+      };
+
+      const paidAttachments = [];
       if (status === "Paid") {
+        // 1) ใบสำคัญรับเงิน (payment voucher) for the device purchase.
         try {
           const pdf = await buildVoucherPdf(job);
-          const filename = `ใบสำคัญรับเงิน-${job.ref_no || jobId}.pdf`;
-          voucherAttachments = [{ filename, content: pdf.toString("base64") }];
-
+          paidAttachments.push({
+            filename: `ใบสำคัญรับเงิน-${job.ref_no || jobId}.pdf`,
+            content: pdf.toString("base64"),
+          });
           try {
-            const storagePath = `vouchers/${jobId}.pdf`;
-            const token = `${jobId}-${Date.now()}`;
-            const bucket = getStorage().bucket();
-            await bucket.file(storagePath).save(pdf, {
-              contentType: "application/pdf",
-              metadata: { metadata: { firebaseStorageDownloadTokens: token } },
-            });
-            const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
-              storagePath
-            )}?alt=media&token=${token}`;
+            const url = await archivePdf(`vouchers/${jobId}.pdf`, pdf);
             await db.ref(`jobs/${jobId}/payment_voucher`).set({
-              storage_path: storagePath,
+              storage_path: `vouchers/${jobId}.pdf`,
               url,
               ref_no: job.ref_no || null,
               amount: job.net_payout ?? job.price ?? null,
               generated_at: Date.now(),
             });
-            console.log(`[orderEmail] voucher archived ${jobId}: ${storagePath}`);
           } catch (e) {
             console.error(`[orderEmail] voucher archive failed ${jobId}:`, e?.message || e);
           }
         } catch (e) {
           console.error(`[orderEmail] voucher PDF build failed ${jobId}:`, e?.message || e);
         }
+
+        // 2) ใบกำกับภาษี (tax invoice) for the pickup-service fee, when one was
+        //    charged. Allocate a sequential tax-invoice number once (atomic
+        //    counter; re-uses the existing number on retry) — required to be
+        //    running/sequential under ป.รัษฎากร ม.86/4.
+        const fee = serviceFeeBreakdown(job);
+        if (fee) {
+          try {
+            let ti = job.tax_invoice;
+            if (!ti || !ti.number) {
+              const seqRef = db.ref("counters/tax_invoice_seq");
+              const txn = await seqRef.transaction((cur) => (cur || 0) + 1);
+              const seq = txn.snapshot.val() || 1;
+              ti = {
+                number: `IV-${String(seq).padStart(6, "0")}`,
+                issued_at: Date.now(),
+                base: fee.base,
+                vat: fee.vat,
+                total: fee.feeIncl,
+              };
+              await db.ref(`jobs/${jobId}/tax_invoice`).set(ti);
+            }
+            const tiPdf = await buildTaxInvoicePdf(job, ti);
+            if (tiPdf) {
+              paidAttachments.push({
+                filename: `ใบกำกับภาษี-${ti.number}.pdf`,
+                content: tiPdf.toString("base64"),
+              });
+              try {
+                const url = await archivePdf(`tax_invoices/${jobId}.pdf`, tiPdf);
+                await db.ref(`jobs/${jobId}/tax_invoice/storage_path`).set(`tax_invoices/${jobId}.pdf`);
+                await db.ref(`jobs/${jobId}/tax_invoice/url`).set(url);
+              } catch (e) {
+                console.error(`[orderEmail] tax-invoice archive failed ${jobId}:`, e?.message || e);
+              }
+            }
+          } catch (e) {
+            console.error(`[orderEmail] tax-invoice build failed ${jobId}:`, e?.message || e);
+          }
+        }
       }
+      const voucherAttachments = paidAttachments.length ? paidAttachments : undefined;
 
       // Customer milestone email (skip silently when no email / no customer copy).
       if (job.cust_email) {
