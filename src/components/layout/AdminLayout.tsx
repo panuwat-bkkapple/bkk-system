@@ -171,6 +171,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/finance" icon={<Banknote size={18} />} label="ระบบบัญชี (Finance)" />
               <NavButton collapsed={isCollapsed} to="/daily-expenses" icon={<ReceiptText size={18} />} label="บันทึกเบิกจ่ายจิปาถะ" />
+              {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/financial-report" icon={<TrendingUp size={18} />} label="รายงานการเงิน (P&L)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/vat-report" icon={<FileSpreadsheet size={18} />} label="รายงานภาษีขาย (ภ.พ.30)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/accounting-settings" icon={<Calculator size={18} />} label="ตั้งค่าระบบบัญชี" />}
               <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
