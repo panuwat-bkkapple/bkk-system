@@ -4,10 +4,17 @@ import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
-import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2 } from 'lucide-react';
+import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2, Clock } from 'lucide-react';
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+
+// แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
+const toDateTimeLocal = (ms: number) => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 export const TradeInPayouts = () => {
   const toast = useToast();
@@ -20,6 +27,9 @@ export const TradeInPayouts = () => {
 
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // วันเวลาที่โอนจริง (แก้ได้ — รองรับการบันทึกย้อนหลัง) เก็บเป็นค่า datetime-local
+  const [transferDateTime, setTransferDateTime] = useState('');
 
   const [editBankName, setEditBankName] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
@@ -71,6 +81,11 @@ export const TradeInPayouts = () => {
     if (!slipFile) { toast.warning("กรุณาแนบสลิปการโอนเงินเพื่อเป็นหลักฐาน"); return; }
     if (!editBankName || !editBankAccount || !editBankHolder) { toast.warning("กรุณาระบุข้อมูลบัญชีรับเงินให้ครบถ้วน"); return; }
 
+    // วันเวลาที่โอนจริง (รองรับ backdate) — paid_at ยังคงเป็นเวลาที่บันทึกในระบบ (ตอนนี้)
+    const transferredAt = transferDateTime ? new Date(transferDateTime).getTime() : Date.now();
+    if (isNaN(transferredAt)) { toast.warning('วันเวลาที่โอนไม่ถูกต้อง'); return; }
+    if (transferredAt > Date.now() + 60_000) { toast.warning('วันเวลาที่โอนเป็นอนาคต กรุณาตรวจสอบ'); return; }
+
     if (!confirm('ยืนยันว่าทำการโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
 
     setIsUploading(true);
@@ -93,7 +108,7 @@ export const TradeInPayouts = () => {
       // unify domain.ts and job-statuses.ts; tracked separately.
       const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
-      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
+      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount}) เมื่อ ${formatDate(transferredAt)}`;
 
       const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
 
@@ -104,6 +119,7 @@ export const TradeInPayouts = () => {
       // Job update
       updates[`jobs/${selectedTx.id}/status`] = nextStatus;
       updates[`jobs/${selectedTx.id}/paid_at`] = now;
+      updates[`jobs/${selectedTx.id}/transferred_at`] = transferredAt; // เวลาโอนจริงตามสลิป (โชว์ในใบสำคัญรับเงิน/ติดตามลูกค้า)
       updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
       updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
       updates[`jobs/${selectedTx.id}/updated_at`] = now;
@@ -120,7 +136,7 @@ export const TradeInPayouts = () => {
         type: 'DEBIT',
         category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
         description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
-        timestamp: now,
+        timestamp: transferredAt, // ledger เงินสดอิงเวลาโอนจริง
         ref_job_id: selectedTx.id,
         slip_url: slipUrl
       };
@@ -134,7 +150,7 @@ export const TradeInPayouts = () => {
           type: 'CREDIT',
           category: 'LOGISTICS_REVENUE',
           description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
-          timestamp: now,
+          timestamp: transferredAt,
           ref_job_id: selectedTx.id
         };
       }
@@ -204,10 +220,11 @@ export const TradeInPayouts = () => {
                  </td>
                  <td className="p-6 text-right pr-10">
                     <button 
-                      onClick={() => { 
-                        setSelectedTx(tx); 
-                        setSlipFile(null); 
-                        
+                      onClick={() => {
+                        setSelectedTx(tx);
+                        setSlipFile(null);
+                        setTransferDateTime(toDateTimeLocal(Date.now())); // default = ตอนนี้ (ปรับเป็นเวลาในสลิปได้)
+
                         // 🌟 THE FIX: ดึงข้อมูลจาก payment_info ที่ลูกค้ากรอกมาหน้าเว็บ (ถ้าระบุเป็น PromptPay ให้แสดงคำว่า พร้อมเพย์)
                         let bankNameDisplay = tx.payment_info?.bank || tx.bank_name || '';
                         if (tx.payment_info?.type === 'promptpay') bankNameDisplay = 'พร้อมเพย์ (PromptPay)';
@@ -260,6 +277,18 @@ export const TradeInPayouts = () => {
                         <span className="text-xs font-black text-slate-400 uppercase tracking-widest w-1/3">Account Name</span>
                         <input type="text" value={editBankHolder} onChange={(e) => setEditBankHolder(e.target.value)} placeholder="ชื่อบัญชีรับเงิน (ตาม Invoice)" className="w-2/3 bg-white border border-slate-200 px-4 py-2.5 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500 text-right shadow-sm transition-all" />
                     </div>
+                 </div>
+
+                 <div className="space-y-2">
+                    <label className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest"><Clock size={12}/> วันเวลาที่โอน</label>
+                    <input
+                       type="datetime-local"
+                       value={transferDateTime}
+                       max={toDateTimeLocal(Date.now())}
+                       onChange={(e) => setTransferDateTime(e.target.value)}
+                       className="w-full bg-white border border-slate-200 px-4 py-2.5 rounded-xl font-bold text-slate-800 outline-none focus:border-blue-500 shadow-sm transition-all"
+                    />
+                    <p className="text-[10px] text-slate-400 font-bold">ค่าเริ่มต้นคือตอนนี้ — ปรับเป็นเวลาในสลิปได้หากโอนย้อนหลัง</p>
                  </div>
 
                  <div className="space-y-2">
