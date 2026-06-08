@@ -6,11 +6,18 @@ import { uploadImageToFirebase } from '../../utils/uploadImage';
 import {
   Search, CheckCircle2, X, Copy, Check,
   Smartphone, Upload, FileText, Loader2,
-  RefreshCw, Banknote, ChevronDown, ChevronUp
+  RefreshCw, Banknote, ChevronDown, ChevronUp, Clock
 } from 'lucide-react';
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
+
+// แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
+const toDateTimeLocal = (ms: number) => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 export const MobileFinancePage = () => {
   const toast = useToast();
@@ -23,6 +30,9 @@ export const MobileFinancePage = () => {
 
   const [slipFile, setSlipFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // วันเวลาที่โอนจริง (แก้ได้ — รองรับการบันทึกย้อนหลัง) เก็บเป็นค่า datetime-local
+  const [transferDateTime, setTransferDateTime] = useState('');
 
   const [editBankName, setEditBankName] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
@@ -83,6 +93,7 @@ export const MobileFinancePage = () => {
   const openTransferModal = (tx: any) => {
     setSelectedTx(tx);
     setSlipFile(null);
+    setTransferDateTime(toDateTimeLocal(Date.now())); // default = ตอนนี้ (ปรับเป็นเวลาในสลิปได้)
 
     let bankNameDisplay = tx.payment_info?.bank || tx.bank_name || '';
     if (tx.payment_info?.type === 'promptpay') bankNameDisplay = 'พร้อมเพย์ (PromptPay)';
@@ -96,6 +107,11 @@ export const MobileFinancePage = () => {
     if (!selectedTx) return;
     if (!slipFile) { toast.warning('กรุณาแนบสลิปการโอนเงิน'); return; }
     if (!editBankName || !editBankAccount || !editBankHolder) { toast.warning('กรุณาระบุข้อมูลบัญชีให้ครบ'); return; }
+
+    // วันเวลาที่โอนจริง (รองรับ backdate) — paid_at ยังคงเป็นเวลาที่บันทึกในระบบ (ตอนนี้)
+    const transferredAt = transferDateTime ? new Date(transferDateTime).getTime() : Date.now();
+    if (isNaN(transferredAt)) { toast.warning('วันเวลาที่โอนไม่ถูกต้อง'); return; }
+    if (transferredAt > Date.now() + 60_000) { toast.warning('วันเวลาที่โอนเป็นอนาคต กรุณาตรวจสอบ'); return; }
 
     if (!confirm('ยืนยันว่าโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
 
@@ -111,7 +127,7 @@ export const MobileFinancePage = () => {
 
       const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
-      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount})`;
+      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount}) เมื่อ ${formatDate(transferredAt)}`;
 
       const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
 
@@ -120,6 +136,7 @@ export const MobileFinancePage = () => {
 
       updates[`jobs/${selectedTx.id}/status`] = nextStatus;
       updates[`jobs/${selectedTx.id}/paid_at`] = now;
+      updates[`jobs/${selectedTx.id}/transferred_at`] = transferredAt; // เวลาโอนจริงตามสลิป (โชว์ในใบสำคัญรับเงิน/ติดตามลูกค้า)
       updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
       updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
       updates[`jobs/${selectedTx.id}/updated_at`] = now;
@@ -135,7 +152,7 @@ export const MobileFinancePage = () => {
         type: 'DEBIT',
         category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
         description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
-        timestamp: now,
+        timestamp: transferredAt, // ledger เงินสดอิงเวลาโอนจริง
         ref_job_id: selectedTx.id,
         slip_url: slipUrl
       };
@@ -148,7 +165,7 @@ export const MobileFinancePage = () => {
           type: 'CREDIT',
           category: 'LOGISTICS_REVENUE',
           description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
-          timestamp: now,
+          timestamp: transferredAt,
           ref_job_id: selectedTx.id
         };
       }
@@ -369,6 +386,21 @@ export const MobileFinancePage = () => {
                     className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500 text-sm"
                   />
                 </div>
+              </div>
+
+              {/* Transfer Date/Time (รองรับการบันทึกย้อนหลัง) */}
+              <div>
+                <label className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <Clock size={12} /> วันเวลาที่โอน
+                </label>
+                <input
+                  type="datetime-local"
+                  value={transferDateTime}
+                  max={toDateTimeLocal(Date.now())}
+                  onChange={(e) => setTransferDateTime(e.target.value)}
+                  className="w-full mt-1 bg-white border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-slate-800 outline-none focus:border-emerald-500 text-sm"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">ค่าเริ่มต้นคือตอนนี้ — ปรับเป็นเวลาในสลิปได้หากโอนย้อนหลัง</p>
               </div>
 
               {/* Slip Upload */}

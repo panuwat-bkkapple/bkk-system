@@ -401,7 +401,8 @@ function voucherPartiesCard(job) {
   const co = companyOf(job);
   const docMeta = kvTable([
     ["เลขที่เอกสาร", esc(job.ref_no || "-")],
-    job.paid_at && ["วันที่จ่ายเงิน", esc(formatThaiDateTime(job.paid_at))],
+    // วันที่จ่ายเงิน = เวลาโอนจริงตามสลิป (transferred_at) ถ้ามี ไม่งั้น fallback เวลาที่ระบบบันทึก
+    (job.transferred_at || job.paid_at) && ["วันที่จ่ายเงิน", esc(formatThaiDateTime(job.transferred_at || job.paid_at))],
   ]);
   const payer = kvTable([
     ["ผู้จ่ายเงิน", esc(co.legalName)],
@@ -904,7 +905,9 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
     html: shell({
       heading: "สรุปการขาย / ใบสำคัญรับเงิน (โอนเงินเรียบร้อย)",
       intro: `เลขที่ <strong>${esc(job.ref_no || "-")}</strong>${
-        job.paid_at ? ` • โอนเมื่อ ${esc(formatThaiDateTime(job.paid_at))}` : ""
+        (job.transferred_at || job.paid_at)
+          ? ` • โอนเมื่อ ${esc(formatThaiDateTime(job.transferred_at || job.paid_at))}`
+          : ""
       }`,
       bodyHtml:
         (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +

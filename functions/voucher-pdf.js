@@ -137,7 +137,8 @@ async function buildVoucherPdf(job) {
 
   // ── Document meta (no. / date) ──────────────────────────────────────────────
   draw(`เลขที่เอกสาร: ${job.ref_no || "-"}`, M, 11);
-  drawRight(`วันที่: ${formatDate(job.paid_at) || "-"}`, width - M, 11);
+  // วันที่ = เวลาโอนจริงตามสลิป (transferred_at) ถ้ามี ไม่งั้น fallback paid_at
+  drawRight(`วันที่: ${formatDate(job.transferred_at || job.paid_at) || "-"}`, width - M, 11);
   y -= 22;
 
   // ── Payee ───────────────────────────────────────────────────────────────────
