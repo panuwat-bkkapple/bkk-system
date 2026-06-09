@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Ticket, PlusCircle, Search, Edit2, Trash2, X,
     Save, ToggleLeft, ToggleRight, Gift, Percent, Zap,
-    Calendar, CheckCircle2, AlertCircle, Smartphone
+    Calendar, CheckCircle2, AlertCircle, Smartphone, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { ref, push, update, remove, onValue } from 'firebase/database';
 // ⚠️ เช็ค Path ของ Firebase ให้ตรงกับโปรเจกต์ของคุณ
@@ -22,26 +22,173 @@ const StatusToggle = ({ isActive, onToggle }: { isActive: boolean, onToggle: () 
     </button>
 );
 
+// ─── Model picker: ค้นหา + จัดกลุ่มตามหมวดหมู่ + เลือกทั้งกลุ่ม/ทั้งหมด ───────
+// ใช้ร่วมกันทั้ง Targeted (include) และ Excluded models. รับ/คืนเป็น array
+// ของ model id เท่านั้น — logic การ merge เป็นของ component นี้ที่เดียว
+const PICKER_ACCENT = {
+    blue: { bg: 'bg-blue-50', text: 'text-blue-600', rowHover: 'hover:bg-blue-50/60', focus: 'focus:border-blue-500 focus:ring-blue-100', check: 'accent-blue-600' },
+    rose: { bg: 'bg-rose-50', text: 'text-rose-600', rowHover: 'hover:bg-rose-50/60', focus: 'focus:border-rose-400 focus:ring-rose-100', check: 'accent-rose-600' },
+};
+
+interface TreeNode {
+    key: string;
+    label: string;
+    modelIds: string[];
+    children?: TreeNode[];
+    model?: any;
+}
+
+// สร้าง tree 4 ชั้น: Category > Subcategory > Series > Model
+// subcategory resolve จาก series.subcategory (ผ่าน seriesSubcat map)
+function buildModelTree(models: any[], seriesSubcat: Record<string, string>): TreeNode[] {
+    const root = new Map<string, Map<string, Map<string, any[]>>>();
+    for (const m of models) {
+        const cat = m.category || 'ไม่ระบุหมวดหมู่';
+        const ser = m.series || 'ไม่ระบุซีรีส์';
+        const sub = (m.series && seriesSubcat[m.series]) || 'ทั่วไป';
+        if (!root.has(cat)) root.set(cat, new Map());
+        const subMap = root.get(cat)!;
+        if (!subMap.has(sub)) subMap.set(sub, new Map());
+        const serMap = subMap.get(sub)!;
+        if (!serMap.has(ser)) serMap.set(ser, []);
+        serMap.get(ser)!.push(m);
+    }
+    const byKey = <T,>(entries: [string, T][]) => entries.sort((a, b) => a[0].localeCompare(b[0]));
+    return byKey([...root]).map(([cat, subMap]) => {
+        const subChildren = byKey([...subMap]).map(([sub, serMap]) => {
+            const serChildren = byKey([...serMap]).map(([ser, list]) => {
+                const modelNodes: TreeNode[] = [...list]
+                    .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                    .map((m) => ({ key: `m:${m.id}`, label: m.name, modelIds: [m.id], model: m }));
+                return { key: `ser:${cat}>${sub}>${ser}`, label: ser, modelIds: modelNodes.flatMap((n) => n.modelIds), children: modelNodes };
+            });
+            return { key: `sub:${cat}>${sub}`, label: sub, modelIds: serChildren.flatMap((n) => n.modelIds), children: serChildren };
+        });
+        return { key: `cat:${cat}`, label: cat, modelIds: subChildren.flatMap((n) => n.modelIds), children: subChildren };
+    });
+}
+
+const ModelMultiPicker: React.FC<{
+    models: any[];
+    selected: string[];
+    onChange: (ids: string[]) => void;
+    seriesSubcat: Record<string, string>;
+    accent?: 'blue' | 'rose';
+}> = ({ models, selected, onChange, seriesSubcat, accent = 'blue' }) => {
+    const c = PICKER_ACCENT[accent];
+    const [q, setQ] = useState('');
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const selectedSet = useMemo(() => new Set(selected), [selected]);
+    const query = q.trim().toLowerCase();
+
+    const filtered = useMemo(() => {
+        if (!query) return models;
+        return models.filter((m: any) =>
+            [m.name, m.brand, m.category, m.series, seriesSubcat[m.series]]
+                .some((v: any) => String(v || '').toLowerCase().includes(query))
+        );
+    }, [models, query, seriesSubcat]);
+
+    const tree = useMemo(() => buildModelTree(filtered, seriesSubcat), [filtered, seriesSubcat]);
+    const filteredIds = useMemo(() => filtered.map((m: any) => m.id), [filtered]);
+    const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id: string) => selectedSet.has(id));
+
+    const apply = (ids: string[], on: boolean) => {
+        const s = new Set(selected);
+        ids.forEach((id) => (on ? s.add(id) : s.delete(id)));
+        onChange([...s]);
+    };
+
+    const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
+        // Leaf = model
+        if (node.model) {
+            const checked = selectedSet.has(node.model.id);
+            return (
+                <label key={node.key} style={{ paddingLeft: 12 + depth * 18 }} className={`flex items-center gap-2.5 pr-3 py-2 cursor-pointer transition-colors ${c.rowHover}`}>
+                    <input type="checkbox" checked={checked} onChange={() => apply([node.model.id], !checked)} className={`w-4 h-4 rounded ${c.check} cursor-pointer shrink-0`} />
+                    <span className="text-[10px] font-black text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 uppercase shrink-0">{node.model.brand}</span>
+                    <span className="text-sm font-bold text-slate-700 truncate">{node.label}</span>
+                </label>
+            );
+        }
+        // Branch (category / subcategory / series)
+        const ids = node.modelIds;
+        const selCount = ids.filter((id) => selectedSet.has(id)).length;
+        const allSel = selCount === ids.length && ids.length > 0;
+        const someSel = selCount > 0 && !allSel;
+        const expanded = !!query || !collapsed[node.key];
+        const labelCls = depth === 0
+            ? 'text-[11px] font-black uppercase tracking-wide text-slate-700'
+            : depth === 1 ? 'text-xs font-black text-slate-600' : 'text-xs font-bold text-slate-500';
+        return (
+            <div key={node.key}>
+                <div style={{ paddingLeft: 8 + depth * 18 }} className={`flex items-center gap-2 pr-3 py-2 border-b border-slate-50 ${depth === 0 ? `${c.bg} sticky top-0 z-10` : 'bg-white'}`}>
+                    <input type="checkbox" checked={allSel} ref={(el) => { if (el) el.indeterminate = someSel; }} onChange={() => apply(ids, !allSel)} className={`w-4 h-4 rounded ${c.check} cursor-pointer shrink-0`} />
+                    <button type="button" onClick={() => setCollapsed((p) => ({ ...p, [node.key]: !p[node.key] }))} className="flex items-center gap-1 flex-1 text-left min-w-0">
+                        {expanded ? <ChevronDown size={13} className="text-slate-400 shrink-0" /> : <ChevronRight size={13} className="text-slate-400 shrink-0" />}
+                        <span className={`truncate ${labelCls}`}>{node.label}</span>
+                    </button>
+                    <span className={`text-[10px] font-black shrink-0 ${selCount ? c.text : 'text-slate-400'}`}>{selCount}/{ids.length}</span>
+                </div>
+                {expanded && node.children!.map((child) => renderNode(child, depth + 1))}
+            </div>
+        );
+    };
+
+    return (
+        <div className="flex flex-col min-h-0">
+            {/* Toolbar: search + select-all */}
+            <div className="flex items-center gap-2 mb-2">
+                <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="text"
+                        placeholder="ค้นหาหมวดหมู่ / แบรนด์ / รุ่น..."
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        className={`w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:ring-2 ${c.focus} focus:bg-white`}
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => apply(filteredIds, !allFilteredSelected)}
+                    disabled={!filteredIds.length}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-black whitespace-nowrap border transition disabled:opacity-40 ${allFilteredSelected ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : `border-transparent ${c.bg} ${c.text} hover:brightness-95`}`}
+                >
+                    {allFilteredSelected ? 'ล้างที่ค้นเจอ' : 'เลือกทั้งหมด'}
+                </button>
+            </div>
+
+            {/* Summary line */}
+            <div className="flex items-center justify-between mb-2 px-0.5">
+                <span className="text-[10px] font-bold text-slate-400">{filteredIds.length} รุ่น{query ? ' (กรองอยู่)' : ''}</span>
+                <span className={`text-[10px] font-black ${selected.length ? c.text : 'text-slate-400'}`}>เลือกแล้ว {selected.length} รุ่น</span>
+            </div>
+
+            {/* Tree: Category > Subcategory > Series > Model */}
+            <div className="min-h-[200px] max-h-[340px] border border-slate-200 rounded-xl overflow-y-auto bg-white">
+                {tree.length === 0 ? (
+                    <div className="text-center text-xs text-slate-400 font-bold py-8">ไม่พบรุ่นที่ตรงกับ "{q}"</div>
+                ) : tree.map((node) => renderNode(node, 0))}
+            </div>
+        </div>
+    );
+};
+
 export const CouponManager = () => {
     const toast = useToast();
     const [coupons, setCoupons] = useState<any[]>([]);
     const [modelsData, setModelsData] = useState<any[]>([]); // 🌟 ดึงข้อมูลรุ่นมือถือมาไว้ให้เลือก
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [includeSearch, setIncludeSearch] = useState('');
-    const [excludeSearch, setExcludeSearch] = useState('');
+    const [seriesData, setSeriesData] = useState<any[]>([]);
 
-    // กรองรายการรุ่นตามคำค้น — ครอบคลุม Category, แบรนด์(ประเภท), ซีรีส์ และชื่อรุ่น
-    const filterModels = (query: string) => {
-        const q = query.trim().toLowerCase();
-        if (!q) return modelsData;
-        return modelsData.filter((m: any) =>
-            (m.name || '').toLowerCase().includes(q) ||
-            (m.brand || '').toLowerCase().includes(q) ||
-            (m.category || '').toLowerCase().includes(q) ||
-            (m.series || '').toLowerCase().includes(q)
-        );
-    };
+    // map ชื่อ series -> subcategory (ใช้สร้าง tree 4 ชั้น Category>Subcategory>Series>Model ใน picker)
+    const seriesSubcat = useMemo(() => {
+        const map: Record<string, string> = {};
+        for (const s of seriesData) { if (s.name) map[s.name] = s.subcategory || ''; }
+        return map;
+    }, [seriesData]);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
@@ -72,7 +219,18 @@ export const CouponManager = () => {
             }
         });
 
-        return () => { unsubCoupons(); unsubModels(); };
+        // โหลด series เพื่อ map subcategory ของแต่ละ series (ใช้ใน tree)
+        const seriesRef = ref(db, 'series');
+        const unsubSeries = onValue(seriesRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                setSeriesData(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+            } else {
+                setSeriesData([]);
+            }
+        });
+
+        return () => { unsubCoupons(); unsubModels(); unsubSeries(); };
     }, []);
 
     const handleOpenModal = (item: any = null) => {
@@ -130,26 +288,6 @@ export const CouponManager = () => {
             await update(ref(db, `coupons/${item.id}`), { is_active: !item.is_active });
         } catch (error) {
             toast.error('เกิดข้อผิดพลาดในการเปลี่ยนสถานะ');
-        }
-    };
-
-    // 🌟 ฟังก์ชันจัดการการเลือกรุ่น
-    const toggleModelSelection = (modelId: string) => {
-        const currentList = editingItem.applicable_models || [];
-        if (currentList.includes(modelId)) {
-            setEditingItem({ ...editingItem, applicable_models: currentList.filter((id: string) => id !== modelId) });
-        } else {
-            setEditingItem({ ...editingItem, applicable_models: [...currentList, modelId] });
-        }
-    };
-
-    // 🌟 จัดการรุ่นที่ไม่ร่วมรายการ (exclude)
-    const toggleExcludeSelection = (modelId: string) => {
-        const currentList = editingItem.excluded_models || [];
-        if (currentList.includes(modelId)) {
-            setEditingItem({ ...editingItem, excluded_models: currentList.filter((id: string) => id !== modelId) });
-        } else {
-            setEditingItem({ ...editingItem, excluded_models: [...currentList, modelId] });
         }
     };
 
@@ -391,7 +529,7 @@ export const CouponManager = () => {
                                 </div>
 
                                 {/* ฝั่งขวา: 🌟 ระบบล็อกรุ่น (Target Models) */}
-                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col h-[300px]">
+                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col">
                                     <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-3 mb-4 flex items-center gap-2"><Smartphone size={14} /> ผูกแคมเปญเฉพาะรุ่น (Targeted Models)</h4>
 
                                     <div className="flex gap-4 mb-4">
@@ -405,45 +543,15 @@ export const CouponManager = () => {
                                         </label>
                                     </div>
 
-                                    {/* กล่องเลือกรุ่น (จะโชว์ก็ต่อเมื่อเลือกระบุรุ่นเอง) */}
+                                    {/* tree เลือกรุ่น (โชว์เมื่อเลือก "ระบุรุ่นเอง") */}
                                     {editingItem.applicable_models && editingItem.applicable_models.length > 0 && (
-                                        <>
-                                            <div className="relative mb-2">
-                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                                <input
-                                                    type="text"
-                                                    placeholder="ค้นหา Category / แบรนด์ / รุ่น..."
-                                                    value={includeSearch}
-                                                    onChange={(e) => setIncludeSearch(e.target.value)}
-                                                    className="w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-blue-500 focus:bg-white"
-                                                />
-                                            </div>
-                                            <div className="flex-1 border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50">
-                                                {filterModels(includeSearch).map((model) => (
-                                                    <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={editingItem.applicable_models.includes(model.id)}
-                                                            onChange={() => toggleModelSelection(model.id)}
-                                                            className="w-4 h-4 text-blue-600 rounded"
-                                                        />
-                                                        <div className="flex-1 flex items-center gap-2 min-w-0">
-                                                            <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center shrink-0">{model.brand}</span>
-                                                            <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
-                                                            {model.category && <span className="text-[9px] font-bold text-slate-400 shrink-0">· {model.category}</span>}
-                                                        </div>
-                                                    </label>
-                                                ))}
-                                                {filterModels(includeSearch).length === 0 && (
-                                                    <div className="text-center text-xs text-slate-400 font-bold py-4">ไม่พบรุ่นที่ตรงกับ "{includeSearch}"</div>
-                                                )}
-                                            </div>
-                                        </>
-                                    )}
-                                    {editingItem.applicable_models && editingItem.applicable_models.length > 0 && (
-                                        <div className="text-[10px] font-bold text-blue-500 mt-2 text-right">
-                                            เลือกแล้ว {editingItem.applicable_models.length} รุ่น
-                                        </div>
+                                        <ModelMultiPicker
+                                            models={modelsData}
+                                            selected={editingItem.applicable_models || []}
+                                            onChange={(ids) => setEditingItem({ ...editingItem, applicable_models: ids })}
+                                            seriesSubcat={seriesSubcat}
+                                            accent="blue"
+                                        />
                                     )}
                                 </div>
 
@@ -458,41 +566,13 @@ export const CouponManager = () => {
                                     <p className="text-xs font-bold text-slate-400 mb-3">ยังไม่มีรุ่นที่ยกเว้น — คูปองนี้ใช้ได้กับทุกรุ่นตามเงื่อนไขด้านบน</p>
                                 )}
 
-                                <div className="relative mb-2">
-                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                        type="text"
-                                        placeholder="ค้นหา Category / แบรนด์ / รุ่น..."
-                                        value={excludeSearch}
-                                        onChange={(e) => setExcludeSearch(e.target.value)}
-                                        className="w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-rose-400 focus:bg-white"
-                                    />
-                                </div>
-                                <div className="border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50 max-h-[260px]">
-                                    {filterModels(excludeSearch).map((model) => (
-                                        <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={(editingItem.excluded_models || []).includes(model.id)}
-                                                onChange={() => toggleExcludeSelection(model.id)}
-                                                className="w-4 h-4 text-rose-600 rounded"
-                                            />
-                                            <div className="flex-1 flex items-center gap-2 min-w-0">
-                                                <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center shrink-0">{model.brand}</span>
-                                                <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
-                                                {model.category && <span className="text-[9px] font-bold text-slate-400 shrink-0">· {model.category}</span>}
-                                            </div>
-                                        </label>
-                                    ))}
-                                    {filterModels(excludeSearch).length === 0 && (
-                                        <div className="text-center text-xs text-slate-400 font-bold py-4">ไม่พบรุ่นที่ตรงกับ "{excludeSearch}"</div>
-                                    )}
-                                </div>
-                                {editingItem.excluded_models && editingItem.excluded_models.length > 0 && (
-                                    <div className="text-[10px] font-bold text-rose-500 mt-2 text-right">
-                                        ยกเว้นแล้ว {editingItem.excluded_models.length} รุ่น
-                                    </div>
-                                )}
+                                <ModelMultiPicker
+                                    models={modelsData}
+                                    selected={editingItem.excluded_models || []}
+                                    onChange={(ids) => setEditingItem({ ...editingItem, excluded_models: ids })}
+                                    seriesSubcat={seriesSubcat}
+                                    accent="rose"
+                                />
                             </div>
                         </div>
 
