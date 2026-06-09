@@ -28,6 +28,7 @@ export const PriceEditor = () => {
   const [subcategories, setSubcategories] = useState<any[]>([]);
   const [modelsData, setModelsData] = useState<any[]>([]);
   const [conditionSets, setConditionSets] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -96,7 +97,19 @@ export const PriceEditor = () => {
       }
     });
 
-    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); };
+    // Coupons — read-only here, used to badge models with their promo
+    // include/exclude status (source of truth stays on the coupon).
+    const couponsRef = ref(db, 'coupons');
+    const unsubCoupons = onValue(couponsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setCoupons(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      } else {
+        setCoupons([]);
+      }
+    });
+
+    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); unsubCoupons(); };
   }, []);
 
   const handleSaveModel = async () => {
@@ -369,6 +382,7 @@ export const PriceEditor = () => {
       <ModelsTable
         models={filteredModels}
         conditionSets={conditionSets}
+        coupons={coupons}
         loading={loading}
         onEdit={handleOpenModal}
         onDelete={handleDeleteModel}
