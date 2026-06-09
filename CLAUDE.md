@@ -126,6 +126,12 @@
 - **Master gate (ตั้งค่าระบบบัญชี):** ทั้ง `onJobCreatedSendEmails` + `onJobStatusEmail` อ่าน `settings/accounting` (`loadAccountingSettings`) — ถ้า `order_emails_enabled !== true` = **inert สนิท** (ไม่ส่ง ไม่จองเลขใบกำกับ ไม่เขียน Storage) deploy ก่อนตั้ง Resend ได้ปลอดภัย. config อื่น: `vat_registered` (ปิด=ไม่ออกใบกำกับภาษี+ไม่แตก VAT), `vat_rate_percent` (default 7), `tax_invoice_prefix` (default `IV-`). resolve แล้ว stash ที่ `job._accounting` (in-memory) ให้ `serviceFeeBreakdown` ใช้. หน้า UI: `/accounting-settings` (`src/pages/admin/AccountingSettings.tsx`, CEO+FINANCE)
 - **Secrets ที่ต้องเพิ่ม:** `RESEND_API_KEY`, `EMAIL_FROM` (เช่น `BKK APPLE <noreply@bkkapple.com>`), `ORDER_NOTIFY_EMAIL` (อีเมลกลางแอดมิน). Optional: `EMAIL_REPLY_TO`, `CUSTOMER_TRACKING_BASE_URL` (ลิงก์ติดตามในอีเมลลูกค้า). ถ้าไม่ตั้ง `RESEND_API_KEY`/`EMAIL_FROM` → ระบบ skip การส่งเงียบๆ ไม่ crash
 
+## Coupons / Review Reward Ledger
+- **Master campaign:** `/coupons` (จัดการที่ `/coupons` — `CouponManager.tsx`). save เขียน `is_model_restricted` คู่กับ `applicable_models` (true เมื่อระบุรุ่นเอง) — ฝั่งลูกค้า (`bkk-frontend-next`) ใช้แยก "ไม่จำกัดรุ่น" ([] + false) ออกจาก "จำกัดแต่ config ขาด" (fail closed)
+- **Review reward:** ลูกค้ารีวิว → `bkk-frontend-next` `app/api/reviews/submit` mint คูปองลง `users/{uid}/coupons` (code `THX-xxxx`, `coupon_id` ชี้ master ร่วม `/coupons/REVIEW_REWARD` ที่ `system: true`) + เขียน ledger `/issued_coupons/{id}`
+- **Ledger `/issued_coupons/{id}`:** `{ code, value, uid, review_id, job_id, issued_at, expires_at, status: issued|used, used_at, used_job_id }`. ออกตอนรีวิว (status `issued`), `validateAndCreateOrder` flip เป็น `used` ตอน redeem. **read rule = admin** (อยู่ที่ `bkk-frontend-next/database.rules.json` — deploy จาก repo นั้น)
+- **หน้า reconcile:** `/issued-coupons` (`src/pages/admin/IssuedCoupons.tsx`, CEO/MANAGER/FINANCE) — ตาราง issued vs used vs expired + มูลค่า + cross-check กับ `/reviews` (flag ใบที่ used แต่ไม่พบรีวิว) + export CSV
+
 ## Role-Based Access
 - **CEO:** เข้าถึงทุกฟีเจอร์
 - **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings)

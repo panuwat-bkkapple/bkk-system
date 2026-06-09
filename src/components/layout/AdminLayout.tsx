@@ -159,6 +159,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
+                <NavButton collapsed={isCollapsed} to="/issued-coupons" icon={<Receipt size={18} />} label="คูปองที่ออกให้ (Reconcile)" />
                 <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
                 <NavButton collapsed={isCollapsed} to="/appointments" icon={<CalendarDays size={18} />} label="ปฏิทินนัดหมาย" />
               </div>
