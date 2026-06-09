@@ -89,10 +89,16 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                     // quoted (otherwise t1 always wins and devices priced
                     // <30k get over-deducted at QC).
                     const tierBase = Number(activeDevice.base_price || activeDevice.estimated_price || 0);
+                    // Per-model liquidity multiplier — must mirror the
+                    // customer quote (SellPageClient) and the server
+                    // (validateAndCreateOrder) so QC deductions don't
+                    // diverge from what the customer was shown.
+                    const lf = Number(targetModel?.liquidityFactor) > 0 ? Number(targetModel.liquidityFactor) : 1;
                     const pickTier = (opt: any): number => {
-                        if (tierBase >= 30000) return Number(opt.t1 || 0);
-                        if (tierBase >= 15000) return Number(opt.t2 || 0);
-                        return Number(opt.t3 || 0);
+                        const base = tierBase >= 30000 ? Number(opt.t1 || 0)
+                            : tierBase >= 15000 ? Number(opt.t2 || 0)
+                            : Number(opt.t3 || 0);
+                        return Math.round(base * lf);
                     };
                     return matchedSet.groups
                         .filter((g: any) => g && g.options && Array.isArray(g.options) && g.options.length > 0)

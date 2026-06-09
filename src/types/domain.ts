@@ -786,7 +786,11 @@ export interface PricingModel {
   inStore: boolean;
   pickup: boolean;
   mailIn: boolean;
+  /** จำกัดระยะรับถึงที่ (กม.) — ถ้า > 0 และระยะเกินค่านี้ จะปิด Pickup เหลือ Store-in/Mail-in. 0/undefined = ไม่จำกัด */
+  maxPickupDistanceKm?: number;
   conditionSetId: string;
+  /** ตัวคูณส่วนลดสภาพตามสภาพคล่องของรุ่น (default 1.0; >1 = หักหนักขึ้น, <1 = หักเบาลง) */
+  liquidityFactor?: number;
   attributesSchema: AttributeSchemaItem[];
   updatedAt: number;
 

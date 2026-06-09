@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import {
   Smartphone, X, Image as ImageIcon, ClipboardList, Save, Upload, Loader2,
-  Zap, List, ArrowRightLeft
+  Zap, List, ArrowRightLeft, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
@@ -141,6 +141,26 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
   const handleSwitchToLegacy = () => {
     onEditingItemChange({ ...editingItem, pricingMode: 'legacy' });
     toast.success('เปลี่ยนกลับเป็น Legacy Mode');
+  };
+
+  const handleCloneConditionSet = async () => {
+    const source = conditionSets.find(cs => cs.id === editingItem.conditionSetId);
+    if (!source) return toast.error('เลือกชุดประเมินต้นทางก่อน Clone ครับ');
+    try {
+      const { ref, push, update } = await import('firebase/database');
+      const { db } = await import('../../../api/firebase');
+      const cloneName = `${source.name} (${editingItem.name || 'เฉพาะรุ่น'})`;
+      const newRef = push(ref(db, 'settings/condition_sets'));
+      await update(newRef, {
+        name: cloneName,
+        // deep-clone groups so editing the clone doesn't mutate the source
+        groups: JSON.parse(JSON.stringify(source.groups || [])),
+      });
+      onEditingItemChange({ ...editingItem, conditionSetId: newRef.key });
+      toast.success(`Clone เป็น "${cloneName}" และผูกกับรุ่นนี้แล้ว — แก้ค่าได้ที่ Condition Sets Engine`);
+    } catch {
+      toast.error('Clone ชุดประเมินไม่สำเร็จ');
+    }
   };
 
   const handleAddNewSeries = async () => {
@@ -292,6 +312,20 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                     <input type="checkbox" checked={editingItem.pickup} onChange={(e) => onEditingItemChange({ ...editingItem, pickup: e.target.checked })} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
                     <span className="text-sm font-bold text-slate-700">แมสเซนเจอร์ (Pickup)</span>
                   </label>
+                  {editingItem.pickup && (
+                    <div className="ml-7 pt-1">
+                      <label className="text-[11px] font-bold text-slate-500 mb-1 block">จำกัดระยะรับถึงที่ (กม.)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="0 = ไม่จำกัด"
+                        value={editingItem.maxPickupDistanceKm || ''}
+                        onChange={(e) => onEditingItemChange({ ...editingItem, maxPickupDistanceKm: Number(e.target.value) })}
+                        className="w-full p-2.5 bg-white rounded-lg border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1 font-medium">เกินระยะนี้ลูกค้าจะเลือก Pickup ไม่ได้ (เหลือสาขา/พัสดุ) — เหมาะกับของมูลค่าต่ำที่ไม่คุ้มวิ่งไปรับ</p>
+                    </div>
+                  )}
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={editingItem.mailIn} onChange={(e) => onEditingItemChange({ ...editingItem, mailIn: e.target.checked })} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
                     <span className="text-sm font-bold text-slate-700">ส่งพัสดุ (Mail-in)</span>
@@ -299,10 +333,35 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                 </div>
                 <div>
                   <label className="text-xs font-black text-indigo-600 mb-2 block flex items-center gap-1"><ClipboardList size={14} /> Assign Condition Item</label>
-                  <select className="w-full p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingItem.conditionSetId} onChange={(e) => onEditingItemChange({ ...editingItem, conditionSetId: e.target.value })}>
-                    <option value="" disabled>-- เลือกชุดประเมินสภาพที่ตรงกับสินค้านี้ --</option>
-                    {conditionSets.map(set => (<option key={set.id} value={set.id}>{set.name}</option>))}
-                  </select>
+                  <div className="flex gap-2">
+                    <select className="flex-1 p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingItem.conditionSetId} onChange={(e) => onEditingItemChange({ ...editingItem, conditionSetId: e.target.value })}>
+                      <option value="" disabled>-- เลือกชุดประเมินสภาพที่ตรงกับสินค้านี้ --</option>
+                      {conditionSets.map(set => (<option key={set.id} value={set.id}>{set.name}</option>))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleCloneConditionSet}
+                      disabled={!editingItem.conditionSetId}
+                      title="Clone ชุดประเมินนี้เป็นของรุ่นนี้โดยเฉพาะ แล้วแก้ค่าแยกได้"
+                      className="px-3 bg-white text-indigo-600 rounded-xl font-bold border border-indigo-200 hover:bg-indigo-50 transition-colors text-xs whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Copy size={14} className="inline mr-1" />Clone
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-emerald-600 mb-2 block flex items-center gap-1"><ArrowRightLeft size={14} /> Liquidity Factor (ตัวคูณส่วนลดสภาพ)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.05}
+                    placeholder="1.0"
+                    value={editingItem.liquidityFactor ?? ''}
+                    onChange={(e) => onEditingItemChange({ ...editingItem, liquidityFactor: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    className="w-full p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-sm font-bold text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">1.0 = ปกติ · มากกว่า 1 = หักหนักขึ้น (สภาพคล่องต่ำ ขายออกยาก) · น้อยกว่า 1 = หักเบาลง (ของขายดี). คูณกับส่วนลดทุกข้อในชุดประเมิน</p>
                 </div>
               </div>
             </div>
