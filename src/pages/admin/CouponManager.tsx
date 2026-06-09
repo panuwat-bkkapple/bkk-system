@@ -259,7 +259,15 @@ export const CouponManager = () => {
         }
 
         try {
-            const payload = { ...editingItem, updated_at: Date.now() };
+            // Persist an explicit restriction flag alongside applicable_models.
+            // Consumers (checkout, /sell, validateAndCreateOrder) read this to
+            // distinguish "intentionally usable on all models" ([] + flag false)
+            // from "restricted but the model list is empty/corrupt" (flag true +
+            // [] => fail closed). Without it, an empty applicable_models silently
+            // means "all models" and a model-locked coupon leaks across categories.
+            const isModelRestricted = Array.isArray(editingItem.applicable_models)
+                && editingItem.applicable_models.length > 0;
+            const payload = { ...editingItem, is_model_restricted: isModelRestricted, updated_at: Date.now() };
 
             if (editingItem.id) {
                 await update(ref(db, `coupons/${editingItem.id}`), payload);
