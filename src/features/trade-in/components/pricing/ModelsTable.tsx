@@ -3,12 +3,13 @@
 import React, { useState, useMemo } from 'react';
 import {
   ToggleLeft, ToggleRight, Pencil, Trash2, Star, ClipboardList, Layers, Copy,
-  ChevronDown, ChevronRight, FolderOpen, Zap, TrendingDown
+  ChevronDown, ChevronRight, FolderOpen, Zap, TrendingDown, Ban, Bike, Ticket
 } from 'lucide-react';
 
 interface ModelsTableProps {
   models: any[];
   conditionSets: any[];
+  coupons?: any[];
   loading: boolean;
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
@@ -70,16 +71,55 @@ function groupModelsBySeries(models: any[]): SeriesGroup[] {
   return groups;
 }
 
+// Status badges computed live from the model + coupons. Coupon
+// include/exclude is owned by the coupon side (applicable_models /
+// excluded_models) — we cross-reference here for display only, never
+// denormalize a flag onto the model.
+const StatusBadges: React.FC<{ item: any; coupons: any[] }> = ({ item, coupons }) => {
+  const noPickup = item.pickup === false;
+  const distLimit = !noPickup && Number(item.maxPickupDistanceKm) > 0 ? Number(item.maxPickupDistanceKm) : 0;
+  const excludedCount = coupons.filter(c => Array.isArray(c.excluded_models) && c.excluded_models.includes(item.id)).length;
+  const includedCount = coupons.filter(c => Array.isArray(c.applicable_models) && c.applicable_models.length > 0 && c.applicable_models.includes(item.id)).length;
+
+  if (!noPickup && !distLimit && !excludedCount && !includedCount) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {noPickup && (
+        <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100 flex items-center gap-0.5">
+          <Ban size={10} /> ไม่รับถึงที่
+        </span>
+      )}
+      {distLimit > 0 && (
+        <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 flex items-center gap-0.5">
+          <Bike size={10} /> รับถึงที่ ≤ {distLimit} กม.
+        </span>
+      )}
+      {excludedCount > 0 && (
+        <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100 flex items-center gap-0.5">
+          <Ticket size={10} /> ไม่ร่วมโปร {excludedCount}
+        </span>
+      )}
+      {includedCount > 0 && (
+        <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 flex items-center gap-0.5">
+          <Ticket size={10} /> ร่วมโปรเฉพาะ {includedCount}
+        </span>
+      )}
+    </div>
+  );
+};
+
 const ModelRow: React.FC<{
   item: any;
   conditionSets: any[];
+  coupons: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
   onDuplicate: (item: any) => void;
   onToggleStatus: (item: any) => void;
   onToggleFeatured: (item: any) => void;
   indent?: boolean;
-}> = ({ item, conditionSets, onEdit, onDelete, onDuplicate, onToggleStatus, onToggleFeatured, indent }) => {
+}> = ({ item, conditionSets, coupons, onEdit, onDelete, onDuplicate, onToggleStatus, onToggleFeatured, indent }) => {
   const assignedSet = conditionSets.find(c => c.id === item.conditionSetId);
   const isModifier = item.pricingMode === 'modifier';
 
@@ -106,6 +146,7 @@ const ModelRow: React.FC<{
               <div className="text-[10px] text-indigo-500 font-bold mt-0.5 flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100 w-fit">
                 <ClipboardList size={12} /> {assignedSet?.name || 'No Set Assigned'}
               </div>
+              <StatusBadges item={item} coupons={coupons} />
             </div>
           </div>
         </div>
@@ -148,6 +189,7 @@ const ModelRow: React.FC<{
 export const ModelsTable: React.FC<ModelsTableProps> = ({
   models,
   conditionSets,
+  coupons = [],
   loading,
   onEdit,
   onDelete,
@@ -191,6 +233,7 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
                     key={item.id}
                     item={item}
                     conditionSets={conditionSets}
+                    coupons={coupons}
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onDuplicate={onDuplicate}
@@ -242,6 +285,7 @@ export const ModelsTable: React.FC<ModelsTableProps> = ({
                       key={item.id}
                       item={item}
                       conditionSets={conditionSets}
+                      coupons={coupons}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       onDuplicate={onDuplicate}

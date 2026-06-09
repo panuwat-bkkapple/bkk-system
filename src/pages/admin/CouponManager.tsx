@@ -71,7 +71,8 @@ export const CouponManager = () => {
                 start_date: '', end_date: '',
                 total_limit: 100, used_count: 0,
                 is_active: true, show_on_homepage: true,
-                applicable_models: [] // 🌟 [] = ใช้ได้ทุกรุ่น, ถ้าระบุ ID จะใช้ได้เฉพาะรุ่นนั้นๆ
+                applicable_models: [], // 🌟 [] = ใช้ได้ทุกรุ่น, ถ้าระบุ ID จะใช้ได้เฉพาะรุ่นนั้นๆ
+                excluded_models: [] // 🌟 รุ่นที่ "ไม่ร่วมรายการ" — exclude ชนะ include เสมอ
             });
         }
         setIsModalOpen(true);
@@ -125,6 +126,16 @@ export const CouponManager = () => {
             setEditingItem({ ...editingItem, applicable_models: currentList.filter((id: string) => id !== modelId) });
         } else {
             setEditingItem({ ...editingItem, applicable_models: [...currentList, modelId] });
+        }
+    };
+
+    // 🌟 จัดการรุ่นที่ไม่ร่วมรายการ (exclude)
+    const toggleExcludeSelection = (modelId: string) => {
+        const currentList = editingItem.excluded_models || [];
+        if (currentList.includes(modelId)) {
+            setEditingItem({ ...editingItem, excluded_models: currentList.filter((id: string) => id !== modelId) });
+        } else {
+            setEditingItem({ ...editingItem, excluded_models: [...currentList, modelId] });
         }
     };
 
@@ -216,6 +227,9 @@ export const CouponManager = () => {
                                         <div className="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1">
                                             <Smartphone size={12} />
                                             {(!c.applicable_models || c.applicable_models.length === 0) ? 'ใช้ได้กับทุกรุ่น' : `จำกัดเฉพาะ ${c.applicable_models.length} รุ่น`}
+                                            {c.excluded_models && c.excluded_models.length > 0 && (
+                                                <span className="text-rose-500 ml-1">· ยกเว้น {c.excluded_models.length} รุ่น</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="p-5">
@@ -403,6 +417,38 @@ export const CouponManager = () => {
                                     )}
                                 </div>
 
+                            </div>
+
+                            {/* 🚫 รุ่นที่ไม่ร่วมรายการ (Excluded Models) — exclude ชนะ include เสมอ */}
+                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-rose-200 flex flex-col">
+                                <h4 className="text-[11px] font-black uppercase tracking-widest text-rose-400 border-b border-rose-100 pb-3 mb-2 flex items-center gap-2"><AlertCircle size={14} /> รุ่นที่ไม่ร่วมรายการ (Excluded Models)</h4>
+                                <p className="text-[11px] font-bold text-slate-500 mb-4">เลือกรุ่นที่ "ไม่ให้ใช้คูปองนี้" — ใช้คู่กับ "ใช้ได้ทุกรุ่น" เพื่อยกเว้นบางรุ่น. หากรุ่นถูกตั้ง Exclude จะใช้คูปองไม่ได้แม้จะอยู่ในรายการที่ระบุ (exclude ชนะ include)</p>
+
+                                {(!editingItem.excluded_models || editingItem.excluded_models.length === 0) && (
+                                    <p className="text-xs font-bold text-slate-400 mb-3">ยังไม่มีรุ่นที่ยกเว้น — คูปองนี้ใช้ได้กับทุกรุ่นตามเงื่อนไขด้านบน</p>
+                                )}
+
+                                <div className="border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50 max-h-[260px]">
+                                    {modelsData.map((model) => (
+                                        <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={(editingItem.excluded_models || []).includes(model.id)}
+                                                onChange={() => toggleExcludeSelection(model.id)}
+                                                className="w-4 h-4 text-rose-600 rounded"
+                                            />
+                                            <div className="flex-1 flex items-center gap-3">
+                                                <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center">{model.brand}</span>
+                                                <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                                {editingItem.excluded_models && editingItem.excluded_models.length > 0 && (
+                                    <div className="text-[10px] font-bold text-rose-500 mt-2 text-right">
+                                        ยกเว้นแล้ว {editingItem.excluded_models.length} รุ่น
+                                    </div>
+                                )}
                             </div>
                         </div>
 

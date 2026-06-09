@@ -28,6 +28,7 @@ export const PriceEditor = () => {
   const [subcategories, setSubcategories] = useState<any[]>([]);
   const [modelsData, setModelsData] = useState<any[]>([]);
   const [conditionSets, setConditionSets] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -96,7 +97,19 @@ export const PriceEditor = () => {
       }
     });
 
-    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); };
+    // Coupons — read-only here, used to badge models with their promo
+    // include/exclude status (source of truth stays on the coupon).
+    const couponsRef = ref(db, 'coupons');
+    const unsubCoupons = onValue(couponsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setCoupons(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      } else {
+        setCoupons([]);
+      }
+    });
+
+    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); unsubCoupons(); };
   }, []);
 
   const handleSaveModel = async () => {
@@ -143,7 +156,9 @@ export const PriceEditor = () => {
         inStore: editingItem.inStore ?? true,
         pickup: editingItem.pickup ?? true,
         mailIn: editingItem.mailIn ?? true,
+        maxPickupDistanceKm: Number(editingItem.maxPickupDistanceKm) || 0,
         conditionSetId: editingItem.conditionSetId,
+        liquidityFactor: Number(editingItem.liquidityFactor) > 0 ? Number(editingItem.liquidityFactor) : 1,
         attributesSchema: editingItem.attributesSchema,
         pricingMode,
         variants: processedVariants,
@@ -299,7 +314,9 @@ export const PriceEditor = () => {
         brand: activeBrand === 'All' ? 'Apple' : activeBrand,
         category: activeCategory,
         series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
+        maxPickupDistanceKm: 0,
         conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
+        liquidityFactor: 1,
         attributesSchema: schema,
         pricingMode: 'modifier',
         baseNewPrice: 0,
@@ -365,6 +382,7 @@ export const PriceEditor = () => {
       <ModelsTable
         models={filteredModels}
         conditionSets={conditionSets}
+        coupons={coupons}
         loading={loading}
         onEdit={handleOpenModal}
         onDelete={handleDeleteModel}
