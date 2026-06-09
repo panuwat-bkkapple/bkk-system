@@ -28,6 +28,20 @@ export const CouponManager = () => {
     const [modelsData, setModelsData] = useState<any[]>([]); // 🌟 ดึงข้อมูลรุ่นมือถือมาไว้ให้เลือก
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [includeSearch, setIncludeSearch] = useState('');
+    const [excludeSearch, setExcludeSearch] = useState('');
+
+    // กรองรายการรุ่นตามคำค้น — ครอบคลุม Category, แบรนด์(ประเภท), ซีรีส์ และชื่อรุ่น
+    const filterModels = (query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return modelsData;
+        return modelsData.filter((m: any) =>
+            (m.name || '').toLowerCase().includes(q) ||
+            (m.brand || '').toLowerCase().includes(q) ||
+            (m.category || '').toLowerCase().includes(q) ||
+            (m.series || '').toLowerCase().includes(q)
+        );
+    };
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
@@ -393,22 +407,38 @@ export const CouponManager = () => {
 
                                     {/* กล่องเลือกรุ่น (จะโชว์ก็ต่อเมื่อเลือกระบุรุ่นเอง) */}
                                     {editingItem.applicable_models && editingItem.applicable_models.length > 0 && (
-                                        <div className="flex-1 border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50">
-                                            {modelsData.map((model) => (
-                                                <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={editingItem.applicable_models.includes(model.id)}
-                                                        onChange={() => toggleModelSelection(model.id)}
-                                                        className="w-4 h-4 text-blue-600 rounded"
-                                                    />
-                                                    <div className="flex-1 flex items-center gap-3">
-                                                        <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center">{model.brand}</span>
-                                                        <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
-                                                    </div>
-                                                </label>
-                                            ))}
-                                        </div>
+                                        <>
+                                            <div className="relative mb-2">
+                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="ค้นหา Category / แบรนด์ / รุ่น..."
+                                                    value={includeSearch}
+                                                    onChange={(e) => setIncludeSearch(e.target.value)}
+                                                    className="w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-blue-500 focus:bg-white"
+                                                />
+                                            </div>
+                                            <div className="flex-1 border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50">
+                                                {filterModels(includeSearch).map((model) => (
+                                                    <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={editingItem.applicable_models.includes(model.id)}
+                                                            onChange={() => toggleModelSelection(model.id)}
+                                                            className="w-4 h-4 text-blue-600 rounded"
+                                                        />
+                                                        <div className="flex-1 flex items-center gap-2 min-w-0">
+                                                            <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center shrink-0">{model.brand}</span>
+                                                            <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
+                                                            {model.category && <span className="text-[9px] font-bold text-slate-400 shrink-0">· {model.category}</span>}
+                                                        </div>
+                                                    </label>
+                                                ))}
+                                                {filterModels(includeSearch).length === 0 && (
+                                                    <div className="text-center text-xs text-slate-400 font-bold py-4">ไม่พบรุ่นที่ตรงกับ "{includeSearch}"</div>
+                                                )}
+                                            </div>
+                                        </>
                                     )}
                                     {editingItem.applicable_models && editingItem.applicable_models.length > 0 && (
                                         <div className="text-[10px] font-bold text-blue-500 mt-2 text-right">
@@ -428,8 +458,18 @@ export const CouponManager = () => {
                                     <p className="text-xs font-bold text-slate-400 mb-3">ยังไม่มีรุ่นที่ยกเว้น — คูปองนี้ใช้ได้กับทุกรุ่นตามเงื่อนไขด้านบน</p>
                                 )}
 
+                                <div className="relative mb-2">
+                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="ค้นหา Category / แบรนด์ / รุ่น..."
+                                        value={excludeSearch}
+                                        onChange={(e) => setExcludeSearch(e.target.value)}
+                                        className="w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-rose-400 focus:bg-white"
+                                    />
+                                </div>
                                 <div className="border border-slate-200 rounded-xl overflow-y-auto p-2 bg-slate-50 max-h-[260px]">
-                                    {modelsData.map((model) => (
+                                    {filterModels(excludeSearch).map((model) => (
                                         <label key={model.id} className="flex items-center gap-3 p-2 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors border-b border-slate-100 last:border-0">
                                             <input
                                                 type="checkbox"
@@ -437,12 +477,16 @@ export const CouponManager = () => {
                                                 onChange={() => toggleExcludeSelection(model.id)}
                                                 className="w-4 h-4 text-rose-600 rounded"
                                             />
-                                            <div className="flex-1 flex items-center gap-3">
-                                                <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center">{model.brand}</span>
+                                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                                                <span className="text-[10px] font-black text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200 uppercase w-16 text-center shrink-0">{model.brand}</span>
                                                 <span className="text-sm font-bold text-slate-700 truncate">{model.name}</span>
+                                                {model.category && <span className="text-[9px] font-bold text-slate-400 shrink-0">· {model.category}</span>}
                                             </div>
                                         </label>
                                     ))}
+                                    {filterModels(excludeSearch).length === 0 && (
+                                        <div className="text-center text-xs text-slate-400 font-bold py-4">ไม่พบรุ่นที่ตรงกับ "{excludeSearch}"</div>
+                                    )}
                                 </div>
                                 {editingItem.excluded_models && editingItem.excluded_models.length > 0 && (
                                     <div className="text-[10px] font-bold text-rose-500 mt-2 text-right">
