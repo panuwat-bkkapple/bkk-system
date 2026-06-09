@@ -1691,6 +1691,12 @@ const NOTIFY_STATUS_MAP = {
   // Payout
   "Payout Processing": "💵 รอจ่ายเงิน — บัญชีต้อง action",
   "Waiting For Handover": "🤝 จ่ายเงินแล้ว — รอส่งมอบเครื่องกลับ",
+  // Legacy lowercase 'for' — this is what Finance ACTUALLY writes on every B2C
+  // payout (TradeInPayouts.tsx / MobileFinancePage.tsx: `'Waiting for Handover'`).
+  // The capital-F key above never matched it, so the payout push silently died
+  // (buildAdminStatusLabel does an exact, case-sensitive map hit). Keep both
+  // spellings until job-statuses.ts unifies the writer (Phase 2D).
+  "Waiting for Handover": "🤝 จ่ายเงินแล้ว — รอส่งมอบเครื่องกลับ",
   Paid: "💸 จ่ายเงินเรียบร้อย",
   "Rider Returning": "🔙 ไรเดอร์กำลังกลับสาขา",
   "In-Transit": "🔙 ไรเดอร์กำลังกลับสาขา", // Pickup overload — guarded below
@@ -1835,49 +1841,96 @@ exports.onAdminJobStatusNotify = onValueUpdated(
     const custName = job.cust_name || "";
     const reason = job.cancel_reason ? ` - ${job.cancel_reason}` : "";
 
+    // Payout family: Finance just transferred money to the customer. The people
+    // who actually need this are the job's OWNING admin (agent_uid) and (handled
+    // separately by the rider app) the rider who ran the pickup — NOT every admin
+    // in the company. Finance is splitting into a separate /bkk-accounting
+    // app/team, so the payout status write will come from a different team than
+    // the job owner; because this trigger fires server-side on the DB it keeps
+    // working regardless of which app wrote the status. Non-payout transitions
+    // keep the existing all-admin broadcast.
+    const PAYOUT_NOTIFY_STATUSES = [
+      "Waiting for Handover", "Waiting For Handover", // B2C payout (legacy + canonical spelling)
+      "Payment Completed",                            // B2B payout
+      "Paid", "PAID",                                 // mobile "จ่ายเงินแล้ว" shortcut
+    ];
+    const isPayout = PAYOUT_NOTIFY_STATUSES.includes(after);
+
+    // Net amount paid out. Prefer the stored net_payout; fall back to the same
+    // formula the client/email use (base − pickup_fee[Pickup only] + coupon) so
+    // an unsynced net_payout never blanks the amount.
+    const payoutAmount = isPayout
+      ? Number(
+          job.net_payout != null
+            ? job.net_payout
+            : Math.max(
+                0,
+                Number(job.final_price || job.price || 0) -
+                  (job.receive_method === "Pickup" ? Number(job.pickup_fee || 0) : 0) +
+                  Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0)
+              )
+        )
+      : 0;
+
     const title = `🔔 ${statusLabel}`;
-    const body = `${model}${custName ? ` - ${custName}` : ""}${reason}`.trim();
+    const amountSuffix = isPayout && payoutAmount > 0 ? ` (฿${payoutAmount.toLocaleString("en-US")})` : "";
+    const body = `${model}${custName ? ` - ${custName}` : ""}${amountSuffix}${reason}`.trim();
 
     // Data-only — SW builds the notification (see onNewTicketCreated for
-    // why a top-level `notification` field is not used).
-    await dispatchAdminPush(
-      {
-        data: {
-          jobId,
-          type: "status_change",
-          title,
-          body,
-          oldStatus: String(before || ""),
-          newStatus: after,
-          model,
-        },
-        android: {
+    // why a top-level `notification` field is not used). type stays
+    // "status_change" so the existing SW / foreground hook render path and the
+    // per-job tag (status-{jobId}) keep working; the extra `event` field marks
+    // it as a payment so clients can special-case it without breaking older ones.
+    const message = {
+      data: {
+        jobId,
+        type: "status_change",
+        ...(isPayout
+          ? { event: "payment_transferred", amount: String(payoutAmount), paidAt: String(job.paid_at || Date.now()) }
+          : {}),
+        title,
+        body,
+        oldStatus: String(before || ""),
+        newStatus: after,
+        model,
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "status_changes",
           priority: "high",
-          notification: {
-            channelId: "status_changes",
-            priority: "high",
-            defaultSound: true,
-            tag: `status-${jobId}`,
-          },
-        },
-        apns: {
-          headers: {
-            "apns-priority": "10",
-            "apns-push-type": "alert",
-          },
-          payload: {
-            aps: {
-              "mutable-content": 1,
-              sound: "default",
-            },
-          },
-        },
-        webpush: {
-          headers: { Urgency: "high", TTL: "86400" },
+          defaultSound: true,
+          tag: `status-${jobId}`,
         },
       },
-      `onJobStatusChanged(${before}→${after})`
-    );
+      apns: {
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            "mutable-content": 1,
+            sound: "default",
+          },
+        },
+      },
+      webpush: {
+        headers: { Urgency: "high", TTL: "86400" },
+      },
+    };
+
+    const pushTag = `onJobStatusChanged(${before}→${after})`;
+    if (isPayout) {
+      // Targeted at the owning admin; dispatchAmendmentPush falls back to the
+      // all-admin broadcast when the job has no agent_uid or that admin has no
+      // live token, so nobody is silently left out. The rider gets their own
+      // push from bkk-rider-app's onJobStatusChanged (same trigger path) — we do
+      // NOT push the rider here to avoid double-notifying.
+      await dispatchAmendmentPush(db, message, job.agent_uid, pushTag);
+    } else {
+      await dispatchAdminPush(message, pushTag);
+    }
 
     // Guaranteed channel alongside FCM — same curated set of transitions
     // (buildAdminStatusLabel already filtered to notable ones above).
