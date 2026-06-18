@@ -75,7 +75,7 @@ function groupModelsBySeries(models: any[]): SeriesGroup[] {
 // include/exclude is owned by the coupon side (applicable_models /
 // excluded_models) — we cross-reference here for display only, never
 // denormalize a flag onto the model.
-const StatusBadges: React.FC<{ item: any; coupons: any[] }> = ({ item, coupons }) => {
+export const StatusBadges: React.FC<{ item: any; coupons: any[] }> = ({ item, coupons }) => {
   const noPickup = item.pickup === false;
   const distLimit = !noPickup && Number(item.maxPickupDistanceKm) > 0 ? Number(item.maxPickupDistanceKm) : 0;
   const excludedCount = coupons.filter(c => Array.isArray(c.excluded_models) && c.excluded_models.includes(item.id)).length;

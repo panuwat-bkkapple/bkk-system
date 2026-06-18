@@ -16,6 +16,8 @@ import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { PriceListMobile } from './components/pricing/PriceListMobile';
+import { MobilePriceEditPage } from './components/pricing/MobilePriceEditPage';
 import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
 import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
@@ -31,6 +33,8 @@ export const PriceEditor = () => {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isMobileEditOpen, setIsMobileEditOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
   const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
@@ -110,6 +114,17 @@ export const PriceEditor = () => {
     });
 
     return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); unsubCoupons(); };
+  }, []);
+
+  // Breakpoint matches the list view swap (`lg` = 1024px): below it we use the
+  // mobile card list + full-screen edit page; at/above it the desktop table + modal.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   }, []);
 
   const handleSaveModel = async () => {
@@ -217,6 +232,7 @@ export const PriceEditor = () => {
       }
 
       setIsModalOpen(false);
+      setIsMobileEditOpen(false);
       toast.success('บันทึกข้อมูลและโครงสร้างใหม่เรียบร้อยครับ! 🚀');
     } catch (error) {
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ');
@@ -271,61 +287,69 @@ export const PriceEditor = () => {
     toast.success('สำเนาสินค้าเรียบร้อย กรุณาตรวจสอบและบันทึกครับ');
   };
 
-  const handleOpenModal = (item: any = null) => {
-    if (item) {
-      // Auto-Migration: ดึงข้อมูลเดิมมาหั่นเป็น Attributes ชั่วคราวถ้ายังไม่มี
-      const editingObj = JSON.parse(JSON.stringify(item));
-      const schema = editingObj.attributesSchema || CATEGORY_SCHEMAS[editingObj.category] || CATEGORY_SCHEMAS['Smartphones'];
+  // Auto-Migration: ดึงข้อมูลเดิมมาหั่นเป็น Attributes ชั่วคราวถ้ายังไม่มี
+  const migrateEditingItem = (item: any) => {
+    const editingObj = JSON.parse(JSON.stringify(item));
+    const schema = editingObj.attributesSchema || CATEGORY_SCHEMAS[editingObj.category] || CATEGORY_SCHEMAS['Smartphones'];
 
-      editingObj.attributesSchema = schema;
-      editingObj.variants = editingObj.variants.map((v: any) => {
-          if (!v.attributes) {
-              v.attributes = {};
-              const parts = (v.name || '').split('|').map((s: string) => s.trim());
+    editingObj.attributesSchema = schema;
+    editingObj.variants = (editingObj.variants || []).map((v: any) => {
+        if (!v.attributes) {
+            v.attributes = {};
+            const parts = (v.name || '').split('|').map((s: string) => s.trim());
 
-              if (editingObj.category === 'Mac / Laptop') {
-                  v.attributes.processor = parts[0] || '';
-                  v.attributes.ram = parts[1] || '';
-                  v.attributes.storage = parts[2] || '';
-                  v.attributes.display = parts[3] || '';
-              } else if (editingObj.category === 'Tablets') {
-                  v.attributes.connectivity = parts[0] || '';
-                  v.attributes.storage = parts[1] || '';
-              } else if (editingObj.category === 'Smart Watch') {
-                  v.attributes.size = parts[0] || '';
-                  v.attributes.case_material = parts[1] || '';
-                  v.attributes.connectivity = parts[2] || '';
-              } else {
-                  v.attributes.storage = parts[0] || v.name || '';
-              }
-          }
-          return v;
-      });
-      setEditingItem(editingObj);
-    } else {
-      // ของใหม่ → default เป็น modifier mode
-      const schema = CATEGORY_SCHEMAS[activeCategory] || CATEGORY_SCHEMAS['Smartphones'];
-      const initialModifiers: Record<string, { options: any[] }> = {};
-      for (const attr of schema) {
-        initialModifiers[attr.key] = { options: [] };
-      }
-      setEditingItem({
-        id: Date.now().toString(),
-        brand: activeBrand === 'All' ? 'Apple' : activeBrand,
-        category: activeCategory,
-        series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
-        maxPickupDistanceKm: 0,
-        conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
-        liquidityFactor: 1,
-        attributesSchema: schema,
-        pricingMode: 'modifier',
-        baseNewPrice: 0,
-        baseUsedPrice: 0,
-        attributeModifiers: initialModifiers,
-        variants: []
-      });
+            if (editingObj.category === 'Mac / Laptop') {
+                v.attributes.processor = parts[0] || '';
+                v.attributes.ram = parts[1] || '';
+                v.attributes.storage = parts[2] || '';
+                v.attributes.display = parts[3] || '';
+            } else if (editingObj.category === 'Tablets') {
+                v.attributes.connectivity = parts[0] || '';
+                v.attributes.storage = parts[1] || '';
+            } else if (editingObj.category === 'Smart Watch') {
+                v.attributes.size = parts[0] || '';
+                v.attributes.case_material = parts[1] || '';
+                v.attributes.connectivity = parts[2] || '';
+            } else {
+                v.attributes.storage = parts[0] || v.name || '';
+            }
+        }
+        return v;
+    });
+    return editingObj;
+  };
+
+  // ของใหม่ → default เป็น modifier mode
+  const buildNewModel = () => {
+    const schema = CATEGORY_SCHEMAS[activeCategory] || CATEGORY_SCHEMAS['Smartphones'];
+    const initialModifiers: Record<string, { options: any[] }> = {};
+    for (const attr of schema) {
+      initialModifiers[attr.key] = { options: [] };
     }
-    setIsModalOpen(true);
+    return {
+      id: Date.now().toString(),
+      brand: activeBrand === 'All' ? 'Apple' : activeBrand,
+      category: activeCategory,
+      series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
+      maxPickupDistanceKm: 0,
+      conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
+      liquidityFactor: 1,
+      attributesSchema: schema,
+      pricingMode: 'modifier',
+      baseNewPrice: 0,
+      baseUsedPrice: 0,
+      attributeModifiers: initialModifiers,
+      variants: []
+    };
+  };
+
+  // Single entry point for add/edit — routes to the mobile full-screen page or
+  // the desktop modal based on the current breakpoint. Both views share the same
+  // editingItem state + handleSaveModel, so there is one data/save path.
+  const handleOpenModal = (item: any = null) => {
+    setEditingItem(item ? migrateEditingItem(item) : buildNewModel());
+    if (isMobile) setIsMobileEditOpen(true);
+    else setIsModalOpen(true);
   };
 
   const filteredModels = modelsData.filter(item => {
@@ -336,7 +360,7 @@ export const PriceEditor = () => {
   });
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto min-h-screen bg-slate-50/50">
+    <div className="h-full overflow-y-auto lg:h-auto lg:overflow-visible p-4 lg:p-6 max-w-[1600px] mx-auto lg:min-h-screen bg-slate-50/50">
 
       {/* --- Top Navigation --- */}
       <div className="bg-white rounded-t-2xl border-b border-slate-200 shadow-sm px-4 pt-4 flex gap-6 overflow-x-auto">
@@ -378,19 +402,32 @@ export const PriceEditor = () => {
         }}
       />
 
-      {/* --- Main Table --- */}
-      <ModelsTable
-        models={filteredModels}
-        conditionSets={conditionSets}
-        coupons={coupons}
-        loading={loading}
-        onEdit={handleOpenModal}
-        onDelete={handleDeleteModel}
-        onDuplicate={handleDuplicateModel}
-        onToggleStatus={handleToggleStatus}
-        onToggleFeatured={handleToggleFeatured}
-        onBatchAdjust={(seriesName, models) => setBatchAdjust({ seriesName, models })}
-      />
+      {/* --- Main List: table on desktop, full-width cards on mobile --- */}
+      <div className="hidden lg:block">
+        <ModelsTable
+          models={filteredModels}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          loading={loading}
+          onEdit={handleOpenModal}
+          onDelete={handleDeleteModel}
+          onDuplicate={handleDuplicateModel}
+          onToggleStatus={handleToggleStatus}
+          onToggleFeatured={handleToggleFeatured}
+          onBatchAdjust={(seriesName, models) => setBatchAdjust({ seriesName, models })}
+        />
+      </div>
+      <div className="lg:hidden">
+        <PriceListMobile
+          models={filteredModels}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          loading={loading}
+          onEdit={handleOpenModal}
+          onToggleStatus={handleToggleStatus}
+          onToggleFeatured={handleToggleFeatured}
+        />
+      </div>
 
       <EngineSettingsModal
         conditionSets={conditionSets}
@@ -423,6 +460,19 @@ export const PriceEditor = () => {
         onSave={handleSaveModel}
         onEditingItemChange={setEditingItem}
       />
+
+      {/* Mobile full-screen price editor — shares editingItem state + handleSaveModel */}
+      {isMobileEditOpen && (
+        <MobilePriceEditPage
+          editingItem={editingItem}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          availableSeries={availableSeries}
+          onSave={handleSaveModel}
+          onEditingItemChange={setEditingItem}
+          onClose={() => setIsMobileEditOpen(false)}
+        />
+      )}
 
       <BatchPriceAdjustModal
         isOpen={!!batchAdjust}
