@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Calculator, Wallet } from 'lucide-react';
+import { Calculator, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   resolveOptionDeduction,
   resolveFinalPrice,
@@ -23,7 +23,7 @@ const baht = (n: number) => `฿${Math.round(n).toLocaleString()}`;
  * site / server / inspection use — so testing here matches reality without
  * opening the public website. Read-only: it never writes the set or the model.
  */
-export const PriceSimulatorPanel: React.FC<Props> = ({ model, conditionSets }) => {
+const PriceSimulatorPanelImpl: React.FC<Props> = ({ model, conditionSets }) => {
   const set = useMemo(
     () => conditionSets.find((s) => s.id === model?.conditionSetId),
     [conditionSets, model?.conditionSetId],
@@ -40,6 +40,9 @@ export const PriceSimulatorPanel: React.FC<Props> = ({ model, conditionSets }) =
   const [basePrice, setBasePrice] = useState<number>(defaultBase);
   // groupId -> selected optionId
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Collapsed by default so opening the (heavy, controlled) Edit Model modal
+  // doesn't render the full condition grid up front. Expand on demand.
+  const [open, setOpen] = useState(false);
 
   const lf = model?.liquidityFactor;
   const groups: any[] = set?.groups || [];
@@ -79,20 +82,31 @@ export const PriceSimulatorPanel: React.FC<Props> = ({ model, conditionSets }) =
 
   return (
     <div className="rounded-2xl border border-violet-200 bg-violet-50/40 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-violet-100 bg-white/60">
+      {/* Header — toggles the body. Collapsed by default to keep the modal light. */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center gap-2 px-5 py-3 text-left bg-white/60 ${open ? 'border-b border-violet-100' : ''}`}
+      >
+        {open ? <ChevronDown size={16} className="text-violet-600" /> : <ChevronRight size={16} className="text-violet-600" />}
         <Calculator size={16} className="text-violet-600" />
         <span className="text-xs font-black uppercase tracking-wide text-violet-700">ทดสอบราคา (Price Simulator)</span>
-        <span className="text-[10px] font-bold text-slate-400">คิดด้วยสูตรเดียวกับหน้าเว็บลูกค้า</span>
-        <button
-          type="button"
-          onClick={() => setAnswers({})}
-          className="ml-auto text-[10px] font-bold text-slate-400 hover:text-rose-500 transition"
-        >
-          ล้างที่เลือก ({selectedCount})
-        </button>
-      </div>
+        <span className="text-[10px] font-bold text-slate-400 hidden sm:inline">คิดด้วยสูตรเดียวกับหน้าเว็บลูกค้า</span>
+        {open ? (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); setAnswers({}); }}
+            className="ml-auto text-[10px] font-bold text-slate-400 hover:text-rose-500 transition"
+          >
+            ล้างที่เลือก ({selectedCount})
+          </span>
+        ) : (
+          <span className="ml-auto text-[11px] font-bold text-violet-500">แตะเพื่อทดสอบราคา</span>
+        )}
+      </button>
 
+      {open && (
       <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: base price + conditions */}
         <div className="lg:col-span-2 space-y-4">
@@ -200,8 +214,13 @@ export const PriceSimulatorPanel: React.FC<Props> = ({ model, conditionSets }) =
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };
+
+// Memoized: skip re-renders when the parent (PriceEditor) re-renders for
+// reasons unrelated to this model (e.g. Firebase onValue refreshing modelsData).
+export const PriceSimulatorPanel = React.memo(PriceSimulatorPanelImpl);
 
 export default PriceSimulatorPanel;
