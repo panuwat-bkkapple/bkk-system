@@ -18,6 +18,7 @@ import {
   flattenSetToRows,
   applyRowsToSet,
   validateDeduction,
+  validatePercent,
   isTierField,
   EDITABLE_FIELDS,
   type DeductionRow,
@@ -109,6 +110,18 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
         toast.error(`${TIER_LABEL[field]}: ${res.reason}`);
         return;
       }
+    } else if (field === 'pct') {
+      const res = validatePercent(e.newValue);
+      if (!res.ok) {
+        e.node.setDataValue(field, e.oldValue ?? null);
+        flashError([{ rowKey: e.data.rowKey, field }]);
+        toast.error(`% : ${res.reason}`);
+        return;
+      }
+      // Empty -> null (clears pct, back to tier mode).
+      if (res.value === undefined && e.newValue !== null) {
+        e.node.setDataValue(field, null);
+      }
     }
     commit([{ rowKey: e.data.rowKey, field, old: e.oldValue }]);
   }, []);
@@ -139,7 +152,7 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
     const startCol = focused.column.getColId();
     const startColPos = editable.indexOf(startCol);
     if (startColPos < 0) {
-      toast.error('เริ่มวางที่คอลัมน์ที่แก้ไขได้ (Label / Tier 1-3)');
+      toast.error('เริ่มวางที่คอลัมน์ที่แก้ไขได้ (Label / Tier 1-3 / %)');
       return;
     }
     const startRow = focused.rowIndex;
@@ -166,6 +179,10 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
         const res = validateDeduction(t.raw);
         if (!res.ok) errors.push({ rowKey: t.rowKey, field: t.field });
         else coerced.set(t, res.value);
+      } else if (t.field === 'pct') {
+        const res = validatePercent(t.raw);
+        if (!res.ok) errors.push({ rowKey: t.rowKey, field: t.field });
+        else coerced.set(t, res.value === undefined ? null : res.value);
       } else {
         coerced.set(t, t.raw);
       }
@@ -273,6 +290,23 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
         cellEditor: 'agNumberCellEditor',
         cellEditorParams: { min: 0, precision: 0 },
         cellStyle,
+      },
+      {
+        headerName: 'หัก % (override tier)',
+        field: 'pct',
+        editable: true,
+        width: 150,
+        type: 'numericColumn',
+        cellEditor: 'agNumberCellEditor',
+        cellEditorParams: { min: 0, max: 100, precision: 2 },
+        // Show "—" when empty (tier mode); highlight when a % override is active.
+        valueFormatter: (p: any) => (p.value == null || p.value === '' ? '—' : `${p.value}%`),
+        cellStyle: (p: any): Record<string, string | number> => {
+          const err = errorCells.current.has(`${p.data?.rowKey}:pct`);
+          if (err) return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+          if (p.value != null && p.value !== '') return { backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: 700 };
+          return { color: '#cbd5e1' };
+        },
       },
     ],
     [], // eslint-disable-line react-hooks/exhaustive-deps

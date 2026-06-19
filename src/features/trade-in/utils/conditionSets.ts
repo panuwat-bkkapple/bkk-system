@@ -33,12 +33,17 @@ export interface DeductionRow {
   t1: number;
   t2: number;
   t3: number;
+  /**
+   * Percentage-of-base deduction (0-100). When set (a number), it takes
+   * precedence over t1/t2/t3 in the pricingResolver. null/empty = tier mode.
+   */
+  pct: number | null;
 }
 
 /** Editable numeric tier columns. Order matters for paste/fill mapping. */
 export const TIER_FIELDS = ['t1', 't2', 't3'] as const;
 /** All editable columns in left-to-right display order (used by paste). */
-export const EDITABLE_FIELDS = ['label', 't1', 't2', 't3'] as const;
+export const EDITABLE_FIELDS = ['label', 't1', 't2', 't3', 'pct'] as const;
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
 
 /** Flatten a condition set's groups/options into flat, editable grid rows. */
@@ -55,6 +60,7 @@ export function flattenSetToRows(set: any): DeductionRow[] {
         t1: Number(o.t1 || 0),
         t2: Number(o.t2 || 0),
         t3: Number(o.t3 || 0),
+        pct: typeof o.pct === 'number' && Number.isFinite(o.pct) ? o.pct : null,
       });
     }
   }
@@ -64,8 +70,11 @@ export function flattenSetToRows(set: any): DeductionRow[] {
 /**
  * Rebuild a condition set from edited rows, preserving the original group /
  * option structure and order. The table only edits existing options
- * (label + t1/t2/t3); it never adds/removes/reorders — add/remove stays in the
- * card editor. Rows are matched back by their `rowKey`.
+ * (label + t1/t2/t3 + pct); it never adds/removes/reorders — add/remove stays in
+ * the card editor. Rows are matched back by their `rowKey`.
+ *
+ * `pct`: a finite number >= 0 is written; null/empty REMOVES the field so the
+ * option falls back to tier mode (keeps legacy data clean).
  */
 export function applyRowsToSet(set: any, rows: DeductionRow[]): any {
   const byKey = new Map(rows.map((r) => [r.rowKey, r]));
@@ -74,7 +83,13 @@ export function applyRowsToSet(set: any, rows: DeductionRow[]): any {
     options: (g?.options || []).map((o: any) => {
       const r = byKey.get(`${g.id}::${o.id}`);
       if (!r) return o;
-      return { ...o, label: r.label, t1: r.t1, t2: r.t2, t3: r.t3 };
+      const next: any = { ...o, label: r.label, t1: r.t1, t2: r.t2, t3: r.t3 };
+      if (r.pct != null && Number.isFinite(Number(r.pct)) && Number(r.pct) >= 0) {
+        next.pct = Number(r.pct);
+      } else {
+        delete next.pct;
+      }
+      return next;
     }),
   }));
   return { ...set, groups };
@@ -107,4 +122,20 @@ export function validateDeduction(raw: unknown): ValidationResult {
 /** Whether a field is one of the numeric tier columns. */
 export function isTierField(field: string): field is (typeof TIER_FIELDS)[number] {
   return (TIER_FIELDS as readonly string[]).includes(field);
+}
+
+/**
+ * Validate the percentage cell before write.
+ * Empty/null = OK and CLEARS pct (back to tier mode). Otherwise must be a
+ * number in [0, 100]. When set, pct overrides t1/t2/t3 in the resolver.
+ */
+export function validatePercent(raw: unknown): ValidationResult {
+  if (raw === '' || raw === null || raw === undefined) {
+    return { ok: true, value: undefined }; // clears pct -> tier mode
+  }
+  const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,%\s]/g, ''));
+  if (!Number.isFinite(n)) return { ok: false, reason: 'ต้องเป็นตัวเลข' };
+  if (n < 0) return { ok: false, reason: 'ต้องไม่ติดลบ (>= 0)' };
+  if (n > 100) return { ok: false, reason: 'ต้องไม่เกิน 100%' };
+  return { ok: true, value: n };
 }
