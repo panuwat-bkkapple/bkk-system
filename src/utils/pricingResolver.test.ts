@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   tierDeduction,
   normalizeLiquidityFactor,
+  isPercentOption,
   resolveOptionDeduction,
   resolveDeductions,
   resolveFinalPrice,
@@ -58,6 +59,38 @@ describe('resolveOptionDeduction (tier × liquidityFactor, rounded)', () => {
   it('rounds to the nearest baht', () => {
     // t2 = 2000 -> round(2000 * 0.333) = round(666) = 666
     expect(resolveOptionDeduction(catScratch, 20000, 0.333)).toBe(666);
+  });
+});
+
+describe('isPercentOption', () => {
+  it('is false for legacy tier-only options', () => {
+    expect(isPercentOption(screenCrack)).toBe(false);
+    expect(isPercentOption({ id: 'x' })).toBe(false);
+  });
+  it('is true only for a finite pct >= 0 (including 0)', () => {
+    expect(isPercentOption({ id: 'x', pct: 35 })).toBe(true);
+    expect(isPercentOption({ id: 'x', pct: 0 })).toBe(true);
+    expect(isPercentOption({ id: 'x', pct: -5 })).toBe(false);
+    expect(isPercentOption({ id: 'x', pct: NaN })).toBe(false);
+  });
+});
+
+describe('resolveOptionDeduction — percentage mode', () => {
+  const pctScreen = { id: 'o_pct', label: 'จอแตก', pct: 35, t1: 20000, t2: 15000, t3: 10000 };
+
+  it('uses pct (not tiers) when pct is set, scaling with base price', () => {
+    expect(resolveOptionDeduction(pctScreen, 45000)).toBe(15750); // 45000 * 35%
+    expect(resolveOptionDeduction(pctScreen, 10000)).toBe(3500); //  10000 * 35%
+  });
+  it('applies liquidityFactor on top of pct (MacBook Air M1: base 10000, lf 0.6)', () => {
+    expect(resolveOptionDeduction(pctScreen, 10000, 0.6)).toBe(2100); // 10000 * 35% * 0.6
+  });
+  it('pct=0 deducts nothing', () => {
+    expect(resolveOptionDeduction({ id: 'x', pct: 0, t1: 9999 }, 50000)).toBe(0);
+  });
+  it('legacy options (no pct) are unchanged — still tier-based', () => {
+    expect(resolveOptionDeduction(screenCrack, 45000)).toBe(20000);
+    expect(resolveOptionDeduction(screenCrack, 10000, 0.6)).toBe(6000);
   });
 });
 
