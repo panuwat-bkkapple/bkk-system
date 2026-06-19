@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS } from '../constants/categorySchemas';
 import { ModifierPricingEditor } from '../components/pricing/ModifierPricingEditor';
+import { PriceSimulatorPanel } from '../components/pricing/PriceSimulatorPanel';
 import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
 import { UpgradePreviewPanel } from '../components/pricing/UpgradePreviewPanel';
 import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
@@ -363,6 +364,8 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   />
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">1.0 = ปกติ · มากกว่า 1 = หักหนักขึ้น (สภาพคล่องต่ำ ขายออกยาก) · น้อยกว่า 1 = หักเบาลง (ของขายดี). คูณกับส่วนลดทุกข้อในชุดประเมิน</p>
                 </div>
+
+                <PriceSimulatorPanel model={editingItem} conditionSets={conditionSets} />
               </div>
             </div>
 
