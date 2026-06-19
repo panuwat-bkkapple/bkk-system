@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
 
+# Hosting and Functions are deployed by two INDEPENDENT jobs that run in
+# parallel. Previously they were sequential steps in one job with Functions
+# before Hosting and no `continue-on-error`, so any Functions failure (e.g. a
+# Firebase auth/credential error) aborted the job before Hosting ever ran and
+# the admin web app silently stopped shipping. Splitting them means a Functions
+# failure no longer blocks the Hosting deploy (and each reports its own status).
 jobs:
-  build-and-deploy:
+  deploy-hosting:
+    name: Deploy Hosting (admin web app)
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +37,35 @@ jobs:
           VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
           VITE_FIREBASE_VAPID_KEY: ${{ secrets.VITE_FIREBASE_VAPID_KEY }}
 
-      # Deploy Cloud Functions
+      # NOTE: database + storage rules are deployed exclusively from
+      # bkk-frontend-next now. Maintaining two copies caused the rules
+      # to silently overwrite each other on every push (see PR #492 /
+      # #496 for the incident postmortem). Rules files have been
+      # deleted from this repo, and firebase.json no longer references
+      # them. To change rules, edit bkk-frontend-next/database.rules.json
+      # or bkk-frontend-next/storage.rules and deploy from there.
+
+      - name: Deploy Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          channelId: live
+          projectId: bkk-apple-tradein
+          target: admin
+
+  deploy-functions:
+    name: Deploy Cloud Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
       - name: Install Functions dependencies
         run: cd functions && npm ci
 
@@ -86,20 +120,3 @@ jobs:
           args: deploy --only functions --project bkk-apple-tradein --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-
-      # NOTE: database + storage rules are deployed exclusively from
-      # bkk-frontend-next now. Maintaining two copies caused the rules
-      # to silently overwrite each other on every push (see PR #492 /
-      # #496 for the incident postmortem). Rules files have been
-      # deleted from this repo, and firebase.json no longer references
-      # them. To change rules, edit bkk-frontend-next/database.rules.json
-      # or bkk-frontend-next/storage.rules and deploy from there.
-
-      # Deploy Hosting
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-          channelId: live
-          projectId: bkk-apple-tradein
-          target: admin
