@@ -17,6 +17,13 @@ export interface ConditionOptionLike {
   t1?: number;
   t2?: number;
   t3?: number;
+  /**
+   * Percentage-of-base deduction (e.g. 35 = 35% of the model's base price).
+   * When set to a finite number >= 0 it takes precedence over t1/t2/t3 and the
+   * deduction scales smoothly with price (no tier buckets). Legacy options have
+   * no `pct`, so they keep using tiers — this field is inert until data adds it.
+   */
+  pct?: number;
 }
 
 export interface ConditionGroupLike {
@@ -41,9 +48,17 @@ export function normalizeLiquidityFactor(lf: unknown): number {
   return n > 0 ? n : 1;
 }
 
+/** Whether an option uses percentage mode (a finite `pct` >= 0). */
+export function isPercentOption(opt: ConditionOptionLike): boolean {
+  if (opt?.pct == null) return false;
+  const p = Number(opt.pct);
+  return Number.isFinite(p) && p >= 0;
+}
+
 /**
  * Resolve one condition option's baht deduction for a model.
- *   = round(tierDeduction × liquidityFactor)
+ *   percentage mode: round(basePrice × pct/100 × liquidityFactor)
+ *   tier mode:       round(tierDeduction × liquidityFactor)   [legacy default]
  * Mirrors admin inspection, internal QC, SellPageClient and the server.
  */
 export function resolveOptionDeduction(
@@ -51,7 +66,11 @@ export function resolveOptionDeduction(
   basePrice: number,
   liquidityFactor: unknown = 1,
 ): number {
-  return Math.round(tierDeduction(opt, basePrice) * normalizeLiquidityFactor(liquidityFactor));
+  const lf = normalizeLiquidityFactor(liquidityFactor);
+  if (isPercentOption(opt)) {
+    return Math.round(((Number(basePrice) || 0) * Number(opt.pct)) / 100 * lf);
+  }
+  return Math.round(tierDeduction(opt, basePrice) * lf);
 }
 
 export interface DeductionLine {
