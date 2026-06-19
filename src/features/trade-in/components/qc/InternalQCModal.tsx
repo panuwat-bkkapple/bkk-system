@@ -8,6 +8,7 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../../../api/firebase';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { formatCurrency } from '../../../../utils/formatters';
+import { resolveOptionDeduction } from '../../../../utils/pricingResolver';
 import { useToast } from '../../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck';
 import { SickwGateBanner } from '../../../../components/sickw/SickwGateBanner';
@@ -93,13 +94,8 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                     // customer quote (SellPageClient) and the server
                     // (validateAndCreateOrder) so QC deductions don't
                     // diverge from what the customer was shown.
-                    const lf = Number(targetModel?.liquidityFactor) > 0 ? Number(targetModel.liquidityFactor) : 1;
-                    const pickTier = (opt: any): number => {
-                        const base = tierBase >= 30000 ? Number(opt.t1 || 0)
-                            : tierBase >= 15000 ? Number(opt.t2 || 0)
-                            : Number(opt.t3 || 0);
-                        return Math.round(base * lf);
-                    };
+                    const lf = targetModel?.liquidityFactor;
+                    const pickTier = (opt: any): number => resolveOptionDeduction(opt, tierBase, lf);
                     return matchedSet.groups
                         .filter((g: any) => g && g.options && Array.isArray(g.options) && g.options.length > 0)
                         .map((group: any) => ({

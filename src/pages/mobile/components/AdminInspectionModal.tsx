@@ -16,6 +16,7 @@ import {
 import { ref as dbRef, onValue, update } from 'firebase/database';
 import { db, auth } from '../../../api/firebase';
 import { formatCurrency } from '../../../utils/formatters';
+import { resolveOptionDeduction } from '../../../utils/pricingResolver';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../components/sickw/SickwDeviceCheck';
@@ -226,11 +227,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
       activeChecklist.forEach((group: any) => {
         group.options?.forEach((opt: any) => {
           if (checks.includes(opt.id)) {
-            let deductAmount = 0;
-            if (startingPrice >= 30000) deductAmount = Number(opt.t1 || 0);
-            else if (startingPrice >= 15000 && startingPrice < 30000) deductAmount = Number(opt.t2 || 0);
-            else deductAmount = Number(opt.t3 || 0);
-            deductAmount = Math.round(deductAmount * lf);
+            const deductAmount = resolveOptionDeduction(opt, startingPrice, lf);
             totalDeduction += deductAmount;
             deductionLabels.push(deductAmount > 0
               ? `[${group.title}] ${opt.label} (-฿${deductAmount.toLocaleString()})`
@@ -562,11 +559,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                           const currentDevice = devicesList[activeDeviceIndex];
                           const startingPrice = getBasePrice(currentDevice);
 
-                          let displayDeduct = 0;
-                          if (startingPrice >= 30000) displayDeduct = Number(opt.t1 || 0);
-                          else if (startingPrice >= 15000 && startingPrice < 30000) displayDeduct = Number(opt.t2 || 0);
-                          else displayDeduct = Number(opt.t3 || 0);
-                          displayDeduct = Math.round(displayDeduct * getLiquidityFactor(currentDevice));
+                          const displayDeduct = resolveOptionDeduction(opt, startingPrice, getLiquidityFactor(currentDevice));
 
                           return (
                             <button
