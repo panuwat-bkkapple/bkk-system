@@ -95,28 +95,25 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      # One-time pre-delete of the colliding function name `onJobStatusChanged`.
-      # Renamed to `onAdminJobStatusNotify` in this codebase to stop
-      # overwriting rider-notifications codebase's function of the same name
-      # (Firebase identifies functions by {region}/{name} project-wide;
-      # codebases don't namespace). Without an explicit delete, the next
-      # `firebase deploy --only functions` would either prompt-and-abort (CI
-      # has no TTY) or auto-skip the deletion, leaving the orphan bearing
-      # admin code and continuing to block rider's deploy from re-creating
-      # its function under the same name. continue-on-error keeps the
-      # workflow green once the function is gone (firebase functions:delete
-      # exits non-zero when the target doesn't exist).
-      - name: Delete orphaned onJobStatusChanged (one-time, idempotent)
-        uses: w9jds/firebase-action@master
-        continue-on-error: true
-        with:
-          args: functions:delete onJobStatusChanged --region asia-southeast1 --force --project bkk-apple-tradein
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
-
+      # Deploy via firebase-tools directly (pinned), authenticating with the
+      # SAME service-account secret the Hosting job uses successfully, exposed
+      # as Application Default Credentials. This replaces the third-party
+      # `w9jds/firebase-action@master` action, whose moving `@master` tag broke
+      # auth ("Failed to authenticate") while the pinned Hosting action kept
+      # working. firebase.json pins `"codebase": "bkk-system"`, so
+      # `deploy --only functions` is scoped to THIS codebase — it will not
+      # touch the rider-notifications codebase's functions even with --force,
+      # and it cleans up our own orphans (e.g. the renamed onJobStatusChanged)
+      # as part of the normal deploy, so no separate delete step is needed.
       - name: Deploy Firebase Functions
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions --project bkk-apple-tradein --force
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/gcp_sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp_sa.json"
+          npx --yes firebase-tools@15.22.0 deploy \
+            --only functions \
+            --project bkk-apple-tradein \
+            --force \
+            --non-interactive
         env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+
