@@ -1,12 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
-  X, Plus, PlusCircle, Trash2, ClipboardList, Save
+  X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2
 } from 'lucide-react';
-import { ref, push, update, remove } from 'firebase/database';
+import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
+import { writeConditionSet } from '../utils/conditionSets';
+
+// AG Grid (~1MB) is only pulled in when the user opens Table view.
+const DeductionTableView = lazy(() => import('../components/pricing/DeductionTableView'));
+
+const VIEW_MODE_KEY = 'bkk.deduction.viewMode';
+type ViewMode = 'card' | 'table';
 
 interface EngineSettingsModalProps {
   conditionSets: any[];
@@ -17,6 +24,19 @@ interface EngineSettingsModalProps {
 export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ conditionSets, isOpen, onClose }) => {
   const [activeSetId, setActiveSetId] = useState<string | null>(conditionSets.length > 0 ? conditionSets[0].id : null);
   const [editingSet, setEditingSet] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') return 'card';
+    return (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) === 'table' ? 'table' : 'card';
+  });
+
+  // Keep latest editingSet for rollback inside async callbacks without stale closures.
+  const editingSetRef = useRef<any>(null);
+  useEffect(() => { editingSetRef.current = editingSet; }, [editingSet]);
+
+  const changeViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     if (activeSetId) {
@@ -37,9 +57,24 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
 
   const handleSaveSet = async () => {
     if (!editingSet) return;
-    await update(ref(db, `settings/condition_sets/${editingSet.id}`), { name: editingSet.name, groups: editingSet.groups || [] });
+    await writeConditionSet(editingSet);
     toast.success('บันทึกชุดประเมินสำเร็จ!');
   };
+
+  // Shared optimistic-commit path for the inline table view. Updates local
+  // state first, persists through the SAME writeConditionSet() helper the card
+  // view uses, and rolls back + rejects on failure so the grid can revert.
+  const commitSet = useCallback(async (newSet: any) => {
+    const prev = editingSetRef.current;
+    setEditingSet(newSet);
+    try {
+      await writeConditionSet(newSet);
+    } catch (e) {
+      setEditingSet(prev);
+      toast.error('บันทึกไม่สำเร็จ คืนค่าเดิมแล้ว');
+      throw e;
+    }
+  }, []);
 
   const handleDeleteSet = async (id: string) => {
     if (confirm('ยืนยันการลบชุดประเมินนี้? หากมีสินค้ารุ่นไหนใช้อยู่จะทำให้การประเมินราคาพังได้')) {
@@ -114,11 +149,37 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Condition Set Name (ชื่อชุดประเมิน)</label>
                     <input type="text" value={editingSet.name} onChange={(e) => setEditingSet({ ...editingSet, name: e.target.value })} className="text-2xl font-black text-slate-800 border-none outline-none focus:ring-0 p-0 w-full bg-transparent" />
                   </div>
-                  <button onClick={handleSaveSet} className="px-8 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700 transition flex items-center gap-2 shadow-lg hover:shadow-indigo-500/30">
-                    <Save size={18} /> Save Set
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {/* View toggle — persisted in localStorage, default = card */}
+                    <div className="flex items-center bg-slate-100 rounded-xl p-1">
+                      <button
+                        onClick={() => changeViewMode('card')}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-black transition ${viewMode === 'card' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        title="มุมมองการ์ด (จัดกลุ่ม)"
+                      >
+                        <LayoutGrid size={16} /> Card
+                      </button>
+                      <button
+                        onClick={() => changeViewMode('table')}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-black transition ${viewMode === 'table' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        title="มุมมองตาราง (แก้ในตาราง + วาง + fill-down)"
+                      >
+                        <Table2 size={16} /> Table
+                      </button>
+                    </div>
+                    <button onClick={handleSaveSet} className="px-8 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700 transition flex items-center gap-2 shadow-lg hover:shadow-indigo-500/30">
+                      <Save size={18} /> Save Set
+                    </button>
+                  </div>
                 </div>
 
+                {viewMode === 'table' ? (
+                  <div className="flex-1 overflow-hidden p-6 bg-slate-50/50">
+                    <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400 font-bold">กำลังโหลดตาราง...</div>}>
+                      <DeductionTableView set={editingSet} onCommit={commitSet} />
+                    </Suspense>
+                  </div>
+                ) : (
                 <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50 space-y-8">
                   {editingSet.groups?.map((g: any, gi: number) => (
                     <div key={g.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm relative group/group">
@@ -175,6 +236,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                     <PlusCircle size={24} /> เพิ่มหัวข้อการประเมินใหม่
                   </button>
                 </div>
+                )}
               </>
             ) : <div className="flex-1 flex items-center justify-center text-slate-400 font-bold bg-slate-50/50">👈 เลือกหรือสร้างชุดประเมินจากเมนูด้านซ้าย</div>}
           </div>
