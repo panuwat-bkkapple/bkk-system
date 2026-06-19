@@ -364,8 +364,6 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   />
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">1.0 = ปกติ · มากกว่า 1 = หักหนักขึ้น (สภาพคล่องต่ำ ขายออกยาก) · น้อยกว่า 1 = หักเบาลง (ของขายดี). คูณกับส่วนลดทุกข้อในชุดประเมิน</p>
                 </div>
-
-                <PriceSimulatorPanel model={editingItem} conditionSets={conditionSets} />
               </div>
             </div>
 
@@ -425,6 +423,11 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Full-width price simulator below both columns */}
+            <div className="xl:col-span-12">
+              <PriceSimulatorPanel model={editingItem} conditionSets={conditionSets} />
             </div>
 
           </div>

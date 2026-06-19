@@ -75,103 +75,129 @@ export const PriceSimulatorPanel: React.FC<Props> = ({ model, conditionSets }) =
     );
   }
 
+  const selectedCount = Object.keys(answers).length;
+
   return (
-    <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 space-y-4">
-      <div className="flex items-center gap-2">
+    <div className="rounded-2xl border border-violet-200 bg-violet-50/40 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-violet-100 bg-white/60">
         <Calculator size={16} className="text-violet-600" />
         <span className="text-xs font-black uppercase tracking-wide text-violet-700">ทดสอบราคา (Price Simulator)</span>
-        <span className="text-[10px] font-bold text-slate-400">ตรงกับหน้าเว็บลูกค้า</span>
+        <span className="text-[10px] font-bold text-slate-400">คิดด้วยสูตรเดียวกับหน้าเว็บลูกค้า</span>
+        <button
+          type="button"
+          onClick={() => setAnswers({})}
+          className="ml-auto text-[10px] font-bold text-slate-400 hover:text-rose-500 transition"
+        >
+          ล้างที่เลือก ({selectedCount})
+        </button>
       </div>
 
-      {/* Base price: editable + quick-pick from variants */}
-      <div className="space-y-1.5">
-        <label className="text-[10px] font-black uppercase text-slate-400">ราคาตั้งต้น (base price)</label>
-        <input
-          type="number"
-          min={0}
-          value={basePrice}
-          onChange={(e) => setBasePrice(Number(e.target.value) || 0)}
-          className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-800 focus:ring-2 focus:ring-violet-500 outline-none"
-        />
-        {variants.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {variants.slice(0, 12).map((v: any, i: number) => (
-              <button
-                key={v.id || v.name || i}
-                type="button"
-                onClick={() => setBasePrice(variantBase(v))}
-                className={`text-[10px] font-bold px-2 py-1 rounded-md border transition ${
-                  basePrice === variantBase(v)
-                    ? 'bg-violet-600 text-white border-violet-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'
-                }`}
-                title={baht(variantBase(v))}
-              >
-                {v.name || `variant ${i + 1}`}
-              </button>
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Left: base price + conditions */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Base price */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase text-slate-400">ราคาตั้งต้น (base price)</label>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 font-black">฿</span>
+              <input
+                type="number"
+                min={0}
+                value={basePrice}
+                onChange={(e) => setBasePrice(Number(e.target.value) || 0)}
+                className="w-44 p-2.5 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-800 focus:ring-2 focus:ring-violet-500 outline-none"
+              />
+            </div>
+            {variants.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {variants.slice(0, 16).map((v: any, i: number) => (
+                  <button
+                    key={v.id || v.name || i}
+                    type="button"
+                    onClick={() => setBasePrice(variantBase(v))}
+                    className={`text-[10px] font-bold px-2 py-1 rounded-md border transition ${
+                      basePrice === variantBase(v)
+                        ? 'bg-violet-600 text-white border-violet-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'
+                    }`}
+                    title={baht(variantBase(v))}
+                  >
+                    {v.name || `variant ${i + 1}`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Condition groups — one option per group; chips show the effective
+              deduction for THIS base price + lf. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {groups.map((g: any) => (
+              <div key={g.id} className="rounded-xl bg-white border border-slate-100 p-3">
+                <div className="text-[11px] font-black text-slate-600 mb-2">{g.title}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(g.options || []).map((opt: any) => {
+                    const amount = resolveOptionDeduction(opt, basePrice, lf);
+                    const selected = answers[g.id] === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() =>
+                          setAnswers((prev) => {
+                            const next = { ...prev };
+                            if (next[g.id] === opt.id) delete next[g.id];
+                            else next[g.id] = opt.id;
+                            return next;
+                          })
+                        }
+                        className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition ${
+                          selected
+                            ? 'bg-rose-600 text-white border-rose-600'
+                            : amount > 0
+                              ? 'bg-white text-slate-700 border-slate-200 hover:border-rose-300'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:border-emerald-300'
+                        }`}
+                      >
+                        {opt.label || 'ไม่มีชื่อ'}
+                        <span className={`ml-1.5 ${selected ? 'text-rose-100' : amount > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {amount > 0 ? `-${baht(amount)}` : '0'}
+                          {isPercentOption(opt) ? ` · ${Number(opt.pct)}%` : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Condition groups — pick one option per group (radio); chips show the
-          effective deduction for THIS base price + lf. */}
-      <div className="space-y-3">
-        {groups.map((g: any) => (
-          <div key={g.id}>
-            <div className="text-[11px] font-black text-slate-600 mb-1.5">{g.title}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {(g.options || []).map((opt: any) => {
-                const amount = resolveOptionDeduction(opt, basePrice, lf);
-                const selected = answers[g.id] === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() =>
-                      setAnswers((prev) => {
-                        const next = { ...prev };
-                        if (next[g.id] === opt.id) delete next[g.id];
-                        else next[g.id] = opt.id;
-                        return next;
-                      })
-                    }
-                    className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition text-left ${
-                      selected
-                        ? 'bg-rose-600 text-white border-rose-600'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-rose-300'
-                    }`}
-                  >
-                    {opt.label || 'ไม่มีชื่อ'}
-                    <span className={`ml-1.5 ${selected ? 'text-rose-100' : 'text-rose-500'}`}>
-                      {amount > 0 ? `-${baht(amount)}` : '0'}
-                      {isPercentOption(opt) ? ` · ${Number(opt.pct)}%` : ''}
-                    </span>
-                  </button>
-                );
-              })}
+        {/* Right: result card (sticky on tall screens) */}
+        <div className="lg:col-span-1">
+          <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-2 text-sm lg:sticky lg:top-2">
+            <div className="flex justify-between text-slate-500 font-bold">
+              <span>ราคาตั้งต้น</span><span>{baht(basePrice)}</span>
+            </div>
+            {lines.length === 0 ? (
+              <div className="text-[11px] text-slate-400 font-medium py-1">เลือกสภาพด้านซ้ายเพื่อดูราคาหัก</div>
+            ) : (
+              lines.map((l, i) => (
+                <div key={i} className="flex justify-between text-rose-600 text-xs gap-2">
+                  <span className="truncate">− {l.label}{l.pct != null ? ` (${l.pct}%)` : ''}</span>
+                  <span className="shrink-0 font-bold">-{baht(l.amount)}</span>
+                </div>
+              ))
+            )}
+            {lfActive && (
+              <div className="text-[10px] text-emerald-600 font-bold">× liquidityFactor {lfNum} (รวมในตัวเลขแล้ว)</div>
+            )}
+            <div className="flex justify-between items-center pt-2 mt-1 border-t border-slate-100 font-black text-emerald-700">
+              <span className="flex items-center gap-1"><Wallet size={15} /> ลูกค้าจะได้</span>
+              <span className="text-xl">{baht(finalPrice)}</span>
             </div>
           </div>
-        ))}
-      </div>
-
-      {/* Result */}
-      <div className="rounded-xl bg-white border border-slate-200 p-3 space-y-1 text-sm">
-        <div className="flex justify-between text-slate-500 font-bold">
-          <span>ราคาตั้งต้น</span><span>{baht(basePrice)}</span>
-        </div>
-        {lines.map((l, i) => (
-          <div key={i} className="flex justify-between text-rose-600 text-xs">
-            <span className="truncate pr-2">− {l.groupTitle}: {l.label}{l.pct != null ? ` (${l.pct}%)` : ''}</span>
-            <span className="shrink-0">-{baht(l.amount)}</span>
-          </div>
-        ))}
-        {lfActive && (
-          <div className="text-[10px] text-emerald-600 font-bold">× liquidityFactor {lfNum} (รวมในตัวเลขแล้ว)</div>
-        )}
-        <div className="flex justify-between items-center pt-1.5 border-t border-slate-100 font-black text-emerald-700">
-          <span className="flex items-center gap-1"><Wallet size={14} /> ราคาที่ลูกค้าจะได้</span>
-          <span className="text-lg">{baht(finalPrice)}</span>
         </div>
       </div>
     </div>
