@@ -312,37 +312,58 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
                   </div>
                 </div>
               )}
-              {kyc.id_issued_at && (
-                <div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันออกบัตร</p>
-                  <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono text-slate-900">
-                    {kyc.id_issued_at}
-                  </div>
-                </div>
-              )}
-              {kyc.id_expires_at && (
-                <div className="sm:col-span-2">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันบัตรหมดอายุ</p>
-                  <div className={`px-3 py-2 border rounded-lg text-sm font-mono flex items-center justify-between ${
-                    isExpired(kyc.id_expires_at)
-                      ? 'bg-red-50 border-red-200 text-red-900'
-                      : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}>
-                    <span>{kyc.id_expires_at}</span>
-                    {isExpired(kyc.id_expires_at) && (
-                      <span className="text-[10px] font-bold text-red-600 flex items-center gap-1">
-                        <CalendarX size={11} /> หมดอายุแล้ว
-                      </span>
+              {(() => {
+                // Defensive swap for legacy records. The OCR parser used
+                // to flip issue / expiry on Thai IDs (fixed in
+                // functions/src/vision/parsers/idCard.ts) but rows
+                // written before that fix still have the dates the
+                // wrong way around. Swap at render time so admin sees
+                // the right value without a DB migration.
+                let issuedDisplay = kyc.id_issued_at;
+                let expiresDisplay = kyc.id_expires_at;
+                if (issuedDisplay && expiresDisplay) {
+                  const iD = parseCardDate(issuedDisplay);
+                  const eD = parseCardDate(expiresDisplay);
+                  if (iD && eD && iD.getTime() > eD.getTime()) {
+                    [issuedDisplay, expiresDisplay] = [expiresDisplay, issuedDisplay];
+                  }
+                }
+                return (
+                  <>
+                    {issuedDisplay && (
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันออกบัตร</p>
+                        <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono text-slate-900">
+                          {issuedDisplay}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                  {isExpired(kyc.id_expires_at) && (
-                    <p className="mt-1.5 text-[11px] text-red-700 flex items-start gap-1">
-                      <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-                      <span>บัตรประชาชนหมดอายุแล้ว — ตรวจสอบกับลูกค้าและพิจารณาขอเอกสารใหม่ก่อนอนุมัติ</span>
-                    </p>
-                  )}
-                </div>
-              )}
+                    {expiresDisplay && (
+                      <div className="sm:col-span-2">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">วันบัตรหมดอายุ</p>
+                        <div className={`px-3 py-2 border rounded-lg text-sm font-mono flex items-center justify-between ${
+                          isExpired(expiresDisplay)
+                            ? 'bg-red-50 border-red-200 text-red-900'
+                            : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}>
+                          <span>{expiresDisplay}</span>
+                          {isExpired(expiresDisplay) && (
+                            <span className="text-[10px] font-bold text-red-600 flex items-center gap-1">
+                              <CalendarX size={11} /> หมดอายุแล้ว
+                            </span>
+                          )}
+                        </div>
+                        {isExpired(expiresDisplay) && (
+                          <p className="mt-1.5 text-[11px] text-red-700 flex items-start gap-1">
+                            <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+                            <span>บัตรประชาชนหมดอายุแล้ว — ตรวจสอบกับลูกค้าและพิจารณาขอเอกสารใหม่ก่อนอนุมัติ</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
