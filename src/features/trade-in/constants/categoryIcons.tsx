@@ -29,7 +29,7 @@ export const CATEGORY_ICON_KEYS: string[] = Object.keys(CATEGORY_ICONS);
 
 // Returns the icon element for a given key, falling back to Package when the
 // key is unknown or missing.
-export function getCategoryIcon(key?: string, size: number = 18): JSX.Element {
+export function getCategoryIcon(key?: string, size: number = 18): React.ReactElement {
   const Icon = (key && CATEGORY_ICONS[key]) || Package;
   return <Icon size={size} />;
 }
