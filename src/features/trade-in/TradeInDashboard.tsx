@@ -245,8 +245,11 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
     const actionLabel = targetStatus === 'Payout Processing' ? 'Deal Closed (Negotiated)' : 'Revised Offer';
     if (!confirm(`ยืนยันการตั้งราคาใหม่ที่ ${price} บาท?`)) return;
 
-    const newNetPayout = Number(price); 
-    const pickupFee = Number(job.pickup_fee || 0);
+    const newNetPayout = Number(price);
+    // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+    const grossPickupFee = Number(job.pickup_fee || 0);
+    const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+    const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
     const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
     const newOriginalPrice = newNetPayout + pickupFee - couponValue;
 

@@ -239,7 +239,14 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
  * are its VAT-exclusive base and the 7% output VAT.
  */
 function serviceFeeBreakdown(job) {
-  const feeIncl = Number(job && job.pickup_fee) || 0;
+  // The customer is only charged the EFFECTIVE fee: the gross pickup_fee minus
+  // any rider-fee discount the company absorbed. VAT, the tax invoice and the
+  // payment voucher must all follow this — if the fee is fully waived there is
+  // no service revenue and no tax invoice. (The rider's pay is a separate
+  // expense and is unaffected.)
+  const gross = Number(job && job.pickup_fee) || 0;
+  const riderDiscount = Number(job && job.rider_fee_discount) || 0;
+  const feeIncl = Math.max(0, gross - riderDiscount);
   if (feeIncl <= 0) return null;
   // Resolved accounting config is stashed on the job in-memory by the trigger
   // (job._accounting), read from settings/accounting. Defaults preserve the

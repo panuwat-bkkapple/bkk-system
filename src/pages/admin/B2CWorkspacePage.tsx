@@ -83,7 +83,10 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   }
 
   const basePrice = Number(job.final_price || job.price || 0);
-  const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+  const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+  const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
   const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
