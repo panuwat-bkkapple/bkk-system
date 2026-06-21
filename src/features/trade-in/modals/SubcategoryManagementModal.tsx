@@ -13,19 +13,11 @@ import { uploadImageToFirebase } from '../../../utils/uploadImage';
 interface SubcategoryManagementModalProps {
   subcategories: any[];
   availableSeries: any[];
+  categories: any[];
+  brands: any[];
   isOpen: boolean;
   onClose: () => void;
 }
-
-const categories = [
-  { id: 'Smartphones' },
-  { id: 'Tablets' },
-  { id: 'Mac / Laptop' },
-  { id: 'Smart Watch' },
-  { id: 'Camera' },
-  { id: 'Game System' },
-];
-const brands = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
 
 const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ onUploaded }) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -62,9 +54,11 @@ const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ on
   );
 };
 
-export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProps> = ({ subcategories, availableSeries, isOpen, onClose }) => {
+export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProps> = ({ subcategories, availableSeries, categories, brands, isOpen, onClose }) => {
   const [activeId, setActiveId] = useState<string | null>(subcategories.length > 0 ? subcategories[0].id : null);
   const [editing, setEditing] = useState<any>(null);
+  const defaultBrand = brands[0]?.name || 'Apple';
+  const defaultCategory = categories[0]?.name || 'Mac / Laptop';
 
   useEffect(() => {
     if (activeId) {
@@ -80,8 +74,8 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
       const newRef = push(ref(db, 'subcategories'));
       await update(newRef, {
         name: 'New Subcategory',
-        brand: 'Apple',
-        category: 'Mac / Laptop',
+        brand: defaultBrand,
+        category: defaultCategory,
         imageUrl: ''
       });
       setActiveId(newRef.key);
@@ -97,8 +91,8 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
     try {
       await update(ref(db, `subcategories/${editing.id}`), {
         name: editing.name,
-        brand: editing.brand || 'Apple',
-        category: editing.category || 'Mac / Laptop',
+        brand: editing.brand || defaultBrand,
+        category: editing.category || defaultCategory,
         imageUrl: editing.imageUrl || ''
       });
 
@@ -205,13 +199,13 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Brand</label>
                           <select value={editing.brand} onChange={e => setEditing({ ...editing, brand: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                            {brands.map(b => <option key={b.id || b.name} value={b.name}>{b.name}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Category</label>
                           <select value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                            {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                           </select>
                         </div>
                       </div>

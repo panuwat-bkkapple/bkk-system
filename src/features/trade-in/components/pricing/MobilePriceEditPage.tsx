@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
-import { CATEGORY_SCHEMAS } from '../../constants/categorySchemas';
+import { CATEGORY_SCHEMAS, resolveCategorySchema } from '../../constants/categorySchemas';
 import { ModifierPricingEditor } from './ModifierPricingEditor';
 import { LegacyVariantEditor } from './LegacyVariantEditor';
 
@@ -16,13 +16,12 @@ interface MobilePriceEditPageProps {
   conditionSets: any[];
   coupons?: any[];
   availableSeries: any[];
+  categories: any[];
+  brands: any[];
   onEditingItemChange: (item: any) => void;
   onSave: () => void;
   onClose: () => void;
 }
-
-const categories = ['Smartphones', 'Tablets', 'Mac / Laptop', 'Smart Watch', 'Camera', 'Game System'];
-const brands = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
 
 const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ onUploaded }) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -68,6 +67,8 @@ export const MobilePriceEditPage: React.FC<MobilePriceEditPageProps> = ({
   conditionSets,
   coupons = [],
   availableSeries,
+  categories,
+  brands,
   onEditingItemChange,
   onSave,
   onClose,
@@ -85,7 +86,7 @@ export const MobilePriceEditPage: React.FC<MobilePriceEditPageProps> = ({
 
   // Same schema-reset behaviour as the desktop modal's handleCategoryChange.
   const handleCategoryChange = (newCat: string) => {
-    const schema = CATEGORY_SCHEMAS[newCat] || CATEGORY_SCHEMAS['Smartphones'];
+    const schema = resolveCategorySchema(newCat, categories);
     const newItem: any = { ...editingItem, category: newCat, attributesSchema: schema };
     if (isModifier) {
       const mods: Record<string, { options: any[] }> = {};
@@ -162,13 +163,13 @@ export const MobilePriceEditPage: React.FC<MobilePriceEditPageProps> = ({
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">Category</label>
                 <select className={inputCls} value={editingItem.category} onChange={(e) => handleCategoryChange(e.target.value)}>
-                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">Brand</label>
                 <select className={inputCls} value={editingItem.brand} onChange={(e) => onEditingItemChange({ ...editingItem, brand: e.target.value })}>
-                  {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                  {brands.map(b => <option key={b.id || b.name} value={b.name}>{b.name}</option>)}
                 </select>
               </div>
             </div>

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
-import { CATEGORY_SCHEMAS } from '../constants/categorySchemas';
+import { CATEGORY_SCHEMAS, resolveCategorySchema } from '../constants/categorySchemas';
 import { ModifierPricingEditor } from '../components/pricing/ModifierPricingEditor';
 import { PriceSimulatorPanel } from '../components/pricing/PriceSimulatorPanel';
 import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
@@ -21,20 +21,12 @@ interface ProductEditorModalProps {
   editingItem: any;
   conditionSets: any[];
   availableSeries: any[];
+  categories: any[];
+  brands: any[];
   categorySchemas: typeof CATEGORY_SCHEMAS;
   onSave: () => void;
   onEditingItemChange: (item: any) => void;
 }
-
-const categories = [
-  { id: 'Smartphones' },
-  { id: 'Tablets' },
-  { id: 'Mac / Laptop' },
-  { id: 'Smart Watch' },
-  { id: 'Camera' },
-  { id: 'Game System' },
-];
-const brands = ['All', 'Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
 
 const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ onUploaded }) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -77,6 +69,8 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
   editingItem,
   conditionSets,
   availableSeries,
+  categories,
+  brands,
   categorySchemas,
   onSave,
   onEditingItemChange,
@@ -91,7 +85,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
   const isModifier = pricingMode === 'modifier';
 
   const handleCategoryChange = (newCat: string) => {
-    const schema = categorySchemas[newCat] || categorySchemas['Smartphones'];
+    const schema = resolveCategorySchema(newCat, categories);
     const newItem: any = { ...editingItem, category: newCat, attributesSchema: schema };
     // Reset modifiers เมื่อเปลี่ยน category (initialize empty options per attribute)
     if (isModifier) {
@@ -229,13 +223,13 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   <div>
                     <label className="text-xs font-bold text-slate-500 mb-1.5 block">Category</label>
                     <select className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500" value={editingItem.category} onChange={(e) => handleCategoryChange(e.target.value)}>
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                      {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 mb-1.5 block">Brand</label>
                     <select className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500" value={editingItem.brand} onChange={(e) => onEditingItemChange({ ...editingItem, brand: e.target.value })}>
-                      {brands.filter(b => b !== 'All').map(b => <option key={b} value={b}>{b}</option>)}
+                      {brands.map(b => <option key={b.id || b.name} value={b.name}>{b.name}</option>)}
                     </select>
                   </div>
                 </div>
