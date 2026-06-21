@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  X, Plus, Trash2, Layers, Image as ImageIcon, Save, Upload, Loader2
+  X, Plus, Trash2, Layers, Image as ImageIcon, Save, Upload, Loader2, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { ref, push, update, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
@@ -76,7 +76,8 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
         name: 'New Subcategory',
         brand: defaultBrand,
         category: defaultCategory,
-        imageUrl: ''
+        imageUrl: '',
+        active: true
       });
       setActiveId(newRef.key);
       toast.success('สร้าง Subcategory ใหม่เรียบร้อย');
@@ -93,7 +94,8 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
         name: editing.name,
         brand: editing.brand || defaultBrand,
         category: editing.category || defaultCategory,
-        imageUrl: editing.imageUrl || ''
+        imageUrl: editing.imageUrl || '',
+        active: editing.active !== false
       });
 
       // Sync subcategoryImageUrl to all series that belong to this subcategory
@@ -165,7 +167,7 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
                   )}
                   <div>
                     <div className={`font-black text-sm truncate pr-6 ${activeId === sub.id ? 'text-violet-900' : 'text-slate-700'}`}>{sub.name}</div>
-                    <div className="text-[10px] text-slate-400 font-medium truncate">{sub.brand} / {sub.category}</div>
+                    <div className="text-[10px] text-slate-400 font-medium truncate">{sub.brand} / {sub.category} · {sub.active === false ? 'ซ่อนจากลูกค้า' : 'แสดงต่อลูกค้า'}</div>
                   </div>
                 </div>
 
@@ -208,6 +210,18 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
                             {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                           </select>
                         </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">การแสดงผลฝั่งลูกค้า</label>
+                        <button
+                          type="button"
+                          onClick={() => setEditing({ ...editing, active: editing.active === false })}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border font-black text-sm transition-colors ${editing.active !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}
+                        >
+                          <span>{editing.active !== false ? 'แสดงต่อลูกค้า (Active)' : 'ซ่อนจากลูกค้า (Hidden)'}</span>
+                          {editing.active !== false ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                        </button>
+                        <p className="text-[10px] text-slate-400 mt-1 font-medium">ปิดแล้วจะไม่แสดงใน Browse Categories หน้าเว็บลูกค้า (รุ่นในกลุ่มนี้ยังขายได้ตามปกติ)</p>
                       </div>
                     </div>
 
