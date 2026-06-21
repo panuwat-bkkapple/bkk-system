@@ -1866,7 +1866,9 @@ exports.onAdminJobStatusNotify = onValueUpdated(
             : Math.max(
                 0,
                 Number(job.final_price || job.price || 0) -
-                  (job.receive_method === "Pickup" ? Number(job.pickup_fee || 0) : 0) +
+                  (job.receive_method === "Pickup"
+                    ? Math.max(0, Number(job.pickup_fee || 0) - Number(job.rider_fee_discount || 0))
+                    : 0) +
                   Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0)
               )
         )
@@ -2119,8 +2121,23 @@ exports.onReceiveMethodChanged = onValueUpdated(
       }
     } else {
       // Store-in / Mail-in: customer pays no delivery fee — safe to own here.
+      // Also clear any rider-fee discount (no fee left to discount) and revert
+      // its absorbed-cost ledger row so reports don't count a phantom cost.
       updates.pickup_fee = 0;
+      updates.rider_fee_discount = 0;
+      updates.applied_rider_promo = null;
       updates.net_payout = Math.max(0, basePrice + coupon);
+      if (Number(job.rider_fee_discount || 0) > 0) {
+        try {
+          await db.ref(`issued_rider_fee_discounts/${jobId}`).update({
+            value: 0,
+            status: "reverted",
+            applied_at: Date.now(),
+          });
+        } catch (ledgerErr) {
+          console.error(`[onReceiveMethodChanged] rider-fee ledger revert failed for ${jobId}:`, ledgerErr);
+        }
+      }
       logs.push({
         action: "Fee Recalculated",
         by: "System",

@@ -284,7 +284,10 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         }
       }
 
-      const pickupFee = Number(job.pickup_fee || 0);
+      // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+      const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+      const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+      const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
       const couponValue = Number(job.applied_coupon?.value || job.applied_coupon?.actual_value || 0);
       const newNetPayout = Math.max(0, jobTotalDevicePrice - pickupFee + couponValue);
 

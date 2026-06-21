@@ -208,7 +208,11 @@ export const MobileTicketDetail = () => {
     (!job.rider_fee || Number(job.rider_fee) <= 0) &&
     ['sent to qc lab', 'in stock'].includes((job.status || '').toLowerCase());
   const basePrice = Number(job.final_price || job.price || 0);
-  const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  // Effective pickup fee = gross fee minus the rider-fee discount the company
+  // absorbs (rider pay is untouched). See net_payout invariant in CLAUDE.md.
+  const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+  const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
   const couponValue = Number(job.applied_coupon?.value || 0);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
 
@@ -454,7 +458,10 @@ export const MobileTicketDetail = () => {
 
       if (priceNum !== null) {
         const oldBasePrice = Number(job.final_price || job.price || 0);
-        const feeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+        // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+        const grossFeeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+        const riderDiscNum = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+        const feeNum = Math.max(0, grossFeeNum - riderDiscNum);
         const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
         payload.final_price = priceNum;
         payload.net_payout = Math.max(0, priceNum - feeNum + couponNum);

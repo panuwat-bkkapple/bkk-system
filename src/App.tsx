@@ -42,6 +42,8 @@ const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').the
 const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(m => ({ default: m.CouponManager })));
 const IssuedCoupons = lazy(() => import('./pages/admin/IssuedCoupons').then(m => ({ default: m.IssuedCoupons })));
+const RiderFeePromotions = lazy(() => import('./pages/admin/RiderFeePromotions').then(m => ({ default: m.RiderFeePromotions })));
+const IssuedRiderFeeDiscounts = lazy(() => import('./pages/admin/IssuedRiderFeeDiscounts').then(m => ({ default: m.IssuedRiderFeeDiscounts })));
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
 const AccountingSettings = lazy(() => import('./pages/admin/AccountingSettings'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
@@ -190,6 +192,8 @@ export default function App() {
               <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
               <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
               <Route path="/issued-coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedCoupons /> : <Navigate to="/" replace />} />
+              <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
+              <Route path="/issued-rider-fee-discounts" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedRiderFeeDiscounts /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
               <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />

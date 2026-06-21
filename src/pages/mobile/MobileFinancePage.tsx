@@ -54,7 +54,10 @@ export const MobileFinancePage = () => {
   // (เช่น Internal QC เก่า) อัปเดต final_price โดยไม่ sync net_payout ทำให้ค่าค้าง
   const getNetPayout = (tx: any) => {
     const base = Number(tx.final_price || tx.price || 0);
-    const pickupFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
+    // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+    const grossFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
+    const riderFeeDiscount = tx.receive_method === 'Pickup' ? Number(tx.rider_fee_discount || 0) : 0;
+    const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
     const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
     return Math.max(0, base - pickupFee + coupon);
   };

@@ -29,10 +29,13 @@ const fmt = (n: number) => (Number(n) || 0).toLocaleString('th-TH', { minimumFra
 interface Totals {
   salesGross: number; cogs: number; grossProfit: number;
   serviceBase: number; opex: number;
+  // Rider-fee discount the company absorbs (lowers the customer pickup_fee
+  // without reducing rider pay) — a marketing/absorbed cost in the P&L.
+  riderFeeAbsorbed: number;
   outputVat: number; salesCount: number;
 }
 
-const ZERO: Totals = { salesGross: 0, cogs: 0, grossProfit: 0, serviceBase: 0, opex: 0, outputVat: 0, salesCount: 0 };
+const ZERO: Totals = { salesGross: 0, cogs: 0, grossProfit: 0, serviceBase: 0, opex: 0, riderFeeAbsorbed: 0, outputVat: 0, salesCount: 0 };
 
 export default function FinancialReport() {
   const [month, setMonth] = useState<string>(currentBangkokMonth());
@@ -55,8 +58,9 @@ export default function FinancialReport() {
       get(ref(db, 'sales')),
       get(ref(db, 'expenses')),
       get(query(ref(db, 'accounting_documents'), orderByChild('period'), equalTo(period))),
+      get(ref(db, 'issued_rider_fee_discounts')),
     ])
-      .then(([salesRes, expRes, docRes]) => {
+      .then(([salesRes, expRes, docRes, riderRes]) => {
         if (cancelled) return;
         const out: Totals = { ...ZERO };
         const failed: string[] = [];
@@ -91,6 +95,17 @@ export default function FinancialReport() {
           });
         } else failed.push('เอกสารภาษี');
 
+        if (riderRes.status === 'fulfilled') {
+          riderRes.value.forEach((c) => {
+            const r = c.val();
+            const at = Number(r?.applied_at) || 0;
+            const status = r?.status === 'reverted' ? 'reverted' : 'applied';
+            if (status === 'applied' && at >= start && at < end) {
+              out.riderFeeAbsorbed += Number(r.value) || 0;
+            }
+          });
+        } else failed.push('ส่วนลดค่าไรเดอร์');
+
         setT(out);
         setErr(failed.length ? `อ่านข้อมูลบางส่วนไม่ได้ (${failed.join(', ')}) — อาจกำลัง deploy rules หรือสิทธิ์ไม่พอ` : null);
       })
@@ -98,7 +113,7 @@ export default function FinancialReport() {
     return () => { cancelled = true; };
   }, [month, period]);
 
-  const netProfit = useMemo(() => t.grossProfit + t.serviceBase - t.opex, [t]);
+  const netProfit = useMemo(() => t.grossProfit + t.serviceBase - t.opex - t.riderFeeAbsorbed, [t]);
 
   const rows: Array<[string, number, 'in' | 'out' | 'net' | 'sub']> = [
     ['ยอดขายสินค้า (POS, รวม VAT)', t.salesGross, 'sub'],
@@ -106,6 +121,7 @@ export default function FinancialReport() {
     ['กำไรขั้นต้นจากการขาย', t.grossProfit, 'in'],
     ['รายได้ค่าบริการรับเครื่อง (ก่อน VAT)', t.serviceBase, 'in'],
     ['ค่าใช้จ่ายดำเนินงาน', -t.opex, 'out'],
+    ['ส่วนลดค่าไรเดอร์ (บริษัทรับภาระ)', -t.riderFeeAbsorbed, 'out'],
     ['กำไรสุทธิโดยประมาณ', netProfit, 'net'],
   ];
 
@@ -118,6 +134,7 @@ export default function FinancialReport() {
       ['กำไรขั้นต้นจากการขาย', t.grossProfit.toFixed(2)],
       ['รายได้ค่าบริการ (ก่อน VAT)', t.serviceBase.toFixed(2)],
       ['ค่าใช้จ่ายดำเนินงาน', t.opex.toFixed(2)],
+      ['ส่วนลดค่าไรเดอร์ (บริษัทรับภาระ)', t.riderFeeAbsorbed.toFixed(2)],
       ['กำไรสุทธิโดยประมาณ', netProfit.toFixed(2)],
       [],
       ['ภาษีขาย (Output VAT)', t.outputVat.toFixed(2)],

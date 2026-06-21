@@ -55,7 +55,8 @@ export const B2CWorkspace = ({
   // 🌟 เพิ่มตัวแปรสำหรับดักสถานะ "รอโอนเงิน"
   const isProcessingPayment = ['payout processing', 'waiting for finance', 'price accepted'].includes(statusLower);
 
-  const pickupFee = Number(job?.pickup_fee || 0);
+  // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+  const pickupFee = Math.max(0, Number(job?.pickup_fee || 0) - Number(job?.rider_fee_discount || 0));
   const originalPrice = Number(job?.original_price || job?.price || 0);
   const couponValue = Number(job?.applied_coupon?.actual_value || job?.applied_coupon?.value || 0);
   const displayNetPayout = job?.revised_price || job?.negotiated_price || job?.net_payout || job?.final_price || job?.price || 0;
