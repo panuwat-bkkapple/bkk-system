@@ -172,24 +172,26 @@ export const PriceEditor = () => {
     try {
       const snap = await get(ref(db, 'product_categories'));
       if (snap.exists()) return;
+      // Camera / Game System seed as inactive ("Soon") to match the prior
+      // customer-facing behaviour; admins flip them on once models exist.
       const defaults = [
-        { name: 'Smartphones', icon: 'smartphone', route: '/iphone', slug: 'smartphones', order: 1 },
-        { name: 'Tablets', icon: 'tablet', route: '/ipad', slug: 'tablets', order: 2 },
-        { name: 'Mac / Laptop', icon: 'laptop', route: '/mac', slug: 'mac-laptop', order: 3 },
-        { name: 'Smart Watch', icon: 'watch', route: '/apple-watch', slug: 'smart-watch', order: 4 },
-        { name: 'Camera', icon: 'camera', route: '', slug: 'camera', order: 5 },
-        { name: 'Game System', icon: 'gamepad', route: '', slug: 'game-system', order: 6 },
+        { name: 'Smartphones', label_th: 'โทรศัพท์มือถือ', icon: 'smartphone', route: '/iphone', slug: 'smartphones', order: 1, active: true },
+        { name: 'Tablets', label_th: 'แท็บเล็ต', icon: 'tablet', route: '/ipad', slug: 'tablets', order: 2, active: true },
+        { name: 'Mac / Laptop', label_th: 'คอมพิวเตอร์ / Mac', icon: 'laptop', route: '/mac', slug: 'mac-laptop', order: 3, active: true },
+        { name: 'Smart Watch', label_th: 'สมาร์ทวอทช์', icon: 'watch', route: '/apple-watch', slug: 'smart-watch', order: 4, active: true },
+        { name: 'Camera', label_th: 'กล้องถ่ายรูป', icon: 'camera', route: '', slug: 'camera', order: 5, active: false },
+        { name: 'Game System', label_th: 'เครื่องเกมคอนโซล', icon: 'gamepad', route: '', slug: 'game-system', order: 6, active: false },
       ];
       await Promise.all(defaults.map(d => {
         const newRef = push(ref(db, 'product_categories'));
         return update(newRef, {
           name: d.name,
-          label_th: '',
+          label_th: d.label_th,
           icon: d.icon,
           route: d.route,
           slug: d.slug,
           order: d.order,
-          active: true,
+          active: d.active,
           schema: CATEGORY_SCHEMAS[d.name] || [],
         });
       }));
