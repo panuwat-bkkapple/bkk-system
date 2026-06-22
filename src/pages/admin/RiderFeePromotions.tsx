@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     Bike, PlusCircle, Search, Edit2, Trash2, X,
     Save, ToggleLeft, ToggleRight, Gift, Percent, Zap,
-    Calendar, CheckCircle2, AlertCircle, Smartphone, ChevronDown, ChevronRight
+    Calendar, CheckCircle2, AlertCircle, Smartphone, ChevronDown, ChevronRight, MapPin
 } from 'lucide-react';
 import { ref, push, update, remove, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
+import { THAI_PROVINCES } from '../../data/thaiProvinces';
 
 // Promotions that discount the CUSTOMER pickup_fee (the company absorbs the
 // difference; the rider's pay is never reduced). Master records live at
@@ -171,6 +172,76 @@ const ModelMultiPicker: React.FC<{
     );
 };
 
+// ─── Province picker: ค้นหา + เลือกหลายจังหวัด ──────────────────────────────
+// คืนเป็น array ของ province id (เลข kongvut) ตรงกับ job.provinceId ฝั่งลูกค้า
+const ProvinceMultiPicker: React.FC<{
+    selected: number[];
+    onChange: (ids: number[]) => void;
+}> = ({ selected, onChange }) => {
+    const [q, setQ] = useState('');
+    const selectedSet = useMemo(() => new Set(selected), [selected]);
+    const query = q.trim().toLowerCase();
+
+    const filtered = useMemo(() => {
+        if (!query) return THAI_PROVINCES;
+        return THAI_PROVINCES.filter((p) =>
+            p.name_th.toLowerCase().includes(query) || p.name_en.toLowerCase().includes(query)
+        );
+    }, [query]);
+    const filteredIds = useMemo(() => filtered.map((p) => p.id), [filtered]);
+    const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedSet.has(id));
+
+    const apply = (ids: number[], on: boolean) => {
+        const s = new Set(selected);
+        ids.forEach((id) => (on ? s.add(id) : s.delete(id)));
+        onChange([...s]);
+    };
+
+    return (
+        <div className="flex flex-col min-h-0">
+            <div className="flex items-center gap-2 mb-2">
+                <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="text"
+                        placeholder="ค้นหาจังหวัด..."
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-100 focus:bg-white"
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => apply(filteredIds, !allFilteredSelected)}
+                    disabled={!filteredIds.length}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-black whitespace-nowrap border transition disabled:opacity-40 ${allFilteredSelected ? 'border-slate-200 text-slate-500 hover:bg-slate-50' : 'border-transparent bg-blue-50 text-blue-600 hover:brightness-95'}`}
+                >
+                    {allFilteredSelected ? 'ล้างที่ค้นเจอ' : 'เลือกทั้งหมด'}
+                </button>
+            </div>
+
+            <div className="flex items-center justify-between mb-2 px-0.5">
+                <span className="text-[10px] font-bold text-slate-400">{filteredIds.length} จังหวัด{query ? ' (กรองอยู่)' : ''}</span>
+                <span className={`text-[10px] font-black ${selected.length ? 'text-blue-600' : 'text-slate-400'}`}>เลือกแล้ว {selected.length} จังหวัด</span>
+            </div>
+
+            <div className="min-h-[180px] max-h-[300px] border border-slate-200 rounded-xl overflow-y-auto bg-white grid grid-cols-2 sm:grid-cols-3 gap-x-2 p-1">
+                {filtered.length === 0 ? (
+                    <div className="col-span-full text-center text-xs text-slate-400 font-bold py-8">ไม่พบจังหวัดที่ตรงกับคำค้นหา</div>
+                ) : filtered.map((p) => {
+                    const checked = selectedSet.has(p.id);
+                    return (
+                        <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-blue-50/60 transition-colors">
+                            <input type="checkbox" checked={checked} onChange={() => apply([p.id], !checked)} className="w-4 h-4 rounded accent-blue-600 cursor-pointer shrink-0" />
+                            <span className="text-sm font-bold text-slate-700 truncate">{p.name_th}</span>
+                        </label>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 export const RiderFeePromotions = () => {
     const toast = useToast();
     const [promos, setPromos] = useState<any[]>([]);
@@ -236,6 +307,7 @@ export const RiderFeePromotions = () => {
                 is_active: true,
                 applicable_models: [],
                 excluded_models: [],
+                applicable_provinces: [],
             });
         }
         setIsModalOpen(true);
@@ -255,7 +327,14 @@ export const RiderFeePromotions = () => {
             // from "restricted but list empty/corrupt" (true + [] => ineligible).
             const isModelRestricted = Array.isArray(editingItem.applicable_models)
                 && editingItem.applicable_models.length > 0;
-            const payload = { ...editingItem, is_model_restricted: isModelRestricted, updated_at: Date.now() };
+            const isProvinceRestricted = Array.isArray(editingItem.applicable_provinces)
+                && editingItem.applicable_provinces.length > 0;
+            const payload = {
+                ...editingItem,
+                is_model_restricted: isModelRestricted,
+                is_province_restricted: isProvinceRestricted,
+                updated_at: Date.now(),
+            };
 
             if (editingItem.id) {
                 await update(ref(db, `rider_fee_promotions/${editingItem.id}`), payload);
@@ -384,6 +463,10 @@ export const RiderFeePromotions = () => {
                                             {p.excluded_models && p.excluded_models.length > 0 && (
                                                 <span className="text-rose-500 ml-1">· ยกเว้น {p.excluded_models.length} รุ่น</span>
                                             )}
+                                        </div>
+                                        <div className="text-[10px] font-bold text-slate-500 mt-0.5 flex items-center gap-1">
+                                            <MapPin size={12} />
+                                            {(!p.applicable_provinces || p.applicable_provinces.length === 0) ? 'ทุกจังหวัด' : `เฉพาะ ${p.applicable_provinces.length} จังหวัด`}
                                         </div>
                                     </td>
                                     <td className="p-5">
@@ -545,6 +628,31 @@ export const RiderFeePromotions = () => {
                                     seriesSubcat={seriesSubcat}
                                     accent="rose"
                                 />
+                            </div>
+
+                            {/* Targeted Provinces — เข้าร่วมเฉพาะพื้นที่จังหวัดที่กำหนด */}
+                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col">
+                                <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-3 mb-4 flex items-center gap-2"><MapPin size={14} /> พื้นที่จังหวัดที่ร่วมโปรโมชั่น (Targeted Provinces)</h4>
+
+                                <div className="flex gap-4 mb-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="radio" checked={!editingItem.applicable_provinces || editingItem.applicable_provinces.length === 0} onChange={() => setEditingItem({ ...editingItem, applicable_provinces: [] })} className="w-4 h-4 text-blue-600" />
+                                        <span className="text-sm font-bold text-slate-700">ทุกจังหวัด</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="radio" checked={editingItem.applicable_provinces && editingItem.applicable_provinces.length > 0} onChange={() => setEditingItem({ ...editingItem, applicable_provinces: THAI_PROVINCES[0] ? [THAI_PROVINCES[0].id] : [] })} className="w-4 h-4 text-blue-600" />
+                                        <span className="text-sm font-bold text-slate-700">ระบุจังหวัดเอง</span>
+                                    </label>
+                                </div>
+
+                                <p className="text-[11px] font-bold text-slate-500 mb-4">ใช้จับคู่กับจุดรับเครื่อง (Pickup) ของลูกค้า — ต้องเข้าเงื่อนไขทั้งรุ่นและจังหวัด ลูกค้าจึงจะได้ส่วนลด</p>
+
+                                {editingItem.applicable_provinces && editingItem.applicable_provinces.length > 0 && (
+                                    <ProvinceMultiPicker
+                                        selected={editingItem.applicable_provinces || []}
+                                        onChange={(ids) => setEditingItem({ ...editingItem, applicable_provinces: ids })}
+                                    />
+                                )}
                             </div>
                         </div>
 
