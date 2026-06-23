@@ -49,6 +49,7 @@ interface CouponState {
 interface PricingCalculations {
   basePrice: number;
   pickupFee: number;
+  riderFeeDiscount: number;
   couponValue: number;
   netPayout: number;
   isCancelled: boolean;
@@ -92,10 +93,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   } = couponState;
 
   const {
-    basePrice, pickupFee, couponValue, netPayout,
+    basePrice, pickupFee, riderFeeDiscount, couponValue, netPayout,
     isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
+  // Rider-fee discount breakdown (promo on /rider_fee_promotions absorbed by
+  // the company). pickup_fee is GROSS; effective is what the customer pays.
+  const effectivePickupFee = Math.max(0, pickupFee - (riderFeeDiscount || 0));
+  const riderPromoLabel = (job.applied_rider_promo?.name || job.applied_rider_promo?.code || '').trim();
 
   const reopenDaysLeft = reopenDeadline
     ? Math.max(0, Math.ceil((reopenDeadline - Date.now()) / (24 * 60 * 60 * 1000)))
@@ -232,6 +237,22 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 <span>หักค่าบริการไรเดอร์ (Rider Fee)</span>
                 <span>- {formatCurrency(pickupFee)}</span>
               </div>
+            )}
+
+            {job.receive_method === 'Pickup' && riderFeeDiscount > 0 && (
+              <>
+                <div className="flex justify-between items-center text-sm font-bold text-emerald-400">
+                  <span className="flex items-center gap-2">
+                    <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border border-emerald-500/30">โปรค่าไรเดอร์</span>
+                    <span className="text-xs">{riderPromoLabel || 'ส่วนลดค่าไรเดอร์'}</span>
+                  </span>
+                  <span>+ {formatCurrency(riderFeeDiscount)}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 pl-1">
+                  <span>ค่าบริการรับเครื่องสุทธิ (บริษัทออกส่วนต่าง)</span>
+                  <span>{effectivePickupFee === 0 ? 'ฟรี' : `- ${formatCurrency(effectivePickupFee)}`}</span>
+                </div>
+              </>
             )}
 
             {couponValue > 0 && (

@@ -84,8 +84,14 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
 
   const basePrice = Number(job.final_price || job.price || 0);
   const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  // Rider-fee discount the company absorbed at order time (promo on
+  // /rider_fee_promotions). pickup_fee is GROSS; the customer was only
+  // charged the effective fee, so net_payout MUST use effectivePickupFee
+  // — otherwise admin under-pays by the discount amount.
+  const riderFeeDiscount = job.receive_method === 'Pickup' ? Math.max(0, Number(job.rider_fee_discount || 0)) : 0;
+  const effectivePickupFee = Math.max(0, pickupFee - riderFeeDiscount);
   const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-  const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
+  const netPayout = Math.max(0, basePrice - effectivePickupFee + couponValue);
   const statusLower = String(job.status || '').trim().toLowerCase();
   const isCancelled = ['cancelled', 'closed (lost)', 'returned', 'return confirmed', 'drop-off expired', 'shipping expired', 'parcel lost'].includes(statusLower) || statusLower.includes('cancel');
   // Soft-close: "Cancelled" is reopenable (customer can come back on the same
@@ -156,14 +162,14 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     const val = Number(adminCouponValue);
     await update(ref(db, `jobs/${job.id}`), {
       applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val, actual_value: val },
-      net_payout: Math.max(0, basePrice - pickupFee + val), qc_logs: [makeLog('Admin Top-up', `แอดมินเพิ่มคูปองพิเศษ: ${adminCouponCode} (+${val}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
+      net_payout: Math.max(0, basePrice - effectivePickupFee + val), qc_logs: [makeLog('Admin Top-up', `แอดมินเพิ่มคูปองพิเศษ: ${adminCouponCode} (+${val}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
     setIsAddingCoupon(false); setAdminCouponCode(''); setAdminCouponValue('');
   };
   const handleRemoveCoupon = async () => {
     if (!confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) return;
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: null, net_payout: Math.max(0, basePrice - pickupFee),
+      applied_coupon: null, net_payout: Math.max(0, basePrice - effectivePickupFee),
       qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-${job.applied_coupon?.value}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
   };
@@ -171,7 +177,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const handleReviseOffer = async () => {
     if (!revisedPrice) { toast.warning('กรุณาระบุราคาใหม่'); return; }
     if (!confirm(`ยืนยันการตั้งราคาเครื่องใหม่เป็น ${revisedPrice} บาท? (ระบบจะหักค่าไรเดอร์อัตโนมัติ)`)) return;
-    const p = Number(revisedPrice), net = Math.max(0, p - pickupFee + couponValue);
+    const p = Number(revisedPrice), net = Math.max(0, p - effectivePickupFee + couponValue);
     await update(ref(db, `jobs/${job.id}`), {
       status: 'Negotiation', price: p, final_price: p, net_payout: net, devices: buildUpdatedDevices(p),
       qc_logs: [makeLog('Revised Offer', `เสนอราคาเครื่องใหม่: ${p} บ. (ยอดสุทธิ: ${net} บ.) เหตุผล: ${reviseReason}`), ...(job.qc_logs || [])], updated_at: Date.now()
@@ -182,7 +188,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const handleCloseNegotiation = async () => {
     if (!negotiatedPrice) { toast.warning('กรุณาระบุราคาปิดดีล'); return; }
     if (!confirm(`ยืนยันปิดการขายที่ราคาเครื่อง ${negotiatedPrice} บาท?`)) return;
-    const p = Number(negotiatedPrice), net = Math.max(0, p - pickupFee + couponValue);
+    const p = Number(negotiatedPrice), net = Math.max(0, p - effectivePickupFee + couponValue);
     await update(ref(db, `jobs/${job.id}`), {
       status: 'Payout Processing', price: p, final_price: p, net_payout: net, devices: buildUpdatedDevices(p),
       qc_logs: [makeLog('Deal Closed (Negotiated)', `จบการเจรจา ราคาเครื่อง: ${p} บ. (ยอดโอนลูกค้า: ${net} บ.)`), ...(job.qc_logs || [])], updated_at: Date.now()
@@ -366,7 +372,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
           job={job}
           handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
-          pricing={{ basePrice, pickupFee, couponValue, netPayout, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
+          pricing={{ basePrice, pickupFee, riderFeeDiscount, couponValue, netPayout, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}
         />
       </div>

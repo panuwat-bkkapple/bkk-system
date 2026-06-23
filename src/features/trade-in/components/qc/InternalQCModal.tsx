@@ -263,8 +263,13 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
 
             // Sync net_payout ให้ตรงกับ final_price ใหม่ — กันค่าเก่าค้างใน DB ที่หน้า Finance จะไปหยิบไปแสดง
             const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+            // pickup_fee is GROSS; subtract only the EFFECTIVE fee (gross minus
+            // the absorbed rider-fee discount) so net_payout matches the
+            // customer-facing amount.
+            const riderFeeDiscount = job.receive_method === 'Pickup' ? Math.max(0, Number(job.rider_fee_discount || 0)) : 0;
+            const effectivePickupFee = Math.max(0, pickupFee - riderFeeDiscount);
             const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - pickupFee + couponValue));
+            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - effectivePickupFee + couponValue));
 
             const updatePayload = {
                 status: 'QC Review',
