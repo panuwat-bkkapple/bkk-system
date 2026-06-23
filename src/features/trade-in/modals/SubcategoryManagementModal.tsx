@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  X, Plus, Trash2, Layers, Image as ImageIcon, Save, Upload, Loader2
+  X, Plus, Trash2, Layers, Image as ImageIcon, Save, Upload, Loader2, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { ref, push, update, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
@@ -13,19 +13,11 @@ import { uploadImageToFirebase } from '../../../utils/uploadImage';
 interface SubcategoryManagementModalProps {
   subcategories: any[];
   availableSeries: any[];
+  categories: any[];
+  brands: any[];
   isOpen: boolean;
   onClose: () => void;
 }
-
-const categories = [
-  { id: 'Smartphones' },
-  { id: 'Tablets' },
-  { id: 'Mac / Laptop' },
-  { id: 'Smart Watch' },
-  { id: 'Camera' },
-  { id: 'Game System' },
-];
-const brands = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
 
 const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ onUploaded }) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -62,9 +54,11 @@ const ImageUploadButton: React.FC<{ onUploaded: (url: string) => void }> = ({ on
   );
 };
 
-export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProps> = ({ subcategories, availableSeries, isOpen, onClose }) => {
+export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProps> = ({ subcategories, availableSeries, categories, brands, isOpen, onClose }) => {
   const [activeId, setActiveId] = useState<string | null>(subcategories.length > 0 ? subcategories[0].id : null);
   const [editing, setEditing] = useState<any>(null);
+  const defaultBrand = brands[0]?.name || 'Apple';
+  const defaultCategory = categories[0]?.name || 'Mac / Laptop';
 
   useEffect(() => {
     if (activeId) {
@@ -80,9 +74,10 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
       const newRef = push(ref(db, 'subcategories'));
       await update(newRef, {
         name: 'New Subcategory',
-        brand: 'Apple',
-        category: 'Mac / Laptop',
-        imageUrl: ''
+        brand: defaultBrand,
+        category: defaultCategory,
+        imageUrl: '',
+        active: true
       });
       setActiveId(newRef.key);
       toast.success('สร้าง Subcategory ใหม่เรียบร้อย');
@@ -97,9 +92,10 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
     try {
       await update(ref(db, `subcategories/${editing.id}`), {
         name: editing.name,
-        brand: editing.brand || 'Apple',
-        category: editing.category || 'Mac / Laptop',
-        imageUrl: editing.imageUrl || ''
+        brand: editing.brand || defaultBrand,
+        category: editing.category || defaultCategory,
+        imageUrl: editing.imageUrl || '',
+        active: editing.active !== false
       });
 
       // Sync subcategoryImageUrl to all series that belong to this subcategory
@@ -171,7 +167,7 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
                   )}
                   <div>
                     <div className={`font-black text-sm truncate pr-6 ${activeId === sub.id ? 'text-violet-900' : 'text-slate-700'}`}>{sub.name}</div>
-                    <div className="text-[10px] text-slate-400 font-medium truncate">{sub.brand} / {sub.category}</div>
+                    <div className="text-[10px] text-slate-400 font-medium truncate">{sub.brand} / {sub.category} · {sub.active === false ? 'ซ่อนจากลูกค้า' : 'แสดงต่อลูกค้า'}</div>
                   </div>
                 </div>
 
@@ -205,15 +201,27 @@ export const SubcategoryManagementModal: React.FC<SubcategoryManagementModalProp
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Brand</label>
                           <select value={editing.brand} onChange={e => setEditing({ ...editing, brand: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                            {brands.map(b => <option key={b.id || b.name} value={b.name}>{b.name}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Category</label>
                           <select value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                            {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                           </select>
                         </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">การแสดงผลฝั่งลูกค้า</label>
+                        <button
+                          type="button"
+                          onClick={() => setEditing({ ...editing, active: editing.active === false })}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border font-black text-sm transition-colors ${editing.active !== false ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}
+                        >
+                          <span>{editing.active !== false ? 'แสดงต่อลูกค้า (Active)' : 'ซ่อนจากลูกค้า (Hidden)'}</span>
+                          {editing.active !== false ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                        </button>
+                        <p className="text-[10px] text-slate-400 mt-1 font-medium">ปิดแล้วจะไม่แสดงใน Browse Categories หน้าเว็บลูกค้า (รุ่นในกลุ่มนี้ยังขายได้ตามปกติ)</p>
                       </div>
                     </div>
 

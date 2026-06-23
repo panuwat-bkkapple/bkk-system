@@ -16,6 +16,7 @@ import {
 import { ref as dbRef, onValue, update } from 'firebase/database';
 import { db, auth } from '../../../api/firebase';
 import { formatCurrency } from '../../../utils/formatters';
+import { resolveOptionDeduction } from '../../../utils/pricingResolver';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../components/sickw/SickwDeviceCheck';
@@ -160,6 +161,19 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
     return Number(device?.estimated_price || 0);
   };
 
+  // Per-model liquidity multiplier — MUST mirror the customer quote
+  // (SellPageClient), internal QC (InternalQCModal) and the server
+  // (validateAndCreateOrder) so admin-inspection deductions don't diverge from
+  // what the customer was shown. <1 = high-demand model, deduct less.
+  const getLiquidityFactor = (device: any): number => {
+    const baseModelName = (device?.model || '').split(' (')[0].trim();
+    const targetModel = modelsData.find(
+      (m: any) => m.name === device?.model || m.name === baseModelName || (device?.model || '').includes(m.name),
+    );
+    const lf = Number(targetModel?.liquidityFactor);
+    return lf > 0 ? lf : 1;
+  };
+
   const handleSlotCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -209,13 +223,11 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
     if (activeDevice.isNewDevice) {
       deductionLabels.push('[สภาพสินค้า] เครื่องใหม่มือ 1 (ตรวจสอบซีลและกล่องสมบูรณ์)');
     } else {
+      const lf = getLiquidityFactor(activeDevice);
       activeChecklist.forEach((group: any) => {
         group.options?.forEach((opt: any) => {
           if (checks.includes(opt.id)) {
-            let deductAmount = 0;
-            if (startingPrice >= 30000) deductAmount = Number(opt.t1 || 0);
-            else if (startingPrice >= 15000 && startingPrice < 30000) deductAmount = Number(opt.t2 || 0);
-            else deductAmount = Number(opt.t3 || 0);
+            const deductAmount = resolveOptionDeduction(opt, startingPrice, lf);
             totalDeduction += deductAmount;
             deductionLabels.push(deductAmount > 0
               ? `[${group.title}] ${opt.label} (-฿${deductAmount.toLocaleString()})`
@@ -272,7 +284,10 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         }
       }
 
-      const pickupFee = Number(job.pickup_fee || 0);
+      // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+      const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+      const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+      const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
       const couponValue = Number(job.applied_coupon?.value || job.applied_coupon?.actual_value || 0);
       const newNetPayout = Math.max(0, jobTotalDevicePrice - pickupFee + couponValue);
 
@@ -547,10 +562,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                           const currentDevice = devicesList[activeDeviceIndex];
                           const startingPrice = getBasePrice(currentDevice);
 
-                          let displayDeduct = 0;
-                          if (startingPrice >= 30000) displayDeduct = Number(opt.t1 || 0);
-                          else if (startingPrice >= 15000 && startingPrice < 30000) displayDeduct = Number(opt.t2 || 0);
-                          else displayDeduct = Number(opt.t3 || 0);
+                          const displayDeduct = resolveOptionDeduction(opt, startingPrice, getLiquidityFactor(currentDevice));
 
                           return (
                             <button

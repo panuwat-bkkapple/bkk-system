@@ -208,15 +208,13 @@ export const MobileTicketDetail = () => {
     (!job.rider_fee || Number(job.rider_fee) <= 0) &&
     ['sent to qc lab', 'in stock'].includes((job.status || '').toLowerCase());
   const basePrice = Number(job.final_price || job.price || 0);
-  const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
-  // pickup_fee is GROSS; a rider-fee promo lets the customer pay only the
-  // effective fee (company absorbs the discount). net_payout must use
-  // effectivePickupFee or admin under-pays by the discount.
-  const riderFeeDiscount = job.receive_method === 'Pickup' ? Math.max(0, Number(job.rider_fee_discount || 0)) : 0;
-  const effectivePickupFee = Math.max(0, pickupFee - riderFeeDiscount);
-  const riderPromoLabel = (job.applied_rider_promo?.name || job.applied_rider_promo?.code || '').trim();
+  // Effective pickup fee = gross fee minus the rider-fee discount the company
+  // absorbs (rider pay is untouched). See net_payout invariant in CLAUDE.md.
+  const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+  const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
   const couponValue = Number(job.applied_coupon?.value || 0);
-  const netPayout = Math.max(0, basePrice - effectivePickupFee + couponValue);
+  const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
 
   // Pipeline progress
   // Use the FURTHEST step the job has ever reached (max from qc_logs +
@@ -460,14 +458,13 @@ export const MobileTicketDetail = () => {
 
       if (priceNum !== null) {
         const oldBasePrice = Number(job.final_price || job.price || 0);
-        const feeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
-        // Subtract the EFFECTIVE pickup fee (gross minus the absorbed
-        // rider-fee discount), matching the customer-facing net_payout.
-        const discountNum = job.receive_method === 'Pickup' ? Math.max(0, Number(job.rider_fee_discount || 0)) : 0;
-        const effFeeNum = Math.max(0, feeNum - discountNum);
+        // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+        const grossFeeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+        const riderDiscNum = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+        const feeNum = Math.max(0, grossFeeNum - riderDiscNum);
         const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
         payload.final_price = priceNum;
-        payload.net_payout = Math.max(0, priceNum - effFeeNum + couponNum);
+        payload.net_payout = Math.max(0, priceNum - feeNum + couponNum);
 
         if (Array.isArray(job.devices) && job.devices.length > 0) {
           const devs = [...job.devices];
@@ -623,18 +620,6 @@ export const MobileTicketDetail = () => {
                   <span className="text-slate-500">ค่าไรเดอร์</span>
                   <span className="font-bold text-red-500">-฿{pickupFee.toLocaleString()}</span>
                 </div>
-              )}
-              {riderFeeDiscount > 0 && (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">ส่วนลดค่าไรเดอร์{riderPromoLabel ? ` (${riderPromoLabel})` : ''}</span>
-                    <span className="font-bold text-emerald-500">+฿{riderFeeDiscount.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px] pl-2">
-                    <span className="text-slate-400">ค่าบริการรับเครื่องสุทธิ</span>
-                    <span className="font-bold text-slate-500">{effectivePickupFee === 0 ? 'ฟรี' : `-฿${effectivePickupFee.toLocaleString()}`}</span>
-                  </div>
-                </>
               )}
               {couponValue > 0 && (
                 <div className="flex justify-between text-sm">

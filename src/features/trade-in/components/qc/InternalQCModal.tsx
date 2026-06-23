@@ -8,6 +8,7 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../../../api/firebase';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { formatCurrency } from '../../../../utils/formatters';
+import { resolveOptionDeduction } from '../../../../utils/pricingResolver';
 import { useToast } from '../../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck';
 import { SickwGateBanner } from '../../../../components/sickw/SickwGateBanner';
@@ -93,13 +94,8 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                     // customer quote (SellPageClient) and the server
                     // (validateAndCreateOrder) so QC deductions don't
                     // diverge from what the customer was shown.
-                    const lf = Number(targetModel?.liquidityFactor) > 0 ? Number(targetModel.liquidityFactor) : 1;
-                    const pickTier = (opt: any): number => {
-                        const base = tierBase >= 30000 ? Number(opt.t1 || 0)
-                            : tierBase >= 15000 ? Number(opt.t2 || 0)
-                            : Number(opt.t3 || 0);
-                        return Math.round(base * lf);
-                    };
+                    const lf = targetModel?.liquidityFactor;
+                    const pickTier = (opt: any): number => resolveOptionDeduction(opt, tierBase, lf);
                     return matchedSet.groups
                         .filter((g: any) => g && g.options && Array.isArray(g.options) && g.options.length > 0)
                         .map((group: any) => ({
@@ -262,14 +258,12 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             totalFinalPrice = Math.round(totalFinalPrice);
 
             // Sync net_payout ให้ตรงกับ final_price ใหม่ — กันค่าเก่าค้างใน DB ที่หน้า Finance จะไปหยิบไปแสดง
-            const pickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
-            // pickup_fee is GROSS; subtract only the EFFECTIVE fee (gross minus
-            // the absorbed rider-fee discount) so net_payout matches the
-            // customer-facing amount.
-            const riderFeeDiscount = job.receive_method === 'Pickup' ? Math.max(0, Number(job.rider_fee_discount || 0)) : 0;
-            const effectivePickupFee = Math.max(0, pickupFee - riderFeeDiscount);
+            // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+            const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+            const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+            const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
             const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - effectivePickupFee + couponValue));
+            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - pickupFee + couponValue));
 
             const updatePayload = {
                 status: 'QC Review',

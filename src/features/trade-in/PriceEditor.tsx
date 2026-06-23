@@ -1,21 +1,24 @@
 'use client';
 
 import { getAuth } from 'firebase/auth';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Smartphone, Tablet, Laptop, Watch, Camera,
-  Gamepad2, Search, PlusCircle, Settings, FolderTree, Layers
+  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid
 } from 'lucide-react';
-import { ref, push, update, remove, onValue } from 'firebase/database';
+import { ref, push, update, remove, onValue, get } from 'firebase/database';
 import { db, app } from '../../api/firebase';
 import toast from 'react-hot-toast';
 
-import { CATEGORY_SCHEMAS } from './constants/categorySchemas';
+import { CATEGORY_SCHEMAS, resolveCategorySchema } from './constants/categorySchemas';
+import { getCategoryIcon } from './constants/categoryIcons';
 import { EngineSettingsModal } from './modals/EngineSettingsModal';
 import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
+import { CategoryBrandManagementModal } from './modals/CategoryBrandManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { PriceListMobile } from './components/pricing/PriceListMobile';
+import { MobilePriceEditPage } from './components/pricing/MobilePriceEditPage';
 import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
 import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
@@ -29,23 +32,30 @@ export const PriceEditor = () => {
   const [modelsData, setModelsData] = useState<any[]>([]);
   const [conditionSets, setConditionSets] = useState<any[]>([]);
   const [coupons, setCoupons] = useState<any[]>([]);
+  const [categoriesData, setCategoriesData] = useState<any[]>([]);
+  const [brandsData, setBrandsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isMobileEditOpen, setIsMobileEditOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
   const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
   const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [batchAdjust, setBatchAdjust] = useState<{ seriesName: string; models: any[] } | null>(null);
 
-  const categories = [
-    { id: 'Smartphones', icon: <Smartphone size={18} /> },
-    { id: 'Tablets', icon: <Tablet size={18} /> },
-    { id: 'Mac / Laptop', icon: <Laptop size={18} /> },
-    { id: 'Smart Watch', icon: <Watch size={18} /> },
-    { id: 'Camera', icon: <Camera size={18} /> },
-    { id: 'Game System', icon: <Gamepad2 size={18} /> },
-  ];
-  const brands = ['All', 'Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
+  // Seed guards — ensure the idempotent default seeding only fires once per mount.
+  const seededCategoriesRef = useRef(false);
+  const seededBrandsRef = useRef(false);
+
+  // Category tabs + brand filter are now derived from Firebase-backed data.
+  const categories = [...categoriesData].sort(
+    (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+  );
+  const brands = ['All', ...[...brandsData]
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+    .map(b => b.name)];
 
   // --- ดึงข้อมูลจาก Firebase ---
   useEffect(() => {
@@ -109,7 +119,118 @@ export const PriceEditor = () => {
       }
     });
 
-    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); unsubCoupons(); };
+    // Product categories (admin-editable). Seed defaults once if the path is empty.
+    const categoriesRef = ref(db, 'product_categories');
+    const unsubCategories = onValue(categoriesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const formatted = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        formatted.sort((a, b) => {
+          const oa = Number(a.order) || 0;
+          const ob = Number(b.order) || 0;
+          if (oa !== ob) return oa - ob;
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        setCategoriesData(formatted);
+      } else {
+        setCategoriesData([]);
+        if (!seededCategoriesRef.current) {
+          seededCategoriesRef.current = true;
+          seedDefaultCategories();
+        }
+      }
+    });
+
+    // Product brands (admin-editable). Seed defaults once if the path is empty.
+    const brandsRef = ref(db, 'product_brands');
+    const unsubBrands = onValue(brandsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const formatted = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        formatted.sort((a, b) => {
+          const oa = Number(a.order) || 0;
+          const ob = Number(b.order) || 0;
+          if (oa !== ob) return oa - ob;
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        setBrandsData(formatted);
+      } else {
+        setBrandsData([]);
+        if (!seededBrandsRef.current) {
+          seededBrandsRef.current = true;
+          seedDefaultBrands();
+        }
+      }
+    });
+
+    return () => { unsubModels(); unsubConditions(); unsubSeries(); unsubSubcategories(); unsubCoupons(); unsubCategories(); unsubBrands(); };
+  }, []);
+
+  // Idempotent seed: only writes when the path is genuinely empty (double-checked
+  // with a one-shot get() to avoid racing the onValue snapshot).
+  const seedDefaultCategories = async () => {
+    try {
+      const snap = await get(ref(db, 'product_categories'));
+      if (snap.exists()) return;
+      // Camera / Game System seed as inactive ("Soon") to match the prior
+      // customer-facing behaviour; admins flip them on once models exist.
+      const defaults = [
+        { name: 'Smartphones', label_th: 'โทรศัพท์มือถือ', icon: 'smartphone', route: '/iphone', slug: 'smartphones', order: 1, active: true },
+        { name: 'Tablets', label_th: 'แท็บเล็ต', icon: 'tablet', route: '/ipad', slug: 'tablets', order: 2, active: true },
+        { name: 'Mac / Laptop', label_th: 'คอมพิวเตอร์ / Mac', icon: 'laptop', route: '/mac', slug: 'mac-laptop', order: 3, active: true },
+        { name: 'Smart Watch', label_th: 'สมาร์ทวอทช์', icon: 'watch', route: '/apple-watch', slug: 'smart-watch', order: 4, active: true },
+        { name: 'Camera', label_th: 'กล้องถ่ายรูป', icon: 'camera', route: '', slug: 'camera', order: 5, active: false },
+        { name: 'Game System', label_th: 'เครื่องเกมคอนโซล', icon: 'gamepad', route: '', slug: 'game-system', order: 6, active: false },
+      ];
+      await Promise.all(defaults.map(d => {
+        const newRef = push(ref(db, 'product_categories'));
+        return update(newRef, {
+          name: d.name,
+          label_th: d.label_th,
+          icon: d.icon,
+          route: d.route,
+          slug: d.slug,
+          order: d.order,
+          active: d.active,
+          schema: CATEGORY_SCHEMAS[d.name] || [],
+        });
+      }));
+    } catch {
+      seededCategoriesRef.current = false;
+    }
+  };
+
+  const seedDefaultBrands = async () => {
+    try {
+      const snap = await get(ref(db, 'product_brands'));
+      if (snap.exists()) return;
+      const defaults = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
+      await Promise.all(defaults.map((name, idx) => {
+        const newRef = push(ref(db, 'product_brands'));
+        return update(newRef, { name, order: idx + 1, active: true });
+      }));
+    } catch {
+      seededBrandsRef.current = false;
+    }
+  };
+
+  // Once categories load, make sure the active tab points at a real category.
+  useEffect(() => {
+    if (categories.length === 0) return;
+    if (!categories.some(c => c.name === activeCategory)) {
+      setActiveCategory(categories[0].name);
+    }
+  }, [categoriesData]);
+
+  // Breakpoint matches the list view swap (`lg` = 1024px): below it we use the
+  // mobile card list + full-screen edit page; at/above it the desktop table + modal.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
   }, []);
 
   const handleSaveModel = async () => {
@@ -120,7 +241,7 @@ export const PriceEditor = () => {
       const auth = getAuth(app);
       const adminUser = auth.currentUser?.email || 'System Admin';
       const originalModel = modelsData.find(m => m.id === editingItem.id);
-      const schema = editingItem.attributesSchema || CATEGORY_SCHEMAS[editingItem.category] || CATEGORY_SCHEMAS['Smartphones'];
+      const schema = editingItem.attributesSchema || resolveCategorySchema(editingItem.category, categoriesData);
       const pricingMode = editingItem.pricingMode || 'legacy';
 
       let processedVariants: any[];
@@ -217,6 +338,7 @@ export const PriceEditor = () => {
       }
 
       setIsModalOpen(false);
+      setIsMobileEditOpen(false);
       toast.success('บันทึกข้อมูลและโครงสร้างใหม่เรียบร้อยครับ! 🚀');
     } catch (error) {
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ');
@@ -226,6 +348,31 @@ export const PriceEditor = () => {
   const handleDeleteModel = async (id: string) => { if (confirm('ยืนยันการลบรุ่นสินค้านี้ใช่หรือไม่?')) await remove(ref(db, `models/${id}`)); };
   const handleToggleStatus = async (item: any) => { await update(ref(db, `models/${item.id}`), { isActive: !item.isActive }); };
   const handleToggleFeatured = async (item: any) => { await update(ref(db, `models/${item.id}`), { isFeatured: !item.isFeatured }); };
+
+  // Schema-driven auto-migration. Legacy variants store the combined attribute
+  // string in `v.name` joined by '|'. We resolve the (admin-editable) schema for
+  // the category and assign each pipe-separated part to schema[i].key in order.
+  // Fallback when no schema: a single `storage` key. Shared by clone + edit so
+  // there is one migration path.
+  const migrateVariantsToSchema = (obj: any) => {
+    const schema = obj.attributesSchema || resolveCategorySchema(obj.category, categoriesData);
+    obj.attributesSchema = schema;
+    obj.variants = (obj.variants || []).map((v: any) => {
+      if (!v.attributes) {
+        v.attributes = {};
+        const parts = (v.name || '').split('|').map((s: string) => s.trim());
+        if (Array.isArray(schema) && schema.length > 0) {
+          schema.forEach((attr: any, i: number) => {
+            v.attributes[attr.key] = parts[i] || '';
+          });
+        } else {
+          v.attributes.storage = parts[0] || v.name || '';
+        }
+      }
+      return v;
+    });
+    return obj;
+  };
 
   const handleDuplicateModel = (item: any) => {
     const cloned = JSON.parse(JSON.stringify(item));
@@ -240,92 +387,49 @@ export const PriceEditor = () => {
       id: `v${idx + 1}`,
     }));
 
-    // Auto-migration for attributes (same logic as edit)
-    const schema = cloned.attributesSchema || CATEGORY_SCHEMAS[cloned.category] || CATEGORY_SCHEMAS['Smartphones'];
-    cloned.attributesSchema = schema;
-    cloned.variants = cloned.variants.map((v: any) => {
-      if (!v.attributes) {
-        v.attributes = {};
-        const parts = (v.name || '').split('|').map((s: string) => s.trim());
-        if (cloned.category === 'Mac / Laptop') {
-          v.attributes.processor = parts[0] || '';
-          v.attributes.ram = parts[1] || '';
-          v.attributes.storage = parts[2] || '';
-          v.attributes.display = parts[3] || '';
-        } else if (cloned.category === 'Tablets') {
-          v.attributes.connectivity = parts[0] || '';
-          v.attributes.storage = parts[1] || '';
-        } else if (cloned.category === 'Smart Watch') {
-          v.attributes.size = parts[0] || '';
-          v.attributes.case_material = parts[1] || '';
-          v.attributes.connectivity = parts[2] || '';
-        } else {
-          v.attributes.storage = parts[0] || v.name || '';
-        }
-      }
-      return v;
-    });
+    migrateVariantsToSchema(cloned);
 
     setEditingItem(cloned);
     setIsModalOpen(true);
     toast.success('สำเนาสินค้าเรียบร้อย กรุณาตรวจสอบและบันทึกครับ');
   };
 
-  const handleOpenModal = (item: any = null) => {
-    if (item) {
-      // Auto-Migration: ดึงข้อมูลเดิมมาหั่นเป็น Attributes ชั่วคราวถ้ายังไม่มี
-      const editingObj = JSON.parse(JSON.stringify(item));
-      const schema = editingObj.attributesSchema || CATEGORY_SCHEMAS[editingObj.category] || CATEGORY_SCHEMAS['Smartphones'];
+  // Auto-Migration: ดึงข้อมูลเดิมมาหั่นเป็น Attributes ชั่วคราวถ้ายังไม่มี
+  const migrateEditingItem = (item: any) => {
+    return migrateVariantsToSchema(JSON.parse(JSON.stringify(item)));
+  };
 
-      editingObj.attributesSchema = schema;
-      editingObj.variants = editingObj.variants.map((v: any) => {
-          if (!v.attributes) {
-              v.attributes = {};
-              const parts = (v.name || '').split('|').map((s: string) => s.trim());
-
-              if (editingObj.category === 'Mac / Laptop') {
-                  v.attributes.processor = parts[0] || '';
-                  v.attributes.ram = parts[1] || '';
-                  v.attributes.storage = parts[2] || '';
-                  v.attributes.display = parts[3] || '';
-              } else if (editingObj.category === 'Tablets') {
-                  v.attributes.connectivity = parts[0] || '';
-                  v.attributes.storage = parts[1] || '';
-              } else if (editingObj.category === 'Smart Watch') {
-                  v.attributes.size = parts[0] || '';
-                  v.attributes.case_material = parts[1] || '';
-                  v.attributes.connectivity = parts[2] || '';
-              } else {
-                  v.attributes.storage = parts[0] || v.name || '';
-              }
-          }
-          return v;
-      });
-      setEditingItem(editingObj);
-    } else {
-      // ของใหม่ → default เป็น modifier mode
-      const schema = CATEGORY_SCHEMAS[activeCategory] || CATEGORY_SCHEMAS['Smartphones'];
-      const initialModifiers: Record<string, { options: any[] }> = {};
-      for (const attr of schema) {
-        initialModifiers[attr.key] = { options: [] };
-      }
-      setEditingItem({
-        id: Date.now().toString(),
-        brand: activeBrand === 'All' ? 'Apple' : activeBrand,
-        category: activeCategory,
-        series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
-        maxPickupDistanceKm: 0,
-        conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
-        liquidityFactor: 1,
-        attributesSchema: schema,
-        pricingMode: 'modifier',
-        baseNewPrice: 0,
-        baseUsedPrice: 0,
-        attributeModifiers: initialModifiers,
-        variants: []
-      });
+  // ของใหม่ → default เป็น modifier mode
+  const buildNewModel = () => {
+    const schema = resolveCategorySchema(activeCategory, categoriesData);
+    const initialModifiers: Record<string, { options: any[] }> = {};
+    for (const attr of schema) {
+      initialModifiers[attr.key] = { options: [] };
     }
-    setIsModalOpen(true);
+    return {
+      id: Date.now().toString(),
+      brand: activeBrand === 'All' ? 'Apple' : activeBrand,
+      category: activeCategory,
+      series: '', name: '', imageUrl: '', isActive: true, isFeatured: false, inStore: true, pickup: true, mailIn: true,
+      maxPickupDistanceKm: 0,
+      conditionSetId: conditionSets.length > 0 ? conditionSets[0].id : '',
+      liquidityFactor: 1,
+      attributesSchema: schema,
+      pricingMode: 'modifier',
+      baseNewPrice: 0,
+      baseUsedPrice: 0,
+      attributeModifiers: initialModifiers,
+      variants: []
+    };
+  };
+
+  // Single entry point for add/edit — routes to the mobile full-screen page or
+  // the desktop modal based on the current breakpoint. Both views share the same
+  // editingItem state + handleSaveModel, so there is one data/save path.
+  const handleOpenModal = (item: any = null) => {
+    setEditingItem(item ? migrateEditingItem(item) : buildNewModel());
+    if (isMobile) setIsMobileEditOpen(true);
+    else setIsModalOpen(true);
   };
 
   const filteredModels = modelsData.filter(item => {
@@ -336,13 +440,13 @@ export const PriceEditor = () => {
   });
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto min-h-screen bg-slate-50/50">
+    <div className="h-full overflow-y-auto lg:h-auto lg:overflow-visible p-4 lg:p-6 max-w-[1600px] mx-auto lg:min-h-screen bg-slate-50/50">
 
       {/* --- Top Navigation --- */}
       <div className="bg-white rounded-t-2xl border-b border-slate-200 shadow-sm px-4 pt-4 flex gap-6 overflow-x-auto">
         {categories.map(cat => (
-          <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`flex items-center gap-2 pb-4 px-2 border-b-4 transition-all whitespace-nowrap ${activeCategory === cat.id ? 'border-blue-600 text-blue-600 font-black' : 'border-transparent text-slate-500 font-bold hover:text-slate-700'}`}>
-            {cat.icon} {cat.id}
+          <button key={cat.id} onClick={() => setActiveCategory(cat.name)} className={`flex items-center gap-2 pb-4 px-2 border-b-4 transition-all whitespace-nowrap ${activeCategory === cat.name ? 'border-blue-600 text-blue-600 font-black' : 'border-transparent text-slate-500 font-bold hover:text-slate-700'}`}>
+            {getCategoryIcon(cat.icon)} {cat.name}
           </button>
         ))}
       </div>
@@ -363,6 +467,7 @@ export const PriceEditor = () => {
         </div>
         <div className="flex gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
           <button onClick={() => setIsEngineModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Settings size={18} className="text-indigo-500" /> Engine Settings</button>
+          <button onClick={() => setIsCategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><LayoutGrid size={18} className="text-emerald-500" /> Manage Categories</button>
           <button onClick={() => setIsSubcategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Layers size={18} className="text-violet-500" /> Subcategories</button>
           <button onClick={() => setIsSeriesModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><FolderTree size={18} className="text-blue-500" /> Manage Series</button>
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
@@ -378,19 +483,32 @@ export const PriceEditor = () => {
         }}
       />
 
-      {/* --- Main Table --- */}
-      <ModelsTable
-        models={filteredModels}
-        conditionSets={conditionSets}
-        coupons={coupons}
-        loading={loading}
-        onEdit={handleOpenModal}
-        onDelete={handleDeleteModel}
-        onDuplicate={handleDuplicateModel}
-        onToggleStatus={handleToggleStatus}
-        onToggleFeatured={handleToggleFeatured}
-        onBatchAdjust={(seriesName, models) => setBatchAdjust({ seriesName, models })}
-      />
+      {/* --- Main List: table on desktop, full-width cards on mobile --- */}
+      <div className="hidden lg:block">
+        <ModelsTable
+          models={filteredModels}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          loading={loading}
+          onEdit={handleOpenModal}
+          onDelete={handleDeleteModel}
+          onDuplicate={handleDuplicateModel}
+          onToggleStatus={handleToggleStatus}
+          onToggleFeatured={handleToggleFeatured}
+          onBatchAdjust={(seriesName, models) => setBatchAdjust({ seriesName, models })}
+        />
+      </div>
+      <div className="lg:hidden">
+        <PriceListMobile
+          models={filteredModels}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          loading={loading}
+          onEdit={handleOpenModal}
+          onToggleStatus={handleToggleStatus}
+          onToggleFeatured={handleToggleFeatured}
+        />
+      </div>
 
       <EngineSettingsModal
         conditionSets={conditionSets}
@@ -401,6 +519,8 @@ export const PriceEditor = () => {
       <SubcategoryManagementModal
         subcategories={subcategories}
         availableSeries={availableSeries}
+        categories={categoriesData}
+        brands={brandsData}
         isOpen={isSubcategoryModalOpen}
         onClose={() => setIsSubcategoryModalOpen(false)}
       />
@@ -409,8 +529,18 @@ export const PriceEditor = () => {
         availableSeries={availableSeries}
         subcategories={subcategories}
         modelsData={modelsData}
+        categories={categoriesData}
+        brands={brandsData}
         isOpen={isSeriesModalOpen}
         onClose={() => setIsSeriesModalOpen(false)}
+      />
+
+      <CategoryBrandManagementModal
+        categories={categoriesData}
+        brands={brandsData}
+        modelsData={modelsData}
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
       />
 
       <ProductEditorModal
@@ -419,10 +549,27 @@ export const PriceEditor = () => {
         editingItem={editingItem}
         conditionSets={conditionSets}
         availableSeries={availableSeries}
+        categories={categoriesData}
+        brands={brandsData}
         categorySchemas={CATEGORY_SCHEMAS}
         onSave={handleSaveModel}
         onEditingItemChange={setEditingItem}
       />
+
+      {/* Mobile full-screen price editor — shares editingItem state + handleSaveModel */}
+      {isMobileEditOpen && (
+        <MobilePriceEditPage
+          editingItem={editingItem}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          availableSeries={availableSeries}
+          categories={categoriesData}
+          brands={brandsData}
+          onSave={handleSaveModel}
+          onEditingItemChange={setEditingItem}
+          onClose={() => setIsMobileEditOpen(false)}
+        />
+      )}
 
       <BatchPriceAdjustModal
         isOpen={!!batchAdjust}

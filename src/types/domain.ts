@@ -365,8 +365,21 @@ export interface Job {
   // การรับสินค้า
   /** วิธีการรับสินค้า */
   receive_method: ReceiveMethod;
-  /** ค่าบริการรับสินค้า (บาท) */
+  /** ค่าบริการรับสินค้า — ยอดเต็ม (gross) ที่หักจากลูกค้า (บาท) */
   pickup_fee?: number;
+  /** ส่วนลดค่าไรเดอร์ที่บริษัทรับภาระ — หัก pickup_fee (ไม่แตะค่าจ้างไรเดอร์).
+   *  effective_pickup_fee = max(0, pickup_fee - rider_fee_discount). */
+  rider_fee_discount?: number;
+  /** snapshot โปรโมชั่นค่าไรเดอร์ที่ใช้ (ไว้แสดง/ตรวจสอบ ไม่ใช้ตัดสิน eligibility) */
+  applied_rider_promo?: {
+    promo_id: string;
+    code: string;
+    name: string;
+    discount_type: string;
+    value: number;
+    max_discount: number;
+    applied_value: number;
+  } | null;
 
   // คูปอง & QC
   /** คูปองที่ใช้ */

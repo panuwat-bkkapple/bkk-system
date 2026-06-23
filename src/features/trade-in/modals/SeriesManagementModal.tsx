@@ -12,21 +12,15 @@ interface SeriesManagementModalProps {
   availableSeries: any[];
   subcategories: any[];
   modelsData: any[];
+  categories: any[];
+  brands: any[];
   isOpen: boolean;
   onClose: () => void;
 }
 
-const categories = [
-  { id: 'Smartphones' },
-  { id: 'Tablets' },
-  { id: 'Mac / Laptop' },
-  { id: 'Smart Watch' },
-  { id: 'Camera' },
-  { id: 'Game System' },
-];
-const brands = ['Apple', 'Samsung', 'Google', 'Oppo', 'Vivo', 'Sony', 'Nintendo'];
-
-export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ availableSeries, subcategories, modelsData, isOpen, onClose }) => {
+export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ availableSeries, subcategories, modelsData, categories, brands, isOpen, onClose }) => {
+  const defaultBrand = brands[0]?.name || 'Apple';
+  const defaultCategory = categories[0]?.name || 'Tablets';
   const [activeSeriesId, setActiveSeriesId] = useState<string | null>(availableSeries.length > 0 ? availableSeries[0].id : null);
   const [editingSeries, setEditingSeries] = useState<any>(null);
 
@@ -44,8 +38,8 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
       const newRef = push(ref(db, 'series'));
       await update(newRef, {
         name: 'New Series',
-        brand: 'Apple',
-        category: 'Tablets',
+        brand: defaultBrand,
+        category: defaultCategory,
         imageUrl: '',
         subcategory: ''
       });
@@ -66,8 +60,8 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
 
       await update(ref(db, `series/${editingSeries.id}`), {
         name: editingSeries.name,
-        brand: editingSeries.brand || 'Apple',
-        category: editingSeries.category || 'Tablets',
+        brand: editingSeries.brand || defaultBrand,
+        category: editingSeries.category || defaultCategory,
         imageUrl: editingSeries.imageUrl || '',
         subcategory: editingSeries.subcategory || '',
         subcategoryImageUrl
@@ -172,13 +166,13 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Brand</label>
                           <select value={editingSeries.brand} onChange={e => setEditingSeries({ ...editingSeries, brand: e.target.value, subcategory: '' })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                            {brands.map(b => <option key={b.id || b.name} value={b.name}>{b.name}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 block mb-1">Category</label>
                           <select value={editingSeries.category} onChange={e => setEditingSeries({ ...editingSeries, category: e.target.value, subcategory: '' })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold outline-none">
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                            {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                           </select>
                         </div>
                       </div>

@@ -55,12 +55,8 @@ export const B2CWorkspace = ({
   // 🌟 เพิ่มตัวแปรสำหรับดักสถานะ "รอโอนเงิน"
   const isProcessingPayment = ['payout processing', 'waiting for finance', 'price accepted'].includes(statusLower);
 
-  const pickupFee = Number(job?.pickup_fee || 0);
-  // pickup_fee is GROSS; a rider-fee promo means the customer pays only the
-  // effective fee (company absorbs the discount). net_payout uses effective.
-  const riderFeeDiscount = Math.max(0, Number(job?.rider_fee_discount || 0));
-  const effectivePickupFee = Math.max(0, pickupFee - riderFeeDiscount);
-  const riderPromoLabel = (job?.applied_rider_promo?.name || job?.applied_rider_promo?.code || '').trim();
+  // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+  const pickupFee = Math.max(0, Number(job?.pickup_fee || 0) - Number(job?.rider_fee_discount || 0));
   const originalPrice = Number(job?.original_price || job?.price || 0);
   const couponValue = Number(job?.applied_coupon?.actual_value || job?.applied_coupon?.value || 0);
   const displayNetPayout = job?.revised_price || job?.negotiated_price || job?.net_payout || job?.final_price || job?.price || 0;
@@ -91,8 +87,8 @@ export const B2CWorkspace = ({
     
     // ดึงราคาเครื่องปัจจุบันมาเป็นฐาน (ห้ามใช้ displayNetPayout เพราะมันอาจโดนหักค่ารถไปแล้ว)
     const currentBasePrice = Number(job?.final_price || job?.price || 0);
-    // คำนวณยอดโอนใหม่ (ราคาเครื่อง - ค่ารถสุทธิ + คูปองใหม่) และป้องกันติดลบ
-    const newNetPayout = Math.max(0, currentBasePrice - effectivePickupFee + val);
+    // คำนวณยอดโอนใหม่ (ราคาเครื่อง - ค่ารถ + คูปองใหม่) และป้องกันติดลบ
+    const newNetPayout = Math.max(0, currentBasePrice - pickupFee + val);
 
     onUpdateStatus(
       job.id, 
@@ -111,7 +107,7 @@ export const B2CWorkspace = ({
   const handleRemoveCoupon = () => {
     if (confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) {
       const currentBasePrice = Number(job?.final_price || job?.price || 0);
-      const newNetPayout = Math.max(0, currentBasePrice - effectivePickupFee); // 🛡️ ใส่ Math.max ป้องกันติดลบ
+      const newNetPayout = Math.max(0, currentBasePrice - pickupFee); // 🛡️ ใส่ Math.max ป้องกันติดลบ
 
       onUpdateStatus(
         job.id, 
@@ -418,18 +414,6 @@ export const B2CWorkspace = ({
                      <span>หักค่าบริการไรเดอร์</span>
                      <span>- ฿{formatCurrency(pickupFee)}</span>
                    </div>
-                 )}
-                 {riderFeeDiscount > 0 && (
-                   <>
-                     <div className="flex justify-between text-emerald-400">
-                       <span>ส่วนลดค่าไรเดอร์{riderPromoLabel ? ` (${riderPromoLabel})` : ''}</span>
-                       <span>+ ฿{formatCurrency(riderFeeDiscount)}</span>
-                     </div>
-                     <div className="flex justify-between text-slate-400 normal-case">
-                       <span>ค่าบริการรับเครื่องสุทธิ</span>
-                       <span>{effectivePickupFee === 0 ? 'ฟรี' : `- ฿${formatCurrency(effectivePickupFee)}`}</span>
-                     </div>
-                   </>
                  )}
                  {couponValue > 0 && (
                    <div className="flex justify-between text-emerald-400">

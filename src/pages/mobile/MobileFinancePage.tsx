@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../utils/formatters';
@@ -40,11 +41,23 @@ export const MobileFinancePage = () => {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // ล็อก scroll พื้นหลังตอนเปิดโมดอล — กันบั๊ก iOS PWA ที่ touch ของ fixed overlay
+  // desync กับตำแหน่งที่วาดเมื่อพื้นหลัง (list) ถูกเลื่อน
+  useEffect(() => {
+    if (!selectedTx) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [selectedTx]);
+
   // คำนวณยอดโอนสุทธิจาก final_price ทุกครั้ง — ไม่ใช้ net_payout ที่เก็บใน DB เพราะบาง path
   // (เช่น Internal QC เก่า) อัปเดต final_price โดยไม่ sync net_payout ทำให้ค่าค้าง
   const getNetPayout = (tx: any) => {
     const base = Number(tx.final_price || tx.price || 0);
-    const pickupFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
+    // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
+    const grossFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
+    const riderFeeDiscount = tx.receive_method === 'Pickup' ? Number(tx.rider_fee_discount || 0) : 0;
+    const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
     const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
     return Math.max(0, base - pickupFee + coupon);
   };
@@ -319,10 +332,17 @@ export const MobileFinancePage = () => {
         )}
       </div>
 
-      {/* Transfer Modal */}
-      {selectedTx && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-end justify-center animate-in fade-in">
-          <div className="bg-white rounded-t-[2rem] w-full max-w-lg shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[90vh] overflow-y-auto safe-bottom">
+      {/* Transfer Modal — render ผ่าน portal ไปที่ document.body เพื่อหลุดจาก
+          ancestor ที่เป็น overflow-hidden/scroll ของ MobileLayout มิฉะนั้นบน iOS PWA
+          hit-region ของ fixed overlay จะถูก clip/offset จนกดอะไรไม่ติด */}
+      {selectedTx && createPortal(
+        <div
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-end justify-center animate-in fade-in"
+          onClick={() => { if (!isUploading) setSelectedTx(null); }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-t-[2rem] w-full max-w-lg shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[90vh] overflow-y-auto safe-bottom">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white rounded-t-[2rem] z-10">
               <div>
@@ -432,7 +452,8 @@ export const MobileFinancePage = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

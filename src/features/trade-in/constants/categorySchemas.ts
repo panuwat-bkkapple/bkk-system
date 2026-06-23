@@ -1,5 +1,13 @@
 // SCHEMA มาตรฐานระดับ ENTERPRISE
-export const CATEGORY_SCHEMAS: Record<string, {key: string, label: string, type: string, options?: string[]}[]> = {
+
+export type AttributeSchemaItem = {
+  key: string;
+  label: string;
+  type: 'text' | 'select';
+  options?: string[];
+};
+
+export const CATEGORY_SCHEMAS: Record<string, AttributeSchemaItem[]> = {
   'Smartphones': [
     { key: 'storage', label: 'Storage (ความจุ)', type: 'text' }
   ],
@@ -25,3 +33,17 @@ export const CATEGORY_SCHEMAS: Record<string, {key: string, label: string, type:
     { key: 'storage', label: 'Storage / Edition', type: 'text' }
   ]
 };
+
+// Resolve the attribute schema for a category name. Prefers the admin-editable
+// schema stored on the /product_categories record; falls back to the hardcoded
+// CATEGORY_SCHEMAS default, then to the Smartphones default as a last resort.
+export function resolveCategorySchema(categoryName: string, categories: any[]): AttributeSchemaItem[] {
+  const record = (categories || []).find((c: any) => c?.name === categoryName);
+  if (record && Array.isArray(record.schema) && record.schema.length > 0) {
+    return record.schema as AttributeSchemaItem[];
+  }
+  if (CATEGORY_SCHEMAS[categoryName]) {
+    return CATEGORY_SCHEMAS[categoryName];
+  }
+  return CATEGORY_SCHEMAS['Smartphones'];
+}
