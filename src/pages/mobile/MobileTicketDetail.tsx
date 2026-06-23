@@ -615,11 +615,26 @@ export const MobileTicketDetail = () => {
                 <span className="text-slate-500">ราคาเครื่อง</span>
                 <span className="font-bold text-slate-800">฿{basePrice.toLocaleString()}</span>
               </div>
-              {pickupFee > 0 && (
+              {grossPickupFee > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">ค่าไรเดอร์</span>
-                  <span className="font-bold text-red-500">-฿{pickupFee.toLocaleString()}</span>
+                  <span className="font-bold text-red-500">-฿{grossPickupFee.toLocaleString()}</span>
                 </div>
+              )}
+              {/* Rider-fee discount the company absorbed (promo). Show it +
+                  the net so a fully-waived fee (effective 0) isn't invisible
+                  — the gross row above otherwise reconciles to nothing. */}
+              {riderFeeDiscount > 0 && (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">ส่วนลดค่าไรเดอร์{(job.applied_rider_promo?.name || job.applied_rider_promo?.code) ? ` (${job.applied_rider_promo.name || job.applied_rider_promo.code})` : ''}</span>
+                    <span className="font-bold text-emerald-500">+฿{riderFeeDiscount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] pl-2">
+                    <span className="text-slate-400">ค่าบริการรับเครื่องสุทธิ</span>
+                    <span className="font-bold text-slate-500">{pickupFee === 0 ? 'ฟรี' : `-฿${pickupFee.toLocaleString()}`}</span>
+                  </div>
+                </>
               )}
               {couponValue > 0 && (
                 <div className="flex justify-between text-sm">
