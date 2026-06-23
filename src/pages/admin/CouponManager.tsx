@@ -192,6 +192,9 @@ export const CouponManager = () => {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
+    // Global policy: require login before a "new customer only" coupon can be
+    // used (settings/coupons/require_login_for_new_customer). Default off.
+    const [requireLoginNewCustomer, setRequireLoginNewCustomer] = useState(false);
 
     useEffect(() => {
         // 🌟 โหลดข้อมูลคูปอง
@@ -230,7 +233,13 @@ export const CouponManager = () => {
             }
         });
 
-        return () => { unsubCoupons(); unsubModels(); unsubSeries(); };
+        // นโยบายบังคับ login สำหรับคูปองลูกค้าใหม่
+        const reqLoginRef = ref(db, 'settings/coupons/require_login_for_new_customer');
+        const unsubReqLogin = onValue(reqLoginRef, (snap) => {
+            setRequireLoginNewCustomer(snap.val() === true);
+        });
+
+        return () => { unsubCoupons(); unsubModels(); unsubSeries(); unsubReqLogin(); };
     }, []);
 
     const handleOpenModal = (item: any = null) => {
@@ -243,6 +252,7 @@ export const CouponManager = () => {
                 start_date: '', end_date: '',
                 total_limit: 100, used_count: 0,
                 is_active: true, show_on_homepage: true,
+                new_customer_only: false, // ใช้ได้เฉพาะลูกค้าใหม่ (เช็คฝั่ง server ด้วย uid/เบอร์)
                 applicable_models: [], // 🌟 [] = ใช้ได้ทุกรุ่น, ถ้าระบุ ID จะใช้ได้เฉพาะรุ่นนั้นๆ
                 excluded_models: [] // 🌟 รุ่นที่ "ไม่ร่วมรายการ" — exclude ชนะ include เสมอ
             });
@@ -299,6 +309,16 @@ export const CouponManager = () => {
         }
     };
 
+    const handleToggleRequireLogin = async () => {
+        const next = !requireLoginNewCustomer;
+        try {
+            await update(ref(db, 'settings/coupons'), { require_login_for_new_customer: next });
+            toast.success(next ? 'เปิดบังคับเข้าสู่ระบบสำหรับคูปองลูกค้าใหม่' : 'ปิดบังคับเข้าสู่ระบบ');
+        } catch (error) {
+            toast.error('บันทึกการตั้งค่าไม่สำเร็จ');
+        }
+    };
+
     const filteredCoupons = coupons.filter(c =>
         c.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -335,6 +355,17 @@ export const CouponManager = () => {
                     <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center"><Zap size={24} /></div>
                     <div><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Homepage Featured</p><p className="text-2xl font-black text-slate-800">{coupons.filter(c => c.show_on_homepage && c.is_active).length}</p></div>
                 </div>
+            </div>
+
+            {/* นโยบายคูปองลูกค้าใหม่ */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between gap-4 mb-6">
+                <div>
+                    <p className="text-sm font-black text-slate-800">บังคับเข้าสู่ระบบสำหรับคูปอง "เฉพาะลูกค้าใหม่"</p>
+                    <p className="text-[11px] font-bold text-slate-400 mt-1">เปิด = ลูกค้าต้องเข้าสู่ระบบก่อนใช้คูปองลูกค้าใหม่ (กันกรอกเบอร์มั่ว) · ปิด = ตรวจด้วยเบอร์/uid เฉยๆ</p>
+                </div>
+                <button onClick={handleToggleRequireLogin} aria-label="สลับบังคับเข้าสู่ระบบ" className={`relative w-14 h-8 rounded-full transition-colors shrink-0 ${requireLoginNewCustomer ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                    <span className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${requireLoginNewCustomer ? 'translate-x-6' : ''}`} />
+                </button>
             </div>
 
             {/* 🔍 Search Bar */}
@@ -453,6 +484,14 @@ export const CouponManager = () => {
                                             <p className="text-[10px] font-bold text-blue-500 mt-1">ให้ลูกค้ากด "เก็บคูปอง" สไตล์ Trip.com ได้เลย</p>
                                         </div>
                                         <input type="checkbox" checked={editingItem.show_on_homepage} readOnly className="w-5 h-5 rounded text-blue-600 pointer-events-none" />
+                                    </div>
+
+                                    <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-emerald-50 transition" onClick={() => setEditingItem({ ...editingItem, new_customer_only: !editingItem.new_customer_only })}>
+                                        <div>
+                                            <p className="text-sm font-black text-emerald-900">เฉพาะลูกค้าใหม่</p>
+                                            <p className="text-[10px] font-bold text-emerald-600 mt-1">ใช้ได้เฉพาะคนที่ไม่เคยมีออเดอร์ — ตรวจฝั่ง server ด้วย uid/เบอร์</p>
+                                        </div>
+                                        <input type="checkbox" checked={!!editingItem.new_customer_only} readOnly className="w-5 h-5 rounded text-emerald-600 pointer-events-none" />
                                     </div>
                                 </div>
 
