@@ -56,7 +56,10 @@ export const B2CWorkspace = ({
   const isProcessingPayment = ['payout processing', 'waiting for finance', 'price accepted'].includes(statusLower);
 
   // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
-  const pickupFee = Math.max(0, Number(job?.pickup_fee || 0) - Number(job?.rider_fee_discount || 0));
+  const grossPickupFee = Number(job?.pickup_fee || 0);
+  const riderFeeDiscount = Number(job?.rider_fee_discount || 0);
+  const riderPromoLabel = (job?.applied_rider_promo?.name || job?.applied_rider_promo?.code || '').trim();
+  const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
   const originalPrice = Number(job?.original_price || job?.price || 0);
   const couponValue = Number(job?.applied_coupon?.actual_value || job?.applied_coupon?.value || 0);
   const displayNetPayout = job?.revised_price || job?.negotiated_price || job?.net_payout || job?.final_price || job?.price || 0;
@@ -409,11 +412,23 @@ export const B2CWorkspace = ({
                      <span className="text-white">฿{formatCurrency(originalPrice)}</span>
                    </div>
                  )}
-                 {pickupFee > 0 && (
+                 {grossPickupFee > 0 && (
                    <div className="flex justify-between text-red-400">
                      <span>หักค่าบริการไรเดอร์</span>
-                     <span>- ฿{formatCurrency(pickupFee)}</span>
+                     <span>- ฿{formatCurrency(grossPickupFee)}</span>
                    </div>
+                 )}
+                 {riderFeeDiscount > 0 && (
+                   <>
+                     <div className="flex justify-between text-emerald-400">
+                       <span>ส่วนลดค่าไรเดอร์{riderPromoLabel ? ` (${riderPromoLabel})` : ''}</span>
+                       <span>+ ฿{formatCurrency(riderFeeDiscount)}</span>
+                     </div>
+                     <div className="flex justify-between text-slate-400 normal-case">
+                       <span>ค่าบริการรับเครื่องสุทธิ</span>
+                       <span>{pickupFee === 0 ? 'ฟรี' : `- ฿${formatCurrency(pickupFee)}`}</span>
+                     </div>
+                   </>
                  )}
                  {couponValue > 0 && (
                    <div className="flex justify-between text-emerald-400">

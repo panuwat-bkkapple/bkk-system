@@ -96,6 +96,12 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
     isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
+  // Rider-fee discount breakdown. `pickupFee` from pricing is the EFFECTIVE
+  // fee (gross minus the absorbed promo); read the gross + discount straight
+  // from the job so a fully-waived fee still shows what happened.
+  const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
+  const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
+  const riderPromoLabel = (job.applied_rider_promo?.name || job.applied_rider_promo?.code || '').trim();
 
   const reopenDaysLeft = reopenDeadline
     ? Math.max(0, Math.ceil((reopenDeadline - Date.now()) / (24 * 60 * 60 * 1000)))
@@ -227,11 +233,27 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               <span>{formatCurrency(basePrice)}</span>
             </div>
 
-            {job.receive_method === 'Pickup' && pickupFee > 0 && (
+            {job.receive_method === 'Pickup' && grossPickupFee > 0 && (
               <div className="flex justify-between items-center text-sm font-bold text-red-400">
                 <span>หักค่าบริการไรเดอร์ (Rider Fee)</span>
-                <span>- {formatCurrency(pickupFee)}</span>
+                <span>- {formatCurrency(grossPickupFee)}</span>
               </div>
+            )}
+
+            {job.receive_method === 'Pickup' && riderFeeDiscount > 0 && (
+              <>
+                <div className="flex justify-between items-center text-sm font-bold text-emerald-400">
+                  <span className="flex items-center gap-2">
+                    <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border border-emerald-500/30">โปรค่าไรเดอร์</span>
+                    <span className="text-xs">{riderPromoLabel || 'ส่วนลดค่าไรเดอร์'}</span>
+                  </span>
+                  <span>+ {formatCurrency(riderFeeDiscount)}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 pl-1">
+                  <span>ค่าบริการรับเครื่องสุทธิ (บริษัทออกส่วนต่าง)</span>
+                  <span>{pickupFee === 0 ? 'ฟรี' : `- ${formatCurrency(pickupFee)}`}</span>
+                </div>
+              </>
             )}
 
             {couponValue > 0 && (
