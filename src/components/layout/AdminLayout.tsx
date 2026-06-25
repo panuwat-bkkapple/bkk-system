@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike
+  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -159,6 +159,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
+                <NavButton collapsed={isCollapsed} to="/membership-settings" icon={<Gift size={18} />} label="สมาชิก & สิทธิพิเศษ" />
                 <NavButton collapsed={isCollapsed} to="/issued-coupons" icon={<Receipt size={18} />} label="คูปองที่ออกให้ (Reconcile)" />
                 <NavButton collapsed={isCollapsed} to="/rider-fee-promos" icon={<Bike size={18} />} label="โปรโมชั่นส่วนลดค่าไรเดอร์" />
                 <NavButton collapsed={isCollapsed} to="/issued-rider-fee-discounts" icon={<Receipt size={18} />} label="ส่วนลดค่าไรเดอร์ที่ออกให้ (Reconcile)" />
