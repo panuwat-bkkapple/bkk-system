@@ -17,9 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 20, NOT the runner default (22.23+). firebase-tools (run by
+      # action-hosting-deploy below) hits an undici "Premature close" on the
+      # Google OAuth token fetch on Node 22.23+, which surfaces as "Failed to
+      # authenticate" and blocks the deploy. Node 20's undici works. Do not bump
+      # without re-testing the deploy.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - run: npm ci
@@ -60,9 +65,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 20 -- same reason as the Hosting job above (firebase-tools undici
+      # "Premature close" on Node 22.23+).
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
           cache-dependency-path: functions/package-lock.json
 

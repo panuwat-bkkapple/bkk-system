@@ -20,9 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 20, NOT the runner default (22.23+): firebase-tools
+      # (action-hosting-deploy) hits an undici "Premature close" on the OAuth
+      # token fetch on Node 22.23+ -> "Failed to authenticate". Node 20 works.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - run: npm ci
