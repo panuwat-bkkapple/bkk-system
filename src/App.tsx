@@ -46,6 +46,7 @@ const RiderFeePromotions = lazy(() => import('./pages/admin/RiderFeePromotions')
 const IssuedRiderFeeDiscounts = lazy(() => import('./pages/admin/IssuedRiderFeeDiscounts').then(m => ({ default: m.IssuedRiderFeeDiscounts })));
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
 const AccountingSettings = lazy(() => import('./pages/admin/AccountingSettings'));
+const MembershipSettings = lazy(() => import('./pages/admin/MembershipSettings'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
 const FinancialReport = lazy(() => import('./pages/admin/FinancialReport'));
 const GeneralLedger = lazy(() => import('./pages/admin/GeneralLedger'));
@@ -197,6 +198,7 @@ export default function App() {
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
               <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
+              <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
               <Route path="/vat-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <VatReport /> : <Navigate to="/" replace />} />
               <Route path="/financial-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <FinancialReport /> : <Navigate to="/" replace />} />
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
