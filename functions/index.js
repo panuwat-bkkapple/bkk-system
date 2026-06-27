@@ -846,6 +846,13 @@ exports.onNewTicketCreated = onValueCreated(
   {
     ref: "/jobs/{jobId}",
     region: "asia-southeast1",
+    // Keep one instance always warm. Without this, the function scales to zero
+    // when idle and the FIRST order after a quiet spell pays a multi-second
+    // cold start before the admin push / Telegram alert goes out -- exactly the
+    // "notification arrived late" symptom. Admin alerting is latency-critical,
+    // so the cost of one resident instance is worth it (only the 3 notify
+    // triggers are warmed; background jobs stay scale-to-zero).
+    minInstances: 1,
   },
   async (event) => {
     try {
@@ -1460,6 +1467,9 @@ exports.onChatMessageCreated = onValueCreated(
   {
     ref: "/jobs/{jobId}/chats/{chatId}",
     region: "asia-southeast1",
+    // Warm — see onNewTicketCreated. Chat pushes are latency-critical too
+    // (admin/rider waiting on a live conversation), so avoid cold-start lag.
+    minInstances: 1,
   },
   async (event) => {
     const chat = event.data.val();
@@ -1803,6 +1813,10 @@ exports.onAdminJobStatusNotify = onValueUpdated(
   {
     ref: "/jobs/{jobId}/status",
     region: "asia-southeast1",
+    // Warm — see onNewTicketCreated. This is the status-change push (Cancelled,
+    // Returned, ...); cold start here is what made the "cancel notification
+    // arrived slowly" symptom.
+    minInstances: 1,
   },
   async (event) => {
     const before = event.data.before.val();
