@@ -2084,6 +2084,24 @@ exports.onPickupScheduleRescheduled = onValueUpdated(
 // Name must stay specific (not `onJobUpdated`) for the same {region}/{name}
 // namespace reason as the other triggers.
 // =============================================================================
+
+// Sum of admin/rider ad-hoc price adjustments that are currently APPLIED (a
+// negative amount deducts, positive adds). Proposals still `pending` or
+// `rejected` are ignored so they never move the payout until approved. Stored at
+// jobs/{id}/adjustments (array or push-keyed object). Mirrored verbatim in
+// bkk-frontend-next/functions/src/index.ts and the three clients — keep in sync.
+function sumAppliedAdjustments(job) {
+  const raw = job && job.adjustments;
+  const list = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === "object" ? Object.values(raw) : []);
+  return list.reduce((sum, a) => {
+    if (!a || a.status !== "applied") return sum;
+    const amt = Number(a.amount);
+    return Number.isFinite(amt) ? sum + amt : sum;
+  }, 0);
+}
+
 exports.onReceiveMethodChanged = onValueUpdated(
   {
     ref: "/jobs/{jobId}/receive_method",
@@ -2140,7 +2158,7 @@ exports.onReceiveMethodChanged = onValueUpdated(
       updates.pickup_fee = 0;
       updates.rider_fee_discount = 0;
       updates.applied_rider_promo = null;
-      updates.net_payout = Math.max(0, basePrice + coupon);
+      updates.net_payout = Math.max(0, basePrice + coupon + sumAppliedAdjustments(job));
       if (Number(job.rider_fee_discount || 0) > 0) {
         try {
           await db.ref(`issued_rider_fee_discounts/${jobId}`).update({
