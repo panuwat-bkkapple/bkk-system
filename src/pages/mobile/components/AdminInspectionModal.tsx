@@ -243,6 +243,20 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
     const slotPairs = SLOT_KEYS.map((k) => slotPhotos[k]).filter((p): p is SlotPhoto => p != null);
     const orderedPhotos = [...slotPairs, ...damagePhotos];
 
+    // Functional re-check (Phase 2): selected failBehavior:'reject' options gate
+    // the submit (see handleSubmitAll).
+    const functionalRejects: string[] = [];
+    if (!activeDevice.isNewDevice) {
+      activeChecklist.forEach((group: any) => {
+        if (group.kind !== 'functional') return;
+        group.options?.forEach((opt: any) => {
+          if (checks.includes(opt.id) && opt.failBehavior === 'reject') {
+            functionalRejects.push(`[${group.title}] ${opt.label}`);
+          }
+        });
+      });
+    }
+
     setInspectedDevicesData((prev) => ({
       ...prev,
       [activeDeviceIndex]: {
@@ -251,6 +265,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         photoFiles: orderedPhotos.map((p) => p.file),
         deductions: deductionLabels,
         final_price: finalPrice,
+        functional_rejects: functionalRejects,
       },
     }));
     setActiveDeviceIndex(null);
@@ -259,6 +274,15 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
   const handleSubmitAll = async () => {
     if (!auth.currentUser) {
       toast.error('กรุณา login ใหม่');
+      return;
+    }
+    // Functional re-check gate (Phase 2): block on a 'reject' working-check
+    // result unless explicitly overridden.
+    const fnRejectReasons = Object.values(inspectedDevicesData)
+      .flatMap((d: any) => Array.isArray(d?.functional_rejects) ? d.functional_rejects : []);
+    if (fnRejectReasons.length > 0 && !window.confirm(
+      `เครื่องไม่ผ่านการตรวจการทำงาน (ตั้งค่าเป็น "ปฏิเสธรับซื้อ"):\n${fnRejectReasons.join('\n')}\n\nปกติควรปฏิเสธ/ส่งคืน — หากยืนยันรับซื้อต่อ ให้กดตกลง`
+    )) {
       return;
     }
     setIsUploading(true);

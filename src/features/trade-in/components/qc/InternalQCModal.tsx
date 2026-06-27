@@ -102,10 +102,12 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                         .map((group: any) => ({
                             id: group.id || `g_${Math.random().toString(36).slice(2, 8)}`,
                             title: group.title || 'หัวข้อประเมิน',
+                            kind: group.kind || 'cosmetic',
                             options: group.options.map((opt: any, idx: number) => ({
                                 id: opt.id || `${group.id}_opt_${idx}`,
                                 label: opt.label || opt.name || 'ไม่มีชื่อตำหนิ',
                                 deduction: pickTier(opt),
+                                failBehavior: opt.failBehavior || null,
                             })),
                         }));
                 }
@@ -198,6 +200,19 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             finalPrice = Math.max(0, finalPrice - deductionTotal);
         }
 
+        // Functional re-check (Phase 2): any selected option in a functional
+        // group marked failBehavior:'reject' means the device failed the
+        // physical working test → gate the submit (see submitAllInspections).
+        const functionalRejects: string[] = [];
+        activeChecklist.forEach((group: any) => {
+            if (group.kind !== 'functional') return;
+            group.options?.forEach((opt: any) => {
+                if (checks.includes(opt.id) && opt.failBehavior === 'reject') {
+                    functionalRejects.push(`[${group.title}] ${opt.label}`);
+                }
+            });
+        });
+
         setInspectedDevicesData(prev => ({
             ...prev, [activeDeviceIndex]: {
                 checks: [...checks],
@@ -205,6 +220,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                 photoFiles: [...photoFiles],
                 deductions: deductionLabels,
                 final_price: finalPrice,
+                functional_rejects: functionalRejects,
                 new_status: activeDevice.isNewDevice ? newDeviceStatus : null
             }
         }));
@@ -220,6 +236,18 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             toast.error(`IMEI Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อนถึงจะส่ง QC ได้`);
             return;
         }
+        // Functional re-check gate (Phase 2): a device with a selected
+        // failBehavior:'reject' working-check option failed the physical test.
+        // Default action is to reject/return; allow an explicit override to
+        // continue (e.g. admin re-grades to a deduction in the editor).
+        const fnRejectReasons = Object.values(inspectedDevicesData)
+            .flatMap((d: any) => Array.isArray(d?.functional_rejects) ? d.functional_rejects : []);
+        if (fnRejectReasons.length > 0) {
+            const ok = window.confirm(
+                `เครื่องไม่ผ่านการตรวจการทำงาน (ตั้งค่าเป็น "ปฏิเสธรับซื้อ"):\n${fnRejectReasons.join('\n')}\n\nปกติควรปฏิเสธ/ส่งคืนเครื่อง — หากยืนยันจะรับซื้อต่อ ให้กดตกลง`
+            );
+            if (!ok) return;
+        }
         setIsUploadingQC(true);
         try {
             const updatedDevices = devicesList.map((device: any, index: number) => {
@@ -231,6 +259,11 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                         deductions: data.deductions,
                         final_price: data.final_price,
                         internal_qc_status: data.new_status || 'used',
+                        functional_check: {
+                            checked_at: Date.now(),
+                            rejects: Array.isArray(data.functional_rejects) ? data.functional_rejects : [],
+                            passed: !(Array.isArray(data.functional_rejects) && data.functional_rejects.length > 0),
+                        },
                         temp_photo_files: data.photoFiles
                     };
                 }
