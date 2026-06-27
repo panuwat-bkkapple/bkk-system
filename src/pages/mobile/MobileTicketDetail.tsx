@@ -22,6 +22,7 @@ import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificati
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
+import { sumAppliedAdjustments } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
@@ -214,7 +215,8 @@ export const MobileTicketDetail = () => {
   const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
   const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
   const couponValue = Number(job.applied_coupon?.value || 0);
-  const netPayout = Math.max(0, basePrice - pickupFee + couponValue);
+  const adjustmentsSum = sumAppliedAdjustments(job);
+  const netPayout = Math.max(0, basePrice - pickupFee + couponValue + adjustmentsSum);
 
   // Pipeline progress
   // Use the FURTHEST step the job has ever reached (max from qc_logs +
@@ -464,7 +466,7 @@ export const MobileTicketDetail = () => {
         const feeNum = Math.max(0, grossFeeNum - riderDiscNum);
         const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
         payload.final_price = priceNum;
-        payload.net_payout = Math.max(0, priceNum - feeNum + couponNum);
+        payload.net_payout = Math.max(0, priceNum - feeNum + couponNum + adjustmentsSum);
 
         if (Array.isArray(job.devices) && job.devices.length > 0) {
           const devs = [...job.devices];

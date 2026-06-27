@@ -18,6 +18,7 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
 import { getSickwGateStatus } from '@/utils/sickwApi';
+import { sumAppliedAdjustments } from '@/utils/adjustments';
 import { useAuth } from '@/hooks/useAuth';
 
 export const B2CWorkspace = ({
@@ -91,7 +92,7 @@ export const B2CWorkspace = ({
     // ดึงราคาเครื่องปัจจุบันมาเป็นฐาน (ห้ามใช้ displayNetPayout เพราะมันอาจโดนหักค่ารถไปแล้ว)
     const currentBasePrice = Number(job?.final_price || job?.price || 0);
     // คำนวณยอดโอนใหม่ (ราคาเครื่อง - ค่ารถ + คูปองใหม่) และป้องกันติดลบ
-    const newNetPayout = Math.max(0, currentBasePrice - pickupFee + val);
+    const newNetPayout = Math.max(0, currentBasePrice - pickupFee + val + sumAppliedAdjustments(job));
 
     onUpdateStatus(
       job.id, 
@@ -110,7 +111,7 @@ export const B2CWorkspace = ({
   const handleRemoveCoupon = () => {
     if (confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) {
       const currentBasePrice = Number(job?.final_price || job?.price || 0);
-      const newNetPayout = Math.max(0, currentBasePrice - pickupFee); // 🛡️ ใส่ Math.max ป้องกันติดลบ
+      const newNetPayout = Math.max(0, currentBasePrice - pickupFee + sumAppliedAdjustments(job)); // 🛡️ ใส่ Math.max ป้องกันติดลบ
 
       onUpdateStatus(
         job.id, 

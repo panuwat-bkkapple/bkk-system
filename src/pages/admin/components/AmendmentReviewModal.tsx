@@ -370,6 +370,7 @@ const ApprovePanel: React.FC<{
   const [custInfoValue, setCustInfoValue] = useState<string>('');
   const [cancelCategory, setCancelCategory] = useState<CancelCategory>('customer_changed_mind');
   const [cancelDetail, setCancelDetail] = useState<string>('');
+  const [adjAmountText, setAdjAmountText] = useState<string>('');
 
   // Cascading reset is wired into the dropdown onChange handlers below
   // (not via useEffect on pickBrand/pickModelId). useEffect-based reset
@@ -418,6 +419,8 @@ const ApprovePanel: React.FC<{
     } else if (t.kind === 'cancel') {
       setCancelCategory(t.reason_category as CancelCategory);
       setCancelDetail(t.reason_detail || '');
+    } else if (t.kind === 'ad_hoc_deduction') {
+      setAdjAmountText(String(Math.abs(Number(t.amount) || 0)));
     } else if (t.kind === 'device_pick' && typeof t.model_id === 'string') {
       // Rider already identified the device — decompose into the 3
       // cascading levels so picker shows the same selection. brand
@@ -735,6 +738,35 @@ const ApprovePanel: React.FC<{
           submitting={submitting}
           label="อนุมัติ + ยกเลิก job"
           danger
+        />
+      </>
+    );
+  }
+
+  if (amendment.type === 'ad_hoc_deduction') {
+    const t = amendment.target as { label?: string; amount?: number } | undefined;
+    const adjLabel = t?.label || amendment.rider_note || 'หักราคา';
+    const amt = Number(adjAmountText) || 0;
+    return (
+      <>
+        <SubForm title="ตำหนิ/ปัญหาที่ไรเดอร์เสนอ">
+          <p className="text-sm text-slate-700 font-bold">{adjLabel}</p>
+        </SubForm>
+        <SubForm title="จำนวนเงินที่จะหัก (บาท)">
+          <input
+            value={adjAmountText}
+            onChange={(e) => setAdjAmountText(e.target.value.replace(/[^0-9]/g, ''))}
+            inputMode="numeric"
+            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-right font-bold"
+          />
+          <p className="text-[11px] text-slate-500 mt-1">ปรับได้ก่อนอนุมัติ — ลูกค้าจะเห็นรายการนี้ในยอดสุทธิ (หักจาก net payout)</p>
+        </SubForm>
+        <AdminNote value={adminNote} onChange={onAdminNote} />
+        <ApproveButton
+          disabled={submitting || !(amt > 0)}
+          onClick={() => handleApprove(null, { kind: 'ad_hoc_deduction', label: adjLabel, amount: -Math.abs(amt) })}
+          submitting={submitting}
+          label={`อนุมัติ + หัก ฿${amt.toLocaleString()}`}
         />
       </>
     );

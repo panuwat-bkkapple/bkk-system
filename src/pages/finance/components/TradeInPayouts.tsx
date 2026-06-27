@@ -8,6 +8,7 @@ import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loa
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { sumAppliedAdjustments } from '../../../utils/adjustments';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -44,7 +45,7 @@ export const TradeInPayouts = () => {
     const riderFeeDiscount = tx.receive_method === 'Pickup' ? Number(tx.rider_fee_discount || 0) : 0;
     const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
     const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
-    return Math.max(0, base - pickupFee + coupon);
+    return Math.max(0, base - pickupFee + coupon + sumAppliedAdjustments(tx));
   };
 
   const pendingPayouts = useMemo(() => {

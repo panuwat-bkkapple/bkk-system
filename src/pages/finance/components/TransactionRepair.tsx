@@ -6,6 +6,7 @@ import { Search, Wrench, AlertTriangle, CheckCircle2, FileText, ExternalLink } f
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { sumAppliedAdjustments } from '../../../utils/adjustments';
 
 // คำนวณยอดโอนสุทธิสดจาก final_price ตลอด — ไม่ใช้ net_payout ที่เก็บใน DB เพราะอาจล้าสมัย
 // (เช่น QC รอบหลังไม่ได้ sync) และต้องครอบด้วย Math.max(0, ...) ป้องกันยอดติดลบ
@@ -16,7 +17,7 @@ const getNetPayout = (tx: any) => {
   const riderFeeDiscount = tx.receive_method === 'Pickup' ? Number(tx.rider_fee_discount || 0) : 0;
   const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
   const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
-  return Math.max(0, base - pickupFee + coupon);
+  return Math.max(0, base - pickupFee + coupon + sumAppliedAdjustments(tx));
 };
 
 export const TransactionRepair = () => {

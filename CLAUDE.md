@@ -91,8 +91,9 @@
 
 1. **จุดรับเครื่อง:** `cust_address` (ข้อความ) ↔ `cust_lat`/`cust_lng` (หมุด) ↔ `cust_address_geocoded_*`
    - คนอ่านข้าม repo: **ไรเดอร์นำทาง/geofence ใช้หมุดเป็นหลัก** (ดู section "จุดรับเครื่อง / หมุด"). แก้ที่อยู่ต้อง reconcile หมุดเสมอ
-2. **ราคา/ยอดเงินลูกค้า:** `price`/`final_price` ↔ `pickup_fee` ↔ `applied_coupon` ↔ `net_payout`
-   - สูตรเดียวที่ใช้ทุกที่: `net_payout = max(0, base − (receive_method==='Pickup' ? pickup_fee : 0) + coupon)` (client: `MobileTicketDetail` ~บรรทัด 423; server: `functions/index.js`). แก้สูตร = แก้ทั้ง client + functions
+2. **ราคา/ยอดเงินลูกค้า:** `price`/`final_price` ↔ `pickup_fee` ↔ `applied_coupon` ↔ `adjustments` ↔ `net_payout`
+   - สูตรเดียวที่ใช้ทุกที่: `net_payout = max(0, base − (receive_method==='Pickup' ? pickup_fee : 0) + coupon + Σ(applied adjustments))` (client: `MobileTicketDetail` ~บรรทัด 423; server: `functions/index.js`). แก้สูตร = แก้ทั้ง client + functions
+   - **`adjustments[]`** = รายการหัก/เพิ่ม ad-hoc แบบ itemized (`{id,label,amount,device_index,source,status,by_*,at,reason?,evidence?}`) — เฉพาะ `status==='applied'` เข้าสูตร (ของไรเดอร์เริ่ม `pending` จนแอดมินอนุมัติผ่าน `reviewAmendment`). helper `sumAppliedAdjustments(job)` mirror 4 ที่ (frontend functions + bkk-system functions + clients). ลูกค้าเห็นเป็นบรรทัดๆ ที่ `OrderSummaryModal`
    - **หลังสร้างงาน เรื่องเงินเป็นของ cloud function** (`onReceiveMethodChanged`, `onPickupLocationChanged`) — client เขียนได้แค่ `final_price` (ตอนแก้ราคา) แล้วปล่อยให้ function คิด `pickup_fee`/`net_payout` ต่อ
    - คนอ่านข้าม repo: `bkk-frontend-next` แสดง `net_payout` ให้ลูกค้า (track/profile/history/analytics); finance pages อ่าน `net_payout`
 3. **ค่าธรรมเนียม — คนละตัว อย่าสับสน:** `pickup_fee` = หักจาก**ลูกค้า** (อยู่ในสูตร net_payout) | `rider_fee`/`rider_fee_estimate` = จ่ายให้**ไรเดอร์** (อ่านโดย finance settlement + ไรเดอร์เห็น estimate ก่อนรับงาน). คนละความหมาย ห้ามเอามาใช้แทนกัน
