@@ -2642,6 +2642,7 @@ const AMENDMENT_TYPE_CLASS = {
   address_wrong: "operational",
   customer_info_wrong: "operational",
   customer_request_cancel: "operational",
+  ad_hoc_deduction: "operational",
   other: "operational",
 };
 const VALID_AMENDMENT_TYPES = Object.keys(AMENDMENT_TYPE_CLASS);
@@ -2664,6 +2665,7 @@ const AMENDMENT_TYPE_LABEL_TH = {
   address_wrong: "ที่อยู่ไม่ตรง",
   customer_info_wrong: "ข้อมูลลูกค้าผิด",
   customer_request_cancel: "ลูกค้าขอยกเลิก",
+  ad_hoc_deduction: "หักราคาเพิ่ม (ไรเดอร์เสนอ)",
   other: "ปัญหาอื่นๆ",
 };
 
@@ -2984,6 +2986,44 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
           source: "settings",
         };
       }
+      break;
+    }
+    case "ad_hoc_deduction": {
+      // Rider proposed an itemised deduction for a defect not in the condition
+      // set. Approving appends an APPLIED adjustment and recomputes net_payout
+      // (same formula as the clients / recomputeCustomerPickupFee). The customer
+      // sees the line on tracking — no silent total override.
+      if (!am.target || am.target.kind !== "ad_hoc_deduction"
+          || typeof am.target.label !== "string"
+          || !Number.isFinite(Number(am.target.amount))) {
+        throw new HttpsError("internal", "target.ad_hoc_deduction ขาด");
+      }
+      const rawAdj = job && job.adjustments;
+      const existing = Array.isArray(rawAdj)
+        ? rawAdj
+        : (rawAdj && typeof rawAdj === "object" ? Object.values(rawAdj) : []);
+      const entry = {
+        id: `adj_${now}`,
+        label: am.target.label,
+        amount: Number(am.target.amount),
+        device_index: typeof am.target.device_index === "number" ? am.target.device_index : 0,
+        source: "rider_proposed",
+        status: "applied",
+        by_name: am.requested_by_rider_name || "Rider",
+        by_uid: am.requested_by_rider_uid || null,
+        by_role: "RIDER",
+        at: now,
+        reason: am.rider_note || null,
+      };
+      const list = [...existing, entry];
+      u[`${jobBase}/adjustments`] = list;
+      const base = Number(job.final_price ?? job.price ?? 0);
+      const grossFee = job.receive_method === "Pickup" ? Number(job.pickup_fee || 0) : 0;
+      const riderDisc = job.receive_method === "Pickup" ? Number(job.rider_fee_discount || 0) : 0;
+      const effFee = Math.max(0, grossFee - riderDisc);
+      const coupon = Number((job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0);
+      const adjSum = list.reduce((s, a) => (a && a.status === "applied" && Number.isFinite(Number(a.amount)) ? s + Number(a.amount) : s), 0);
+      u[`${jobBase}/net_payout`] = Math.max(0, base - effFee + coupon + adjSum);
       break;
     }
     case "other": {
