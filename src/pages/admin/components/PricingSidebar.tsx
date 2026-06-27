@@ -12,6 +12,7 @@ import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
+import type { JobAdjustment } from '@/utils/adjustments';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -27,6 +28,8 @@ interface PricingSidebarHandlers {
   setIsQCModalOpen: (open: boolean) => void;
   setIsCancelModalOpen: (open: boolean) => void;
   setActiveChatJobId: (id: string | null) => void;
+  handleAddAdjustment: (label: string, amount: number) => Promise<void>;
+  handleRemoveAdjustment: (id: string) => Promise<void>;
 }
 
 interface CouponState {
@@ -51,6 +54,8 @@ interface PricingCalculations {
   pickupFee: number;
   couponValue: number;
   netPayout: number;
+  adjustments: JobAdjustment[];
+  adjustmentsSum: number;
   isCancelled: boolean;
   isReopenable: boolean;
   reopenDeadline: number | null;
@@ -78,8 +83,12 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
     handleUpdateStatus, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
     handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
-    setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId
+    setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId,
+    handleAddAdjustment, handleRemoveAdjustment
   } = handlers;
+  const [adjLabel, setAdjLabel] = useState('');
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjBusy, setAdjBusy] = useState(false);
 
   const {
     isAddingCoupon, setIsAddingCoupon,
@@ -92,10 +101,19 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   } = couponState;
 
   const {
-    basePrice, pickupFee, couponValue, netPayout,
+    basePrice, pickupFee, couponValue, netPayout, adjustments,
     isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation,
     isProcessingPayment, hasBeenPaid
   } = pricing;
+  const appliedAdjustments = (adjustments || []).filter(a => a && a.status === 'applied');
+  const pendingAdjustments = (adjustments || []).filter(a => a && a.status === 'pending');
+  const submitAdjustment = async () => {
+    const amt = Number(adjAmount);
+    if (!adjLabel.trim() || !Number.isFinite(amt) || amt === 0) return;
+    setAdjBusy(true);
+    try { await handleAddAdjustment(adjLabel, amt); setAdjLabel(''); setAdjAmount(''); }
+    finally { setAdjBusy(false); }
+  };
   // Rider-fee discount breakdown. `pickupFee` from pricing is the EFFECTIVE
   // fee (gross minus the absorbed promo); read the gross + discount straight
   // from the job so a fully-waived fee still shows what happened.
@@ -263,6 +281,39 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   <span className="text-xs">{job.applied_coupon?.code || 'Manual Top-up'}</span>
                 </span>
                 <span>+{formatCurrency(couponValue)}</span>
+              </div>
+            )}
+
+            {/* Itemised ad-hoc adjustments (admin QC / approved rider proposal).
+                Each is a transparent line the customer also sees — replaces the
+                old "silently overwrite the total" workflow. */}
+            {appliedAdjustments.map((a) => {
+              const neg = Number(a.amount) < 0;
+              return (
+                <div key={a.id} className="flex justify-between items-center text-sm font-bold text-slate-200">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border ${neg ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>Adj</span>
+                    <span className="text-xs truncate">{a.label}</span>
+                    {!hasBeenPaid && <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-500 hover:text-red-400 text-xs shrink-0" title="ลบรายการ">✕</button>}
+                  </span>
+                  <span className={neg ? 'text-red-300' : 'text-emerald-300'}>{neg ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+                </div>
+              );
+            })}
+            {pendingAdjustments.map((a) => (
+              <div key={a.id} className="flex justify-between items-center text-xs font-medium text-amber-300/80">
+                <span className="flex items-center gap-2 min-w-0"><span className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest border bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0">รออนุมัติ</span><span className="truncate">{a.label}</span></span>
+                <span className="shrink-0">{Number(a.amount) < 0 ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+              </div>
+            ))}
+            {!hasBeenPaid && !isCancelled && (
+              <div className="pt-1">
+                <div className="flex gap-1.5">
+                  <input value={adjLabel} onChange={(e) => setAdjLabel(e.target.value)} placeholder="เช่น กล้องหลังเสีย" className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-slate-500" />
+                  <input value={adjAmount} onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))} inputMode="numeric" placeholder="-500" className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right placeholder:text-slate-500" />
+                  <button onClick={submitAdjustment} disabled={adjBusy} className="bg-slate-200 text-slate-900 px-3 rounded-lg text-xs font-black disabled:opacity-40">เพิ่ม</button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">ค่าติดลบ = หักเงิน (เช่น -500) · บวก = เพิ่มเงิน · ลูกค้าเห็นรายการนี้</p>
               </div>
             )}
           </div>

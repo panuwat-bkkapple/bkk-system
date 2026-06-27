@@ -13,6 +13,7 @@ import { useToast } from '../../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck';
 import { SickwGateBanner } from '../../../../components/sickw/SickwGateBanner';
 import { getSickwGateStatus } from '../../../../utils/sickwApi';
+import { sumAppliedAdjustments } from '../../../../utils/adjustments';
 import { useAuth } from '../../../../hooks/useAuth';
 
 interface InternalQCModalProps {
@@ -263,7 +264,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
             const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
             const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - pickupFee + couponValue));
+            const newNetPayout = Math.round(Math.max(0, totalFinalPrice - pickupFee + couponValue + sumAppliedAdjustments(job)));
 
             const updatePayload = {
                 status: 'QC Review',

@@ -22,6 +22,7 @@ import { useToast } from '../../../components/ui/ToastProvider';
 import { SickwDeviceCheck } from '../../../components/sickw/SickwDeviceCheck';
 import { SickwGateBanner } from '../../../components/sickw/SickwGateBanner';
 import { getSickwGateStatus } from '../../../utils/sickwApi';
+import { sumAppliedAdjustments } from '../../../utils/adjustments';
 import { useAuth } from '../../../hooks/useAuth';
 
 // Required photo slots — admin must take one per angle so QC can verify
@@ -289,7 +290,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
       const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
       const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
       const couponValue = Number(job.applied_coupon?.value || job.applied_coupon?.actual_value || 0);
-      const newNetPayout = Math.max(0, jobTotalDevicePrice - pickupFee + couponValue);
+      const newNetPayout = Math.max(0, jobTotalDevicePrice - pickupFee + couponValue + sumAppliedAdjustments(job));
 
       const inspectedAt = Date.now();
       // qc_logs is stored as an array — prepend-and-replace, same pattern
