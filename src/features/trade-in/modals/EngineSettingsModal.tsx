@@ -185,11 +185,24 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                     <div key={g.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm relative group/group">
 
                       {/* Group Header */}
-                      <div className="flex justify-between items-center mb-6">
+                      <div className="flex justify-between items-center mb-2">
                         <input type="text" placeholder="ชื่อหัวข้อ (เช่น สภาพตัวเครื่อง)" value={g.title} onChange={(e) => { const n = [...editingSet.groups]; n[gi].title = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="font-black text-xl bg-transparent border-none outline-none w-full flex-1 mr-4 focus:text-indigo-600 transition-colors" />
                         <button onClick={() => handleRemoveGroup(gi)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition opacity-0 group-hover/group:opacity-100">
                           <Trash2 size={20} />
                         </button>
+                      </div>
+                      {/* Group kind: cosmetic (deduct only) vs functional (can reject) */}
+                      <div className="flex items-center gap-1.5 mb-5">
+                        {(['cosmetic', 'functional'] as const).map((k) => {
+                          const active = (g.kind || 'cosmetic') === k;
+                          return (
+                            <button key={k} onClick={() => { const n = [...editingSet.groups]; n[gi].kind = k; setEditingSet({ ...editingSet, groups: n }); }}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wide transition ${active ? (k === 'functional' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white') : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                              {k === 'functional' ? 'การทำงาน' : 'สภาพภายนอก'}
+                            </button>
+                          );
+                        })}
+                        {g.kind === 'functional' && <span className="text-[10px] text-blue-500 font-bold ml-1">ลูกค้าตอบก่อนประเมินสภาพ · เลือกพฤติกรรมต่อข้อด้านล่าง</span>}
                       </div>
 
                       {/* Options Table Header */}
@@ -207,6 +220,21 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           <div key={o.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50 p-2 rounded-xl border border-slate-100 group/option hover:border-indigo-200 transition-colors">
                             <div className="col-span-5">
                               <input type="text" placeholder="เช่น สวยสมบูรณ์" value={o.label} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].label = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-4 py-2.5 rounded-lg border-none bg-white shadow-sm text-sm font-bold focus:ring-2 focus:ring-indigo-500" />
+                              {g.kind === 'functional' && (
+                                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                  <span className="text-[9px] font-black uppercase text-slate-400 mr-0.5">ถ้าลูกค้าเลือกข้อนี้:</span>
+                                  {([['pass', 'ปกติ'], ['reject', 'ปฏิเสธรับซื้อ'], ['deduct', 'หักเงิน (ตาม Tier)']] as const).map(([fb, lbl]) => {
+                                    const active = (o.failBehavior || 'pass') === fb;
+                                    const color = fb === 'reject' ? 'bg-red-500' : fb === 'deduct' ? 'bg-amber-500' : 'bg-emerald-500';
+                                    return (
+                                      <button key={fb} onClick={() => { const n = [...editingSet.groups]; n[gi].options[oi].failBehavior = fb; setEditingSet({ ...editingSet, groups: n }); }}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${active ? `${color} text-white` : 'bg-white text-slate-400 border border-slate-200 hover:border-slate-300'}`}>
+                                        {lbl}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                             <div className="col-span-2">
                               <input type="number" value={o.t1} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].t1 = Number(e.target.value); setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-2 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-red-600 focus:ring-2 focus:ring-red-500" />
