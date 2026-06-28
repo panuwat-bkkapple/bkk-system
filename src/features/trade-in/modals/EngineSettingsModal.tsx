@@ -107,6 +107,35 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     setEditingSet({ ...editingSet, groups: newGroups });
   }
 
+  // One-click standard functional-check groups per subcategory. Mirrors the old
+  // hardcoded screening questions (now data-driven). Each = one functional group
+  // with ปกติ (pass) / มีปัญหา (reject). Admin can then tweak per model (e.g.
+  // delete "แบตเตอรี่" for a Mac mini) and assign the set via PriceEditor.
+  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; titles: string[] }> = {
+    iphone: { label: 'iPhone', titles: ['เปิดเครื่อง / ใช้งานทั่วไป', 'หน้าจอ + ทัชสกรีน', 'กล้องหน้า / กล้องหลัง', 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', 'ลำโพง / ไมโครโฟน'] },
+    ipad: { label: 'iPad', titles: ['เปิดเครื่อง / ใช้งานทั่วไป', 'หน้าจอ + ทัชสกรีน', 'กล้องหน้า / กล้องหลัง', 'Wi-Fi / Bluetooth / สัญญาณ', 'ลำโพง / ไมโครโฟน'] },
+    mac: { label: 'Mac', titles: ['เปิดเครื่อง / ชาร์จไฟ', 'หน้าจอแสดงผล', 'คีย์บอร์ด + แทร็คแพด', 'พอร์ต + Wi-Fi / Bluetooth', 'แบตเตอรี่'] },
+    watch: { label: 'Apple Watch', titles: ['เปิดเครื่อง / ชาร์จไฟ', 'หน้าจอ + ทัชสกรีน', 'Digital Crown + ปุ่มข้าง', 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', 'Wi-Fi / Bluetooth'] },
+  };
+
+  const handleSeedFunctional = (cat: string) => {
+    const tpl = FUNCTIONAL_TEMPLATES[cat];
+    if (!tpl) return;
+    const base = Date.now();
+    const seeded = tpl.titles.map((title, i) => ({
+      id: `g_${base}_${i}`,
+      title,
+      kind: 'functional',
+      options: [
+        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', t1: 0, t2: 0, t3: 0, failBehavior: 'pass' },
+        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', t1: 0, t2: 0, t3: 0, failBehavior: 'reject' },
+      ],
+    }));
+    // Prepend so the functional screening comes before the cosmetic groups.
+    setEditingSet({ ...editingSet, groups: [...seeded, ...(editingSet.groups || [])] });
+    toast.success(`เพิ่มชุดคัดกรองการทำงาน ${tpl.label} (${tpl.titles.length} ข้อ) — อย่าลืมกด Save Set`);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -167,6 +196,18 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                         <Table2 size={16} /> Table
                       </button>
                     </div>
+                    {/* Seed standard functional-check groups for a subcategory */}
+                    <select
+                      value=""
+                      onChange={(e) => { if (e.target.value) { handleSeedFunctional(e.target.value); e.currentTarget.value = ''; } }}
+                      title="เพิ่มชุดคัดกรองการทำงานมาตรฐานตามประเภทเครื่อง"
+                      className="px-3 py-3 bg-blue-50 text-blue-700 font-black rounded-xl text-sm border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+                    >
+                      <option value="">+ ชุดคัดกรองการทำงาน…</option>
+                      {Object.entries(FUNCTIONAL_TEMPLATES).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
                     <button onClick={handleSaveSet} className="px-8 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700 transition flex items-center gap-2 shadow-lg hover:shadow-indigo-500/30">
                       <Save size={18} /> Save Set
                     </button>
