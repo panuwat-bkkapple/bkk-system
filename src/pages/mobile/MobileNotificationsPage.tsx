@@ -6,6 +6,7 @@ import {
   Bell, Package, AlertTriangle, Clock, ChevronRight,
   RefreshCw, Smartphone, XCircle, RotateCcw, DollarSign, MessageSquare
 } from 'lucide-react';
+import { NotificationStatusCard } from './components/NotificationStatusCard';
 
 interface Notification {
   id: string;
@@ -145,6 +146,7 @@ export const MobileNotificationsPage = () => {
 
       {/* Notification List */}
       <div className="flex-1 overflow-y-auto">
+        <NotificationStatusCard />
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2 mt-10">
             <Bell size={40} className="text-slate-200" />

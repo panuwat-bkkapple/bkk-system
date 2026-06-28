@@ -167,6 +167,89 @@ async function dispatchTelegram(text, tag) {
   }
 }
 
+// =============================================================================
+// Test push (callable) — powers the in-app "Notification Status" panel.
+// Sends the SAME data-only shape a real new-ticket push uses to every token
+// under admin_fcm_tokens/{uid} (the caller's own devices) and returns the
+// per-token delivery result. This is the diagnostic that ends the guessing:
+//   - successCount > 0 but no banner on screen  → token is alive, iOS just
+//     isn't rendering it (notification permission off / Focus filtering).
+//   - failureCount with registration-token-not-registered → the token is
+//     dead; the panel's "refresh" button re-registers a fresh one.
+// Unlike dispatchAdminPush this does NOT prune/stamp tokens — it's a probe.
+// =============================================================================
+exports.sendTestAdminPush = onCall({ region: "asia-southeast1" }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  }
+  const uid = request.auth.uid;
+  const db = getDatabase();
+  const snap = await db.ref(`admin_fcm_tokens/${uid}`).once("value");
+
+  const tokens = [];
+  const meta = [];
+  if (snap.exists()) {
+    snap.forEach((tokenSnap) => {
+      const d = tokenSnap.val();
+      if (d && d.token) {
+        tokens.push(d.token);
+        meta.push({ device: d.device || "unknown" });
+      }
+    });
+  }
+
+  if (tokens.length === 0) {
+    return {
+      total: 0,
+      successCount: 0,
+      failureCount: 0,
+      results: [],
+      message: "ยังไม่มี token ลงทะเบียนสำหรับบัญชีนี้ — กด \"รีเฟรชการแจ้งเตือน\" ก่อน",
+    };
+  }
+
+  const message = {
+    data: {
+      type: "new_ticket",
+      jobId: "TEST",
+      title: "ทดสอบการแจ้งเตือน",
+      body: "ถ้าเห็นข้อความนี้ = การแจ้งเตือนใช้งานได้ปกติ",
+      click_action: "/mobile",
+    },
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "new_tickets",
+        priority: "high",
+        defaultSound: true,
+        defaultVibrateTimings: true,
+      },
+    },
+    apns: {
+      headers: { "apns-priority": "10", "apns-push-type": "alert" },
+      payload: { aps: { "mutable-content": 1, sound: "default", badge: 1 } },
+    },
+    webpush: {
+      headers: { Urgency: "high", TTL: "300" },
+      fcmOptions: { link: "/mobile" },
+    },
+  };
+
+  const res = await getMessaging().sendEachForMulticast({ ...message, tokens });
+  const results = res.responses.map((r, i) => ({
+    device: meta[i].device,
+    ok: !!r.success,
+    code: r.error ? r.error.code : null,
+  }));
+  console.log(`[sendTestAdminPush] ${uid}: ${res.successCount}/${tokens.length} delivered`);
+  return {
+    total: tokens.length,
+    successCount: res.successCount,
+    failureCount: res.failureCount,
+    results,
+  };
+});
+
 // Escape dynamic values before embedding in a Telegram HTML message so a
 // customer name / address containing < > & can never break parsing.
 function tgEscape(v) {
