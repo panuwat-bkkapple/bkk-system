@@ -85,6 +85,10 @@ interface CalendarEntry {
   price?: number;
   receive_method?: string;
   pickupType?: 'instant' | 'scheduled' | null;
+  // True only for a genuine same-day live instant (no concrete appointment
+  // date). Used to gate the "(+1-2 ชม.)" hint — an after-hours express books a
+  // fixed next-morning slot, so that hint would be wrong there.
+  liveInstant?: boolean;
   ref_no?: string;
   // Appointment-specific
   type?: AppointmentType;
@@ -148,7 +152,7 @@ const JobCard = ({ entry, onClick }: { entry: CalendarEntry; onClick?: () => voi
       <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-500 flex-wrap">
         <span className="flex items-center gap-1">
           <Clock size={12} /> {entry.time}
-          {entry.pickupType === 'instant' && <span className="text-orange-500 font-bold">(+1-2 ชม.)</span>}
+          {entry.liveInstant && <span className="text-orange-500 font-bold">(+1-2 ชม.)</span>}
         </span>
         <span className="flex items-center gap-1"><User size={12} /> {entry.customer_name}</span>
         {entry.customer_phone && <span className="flex items-center gap-1"><Phone size={12} /> {entry.customer_phone}</span>}
@@ -448,21 +452,30 @@ export const AppointmentCalendar = () => {
       .map((j: any) => {
         const ps = j.pickup_schedule;
         const isInstant = ps?.type?.toLowerCase() === 'instant';
-        const isScheduled = ps && !isInstant && ps.date && ps.date !== 'Instant';
 
-        // Determine date: scheduled uses pickup_schedule.date, instant uses created_at
+        // A concrete pickup date ALWAYS wins over created_at, regardless of
+        // type. After-hours express books a real next-morning slot but keeps
+        // type='instant' (it's still "ด่วน") — if we bucketed by type we'd put
+        // it on the order-creation day instead of the appointment day. So bucket
+        // by pickup_schedule.date whenever it parses to a real date; only fall
+        // back to created_at for a live instant that carries no concrete date.
+        const parsedDate = ps?.date && ps.date !== 'Instant' ? new Date(ps.date) : null;
+        const hasConcreteDate = !!parsedDate && !isNaN(parsedDate.getTime());
+
         let entryDate: string;
         let entryTime: string;
 
-        if (isScheduled) {
-          // Parse scheduled date (could be ISO string)
-          const parsed = new Date(ps.date);
-          entryDate = !isNaN(parsed.getTime()) ? timestampToDateStr(parsed.getTime()) : timestampToDateStr(j.created_at);
+        if (hasConcreteDate) {
+          entryDate = timestampToDateStr((parsedDate as Date).getTime());
           entryTime = ps.time || timestampToTimeStr(j.created_at);
         } else {
           entryDate = timestampToDateStr(j.created_at);
           entryTime = timestampToTimeStr(j.created_at);
         }
+
+        // "ขายด่วน" badge = express order; "(+1-2 ชม.)" only makes sense for a
+        // genuine same-day live instant, not a next-morning express booking.
+        const isLiveInstant = isInstant && !hasConcreteDate;
 
         return {
           id: `job_${j.id}`,
@@ -476,7 +489,8 @@ export const AppointmentCalendar = () => {
           jobStatus: j.status,
           price: j.price ? Number(j.price) : undefined,
           receive_method: j.receive_method,
-          pickupType: isInstant ? 'instant' : isScheduled ? 'scheduled' : null,
+          pickupType: isInstant ? 'instant' : hasConcreteDate ? 'scheduled' : null,
+          liveInstant: isLiveInstant,
           ref_no: j.ref_no,
         };
       });
