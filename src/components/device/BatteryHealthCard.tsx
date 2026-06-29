@@ -20,7 +20,8 @@ interface Props {
 export function BatteryHealthCard({ job, className }: Props) {
   // QC เขียน battery_health, ไรเดอร์เขียน battery_health_pct — อ่านทั้งคู่กันค่าหาย
   const pct: number | null | undefined = job?.battery_health ?? job?.battery_health_pct;
-  const cycles: number | null | undefined = job?.battery_cycle_count;
+  // job root เป็นหลัก, fallback ไป qc_details สำหรับงานเก่าที่ QC เซฟไว้ก่อน mirror
+  const cycles: number | null | undefined = job?.battery_cycle_count ?? job?.qc_details?.cycle_count;
   const photo: string | undefined = job?.verification_battery_photo;
   // ไรเดอร์ตรวจแล้วแต่อ่านแบตไม่ได้ (เครื่องเปิดไม่ได้) — ยังเป็นข้อมูลสำคัญ ต้องโชว์
   const unavailable: boolean = job?.battery_unavailable === true;

@@ -238,6 +238,9 @@ export const QCStation = () => {
             qc_by: supervisor,
             grade: qcForm.final_grade,
             battery_health: qcForm.battery_health,
+            // mirror cycle count ขึ้น job root ด้วย (เดิมเก็บแค่ใน qc_details) ให้
+            // ticket detail / inventory อ่าน battery_cycle_count ได้ตรงๆ
+            battery_cycle_count: qcForm.cycle_count,
             color: qcForm.actual_color || selectedJob.color,
             capacity: qcForm.capacity || selectedJob.capacity,
             model_code: qcForm.model_code || selectedJob.model_code,

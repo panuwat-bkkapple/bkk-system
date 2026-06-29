@@ -57,6 +57,7 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
   const [isSaving, setIsSaving] = useState(false);
   const [imeiText, setImeiText] = useState('');
   const [batteryPct, setBatteryPct] = useState('');
+  const [batteryCycle, setBatteryCycle] = useState('');
   const [warrantyExpires, setWarrantyExpires] = useState('');
 
   const handleUpload = async (file: File | undefined, slot: Slot) => {
@@ -85,6 +86,9 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
           setBattery({ url, fields: r.fields, confidence: r.confidence, uploading: false, ocring: false });
           if (r.fields?.maximumCapacityPct != null && !batteryPct) {
             setBatteryPct(String(r.fields.maximumCapacityPct));
+          }
+          if (r.fields?.cycleCount != null && !batteryCycle) {
+            setBatteryCycle(String(r.fields.cycleCount));
           }
         } else if (slot === 'findMy') {
           const r = await ocrFindMy(url);
@@ -126,7 +130,9 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
       if (imei.fields?.modelNumber) updates.device_model_number = imei.fields.modelNumber;
       if (imei.url) updates.verification_imei_photo = imei.url;
       if (batteryPct.trim()) updates.battery_health_pct = parseInt(batteryPct, 10);
-      if (battery.fields?.cycleCount != null) updates.battery_cycle_count = battery.fields.cycleCount;
+      // กรอกเองมาก่อน (ตัวเลขที่แอดมินยืนยัน) แล้ว fallback ไป OCR
+      if (batteryCycle.trim()) updates.battery_cycle_count = parseInt(batteryCycle, 10);
+      else if (battery.fields?.cycleCount != null) updates.battery_cycle_count = battery.fields.cycleCount;
       if (battery.url) updates.verification_battery_photo = battery.url;
       if (findMy.fields?.findMyStatus) updates.find_my_status = findMy.fields.findMyStatus;
       if (findMy.url) updates.verification_findmy_photo = findMy.url;
@@ -256,7 +262,7 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
             icon={BatteryFull}
             state={battery}
             onUpload={(f) => handleUpload(f, 'battery')}
-            onClear={() => { setBattery(emptySlot()); setBatteryPct(''); }}
+            onClear={() => { setBattery(emptySlot()); setBatteryPct(''); setBatteryCycle(''); }}
             renderResult={() => battery.fields && (
               <div className="space-y-2 mt-2">
                 <div>
@@ -271,9 +277,17 @@ export const AdminDeviceVerificationModal = ({ job, onClose, onComplete }: Props
                     className="w-full mt-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-mono"
                   />
                 </div>
-                {battery.fields.cycleCount != null && (
-                  <p className="text-[11px] text-gray-500">Cycle count: <span className="font-mono">{battery.fields.cycleCount}</span></p>
-                )}
+                <div>
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Cycle Count (รอบการชาร์จ)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={batteryCycle}
+                    onChange={(e) => setBatteryCycle(e.target.value)}
+                    placeholder="120"
+                    className="w-full mt-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-mono"
+                  />
+                </div>
                 {battery.fields.peakPerformanceCapability && (
                   <p className="text-[11px] text-gray-500">Peak performance: {battery.fields.peakPerformanceCapability}</p>
                 )}
