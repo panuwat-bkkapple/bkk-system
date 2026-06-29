@@ -21,6 +21,7 @@ import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificationModal';
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
+import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { sumAppliedAdjustments } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
@@ -840,6 +841,9 @@ export const MobileTicketDetail = () => {
               <SickwStoredResultCard sickwCheck={job.sickw_check} job={job} />
             </div>
           )}
+
+          {/* ค่าแบตเตอรี่ — มาจากการตรวจสภาพเครื่อง (ไม่ใช่ SickW) */}
+          <BatteryHealthCard job={job} />
 
           {/* === Device Details (enhanced) === */}
           {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {
