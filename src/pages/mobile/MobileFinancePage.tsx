@@ -31,6 +31,9 @@ export const MobileFinancePage = () => {
   // Slip URL uploaded BEFORE the post-picker page reload (iOS PWA freeze
   // workaround) — when set, the confirm uses it instead of re-uploading.
   const [preUploadedSlip, setPreUploadedSlip] = useState<string | null>(null);
+  // In-app confirm gate — replaces window.confirm() (a native dialog, which
+  // freezes the iOS standalone PWA's touch the same way the photo picker does).
+  const [confirmGate, setConfirmGate] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const [slipFile, setSlipFile] = useState<File | null>(null);
@@ -153,6 +156,7 @@ export const MobileFinancePage = () => {
     setSelectedTx(tx);
     setSlipFile(null);
     setPreUploadedSlip(null);
+    setConfirmGate(false);
     setTransferDateTime(toDateTimeLocal(Date.now())); // default = ตอนนี้ (ปรับเป็นเวลาในสลิปได้)
 
     let bankNameDisplay = tx.payment_info?.bank || tx.bank_name || '';
@@ -173,8 +177,16 @@ export const MobileFinancePage = () => {
     if (isNaN(transferredAt)) { toast.warning('วันเวลาที่โอนไม่ถูกต้อง'); return; }
     if (transferredAt > Date.now() + 60_000) { toast.warning('วันเวลาที่โอนเป็นอนาคต กรุณาตรวจสอบ'); return; }
 
-    if (!confirm('ยืนยันว่าโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
+    // In-app confirmation — NOT window.confirm(). A native dialog wedges the
+    // iOS standalone PWA's touch on dismissal (whole screen freezes until
+    // relaunch), exactly like the photo picker. Show a React confirm card.
+    setConfirmGate(true);
+  };
 
+  const doConfirmTransfer = async () => {
+    setConfirmGate(false);
+    if (!selectedTx) return;
+    const transferredAt = transferDateTime ? new Date(transferDateTime).getTime() : Date.now();
     setIsUploading(true);
     try {
       const now = Date.now();
@@ -503,6 +515,23 @@ export const MobileFinancePage = () => {
               </button>
             </div>
           </div>
+
+          {/* In-app confirm gate (replaces native window.confirm) */}
+          {confirmGate && selectedTx && (
+            <div
+              className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-6"
+              onClick={() => setConfirmGate(false)}
+            >
+              <div className="bg-white rounded-2xl p-5 w-full max-w-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <p className="text-sm font-bold text-slate-800 text-center">ยืนยันว่าโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?</p>
+                <p className="text-xs text-slate-500 text-center mt-1">ยอดสุทธิ ฿{getNetPayout(selectedTx).toLocaleString()}</p>
+                <div className="grid grid-cols-2 gap-2 mt-4">
+                  <button onClick={() => setConfirmGate(false)} className="py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold active:scale-[0.98]">ยกเลิก</button>
+                  <button onClick={doConfirmTransfer} className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold active:scale-[0.98]">ยืนยัน</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>,
         document.body
       )}
