@@ -13,7 +13,6 @@ import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { sumAppliedAdjustments } from '../../utils/adjustments';
-import { kickIosTouch } from '../../hooks/useIosPwaTouchRecovery';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -29,6 +28,9 @@ export const MobileFinancePage = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTx, setSelectedTx] = useState<any>(null);
+  // Slip URL uploaded BEFORE the post-picker page reload (iOS PWA freeze
+  // workaround) — when set, the confirm uses it instead of re-uploading.
+  const [preUploadedSlip, setPreUploadedSlip] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const [slipFile, setSlipFile] = useState<File | null>(null);
@@ -51,6 +53,25 @@ export const MobileFinancePage = () => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, [selectedTx]);
+
+  // Reopen the transfer modal after the post-slip-picker reload (see
+  // handleFileChange). Runs once the jobs list is available; finds the same tx,
+  // restores the half-filled form + the already-uploaded slip.
+  useEffect(() => {
+    const raw = sessionStorage.getItem('bkk_pending_transfer_v1');
+    if (!raw || !Array.isArray(jobs) || jobs.length === 0) return;
+    sessionStorage.removeItem('bkk_pending_transfer_v1');
+    let saved: any;
+    try { saved = JSON.parse(raw); } catch { return; }
+    const tx = (jobs as any[]).find((j) => j.id === saved.txId);
+    if (!tx) return;
+    setSelectedTx(tx);
+    setPreUploadedSlip(saved.slipUrl || null);
+    setTransferDateTime(saved.datetime || toDateTimeLocal(Date.now()));
+    setEditBankName(saved.bankName || '');
+    setEditBankAccount(saved.bankAccount || '');
+    setEditBankHolder(saved.bankHolder || '');
+  }, [jobs]);
 
   // คำนวณยอดโอนสุทธิจาก final_price ทุกครั้ง — ไม่ใช้ net_payout ที่เก็บใน DB เพราะบาง path
   // (เช่น Internal QC เก่า) อัปเดต final_price โดยไม่ sync net_payout ทำให้ค่าค้าง
@@ -101,26 +122,37 @@ export const MobileFinancePage = () => {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     e.target.value = ''; // release the input + allow re-picking the same file
-    e.target.blur();
-    if (!file) return;
-    // iOS standalone PWA wedges its main thread / touch layer (whole screen
-    // freezes until force-relaunch) if React re-renders the fixed, portalled
-    // modal the INSTANT the native photo picker dismisses. Defer the state
-    // update to the next macrotask so the WebView finishes resuming BEFORE the
-    // heavy re-render — this prevents the freeze rather than trying to recover
-    // from it. The delayed kick re-arms hit-testing as a backstop.
-    setTimeout(() => {
-      setSlipFile(file);
-      setTimeout(kickIosTouch, 50);
-    }, 0);
+    if (!file || !selectedTx) return;
+    // iOS standalone PWA fully freezes (whole screen dead, only a force-relaunch
+    // recovers) when the native photo picker dismisses over this fixed/portalled
+    // modal. Two in-place re-arm attempts didn't work, so we mirror the user's
+    // own fix automatically: upload the slip now, stash the half-filled form,
+    // and reload into a FRESH (responsive) document that reopens the modal with
+    // the slip already attached. The page is briefly frozen during the upload,
+    // then the reload clears it.
+    try {
+      const url = await uploadImageToFirebase(file, `slips/tradein/${selectedTx.id}_${Date.now()}`);
+      sessionStorage.setItem('bkk_pending_transfer_v1', JSON.stringify({
+        txId: selectedTx.id,
+        slipUrl: url,
+        datetime: transferDateTime,
+        bankName: editBankName,
+        bankAccount: editBankAccount,
+        bankHolder: editBankHolder,
+      }));
+      window.location.reload();
+    } catch {
+      toast.error('อัปโหลดสลิปไม่สำเร็จ กรุณาลองใหม่');
+    }
   };
 
   const openTransferModal = (tx: any) => {
     setSelectedTx(tx);
     setSlipFile(null);
+    setPreUploadedSlip(null);
     setTransferDateTime(toDateTimeLocal(Date.now())); // default = ตอนนี้ (ปรับเป็นเวลาในสลิปได้)
 
     let bankNameDisplay = tx.payment_info?.bank || tx.bank_name || '';
@@ -133,7 +165,7 @@ export const MobileFinancePage = () => {
 
   const handleConfirmTransfer = async () => {
     if (!selectedTx) return;
-    if (!slipFile) { toast.warning('กรุณาแนบสลิปการโอนเงิน'); return; }
+    if (!slipFile && !preUploadedSlip) { toast.warning('กรุณาแนบสลิปการโอนเงิน'); return; }
     if (!editBankName || !editBankAccount || !editBankHolder) { toast.warning('กรุณาระบุข้อมูลบัญชีให้ครบ'); return; }
 
     // วันเวลาที่โอนจริง (รองรับ backdate) — paid_at ยังคงเป็นเวลาที่บันทึกในระบบ (ตอนนี้)
@@ -147,7 +179,8 @@ export const MobileFinancePage = () => {
     try {
       const now = Date.now();
       const isB2B = selectedTx.type === 'B2B Trade-in';
-      const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`);
+      // Reuse the slip uploaded before the reload, else upload the picked file.
+      const slipUrl = preUploadedSlip || await uploadImageToFirebase(slipFile as File, `slips/tradein/${selectedTx.id}_${now}`);
 
       const actualTransferAmount = getNetPayout(selectedTx);
       // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
@@ -209,6 +242,7 @@ export const MobileFinancePage = () => {
       }
       setSelectedTx(null);
       setSlipFile(null);
+      setPreUploadedSlip(null);
     } catch (e) {
       toast.error('เกิดข้อผิดพลาด: ' + e);
     } finally {
@@ -441,13 +475,13 @@ export const MobileFinancePage = () => {
               {/* Slip Upload */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">หลักฐานการโอน (สลิป)</label>
-                <label className={`block w-full mt-1 border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${slipFile ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 active:border-emerald-500 active:bg-emerald-50'}`}>
+                <label className={`block w-full mt-1 border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${(slipFile || preUploadedSlip) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 active:border-emerald-500 active:bg-emerald-50'}`}>
                   {/* sr-only (not display:none) — a display:none file input is a
                       known iOS standalone-PWA freeze trigger after the picker. */}
                   <input type="file" accept="image/*" className="sr-only" onChange={handleFileChange} />
-                  {slipFile ? (
+                  {(slipFile || preUploadedSlip) ? (
                     <div className="flex items-center justify-center gap-2 text-emerald-700 font-bold text-sm">
-                      <FileText size={18} /> {slipFile.name}
+                      <FileText size={18} /> {slipFile ? slipFile.name : 'สลิปแนบแล้ว'}
                     </div>
                   ) : (
                     <div className="text-slate-400 flex flex-col items-center gap-1.5">
