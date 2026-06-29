@@ -7,6 +7,7 @@ import {
   ChevronLeft, Banknote, DollarSign, CalendarDays
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
+import { useIosPwaTouchRecovery } from '../../hooks/useIosPwaTouchRecovery';
 
 interface MobileLayoutProps {
   currentUser: any;
@@ -19,6 +20,9 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
 
   // Register FCM token for push notifications (lock screen + background)
   useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
+  // Re-arm touch after iOS suspends the WebView (native picker / background) —
+  // otherwise taps die until the app is force-relaunched.
+  useIosPwaTouchRecovery();
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [inboxUnread, setInboxUnread] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);

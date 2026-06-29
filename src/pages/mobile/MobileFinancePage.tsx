@@ -13,6 +13,7 @@ import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { sumAppliedAdjustments } from '../../utils/adjustments';
+import { kickIosTouch } from '../../hooks/useIosPwaTouchRecovery';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -102,6 +103,14 @@ export const MobileFinancePage = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) setSlipFile(e.target.files[0]);
+    // Returning from the iOS photo picker leaves the standalone PWA's touch
+    // layer dead (taps stop registering until relaunch). Release focus from the
+    // file input and re-arm WebKit's hit-testing so the confirm/close buttons
+    // stay tappable. A couple of delayed kicks cover the picker-dismiss lag.
+    e.target.blur();
+    kickIosTouch();
+    setTimeout(kickIosTouch, 150);
+    setTimeout(kickIosTouch, 450);
   };
 
   const openTransferModal = (tx: any) => {
