@@ -102,15 +102,20 @@ export const MobileFinancePage = () => {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) setSlipFile(e.target.files[0]);
-    // Returning from the iOS photo picker leaves the standalone PWA's touch
-    // layer dead (taps stop registering until relaunch). Release focus from the
-    // file input and re-arm WebKit's hit-testing so the confirm/close buttons
-    // stay tappable. A couple of delayed kicks cover the picker-dismiss lag.
+    const file = e.target.files?.[0] || null;
+    e.target.value = ''; // release the input + allow re-picking the same file
     e.target.blur();
-    kickIosTouch();
-    setTimeout(kickIosTouch, 150);
-    setTimeout(kickIosTouch, 450);
+    if (!file) return;
+    // iOS standalone PWA wedges its main thread / touch layer (whole screen
+    // freezes until force-relaunch) if React re-renders the fixed, portalled
+    // modal the INSTANT the native photo picker dismisses. Defer the state
+    // update to the next macrotask so the WebView finishes resuming BEFORE the
+    // heavy re-render — this prevents the freeze rather than trying to recover
+    // from it. The delayed kick re-arms hit-testing as a backstop.
+    setTimeout(() => {
+      setSlipFile(file);
+      setTimeout(kickIosTouch, 50);
+    }, 0);
   };
 
   const openTransferModal = (tx: any) => {
@@ -437,7 +442,9 @@ export const MobileFinancePage = () => {
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">หลักฐานการโอน (สลิป)</label>
                 <label className={`block w-full mt-1 border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${slipFile ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 active:border-emerald-500 active:bg-emerald-50'}`}>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                  {/* sr-only (not display:none) — a display:none file input is a
+                      known iOS standalone-PWA freeze trigger after the picker. */}
+                  <input type="file" accept="image/*" className="sr-only" onChange={handleFileChange} />
                   {slipFile ? (
                     <div className="flex items-center justify-center gap-2 text-emerald-700 font-bold text-sm">
                       <FileText size={18} /> {slipFile.name}
