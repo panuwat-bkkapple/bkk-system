@@ -6,10 +6,11 @@
 //   - battery_health_pct      → ไรเดอร์ + AdminDeviceVerificationModal
 //   - battery_health          → QCStation (ก๊อปปี้ฝั่ง QC, ความหมายเดียวกัน)
 //   - battery_cycle_count     → verification modal / QC
+//   - battery_unavailable     → ไรเดอร์กด "เครื่องเปิดไม่ได้ / อ่านแบตไม่ได้" (รอตรวจตอน QC)
 //   - verification_battery_photo → รูปหน้าจอ Settings > Battery ที่อัปโหลด
 // อ่านแบบ fallback `battery_health ?? battery_health_pct` ให้ตรงกับ Inventory/QCStation
 
-import { BatteryFull } from 'lucide-react';
+import { BatteryFull, BatteryWarning } from 'lucide-react';
 
 interface Props {
   job: any;
@@ -21,9 +22,31 @@ export function BatteryHealthCard({ job, className }: Props) {
   const pct: number | null | undefined = job?.battery_health ?? job?.battery_health_pct;
   const cycles: number | null | undefined = job?.battery_cycle_count;
   const photo: string | undefined = job?.verification_battery_photo;
+  // ไรเดอร์ตรวจแล้วแต่อ่านแบตไม่ได้ (เครื่องเปิดไม่ได้) — ยังเป็นข้อมูลสำคัญ ต้องโชว์
+  const unavailable: boolean = job?.battery_unavailable === true;
 
-  // ยังไม่มีข้อมูลแบตเลย — ไม่ต้องแสดงการ์ดเปล่า
-  if (pct == null && cycles == null && !photo) return null;
+  // ยังไม่มีข้อมูลแบตเลย (และไม่ได้ flag ว่าอ่านไม่ได้) — ไม่ต้องแสดงการ์ดเปล่า
+  if (pct == null && cycles == null && !photo && !unavailable) return null;
+
+  // เคสไรเดอร์ flag "เครื่องเปิดไม่ได้ / อ่านแบตไม่ได้" และยังไม่มีตัวเลขจาก QC
+  if (unavailable && pct == null) {
+    return (
+      <div className={`bg-amber-50 rounded-2xl border border-amber-200 p-4 flex items-start gap-3 ${className || ''}`}>
+        <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+          <BatteryWarning size={16} className="text-amber-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-amber-900">สุขภาพแบตเตอรี่</p>
+          <p className="text-[11px] text-amber-700 mt-0.5">เครื่องเปิดไม่ได้ / อ่านแบตไม่ได้ — รอตรวจแบตตอน QC</p>
+          {photo && (
+            <a href={photo} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-blue-600 hover:underline mt-1 inline-block">
+              ดูรูปหน้าจอแบต
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const healthy = typeof pct === 'number' && pct >= 80;
   const pctColor =
