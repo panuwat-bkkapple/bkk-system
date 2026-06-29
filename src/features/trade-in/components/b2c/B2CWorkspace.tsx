@@ -17,6 +17,7 @@ import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
 import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
+import { BatteryHealthCard } from '@/components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '@/utils/sickwApi';
 import { sumAppliedAdjustments } from '@/utils/adjustments';
 import { useAuth } from '@/hooks/useAuth';
@@ -268,6 +269,9 @@ export const B2CWorkspace = ({
               <SickwStoredResultCard sickwCheck={job.sickw_check} job={job} />
             </div>
           )}
+
+          {/* ค่าแบตเตอรี่ — มาจากการตรวจสภาพเครื่อง (ไม่ใช่ SickW) */}
+          <BatteryHealthCard job={job} />
 
           {/* Condition Match Comparison */}
           <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-8">
