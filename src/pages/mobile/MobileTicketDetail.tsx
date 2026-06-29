@@ -1020,7 +1020,10 @@ export const MobileTicketDetail = () => {
               {quickActions.map((action, i) => (
                 <button
                   key={i}
-                  onClick={() => handleUpdateStatus(action.status, action.log)}
+                  onClick={() => {
+                    if (action.confirm && !confirm(action.confirm)) return;
+                    handleUpdateStatus(action.status, action.log);
+                  }}
                   className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${action.style}`}
                 >
                   {action.label}
@@ -1448,7 +1451,7 @@ const getConditionIcon = (text: string) => {
 function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string, job?: any) {
   if (isCancelled) return [];
 
-  const actions: { label: string; status: string; log: string; style: string }[] = [];
+  const actions: { label: string; status: string; log: string; style: string; confirm?: string }[] = [];
   const isPickup = receiveMethod === 'Pickup';
   // The "ส่งให้ไรเดอร์ (Active Leads)" broadcast button is available
   // through the whole sales phase for Pickup orders so admin can
@@ -1563,7 +1566,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       if (status === 'Pending QC' && wasPaid) {
         actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', status: 'Sent to QC Lab', log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
         actions.push({ label: 'ผ่าน QC → เก็บ Stock', status: 'In Stock', log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
-        actions.push({ label: 'ขายแล้ว (Sold)', status: 'Sold', log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white' });
+        actions.push({ label: 'ขายแล้ว (Sold)', status: 'Sold', log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white', confirm: 'ยืนยันทำเครื่องหมายว่า "ขายแล้ว (Sold)"? ปุ่มนี้ปิดวงจรการขาย' });
       } else {
         actions.push({ label: 'ผ่าน QC → Payout', status: 'Payout Processing', log: 'ผ่านการตรวจสอบ ดำเนินการจ่ายเงิน', style: 'bg-emerald-500 text-white' });
         actions.push({ label: 'ต้องเจรจาราคา (Negotiation)', status: 'Negotiation', log: 'ต้องเจรจาราคากับลูกค้า', style: 'bg-red-500 text-white' });
@@ -1596,6 +1599,17 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         actions.push({ label: 'ส่งเข้า QC Lab', status: 'Sent to QC Lab', log: 'รับมอบเครื่องและส่งเข้าห้องแล็บ', style: 'bg-purple-600 text-white' });
         actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
       }
+      break;
+    case 'Sold':
+    case 'In Stock':
+    case 'Ready to Sell':
+    case 'Sent to QC Lab':
+      // Post-sale inventory states previously had NO actions at all — a mis-tap
+      // on "Sold" (or stock/lab) left the job stuck with no way back. Offer a
+      // guarded rewind to the post-payment QC hub (Pending QC). Since this job
+      // was already Paid, the Pending QC branch re-offers Lab/Stock/Sold (not a
+      // second payout), so no double-pay risk.
+      actions.push({ label: 'ย้อนสถานะกลับ (กดผิด) → Pending QC', status: 'Pending QC', log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดผิด' });
       break;
   }
 
