@@ -123,6 +123,8 @@ export const MobileTicketDetail = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [rider, setRider] = useState<{ name: string; phone: string } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   // Load job. RTDB returns arrays as objects when keys aren't sequential
   // integers (e.g. qc_logs that got a string key written by mistake), so
@@ -269,6 +271,27 @@ export const MobileTicketDetail = () => {
       updated_at: Date.now()
     });
     toast.success(`อัพเดทเป็น ${newStatus}`);
+  };
+
+  // Add a free-text sales note to the job history. Mirrors desktop
+  // (TradeInDashboard.handleSaveNotes) — same 'Sales Note Added' qc_logs action
+  // so the note shows in the same timeline on both mobile and desktop.
+  const handleAddNote = async () => {
+    const text = noteText.trim();
+    if (!text || savingNote) return;
+    setSavingNote(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        qc_logs: [makeLog('Sales Note Added', text), ...(job.qc_logs || [])],
+        updated_at: Date.now(),
+      });
+      setNoteText('');
+      toast.success('บันทึกโน้ตแล้ว');
+    } catch (e: unknown) {
+      toast.error('บันทึกโน้ตไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingNote(false);
+    }
   };
 
   // Reopen a soft-cancelled job onto the SAME ticket. Revised offer price
@@ -962,6 +985,29 @@ export const MobileTicketDetail = () => {
               </div>
             );
           })}
+
+          {/* === Add Note === */}
+          {!isCancelled && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FileText size={16} className="text-slate-400" /> เพิ่มโน้ต
+              </h3>
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="พิมพ์บันทึกย่อ (จะแสดงในประวัติงาน)..."
+                rows={2}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:border-blue-500 resize-none"
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!noteText.trim() || savingNote}
+                className="w-full mt-2 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold disabled:opacity-30"
+              >
+                {savingNote ? 'กำลังบันทึก...' : 'บันทึกโน้ต'}
+              </button>
+            </div>
+          )}
 
           {/* === Activity Log (collapsible) === */}
           {job.qc_logs && job.qc_logs.length > 0 && (
