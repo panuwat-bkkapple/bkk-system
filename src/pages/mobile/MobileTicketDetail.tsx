@@ -866,7 +866,7 @@ export const MobileTicketDetail = () => {
           )}
 
           {/* ค่าแบตเตอรี่ — มาจากการตรวจสภาพเครื่อง (ไม่ใช่ SickW) */}
-          <BatteryHealthCard job={job} />
+          <BatteryHealthCard job={job} editorName={currentUser?.name} />
 
           {/* === Device Details (enhanced) === */}
           {(job.devices && job.devices.length > 0 ? job.devices : [job]).map((dev: any, idx: number) => {

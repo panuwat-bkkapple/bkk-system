@@ -271,7 +271,7 @@ export const B2CWorkspace = ({
           )}
 
           {/* ค่าแบตเตอรี่ — มาจากการตรวจสภาพเครื่อง (ไม่ใช่ SickW) */}
-          <BatteryHealthCard job={job} />
+          <BatteryHealthCard job={job} editorName={currentUser?.name} />
 
           {/* Condition Match Comparison */}
           <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-8">
