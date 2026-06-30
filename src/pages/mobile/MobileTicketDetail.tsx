@@ -1609,7 +1609,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       // guarded rewind to the post-payment QC hub (Pending QC). Since this job
       // was already Paid, the Pending QC branch re-offers Lab/Stock/Sold (not a
       // second payout), so no double-pay risk.
-      actions.push({ label: 'ย้อนสถานะกลับ (กดผิด) → Pending QC', status: 'Pending QC', log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดผิด' });
+      actions.push({ label: 'ย้อนสถานะกลับ → Pending QC', status: 'Pending QC', log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดสถานะผิด' });
       break;
   }
 
