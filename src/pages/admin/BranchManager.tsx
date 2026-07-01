@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
-import { Store, Plus, MapPin, Trash2, Edit3, Save, X, Navigation, Clock } from 'lucide-react';
+import { Store, Plus, MapPin, Trash2, Edit3, Save, X, Navigation, Clock, Phone } from 'lucide-react';
 import { GoogleMap, MarkerF, useJsApiLoader } from '@react-google-maps/api';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -16,6 +16,9 @@ export default function BranchManager() {
         name: '',
         address: '',
         mapInfo: '',
+        // เบอร์โทรสาขา — แอดมินกรอกเอง, ฝั่งลูกค้า (bkk-frontend-next) แสดงให้โทรได้
+        // และ cloud function เก็บลง job.branch_details.phone
+        phone: '',
         lat: 13.7563, // ค่าเริ่มต้น กรุงเทพฯ
         lng: 100.5018,
         isActive: true,
@@ -63,12 +66,12 @@ export default function BranchManager() {
     const closeModal = () => {
         setIsModalOpen(false);
         setEditingId(null);
-        setForm({ name: '', address: '', mapInfo: '', lat: 13.7563, lng: 100.5018, isActive: true, openHour: 10, closeHour: 22, isOpen: true });
+        setForm({ name: '', address: '', mapInfo: '', phone: '', lat: 13.7563, lng: 100.5018, isActive: true, openHour: 10, closeHour: 22, isOpen: true });
     };
 
     const editBranch = (b: any) => {
-        // merge defaults ทับก่อน เผื่อสาขาเก่ายังไม่มีฟิลด์เวลา/สถานะเปิด
-        setForm({ openHour: 10, closeHour: 22, isOpen: true, ...b });
+        // merge defaults ทับก่อน เผื่อสาขาเก่ายังไม่มีฟิลด์เวลา/สถานะเปิด/เบอร์โทร
+        setForm({ phone: '', openHour: 10, closeHour: 22, isOpen: true, ...b });
         setEditingId(b.id);
         setIsModalOpen(true);
     };
@@ -140,6 +143,11 @@ export default function BranchManager() {
                         <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-3">{branch.mapInfo}</p>
                         <p className="text-sm text-slate-600 leading-relaxed mb-4">{branch.address}</p>
                         <div className="flex flex-col gap-2">
+                            {branch.phone ? (
+                                <div className="text-[11px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg flex items-center gap-2">
+                                    <Phone size={12} /> {branch.phone}
+                                </div>
+                            ) : null}
                             <div className="text-[11px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg flex items-center gap-2">
                                 <Clock size={12} /> เวลาทำการ {String(branch.openHour ?? 10).padStart(2, '0')}:00 - {String(branch.closeHour ?? 22).padStart(2, '0')}:00
                             </div>
@@ -188,6 +196,12 @@ export default function BranchManager() {
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">จุดสังเกต / ข้อมูลแผนที่ (Short Info)</label>
                                     <input type="text" value={form.mapInfo} onChange={e => setForm({ ...form, mapInfo: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600" />
+                                </div>
+
+                                {/* ☎️ เบอร์โทรสาขา — แอดมินกรอกเอง */}
+                                <div>
+                                    <label className="text-xs font-bold text-slate-400 uppercase mb-1 block flex items-center gap-1"><Phone size={12} /> เบอร์โทรสาขา</label>
+                                    <input type="tel" inputMode="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="เช่น 02-123-4567 หรือ 081-234-5678" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600" />
                                 </div>
 
                                 {/* 🕒 เวลาเปิด-ปิดสาขา — ใช้สร้าง slot เวลานัดฝั่งลูกค้า */}
