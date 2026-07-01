@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, push, update, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
-import { Store, Plus, MapPin, Trash2, Edit3, Save, X, Navigation } from 'lucide-react';
+import { Store, Plus, MapPin, Trash2, Edit3, Save, X, Navigation, Clock } from 'lucide-react';
 import { GoogleMap, MarkerF, useJsApiLoader } from '@react-google-maps/api';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -18,7 +18,14 @@ export default function BranchManager() {
         mapInfo: '',
         lat: 13.7563, // ค่าเริ่มต้น กรุงเทพฯ
         lng: 100.5018,
-        isActive: true
+        isActive: true,
+        // เวลาเปิด-ปิดของสาขา (ชั่วโมง 0-23) — ฝั่งลูกค้า (bkk-frontend-next)
+        // ใช้สร้าง slot เวลานัดเข้าสาขาตามเวลาจริงของแต่ละสาขา
+        openHour: 10,
+        closeHour: 22,
+        // toggle เปิด-ปิดรับลูกค้า — false = แสดงว่า "ปิดทำการ" ให้ลูกค้าทราบ
+        // และเลือกสาขานี้ไม่ได้ (ต่างจากการลบสาขาออกจากระบบ)
+        isOpen: true
     });
 
     const { isLoaded } = useJsApiLoader({
@@ -38,6 +45,7 @@ export default function BranchManager() {
 
     const handleSave = async () => {
         if (!form.name || !form.address) { toast.warning('กรุณากรอกข้อมูลให้ครบถ้วน'); return; }
+        if (form.closeHour <= form.openHour) { toast.warning('เวลาปิดต้องมากกว่าเวลาเปิด'); return; }
         try {
             const branchRef = ref(db, 'settings/branches');
 
@@ -55,11 +63,12 @@ export default function BranchManager() {
     const closeModal = () => {
         setIsModalOpen(false);
         setEditingId(null);
-        setForm({ name: '', address: '', mapInfo: '', lat: 13.7563, lng: 100.5018, isActive: true });
+        setForm({ name: '', address: '', mapInfo: '', lat: 13.7563, lng: 100.5018, isActive: true, openHour: 10, closeHour: 22, isOpen: true });
     };
 
     const editBranch = (b: any) => {
-        setForm(b);
+        // merge defaults ทับก่อน เผื่อสาขาเก่ายังไม่มีฟิลด์เวลา/สถานะเปิด
+        setForm({ openHour: 10, closeHour: 22, isOpen: true, ...b });
         setEditingId(b.id);
         setIsModalOpen(true);
     };
@@ -120,11 +129,23 @@ export default function BranchManager() {
                                 <button onClick={() => deleteBranch(branch.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                             </div>
                         </div>
-                        <h3 className="font-black text-lg text-slate-800 mb-1">{branch.name}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-black text-lg text-slate-800">{branch.name}</h3>
+                            {branch.isOpen === false ? (
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-50 text-red-500">ปิดทำการ</span>
+                            ) : (
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-green-50 text-green-600">เปิดทำการ</span>
+                            )}
+                        </div>
                         <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-3">{branch.mapInfo}</p>
                         <p className="text-sm text-slate-600 leading-relaxed mb-4">{branch.address}</p>
-                        <div className="text-[10px] font-bold text-slate-400 bg-slate-50 p-2 rounded-lg flex items-center gap-2">
-                            <Navigation size={12} /> {branch.lat.toFixed(4)}, {branch.lng.toFixed(4)}
+                        <div className="flex flex-col gap-2">
+                            <div className="text-[11px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg flex items-center gap-2">
+                                <Clock size={12} /> เวลาทำการ {String(branch.openHour ?? 10).padStart(2, '0')}:00 - {String(branch.closeHour ?? 22).padStart(2, '0')}:00
+                            </div>
+                            <div className="text-[10px] font-bold text-slate-400 bg-slate-50 p-2 rounded-lg flex items-center gap-2">
+                                <Navigation size={12} /> {branch.lat.toFixed(4)}, {branch.lng.toFixed(4)}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -168,6 +189,54 @@ export default function BranchManager() {
                                     <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">จุดสังเกต / ข้อมูลแผนที่ (Short Info)</label>
                                     <input type="text" value={form.mapInfo} onChange={e => setForm({ ...form, mapInfo: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600" />
                                 </div>
+
+                                {/* 🕒 เวลาเปิด-ปิดสาขา — ใช้สร้าง slot เวลานัดฝั่งลูกค้า */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block flex items-center gap-1"><Clock size={12} /> เวลาเปิด</label>
+                                        <select
+                                            value={form.openHour}
+                                            onChange={e => setForm({ ...form, openHour: Number(e.target.value) })}
+                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600"
+                                        >
+                                            {Array.from({ length: 24 }, (_, h) => (
+                                                <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block flex items-center gap-1"><Clock size={12} /> เวลาปิด</label>
+                                        <select
+                                            value={form.closeHour}
+                                            onChange={e => setForm({ ...form, closeHour: Number(e.target.value) })}
+                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600"
+                                        >
+                                            {Array.from({ length: 24 }, (_, h) => (
+                                                <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    {form.closeHour <= form.openHour && (
+                                        <p className="col-span-2 text-[11px] font-bold text-red-500">เวลาปิดต้องมากกว่าเวลาเปิด</p>
+                                    )}
+                                </div>
+
+                                {/* 🔘 Toggle เปิด-ปิดรับลูกค้า — false = แจ้งลูกค้าว่า "ปิดทำการ" */}
+                                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-3">
+                                    <div>
+                                        <div className="text-sm font-bold text-slate-700">เปิดรับลูกค้า</div>
+                                        <div className="text-[11px] text-slate-400">ปิดไว้เพื่อแจ้งลูกค้าว่าสาขานี้ปิดทำการชั่วคราว (ลูกค้าจะเลือกสาขานี้ไม่ได้)</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setForm({ ...form, isOpen: !form.isOpen })}
+                                        className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${form.isOpen ? 'bg-green-500' : 'bg-slate-300'}`}
+                                        aria-pressed={form.isOpen}
+                                    >
+                                        <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.isOpen ? 'translate-x-5' : ''}`} />
+                                    </button>
+                                </div>
+
                                 <div className="pt-4 border-t flex justify-end gap-3">
                                     <button onClick={closeModal} className="px-6 py-3 font-bold text-slate-500">ยกเลิก</button>
                                     <button onClick={handleSave} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black flex items-center gap-2"><Save size={20} /> บันทึกข้อมูล</button>
