@@ -277,7 +277,15 @@ export const CouponManager = () => {
             // means "all models" and a model-locked coupon leaks across categories.
             const isModelRestricted = Array.isArray(editingItem.applicable_models)
                 && editingItem.applicable_models.length > 0;
-            const payload = { ...editingItem, is_model_restricted: isModelRestricted, updated_at: Date.now() };
+            // Denormalize the human model names next to the IDs so the customer
+            // coupon detail can show "iPhone 16, iPhone 16 Pro..." without
+            // loading /models on the storefront. IDs stay the source of truth
+            // for eligibility; names are display-only and refreshed on each save.
+            const nameOfModel = (id: string) => modelsData.find((m: any) => m.id === id)?.name || '';
+            const applicable_model_names = (Array.isArray(editingItem.applicable_models) ? editingItem.applicable_models : [])
+                .map(nameOfModel)
+                .filter(Boolean);
+            const payload = { ...editingItem, is_model_restricted: isModelRestricted, applicable_model_names, updated_at: Date.now() };
 
             if (editingItem.id) {
                 await update(ref(db, `coupons/${editingItem.id}`), payload);
