@@ -247,7 +247,7 @@ export const CouponManager = () => {
             setEditingItem(JSON.parse(JSON.stringify(item)));
         } else {
             setEditingItem({
-                code: '', name: '', type: 'fixed', value: 0,
+                code: '', name: '', description: '', type: 'fixed', value: 0,
                 min_trade_value: 0, max_discount: 0,
                 start_date: '', end_date: '',
                 total_limit: 100, used_count: 0,
