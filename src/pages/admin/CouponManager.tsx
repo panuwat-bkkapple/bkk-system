@@ -251,6 +251,11 @@ export const CouponManager = () => {
                 min_trade_value: 0, max_discount: 0,
                 start_date: '', end_date: '',
                 total_limit: 100, used_count: 0,
+                // Claim over-issue layer: claim_limit = how many slots people can
+                // COLLECT (can exceed total_limit for FOMO), tracked by
+                // claimed_count. total_limit stays the real payout budget.
+                // claim_valid_days = wallet coupon expiry (days after collecting).
+                claim_limit: 0, claimed_count: 0, claim_valid_days: 0,
                 is_active: true, show_on_homepage: true,
                 new_customer_only: false, // ใช้ได้เฉพาะลูกค้าใหม่ (เช็คฝั่ง server ด้วย uid/เบอร์)
                 applicable_models: [], // 🌟 [] = ใช้ได้ทุกรุ่น, ถ้าระบุ ID จะใช้ได้เฉพาะรุ่นนั้นๆ
@@ -566,8 +571,23 @@ export const CouponManager = () => {
                                             <input type="number" placeholder="0" value={editingItem.min_trade_value} onChange={(e) => setEditingItem({ ...editingItem, min_trade_value: Number(e.target.value) })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500" />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-slate-500 mb-1.5 block">จำนวนสิทธิ์ทั้งหมด (สิทธิ์)</label>
+                                            <label className="text-xs font-bold text-slate-500 mb-1.5 block">งบจ่ายจริง (สิทธิ์ที่ใช้ได้)</label>
                                             <input type="number" placeholder="100" value={editingItem.total_limit} onChange={(e) => setEditingItem({ ...editingItem, total_limit: Number(e.target.value) })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500" />
+                                            <p className="text-[10px] font-bold text-slate-400 mt-1">เพดานเงินจริง — ใช้ครบเท่านี้แล้วหยุดจ่าย</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Claim over-issue layer: เปิดให้ "เก็บ" ได้มากกว่างบจ่ายจริง (การเก็บฟรี ไม่เสียเงิน) */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 mb-1.5 block">โควตาการเก็บสิทธิ์ (Claim)</label>
+                                            <input type="number" placeholder="เว้นว่าง = เท่างบจ่ายจริง" value={editingItem.claim_limit || ''} onChange={(e) => setEditingItem({ ...editingItem, claim_limit: Number(e.target.value) })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500" />
+                                            <p className="text-[10px] font-bold text-slate-400 mt-1">ตั้งมากกว่างบจ่ายจริงได้ (over-issue) เพื่อให้ "เต็ม" เร็ว กระตุ้นการแย่งเก็บ</p>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 mb-1.5 block">คูปองหมดอายุหลังเก็บ (วัน)</label>
+                                            <input type="number" placeholder="0 = ตามวันสิ้นสุดแคมเปญ" value={editingItem.claim_valid_days || ''} onChange={(e) => setEditingItem({ ...editingItem, claim_valid_days: Number(e.target.value) })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500" />
+                                            <p className="text-[10px] font-bold text-slate-400 mt-1">เก็บแล้วต้องใช้ภายในกี่วัน (เร่งให้รีบขาย)</p>
                                         </div>
                                     </div>
 
