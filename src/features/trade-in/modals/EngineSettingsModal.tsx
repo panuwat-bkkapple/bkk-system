@@ -117,25 +117,52 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   // delete "แบตเตอรี่" for a Mac mini) and assign the set via PriceEditor.
   // Each seeded group carries an `icon` key (see constants/conditionIcons) so the
   // customer frontend renders the matching topic glyph instead of a generic "?".
-  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: { title: string; icon: string }[] }> = {
-    iphone: { label: 'iPhone', items: [{ title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera' }, { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity' }, { title: 'ลำโพง / ไมโครโฟน', icon: 'audio' }] },
-    ipad: { label: 'iPad', items: [{ title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera' }, { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity' }, { title: 'ลำโพง / ไมโครโฟน', icon: 'audio' }] },
-    mac: { label: 'Mac', items: [{ title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power' }, { title: 'หน้าจอแสดงผล', icon: 'screen' }, { title: 'คีย์บอร์ด + แทร็คแพด', icon: 'keyboard' }, { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports' }, { title: 'แบตเตอรี่', icon: 'battery' }] },
-    watch: { label: 'Apple Watch', items: [{ title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown' }, { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors' }, { title: 'Wi-Fi / Bluetooth', icon: 'connectivity' }] },
+  // `description` = คำอธิบายใต้หัวข้อที่ลูกค้าเห็นตอนประเมิน (mirror จากชุดคัดกรอง
+  // hardcoded เดิมใน bkk-frontend-next AssessmentFlow) — แอดมินแก้ทับได้ทุกช่อง
+  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: { title: string; icon: string; description: string }[] }> = {
+    iphone: { label: 'iPhone', items: [
+      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง' },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว' },
+      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
+      { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity', description: 'โทรได้ รับสายได้ เชื่อมต่อ Wi-Fi ได้ สัญญาณปกติ' },
+      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
+    ] },
+    ipad: { label: 'iPad', items: [
+      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง' },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว' },
+      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
+      { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity', description: 'เชื่อมต่อ Wi-Fi / Bluetooth ได้ สัญญาณปกติ' },
+      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
+    ] },
+    mac: { label: 'Mac', items: [
+      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ' },
+      { title: 'หน้าจอแสดงผล', icon: 'screen', description: 'ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว สีสม่ำเสมอ ไม่มีจอเบิร์น' },
+      { title: 'คีย์บอร์ด + แทร็คแพด', icon: 'keyboard', description: 'ปุ่มกดได้ทุกปุ่ม ไม่มีปุ่มค้าง แทร็คแพดคลิกและเลื่อนได้ปกติ' },
+      { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ' },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม ไม่ร้อนผิดปกติ' },
+    ] },
+    watch: { label: 'Apple Watch', items: [
+      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ' },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'หน้าจอสัมผัสตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีจอเบิร์น' },
+      { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown', description: 'หมุน Digital Crown ได้ลื่น กดปุ่มด้านข้างได้ปกติ ไม่ค้าง' },
+      { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors', description: 'เซ็นเซอร์วัดชีพจร ตรวจจับการสวมใส่ และเซ็นเซอร์อื่นๆ ทำงานได้ปกติ' },
+      { title: 'Wi-Fi / Bluetooth', icon: 'connectivity', description: 'เชื่อมต่อ Bluetooth กับ iPhone ได้ เชื่อมต่อ Wi-Fi ได้ปกติ' },
+    ] },
   };
 
   const handleSeedFunctional = (cat: string) => {
     const tpl = FUNCTIONAL_TEMPLATES[cat];
     if (!tpl) return;
     const base = Date.now();
-    const seeded = tpl.items.map(({ title, icon }, i) => ({
+    const seeded = tpl.items.map(({ title, icon, description }, i) => ({
       id: `g_${base}_${i}`,
       title,
       icon,
+      description,
       kind: 'functional',
       options: [
-        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', t1: 0, t2: 0, t3: 0, failBehavior: 'pass' },
-        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', t1: 0, t2: 0, t3: 0, failBehavior: 'reject' },
+        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', description: 'ฟังก์ชันนี้ทำงานได้ตามปกติ ไม่มีปัญหา', t1: 0, t2: 0, t3: 0, failBehavior: 'pass' },
+        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', description: 'ฟังก์ชันนี้ทำงานผิดปกติ หรือใช้งานไม่ได้', t1: 0, t2: 0, t3: 0, failBehavior: 'reject' },
       ],
     }));
     // Prepend so the functional screening comes before the cosmetic groups.
@@ -290,6 +317,14 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           <Trash2 size={20} />
                         </button>
                       </div>
+                      {/* Group description — shown to customers under the topic heading */}
+                      <input
+                        type="text"
+                        placeholder="คำอธิบายใต้หัวข้อ (ลูกค้าเห็นตอนประเมิน เช่น ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว) — ไม่บังคับ"
+                        value={g.description || ''}
+                        onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].description = v; else delete n[gi].description; setEditingSet({ ...editingSet, groups: n }); }}
+                        className="w-full text-sm font-bold text-slate-500 bg-transparent border-none outline-none mb-3 focus:text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
+                      />
                       {/* Group kind: cosmetic (deduct only) vs functional (can reject) */}
                       <div className="flex items-center gap-1.5 mb-5">
                         {(['cosmetic', 'functional'] as const).map((k) => {
@@ -319,6 +354,13 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           <div key={o.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50 p-2 rounded-xl border border-slate-100 group/option hover:border-indigo-200 transition-colors">
                             <div className="col-span-5">
                               <input type="text" placeholder="เช่น สวยสมบูรณ์" value={o.label} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].label = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-4 py-2.5 rounded-lg border-none bg-white shadow-sm text-sm font-bold focus:ring-2 focus:ring-indigo-500" />
+                              <input
+                                type="text"
+                                placeholder="คำอธิบายตัวเลือก (ลูกค้าเห็นใต้ชื่อตัวเลือก) — ไม่บังคับ"
+                                value={o.description || ''}
+                                onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].options[oi].description = v; else delete n[gi].options[oi].description; setEditingSet({ ...editingSet, groups: n }); }}
+                                className="w-full px-4 py-1.5 mt-1.5 rounded-lg border-none bg-white/70 shadow-sm text-xs font-medium text-slate-500 focus:ring-2 focus:ring-indigo-300 placeholder:text-slate-300"
+                              />
                               {g.kind === 'functional' && (
                                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                                   <span className="text-[9px] font-black uppercase text-slate-400 mr-0.5">ถ้าลูกค้าเลือกข้อนี้:</span>
