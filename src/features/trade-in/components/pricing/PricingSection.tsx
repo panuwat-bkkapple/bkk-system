@@ -113,7 +113,12 @@ export const PricingSection: React.FC<PricingSectionProps> = ({
         return (
           <div key={attr.key} className="border-b border-slate-100 last:border-b-0">
             <div className="flex justify-between items-center px-5 py-2 bg-slate-50/50">
-              <span className="text-xs font-black text-slate-600">{attr.label} <span className="text-slate-400 font-medium">({mod.options.length})</span></span>
+              <span className="text-xs font-black text-slate-600">
+                {attr.label} <span className="text-slate-400 font-medium">({mod.options.length})</span>
+                {mod.options.length <= 1 && (
+                  <span className="ml-2 text-[9px] font-bold text-slate-400">ไม่บังคับ — มีตัวเลือกเดียวหรือไม่มี ลูกค้าจะข้ามข้อนี้อัตโนมัติ</span>
+                )}
+              </span>
               <button onClick={() => handleAddOption(attr.key)} className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-blue-600 hover:text-white transition-all">
                 <Plus size={12} /> เพิ่ม
               </button>
