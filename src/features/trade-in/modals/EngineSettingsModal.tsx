@@ -8,6 +8,7 @@ import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
 import { writeConditionSet } from '../utils/conditionSets';
+import { CONDITION_ICONS, CONDITION_ICON_LABELS, CONDITION_ICON_KEYS, getConditionIcon } from '../constants/conditionIcons';
 
 // AG Grid (~1MB) is only pulled in when the user opens Table view.
 const DeductionTableView = lazy(() => import('../components/pricing/DeductionTableView'));
@@ -28,6 +29,9 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     if (typeof window === 'undefined') return 'card';
     return (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) === 'table' ? 'table' : 'card';
   });
+
+  // Which group's icon-picker popover is open (by group id), or null.
+  const [iconMenuFor, setIconMenuFor] = useState<string | null>(null);
 
   // Keep latest editingSet for rollback inside async callbacks without stale closures.
   const editingSetRef = useRef<any>(null);
@@ -111,20 +115,23 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   // hardcoded screening questions (now data-driven). Each = one functional group
   // with ปกติ (pass) / มีปัญหา (reject). Admin can then tweak per model (e.g.
   // delete "แบตเตอรี่" for a Mac mini) and assign the set via PriceEditor.
-  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; titles: string[] }> = {
-    iphone: { label: 'iPhone', titles: ['เปิดเครื่อง / ใช้งานทั่วไป', 'หน้าจอ + ทัชสกรีน', 'กล้องหน้า / กล้องหลัง', 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', 'ลำโพง / ไมโครโฟน'] },
-    ipad: { label: 'iPad', titles: ['เปิดเครื่อง / ใช้งานทั่วไป', 'หน้าจอ + ทัชสกรีน', 'กล้องหน้า / กล้องหลัง', 'Wi-Fi / Bluetooth / สัญญาณ', 'ลำโพง / ไมโครโฟน'] },
-    mac: { label: 'Mac', titles: ['เปิดเครื่อง / ชาร์จไฟ', 'หน้าจอแสดงผล', 'คีย์บอร์ด + แทร็คแพด', 'พอร์ต + Wi-Fi / Bluetooth', 'แบตเตอรี่'] },
-    watch: { label: 'Apple Watch', titles: ['เปิดเครื่อง / ชาร์จไฟ', 'หน้าจอ + ทัชสกรีน', 'Digital Crown + ปุ่มข้าง', 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', 'Wi-Fi / Bluetooth'] },
+  // Each seeded group carries an `icon` key (see constants/conditionIcons) so the
+  // customer frontend renders the matching topic glyph instead of a generic "?".
+  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: { title: string; icon: string }[] }> = {
+    iphone: { label: 'iPhone', items: [{ title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera' }, { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity' }, { title: 'ลำโพง / ไมโครโฟน', icon: 'audio' }] },
+    ipad: { label: 'iPad', items: [{ title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera' }, { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity' }, { title: 'ลำโพง / ไมโครโฟน', icon: 'audio' }] },
+    mac: { label: 'Mac', items: [{ title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power' }, { title: 'หน้าจอแสดงผล', icon: 'screen' }, { title: 'คีย์บอร์ด + แทร็คแพด', icon: 'keyboard' }, { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports' }, { title: 'แบตเตอรี่', icon: 'battery' }] },
+    watch: { label: 'Apple Watch', items: [{ title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power' }, { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen' }, { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown' }, { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors' }, { title: 'Wi-Fi / Bluetooth', icon: 'connectivity' }] },
   };
 
   const handleSeedFunctional = (cat: string) => {
     const tpl = FUNCTIONAL_TEMPLATES[cat];
     if (!tpl) return;
     const base = Date.now();
-    const seeded = tpl.titles.map((title, i) => ({
+    const seeded = tpl.items.map(({ title, icon }, i) => ({
       id: `g_${base}_${i}`,
       title,
+      icon,
       kind: 'functional',
       options: [
         { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', t1: 0, t2: 0, t3: 0, failBehavior: 'pass' },
@@ -133,7 +140,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     }));
     // Prepend so the functional screening comes before the cosmetic groups.
     setEditingSet({ ...editingSet, groups: [...seeded, ...(editingSet.groups || [])] });
-    toast.success(`เพิ่มชุดคัดกรองการทำงาน ${tpl.label} (${tpl.titles.length} ข้อ) — อย่าลืมกด Save Set`);
+    toast.success(`เพิ่มชุดคัดกรองการทำงาน ${tpl.label} (${tpl.items.length} ข้อ) — อย่าลืมกด Save Set`);
   };
 
   if (!isOpen) return null;
@@ -227,6 +234,57 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
 
                       {/* Group Header */}
                       <div className="flex justify-between items-center mb-2">
+                        {/* Icon picker — the chosen key is stored on the group and
+                            drives the topic glyph shown to customers on the
+                            assessment flow. No key = auto-guess from the title. */}
+                        {(() => {
+                          const PreviewIcon = getConditionIcon(g.icon, g.title);
+                          const open = iconMenuFor === g.id;
+                          return (
+                            <div className="relative mr-3 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIconMenuFor(open ? null : g.id)}
+                                title="เลือกไอคอนหัวข้อ (ที่ลูกค้าเห็นตอนประเมิน)"
+                                className={`w-11 h-11 rounded-2xl flex items-center justify-center transition border ${open ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}
+                              >
+                                <PreviewIcon size={22} />
+                              </button>
+                              {open && (
+                                <>
+                                  <div className="fixed inset-0 z-20" onClick={() => setIconMenuFor(null)} />
+                                  <div className="absolute left-0 top-full mt-2 z-30 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 w-64">
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 px-1">เลือกไอคอน</div>
+                                    <div className="grid grid-cols-6 gap-1.5">
+                                      {CONDITION_ICON_KEYS.map((key) => {
+                                        const Ico = CONDITION_ICONS[key];
+                                        const active = (g.icon || '') === key;
+                                        return (
+                                          <button
+                                            key={key}
+                                            type="button"
+                                            title={CONDITION_ICON_LABELS[key] || key}
+                                            onClick={() => { const n = [...editingSet.groups]; n[gi].icon = key; setEditingSet({ ...editingSet, groups: n }); setIconMenuFor(null); }}
+                                            className={`aspect-square rounded-lg flex items-center justify-center transition ${active ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'}`}
+                                          >
+                                            <Ico size={18} />
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { const n = [...editingSet.groups]; delete n[gi].icon; setEditingSet({ ...editingSet, groups: n }); setIconMenuFor(null); }}
+                                      className="mt-2 w-full text-[11px] font-bold text-slate-400 hover:text-indigo-600 py-1.5 rounded-lg hover:bg-slate-50 transition"
+                                    >
+                                      อัตโนมัติ (เดาจากชื่อหัวข้อ)
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <input type="text" placeholder="ชื่อหัวข้อ (เช่น สภาพตัวเครื่อง)" value={g.title} onChange={(e) => { const n = [...editingSet.groups]; n[gi].title = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="font-black text-xl bg-transparent border-none outline-none w-full flex-1 mr-4 focus:text-indigo-600 transition-colors" />
                         <button onClick={() => handleRemoveGroup(gi)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition opacity-0 group-hover/group:opacity-100">
                           <Trash2 size={20} />
