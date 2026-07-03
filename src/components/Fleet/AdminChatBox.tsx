@@ -126,6 +126,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
                   <img src={msg.imageUrl} alt="attachment" className="mt-2 rounded-lg w-full max-h-48 object-cover border border-black/10" />
                 )}
                 <p className={`text-[8px] mt-1 text-right opacity-50`}>
+                  {isAdmin && msg.read && <span>อ่านแล้ว · </span>}
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
