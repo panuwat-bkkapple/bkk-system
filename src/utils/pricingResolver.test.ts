@@ -3,6 +3,7 @@ import {
   tierDeduction,
   normalizeLiquidityFactor,
   isPercentOption,
+  isFixedDeductOption,
   resolveOptionDeduction,
   resolveDeductions,
   resolveFinalPrice,
@@ -91,6 +92,34 @@ describe('resolveOptionDeduction — percentage mode', () => {
   it('legacy options (no pct) are unchanged — still tier-based', () => {
     expect(resolveOptionDeduction(screenCrack, 45000)).toBe(20000);
     expect(resolveOptionDeduction(screenCrack, 10000, 0.6)).toBe(6000);
+  });
+});
+
+describe('resolveOptionDeduction — fixed deduct mode (single value)', () => {
+  const fixedScreen = { id: 'o_fixed', label: 'จอแตก', deduct: 4000 };
+
+  it('isFixedDeductOption is true only for a finite deduct >= 0 (including 0)', () => {
+    expect(isFixedDeductOption(fixedScreen)).toBe(true);
+    expect(isFixedDeductOption({ id: 'x', deduct: 0 })).toBe(true);
+    expect(isFixedDeductOption({ id: 'x', deduct: -5 })).toBe(false);
+    expect(isFixedDeductOption({ id: 'x', deduct: NaN })).toBe(false);
+    expect(isFixedDeductOption(screenCrack)).toBe(false);
+  });
+  it('uses deduct regardless of base price (no tier buckets)', () => {
+    expect(resolveOptionDeduction(fixedScreen, 45000)).toBe(4000);
+    expect(resolveOptionDeduction(fixedScreen, 10000)).toBe(4000);
+  });
+  it('applies liquidityFactor on top of deduct', () => {
+    expect(resolveOptionDeduction(fixedScreen, 10000, 0.6)).toBe(2400);
+  });
+  it('deduct takes precedence over stale legacy tiers on the same option', () => {
+    expect(resolveOptionDeduction({ id: 'x', deduct: 500, t1: 20000, t2: 15000, t3: 10000 }, 45000)).toBe(500);
+  });
+  it('pct takes precedence over deduct', () => {
+    expect(resolveOptionDeduction({ id: 'x', pct: 10, deduct: 9999 }, 20000)).toBe(2000);
+  });
+  it('deduct=0 deducts nothing even with stale tiers present', () => {
+    expect(resolveOptionDeduction({ id: 'x', deduct: 0, t1: 9999 }, 50000)).toBe(0);
   });
 });
 

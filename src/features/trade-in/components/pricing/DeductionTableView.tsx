@@ -19,7 +19,6 @@ import {
   applyRowsToSet,
   validateDeduction,
   validatePercent,
-  isTierField,
   EDITABLE_FIELDS,
   type DeductionRow,
 } from '../../utils/conditionSets';
@@ -28,8 +27,6 @@ import {
 // Enterprise features and are intentionally NOT registered — paste and
 // fill-down below are implemented manually so no Enterprise license is needed.
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-const TIER_LABEL: Record<string, string> = { t1: 'Tier 1', t2: 'Tier 2', t3: 'Tier 3' };
 
 interface Props {
   /** The currently selected condition set (= EngineSettingsModal `editingSet`). */
@@ -102,13 +99,17 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
   // --- single cell edit ---------------------------------------------------
   const onCellValueChanged = useCallback((e: CellValueChangedEvent<DeductionRow>) => {
     const field = e.colDef.field as string;
-    if (isTierField(field)) {
+    if (field === 'deduct') {
       const res = validateDeduction(e.newValue);
       if (!res.ok) {
-        e.node.setDataValue(field, e.oldValue ?? 0);
+        e.node.setDataValue(field, e.oldValue ?? null);
         flashError([{ rowKey: e.data.rowKey, field }]);
-        toast.error(`${TIER_LABEL[field]}: ${res.reason}`);
+        toast.error(`หัก (฿): ${res.reason}`);
         return;
+      }
+      // Empty -> null (clears deduct, back to legacy tiers / 0).
+      if (res.value === undefined && e.newValue !== null) {
+        e.node.setDataValue(field, null);
       }
     } else if (field === 'pct') {
       const res = validatePercent(e.newValue);
@@ -152,7 +153,7 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
     const startCol = focused.column.getColId();
     const startColPos = editable.indexOf(startCol);
     if (startColPos < 0) {
-      toast.error('เริ่มวางที่คอลัมน์ที่แก้ไขได้ (Label / Tier 1-3 / %)');
+      toast.error('เริ่มวางที่คอลัมน์ที่แก้ไขได้ (Label / หัก ฿ / %)');
       return;
     }
     const startRow = focused.rowIndex;
@@ -175,10 +176,10 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
     const errors: { rowKey: string; field: string }[] = [];
     const coerced = new Map<Target, any>();
     for (const t of targets) {
-      if (isTierField(t.field)) {
+      if (t.field === 'deduct') {
         const res = validateDeduction(t.raw);
         if (!res.ok) errors.push({ rowKey: t.rowKey, field: t.field });
-        else coerced.set(t, res.value);
+        else coerced.set(t, res.value === undefined ? null : res.value);
       } else if (t.field === 'pct') {
         const res = validatePercent(t.raw);
         if (!res.ok) errors.push({ rowKey: t.rowKey, field: t.field });
@@ -223,7 +224,7 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
     }
 
     const sourceValue = (e.data as any)[field];
-    if (isTierField(field)) {
+    if (field === 'deduct') {
       const res = validateDeduction(sourceValue);
       if (!res.ok) {
         toast.error(`ค่าตั้งต้นไม่ถูกต้อง: ${res.reason}`);
@@ -262,37 +263,34 @@ export const DeductionTableView: React.FC<Props> = ({ set, onCommit }) => {
         cellStyle,
       },
       {
-        headerName: 'Tier 1 (฿)',
-        field: 't1',
+        headerName: 'หัก (฿)',
+        field: 'deduct',
         editable: true,
-        width: 130,
+        width: 140,
         type: 'numericColumn',
         cellEditor: 'agNumberCellEditor',
         cellEditorParams: { min: 0, precision: 0 },
-        cellStyle,
+        valueFormatter: (p: any) => (p.value == null || p.value === '' ? '—' : Number(p.value).toLocaleString('th-TH')),
+        cellStyle: (p: any): Record<string, string | number> | null => {
+          const err = errorCells.current.has(`${p.data?.rowKey}:deduct`);
+          if (err) return { backgroundColor: '#fee2e2', color: '#b91c1c' };
+          if (p.value == null || p.value === '') return { color: '#cbd5e1' };
+          return null;
+        },
       },
       {
-        headerName: 'Tier 2 (฿)',
-        field: 't2',
-        editable: true,
-        width: 130,
-        type: 'numericColumn',
-        cellEditor: 'agNumberCellEditor',
-        cellEditorParams: { min: 0, precision: 0 },
-        cellStyle,
+        // LEGACY tiers, read-only — reference for filling the single value.
+        // Cleared automatically once the option gets a deduct or pct.
+        headerName: 'Tier เดิม (t1/t2/t3)',
+        field: 'legacyTiers',
+        editable: false,
+        width: 190,
+        cellClass: 'bkk-ro-cell',
+        valueFormatter: (p: any) => (p.value ? p.value : '—'),
+        cellStyle: () => ({ color: '#94a3b8', fontSize: '11px' }),
       },
       {
-        headerName: 'Tier 3 (฿)',
-        field: 't3',
-        editable: true,
-        width: 130,
-        type: 'numericColumn',
-        cellEditor: 'agNumberCellEditor',
-        cellEditorParams: { min: 0, precision: 0 },
-        cellStyle,
-      },
-      {
-        headerName: 'หัก % (override tier)',
+        headerName: 'หัก % (override ฿)',
         field: 'pct',
         editable: true,
         width: 150,

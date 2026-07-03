@@ -15,8 +15,28 @@ export async function writeConditionSet(set: any): Promise<void> {
   if (!set?.id) throw new Error('writeConditionSet: set.id is required');
   await update(ref(db, `settings/condition_sets/${set.id}`), {
     name: set.name,
-    groups: set.groups || [],
+    groups: sanitizeGroups(set.groups || []),
   });
+}
+
+/**
+ * Once an option carries a new-mode value (`deduct` or `pct`), drop its LEGACY
+ * t1/t2/t3 keys — data migrates off tiers as it is edited, from BOTH the card
+ * and the table view. Options with neither keep their tiers (read fallback in
+ * pricingResolver).
+ */
+export function sanitizeGroups(groups: any[]): any[] {
+  return (groups || []).map((g: any) => ({
+    ...g,
+    options: (g?.options || []).map((o: any) => {
+      if (o?.deduct == null && o?.pct == null) return o;
+      const next = { ...o };
+      delete next.t1;
+      delete next.t2;
+      delete next.t3;
+      return next;
+    }),
+  }));
 }
 
 /** One editable deduction row (= one condition option within a set). */
@@ -29,22 +49,34 @@ export interface DeductionRow {
   optionId: string;
   /** Editable label of the condition option. */
   label: string;
-  /** Tier deductions (baht). Editable, must be a number >= 0. */
-  t1: number;
-  t2: number;
-  t3: number;
+  /**
+   * Single flat baht deduction. null = not set (option still resolves via its
+   * legacy t1/t2/t3 fallback, or deducts 0 when it never had tiers).
+   */
+  deduct: number | null;
   /**
    * Percentage-of-base deduction (0-100). When set (a number), it takes
-   * precedence over t1/t2/t3 in the pricingResolver. null/empty = tier mode.
+   * precedence over `deduct` in the pricingResolver. null/empty = fixed mode.
    */
   pct: number | null;
+  /**
+   * Read-only display of LEGACY t1/t2/t3 values (e.g. "20,000 / 15,000 / 10,000")
+   * so the admin can pick the right single value; '' when the option has none.
+   */
+  legacyTiers: string;
 }
 
-/** Editable numeric tier columns. Order matters for paste/fill mapping. */
-export const TIER_FIELDS = ['t1', 't2', 't3'] as const;
 /** All editable columns in left-to-right display order (used by paste). */
-export const EDITABLE_FIELDS = ['label', 't1', 't2', 't3', 'pct'] as const;
+export const EDITABLE_FIELDS = ['label', 'deduct', 'pct'] as const;
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+const fmtBaht = (n: unknown) => Number(n || 0).toLocaleString('th-TH');
+
+/** "20,000 / 15,000 / 10,000" when the option still carries legacy tiers, else ''. */
+export function legacyTierLabel(o: any): string {
+  if (o?.t1 == null && o?.t2 == null && o?.t3 == null) return '';
+  return `${fmtBaht(o.t1)} / ${fmtBaht(o.t2)} / ${fmtBaht(o.t3)}`;
+}
 
 /** Flatten a condition set's groups/options into flat, editable grid rows. */
 export function flattenSetToRows(set: any): DeductionRow[] {
@@ -57,10 +89,9 @@ export function flattenSetToRows(set: any): DeductionRow[] {
         groupTitle: g.title || '',
         optionId: o.id,
         label: o.label || '',
-        t1: Number(o.t1 || 0),
-        t2: Number(o.t2 || 0),
-        t3: Number(o.t3 || 0),
+        deduct: typeof o.deduct === 'number' && Number.isFinite(o.deduct) ? o.deduct : null,
         pct: typeof o.pct === 'number' && Number.isFinite(o.pct) ? o.pct : null,
+        legacyTiers: legacyTierLabel(o),
       });
     }
   }
@@ -70,11 +101,13 @@ export function flattenSetToRows(set: any): DeductionRow[] {
 /**
  * Rebuild a condition set from edited rows, preserving the original group /
  * option structure and order. The table only edits existing options
- * (label + t1/t2/t3 + pct); it never adds/removes/reorders — add/remove stays in
+ * (label + deduct + pct); it never adds/removes/reorders — add/remove stays in
  * the card editor. Rows are matched back by their `rowKey`.
  *
- * `pct`: a finite number >= 0 is written; null/empty REMOVES the field so the
- * option falls back to tier mode (keeps legacy data clean).
+ * `deduct` / `pct`: a finite number >= 0 is written; null/empty REMOVES the
+ * field. Once an option has a new-mode value (deduct or pct) its LEGACY
+ * t1/t2/t3 keys are dropped — this is how data migrates off tiers as it is
+ * edited. An option left with neither keeps its legacy tiers (read fallback).
  */
 export function applyRowsToSet(set: any, rows: DeductionRow[]): any {
   const byKey = new Map(rows.map((r) => [r.rowKey, r]));
@@ -83,11 +116,21 @@ export function applyRowsToSet(set: any, rows: DeductionRow[]): any {
     options: (g?.options || []).map((o: any) => {
       const r = byKey.get(`${g.id}::${o.id}`);
       if (!r) return o;
-      const next: any = { ...o, label: r.label, t1: r.t1, t2: r.t2, t3: r.t3 };
+      const next: any = { ...o, label: r.label };
+      if (r.deduct != null && Number.isFinite(Number(r.deduct)) && Number(r.deduct) >= 0) {
+        next.deduct = Number(r.deduct);
+      } else {
+        delete next.deduct;
+      }
       if (r.pct != null && Number.isFinite(Number(r.pct)) && Number(r.pct) >= 0) {
         next.pct = Number(r.pct);
       } else {
         delete next.pct;
+      }
+      if (next.deduct != null || next.pct != null) {
+        delete next.t1;
+        delete next.t2;
+        delete next.t3;
       }
       return next;
     }),
@@ -103,15 +146,14 @@ export interface ValidationResult {
 }
 
 /**
- * Validate a tier deduction cell value before write.
- * Rule (agreed scope): must be a real number >= 0. (Condition options are
- * shared across many models with different base prices, so there is no single
- * per-row base price to bound against — the "> base price" guard does not apply
- * at this level.)
+ * Validate the flat baht deduction cell before write.
+ * Empty/null = OK and CLEARS deduct (back to legacy tiers / 0). Otherwise must
+ * be a real number >= 0. (Deduction can equal any value — sets are per model
+ * now, but there is still no per-row base price to bound against.)
  */
 export function validateDeduction(raw: unknown): ValidationResult {
   if (raw === '' || raw === null || raw === undefined) {
-    return { ok: false, reason: 'ต้องไม่ว่าง' };
+    return { ok: true, value: undefined }; // clears deduct
   }
   const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/,/g, '').trim());
   if (!Number.isFinite(n)) return { ok: false, reason: 'ต้องเป็นตัวเลข' };
@@ -119,15 +161,10 @@ export function validateDeduction(raw: unknown): ValidationResult {
   return { ok: true, value: n };
 }
 
-/** Whether a field is one of the numeric tier columns. */
-export function isTierField(field: string): field is (typeof TIER_FIELDS)[number] {
-  return (TIER_FIELDS as readonly string[]).includes(field);
-}
-
 /**
  * Validate the percentage cell before write.
- * Empty/null = OK and CLEARS pct (back to tier mode). Otherwise must be a
- * number in [0, 100]. When set, pct overrides t1/t2/t3 in the resolver.
+ * Empty/null = OK and CLEARS pct (back to fixed/legacy mode). Otherwise must be
+ * a number in [0, 100]. When set, pct overrides deduct and legacy tiers.
  */
 export function validatePercent(raw: unknown): ValidationResult {
   if (raw === '' || raw === null || raw === undefined) {
