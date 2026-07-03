@@ -14,6 +14,42 @@ import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
 import { UpgradePreviewPanel } from '../components/pricing/UpgradePreviewPanel';
 import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
 import type { DetectResult } from '../utils/variantGenerator';
+import { tierDeduction } from '../../../utils/pricingResolver';
+
+/**
+ * Representative used-price of a model for converting LEGACY tier options into
+ * a single flat `deduct` while cloning a per-model condition set: median of the
+ * variants' used prices, falling back to the modifier-mode base prices.
+ */
+function representativeBasePrice(model: any): number {
+  const prices = (model?.variants || [])
+    .map((v: any) => Number(v?.usedPrice || v?.price || 0))
+    .filter((p: number) => p > 0)
+    .sort((a: number, b: number) => a - b);
+  if (prices.length > 0) return prices[Math.floor(prices.length / 2)];
+  return Number(model?.baseUsedPrice || 0) || Number(model?.baseNewPrice || 0) || 0;
+}
+
+/**
+ * Convert cloned groups off the legacy tier system: each option that still
+ * relies on t1/t2/t3 gets a single `deduct` resolved at the model's
+ * representative price; options already on `deduct`/`pct` just drop stale tiers.
+ */
+function convertGroupsToSingleDeduct(groups: any[], basePrice: number): any[] {
+  return (groups || []).map((g: any) => ({
+    ...g,
+    options: (g?.options || []).map((o: any) => {
+      const next: any = { ...o };
+      if (next.deduct == null && next.pct == null && (next.t1 != null || next.t2 != null || next.t3 != null)) {
+        next.deduct = tierDeduction(next, basePrice);
+      }
+      delete next.t1;
+      delete next.t2;
+      delete next.t3;
+      return next;
+    }),
+  }));
+}
 
 interface ProductEditorModalProps {
   isOpen: boolean;
@@ -146,13 +182,14 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
       const { db } = await import('../../../api/firebase');
       const cloneName = `${source.name} (${editingItem.name || 'เฉพาะรุ่น'})`;
       const newRef = push(ref(db, 'settings/condition_sets'));
-      await update(newRef, {
-        name: cloneName,
-        // deep-clone groups so editing the clone doesn't mutate the source
-        groups: JSON.parse(JSON.stringify(source.groups || [])),
-      });
+      // deep-clone so editing the clone doesn't mutate the source, then convert
+      // legacy tier options to a single `deduct` at this model's price point —
+      // per-model sets use one flat value (or pct), not tier buckets.
+      const basePrice = representativeBasePrice(editingItem);
+      const groups = convertGroupsToSingleDeduct(JSON.parse(JSON.stringify(source.groups || [])), basePrice);
+      await update(newRef, { name: cloneName, groups });
       onEditingItemChange({ ...editingItem, conditionSetId: newRef.key });
-      toast.success(`Clone เป็น "${cloneName}" และผูกกับรุ่นนี้แล้ว — แก้ค่าได้ที่ Condition Sets Engine`);
+      toast.success(`Clone เป็น "${cloneName}" และผูกกับรุ่นนี้แล้ว — ค่าหัก tier เดิมถูกแปลงเป็นค่าเดียวตามราคารุ่นนี้ (${basePrice.toLocaleString('th-TH')} บาท) แก้ต่อได้ที่ Condition Sets Engine`);
     } catch {
       toast.error('Clone ชุดประเมินไม่สำเร็จ');
     }

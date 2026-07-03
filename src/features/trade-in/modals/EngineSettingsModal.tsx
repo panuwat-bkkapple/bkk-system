@@ -54,7 +54,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   const handleCreateNewSet = async () => {
     const newRef = await push(ref(db, 'settings/condition_sets'), {
       name: 'ชุดประเมินใหม่',
-      groups: [{ id: 'g_' + Date.now(), title: 'หัวข้อประเมินใหม่', options: [{ id: 'o_' + Date.now(), label: 'ตัวเลือก 1', t1: 0, t2: 0, t3: 0 }] }]
+      groups: [{ id: 'g_' + Date.now(), title: 'หัวข้อประเมินใหม่', options: [{ id: 'o_' + Date.now(), label: 'ตัวเลือก 1', deduct: 0 }] }]
     });
     setActiveSetId(newRef.key);
   };
@@ -89,7 +89,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
 
   const handleAddGroup = () => {
     const newGroups = [...(editingSet.groups || [])];
-    newGroups.push({ id: 'g_' + Date.now(), title: 'หัวข้อประเมินใหม่', options: [{ id: 'o_' + Date.now(), label: 'ตัวเลือกใหม่', t1: 0, t2: 0, t3: 0 }] });
+    newGroups.push({ id: 'g_' + Date.now(), title: 'หัวข้อประเมินใหม่', options: [{ id: 'o_' + Date.now(), label: 'ตัวเลือกใหม่', deduct: 0 }] });
     setEditingSet({ ...editingSet, groups: newGroups });
   }
 
@@ -101,7 +101,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
 
   const handleAddOption = (groupIndex: number) => {
     const newGroups = [...editingSet.groups];
-    newGroups[groupIndex].options.push({ id: 'o_' + Date.now(), label: '', t1: 0, t2: 0, t3: 0 });
+    newGroups[groupIndex].options.push({ id: 'o_' + Date.now(), label: '', deduct: 0 });
     setEditingSet({ ...editingSet, groups: newGroups });
   }
 
@@ -161,8 +161,8 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       description,
       kind: 'functional',
       options: [
-        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', description: 'ฟังก์ชันนี้ทำงานได้ตามปกติ ไม่มีปัญหา', t1: 0, t2: 0, t3: 0, failBehavior: 'pass' },
-        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', description: 'ฟังก์ชันนี้ทำงานผิดปกติ หรือใช้งานไม่ได้', t1: 0, t2: 0, t3: 0, failBehavior: 'reject' },
+        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', description: 'ฟังก์ชันนี้ทำงานได้ตามปกติ ไม่มีปัญหา', deduct: 0, failBehavior: 'pass' },
+        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', description: 'ฟังก์ชันนี้ทำงานผิดปกติ หรือใช้งานไม่ได้', deduct: 0, failBehavior: 'reject' },
       ],
     }));
     // Prepend so the functional screening comes before the cosmetic groups.
@@ -342,9 +342,8 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                       {/* Options Table Header */}
                       <div className="grid grid-cols-12 gap-3 mb-2 px-2">
                         <div className="col-span-5"><span className="text-[10px] font-black uppercase text-slate-400">Condition Option (ตัวเลือก)</span></div>
-                        <div className="col-span-2 text-center"><span className="text-[10px] font-black uppercase text-red-500">Tier 1 Deduct (฿)</span></div>
-                        <div className="col-span-2 text-center"><span className="text-[10px] font-black uppercase text-amber-500">Tier 2 Deduct (฿)</span></div>
-                        <div className="col-span-2 text-center"><span className="text-[10px] font-black uppercase text-emerald-500">Tier 3 Deduct (฿)</span></div>
+                        <div className="col-span-3 text-center"><span className="text-[10px] font-black uppercase text-red-500">หักเงิน (฿)</span></div>
+                        <div className="col-span-3 text-center"><span className="text-[10px] font-black uppercase text-indigo-500">หัก % ของราคา (override ฿)</span></div>
                         <div className="col-span-1"></div>
                       </div>
 
@@ -377,14 +376,47 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                                 </div>
                               )}
                             </div>
-                            <div className="col-span-2">
-                              <input type="number" value={o.t1} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].t1 = Number(e.target.value); setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-2 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-red-600 focus:ring-2 focus:ring-red-500" />
+                            <div className="col-span-3">
+                              <input
+                                type="number"
+                                min={0}
+                                placeholder={o.pct != null ? 'ใช้ % แทน' : '0'}
+                                value={o.deduct ?? ''}
+                                onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v === '') delete n[gi].options[oi].deduct; else n[gi].options[oi].deduct = Number(v); setEditingSet({ ...editingSet, groups: n }); }}
+                                className="w-full px-2 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-red-600 focus:ring-2 focus:ring-red-500 disabled:opacity-40"
+                                disabled={o.pct != null}
+                              />
+                              {/* LEGACY tiers — คลิกเพื่อใช้เป็นค่าเดียว (หายไปเองหลัง save) */}
+                              {o.deduct == null && o.pct == null && (o.t1 != null || o.t2 != null || o.t3 != null) && (
+                                <div className="flex items-center justify-center gap-1 mt-1 flex-wrap">
+                                  <span className="text-[9px] font-bold text-slate-400">Tier เดิม:</span>
+                                  {(['t1', 't2', 't3'] as const).map((k) => (
+                                    <button
+                                      key={k}
+                                      type="button"
+                                      title={`ใช้ค่า ${k.toUpperCase()} เป็นค่าหักเดียว`}
+                                      onClick={() => { const n = [...editingSet.groups]; n[gi].options[oi].deduct = Number(o[k] || 0); setEditingSet({ ...editingSet, groups: n }); }}
+                                      className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold hover:bg-amber-100 transition"
+                                    >
+                                      {Number(o[k] || 0).toLocaleString('th-TH')}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <div className="col-span-2">
-                              <input type="number" value={o.t2} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].t2 = Number(e.target.value); setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-2 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-amber-600 focus:ring-2 focus:ring-amber-500" />
-                            </div>
-                            <div className="col-span-2">
-                              <input type="number" value={o.t3} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].t3 = Number(e.target.value); setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-2 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-emerald-600 focus:ring-2 focus:ring-emerald-500" />
+                            <div className="col-span-3">
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  placeholder="—"
+                                  value={o.pct ?? ''}
+                                  onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v === '') delete n[gi].options[oi].pct; else n[gi].options[oi].pct = Math.min(100, Math.max(0, Number(v))); setEditingSet({ ...editingSet, groups: n }); }}
+                                  className="w-full pl-2 pr-7 py-2.5 rounded-lg border-none bg-white shadow-sm text-center font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-300 pointer-events-none">%</span>
+                              </div>
                             </div>
                             <div className="col-span-1 flex justify-center">
                               <button onClick={() => handleRemoveOption(gi, oi)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg opacity-0 group-hover/option:opacity-100 transition">
