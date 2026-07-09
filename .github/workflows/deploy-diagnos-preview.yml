@@ -46,7 +46,7 @@ jobs:
           printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/gcp_sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp_sa.json"
           npx --yes firebase-tools@15.22.0 deploy \
-            --only functions:createDiagnosticSession,functions:claimDiagnosticSession,functions:finalizeDiagnosticSession,functions:cleanupDiagnosticSessions \
+            --only functions:bkk-system:createDiagnosticSession,functions:bkk-system:claimDiagnosticSession,functions:bkk-system:finalizeDiagnosticSession,functions:bkk-system:cleanupDiagnosticSessions \
             --project bkk-apple-tradein \
             --non-interactive --force
         env:
