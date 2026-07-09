@@ -1,0 +1,53 @@
+name: Deploy Diagnos Functions (manual, branch-safe)
+
+# Manual, targeted deploy of ONLY the four BKK Diagnos functions so the
+# feature can be tested end-to-end from a feature branch WITHOUT shipping
+# the rest of this branch (hosting stays untouched, no other function is
+# deployed). Run it from the Actions tab, pick the branch, and optionally
+# point the QR base URL at a frontend preview deployment.
+#
+# The diagnos_base_url input becomes DIAGNOS_BASE_URL via functions/.env at
+# deploy time. Leave it empty for the production default
+# (https://www.bkkapple.com). IMPORTANT: re-run this with an empty value (or
+# let the normal main deploy overwrite it) before go-live so production QR
+# codes never point at a preview URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      diagnos_base_url:
+        description: 'QR base URL (e.g. Vercel preview URL, no trailing slash). Empty = production default.'
+        required: false
+        default: ''
+
+jobs:
+  deploy-diagnos-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 20, NOT the runner default (22.23+) — same undici auth issue as
+      # the main deploy workflow. Do not bump without re-testing.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install Functions dependencies
+        run: cd functions && npm ci
+
+      - name: Set DIAGNOS_BASE_URL for this deploy
+        if: ${{ github.event.inputs.diagnos_base_url != '' }}
+        run: printf 'DIAGNOS_BASE_URL=%s\n' "${{ github.event.inputs.diagnos_base_url }}" > functions/.env
+
+      - name: Deploy Diagnos functions only
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/gcp_sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp_sa.json"
+          npx --yes firebase-tools@15.22.0 deploy \
+            --only functions:createDiagnosticSession,functions:claimDiagnosticSession,functions:finalizeDiagnosticSession,functions:cleanupDiagnosticSessions \
+            --project bkk-apple-tradein \
+            --non-interactive --force
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
