@@ -5176,3 +5176,12 @@ exports.dailySickwUsageSummary = onSchedule(
     }
   }
 );
+
+// =============================================================================
+// BKK Diagnos — on-device diagnostic sessions (see ./diagnostics.js)
+// =============================================================================
+const diagnostics = require("./diagnostics");
+exports.createDiagnosticSession = diagnostics.createDiagnosticSession;
+exports.claimDiagnosticSession = diagnostics.claimDiagnosticSession;
+exports.finalizeDiagnosticSession = diagnostics.finalizeDiagnosticSession;
+exports.cleanupDiagnosticSessions = diagnostics.cleanupDiagnosticSessions;
