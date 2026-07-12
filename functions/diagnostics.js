@@ -180,16 +180,18 @@ exports.createDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (requ
   const now = nowMs();
   const updates = {};
 
-  // Invalidate older open sessions for the same job+device.
-  const openSnap = await db.ref("diagnostic_sessions")
-    .orderByChild("job_id").equalTo(jobId).once("value");
-  openSnap.forEach((s) => {
-    const v = s.val();
-    if (v && (v.device_index ?? 0) === devIdx && (v.status === "open" || v.status === "in_progress")) {
-      updates[`diagnostic_sessions/${s.key}/status`] = "cancelled";
-      updates[`diagnostic_sessions/${s.key}/cancelled_at`] = now;
+  // Invalidate the older session for this job+device (if any). The active
+  // session id is kept as a pointer on the job itself — no indexed query
+  // needed, and staff clients can resume from it later.
+  const prevId = job.diagnos_sessions && job.diagnos_sessions[devIdx];
+  if (prevId && typeof prevId === "string") {
+    const prevSnap = await db.ref(`diagnostic_sessions/${prevId}/status`).once("value");
+    const prevStatus = prevSnap.val();
+    if (prevStatus === "open" || prevStatus === "in_progress") {
+      updates[`diagnostic_sessions/${prevId}/status`] = "cancelled";
+      updates[`diagnostic_sessions/${prevId}/cancelled_at`] = now;
     }
-  });
+  }
 
   const secret = crypto.randomBytes(24).toString("hex");
   const newRef = db.ref("diagnostic_sessions").push();
@@ -209,6 +211,7 @@ exports.createDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (requ
     category,
   };
 
+  updates[`jobs/${jobId}/diagnos_sessions/${devIdx}`] = sessionId;
   updates[`jobs/${jobId}/qc_logs`] = prependQcLog(job, {
     action: "Diagnos Started",
     by: `${actor.role === "RIDER" ? "Rider" : "Admin"}: ${actor.name}`,
