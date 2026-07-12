@@ -193,6 +193,14 @@ exports.createDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (requ
     }
   }
 
+  // QR base URL resolves DB setting > env > production default. The DB
+  // setting survives codebase redeploys (a main deploy wipes .env), so the
+  // preview period sets settings/diagnos/base_url once and forgets it.
+  // Delete the setting (or leave it unset) for production.
+  const baseUrlSnap = await db.ref("settings/diagnos/base_url").once("value");
+  const baseUrl = (typeof baseUrlSnap.val() === "string" && baseUrlSnap.val())
+    || DIAGNOS_BASE_URL;
+
   const secret = crypto.randomBytes(24).toString("hex");
   const newRef = db.ref("diagnostic_sessions").push();
   const sessionId = newRef.key;
@@ -222,7 +230,7 @@ exports.createDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (requ
   await db.ref().update(updates);
 
   // Secret rides in the URL fragment so it never reaches server logs.
-  const url = `${DIAGNOS_BASE_URL}/diagnos/s/${sessionId}#k=${secret}`;
+  const url = `${baseUrl}/diagnos/s/${sessionId}#k=${secret}`;
   return { ok: true, sessionId, url, expiresAt: now + SESSION_TTL_MS };
 });
 
