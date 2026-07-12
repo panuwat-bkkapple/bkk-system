@@ -376,6 +376,51 @@ exports.finalizeDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (re
     }
   }
 
+  // --- Battery Health criteria ---
+  // Two red flags, checked server-side so no client can skip them:
+  //   1) reported % below the range the customer claimed at checkout
+  //   2) hard floor: below 80% is always flagged, claim or no claim
+  // Flags land in `mismatches` (evidence for the amendment flow) — they
+  // never touch money directly.
+  const BATTERY_FLOOR_PCT = 80;
+  const reportedPct = Number(values.battery_guided && values.battery_guided.reported_pct);
+  if (Number.isFinite(reportedPct) && reportedPct > 0) {
+    const battCond = conditions.find((c) => {
+      if (!c) return false;
+      return /แบต|battery/i.test(`${c.title || ""} ${c.value || ""}`);
+    });
+    let claimedMin = null;
+    let claimedLabel = "";
+    if (battCond) {
+      claimedLabel = `${battCond.title || ""}: ${battCond.value || ""}`.trim();
+      const v = String(battCond.value || "");
+      // "85% ขึ้นไป" -> 85, "80-84%" -> 80; "ต่ำกว่า 80%" = already-low claim, no minimum
+      if (!/ต่ำกว่า|น้อยกว่า|below|under/i.test(v)) {
+        const nums = (v.match(/\d{2,3}/g) || []).map(Number).filter((n) => n >= 50 && n <= 100);
+        if (nums.length) claimedMin = Math.min(...nums);
+      }
+    }
+    const belowClaim = claimedMin !== null && reportedPct < claimedMin;
+    const belowFloor = reportedPct < BATTERY_FLOOR_PCT;
+    if (belowClaim || belowFloor) {
+      let reason;
+      if (belowClaim && belowFloor) {
+        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel}) และต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
+      } else if (belowClaim) {
+        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel})`;
+      } else {
+        reason = `Battery Health ${reportedPct}% ต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
+      }
+      mismatches.push({
+        step_id: "battery_guided",
+        step_label: STEP_LABEL_TH.battery_guided,
+        customer_said: claimedLabel,
+        diagnostic_result: "battery_below_threshold",
+        reason,
+      });
+    }
+  }
+
   const now = nowMs();
   const summary = { pass, fail, skipped };
   const snapshot = {
