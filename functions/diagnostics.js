@@ -34,6 +34,7 @@ const STEP_IDS = [
   "mic_speaker",
   "gps",
   "motion",
+  "haptic_guided",
   "battery_guided",
   "faceid_guided",
 ];
@@ -48,6 +49,7 @@ const STEP_LABEL_TH = {
   mic_speaker: "ไมค์และลำโพง",
   gps: "GPS",
   motion: "เซ็นเซอร์การเคลื่อนไหว",
+  haptic_guided: "ระบบสั่น",
   battery_guided: "Battery Health",
   faceid_guided: "Face ID / Touch ID",
 };
@@ -65,6 +67,7 @@ const STEP_CONDITION_KEYWORDS = {
   mic_speaker: ["ลำโพง", "ไมค์", "เสียง", "speaker", "mic"],
   gps: ["gps", "จีพีเอส"],
   motion: ["เซ็นเซอร์", "gyro", "ไจโร"],
+  haptic_guided: ["สั่น", "vibrat", "haptic"],
   battery_guided: ["แบต", "battery"],
   faceid_guided: ["face id", "touch id", "สแกนใบหน้า", "สแกนนิ้ว"],
   find_my: ["icloud", "find my", "ค้นหา"],
