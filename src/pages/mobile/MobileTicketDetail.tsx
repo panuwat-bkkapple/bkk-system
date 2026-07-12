@@ -25,7 +25,9 @@ import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { sumAppliedAdjustments } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
+import { CancelModal } from '../admin/components/CancelModal';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
@@ -112,6 +114,7 @@ export const MobileTicketDetail = () => {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [editForm, setEditForm] = useState<{ model: string; price: string; cust_name: string; cust_phone: string; cust_address: string; appt_date: string; appt_start: string; appt_end: string; receive_method: string; cust_lat?: number; cust_lng?: number }>({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '', cust_lat: undefined, cust_lng: undefined });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -245,6 +248,25 @@ export const MobileTicketDetail = () => {
   const makeLog = (action: string, details: string) => ({
     action, details, by: currentUser?.name || 'Admin', timestamp: Date.now()
   });
+
+  // Same write shape as desktop B2CWorkspacePage.handleCancelTicket —
+  // structured category for analytics, free text kept separate, and the
+  // combined string only in the human-readable log.
+  const handleCancelJob = async (category: CancelCategory, detail: string) => {
+    const categoryLabel = CANCEL_CATEGORY_LABEL_TH[category];
+    const fullReason = detail ? `${categoryLabel} — ${detail}` : categoryLabel;
+    await update(ref(db, `jobs/${job.id}`), {
+      status: 'Cancelled',
+      cancel_category: category,
+      cancel_reason: detail || null,
+      cancelled_by: `staff:${currentUser?.id || currentUser?.uid || 'admin'}`,
+      cancelled_at: Date.now(),
+      qc_logs: [makeLog('Cancelled', `ยกเลิกออเดอร์ เหตุผล: ${fullReason}`), ...(job.qc_logs || [])],
+      updated_at: Date.now()
+    });
+    setShowCancelModal(false);
+    toast.success('ยกเลิกงานแล้ว');
+  };
 
   // Actions
   const handleCall = () => {
@@ -1076,19 +1098,7 @@ export const MobileTicketDetail = () => {
                 </button>
               ))}
               <button
-                onClick={() => {
-                  if (confirm('ยืนยันยกเลิกงานนี้?')) {
-                    const reason = prompt('เหตุผลที่ยกเลิก:');
-                    if (reason) {
-                      update(ref(db, `jobs/${job.id}`), {
-                        status: 'Cancelled', cancel_reason: reason,
-                        qc_logs: [makeLog('Cancelled', `ยกเลิก: ${reason}`), ...(job.qc_logs || [])],
-                        updated_at: Date.now()
-                      });
-                      toast.success('ยกเลิกงานแล้ว');
-                    }
-                  }
-                }}
+                onClick={() => setShowCancelModal(true)}
                 className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-red-50"
               >
                 ยกเลิกงาน
@@ -1288,6 +1298,13 @@ export const MobileTicketDetail = () => {
           onClose={() => setShowVerifyModal(false)}
         />
       )}
+
+      {/* === Cancel Modal (โครงเดียวกับ desktop — เลือกหมวดเหตุผล + รายละเอียด) === */}
+      <CancelModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleCancelJob}
+      />
 
       {showTimeline && job?.cust_phone && (
         <CustomerTimelineModal

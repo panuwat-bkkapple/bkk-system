@@ -57,7 +57,7 @@ export const CancelModal: React.FC<CancelModalProps> = ({ isOpen, onClose, onCon
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100000] flex items-center justify-center animate-in fade-in">
-      <div className="bg-white p-8 rounded-[2rem] shadow-2xl w-[440px] animate-in zoom-in-95">
+      <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-2xl w-full max-w-[440px] mx-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-base font-black text-slate-800 uppercase flex items-center gap-2">
             <AlertOctagon className="text-red-500" /> ระบุเหตุผลการยกเลิก
