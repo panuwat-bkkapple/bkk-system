@@ -26,6 +26,7 @@ import { getSickwGateStatus } from '../../utils/sickwApi';
 import { sumAppliedAdjustments } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
+import DiagnosReportCard from '../../components/DiagnosReportCard';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
@@ -979,6 +980,9 @@ export const MobileTicketDetail = () => {
                     </div>
                   </div>
                 )}
+
+                {/* BKK Diagnos on-device test report */}
+                {dev.diagnostics && <DiagnosReportCard diagnostics={dev.diagnostics} />}
 
                 {/* No conditions yet */}
                 {customerConds.length === 0 && riderChecks.length === 0 && !dev.isNewDevice && (

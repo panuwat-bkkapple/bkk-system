@@ -4,6 +4,7 @@ import {
   Monitor, Battery, Globe, Info, Package, Cpu, Smartphone
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import DiagnosReportCard from '@/components/DiagnosReportCard';
 
 interface ConditionVerificationProps {
   job: any;
@@ -153,6 +154,12 @@ export const ConditionVerification: React.FC<ConditionVerificationProps> = ({ jo
                 </div>
               </div>
             </div>
+
+            {device.diagnostics && (
+              <div className="pt-2">
+                <DiagnosReportCard diagnostics={device.diagnostics} />
+              </div>
+            )}
 
             {devicePhotos.length > 0 && (
               <div className="pt-2">
