@@ -16,7 +16,13 @@ interface DiagnosSnapshot {
   results?: Record<string, 'pass' | 'fail' | 'skipped'>;
   values?: Record<string, any>;
   summary?: { pass: number; fail: number; skipped: number };
-  mismatches?: Array<{ step_id: string; step_label?: string; customer_said?: string }>;
+  mismatches?: Array<{
+    step_id: string;
+    step_label?: string;
+    customer_said?: string;
+    /** Pre-built message (e.g. battery threshold flags) — shown as-is. */
+    reason?: string;
+  }>;
 }
 
 const STEP_LABEL: Record<string, string> = {
@@ -120,8 +126,11 @@ export default function DiagnosReportCard({ diagnostics }: { diagnostics: Diagno
             >
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
-                {m.step_label || STEP_LABEL[m.step_id] || m.step_id} เทสไม่ผ่าน
-                {m.customer_said ? ` — ขัดกับที่ลูกค้าแจ้ง: ${m.customer_said}` : ' — ขัดกับที่ลูกค้าแจ้ง'}
+                {m.reason
+                  ? m.reason
+                  : `${m.step_label || STEP_LABEL[m.step_id] || m.step_id} เทสไม่ผ่าน${
+                      m.customer_said ? ` — ขัดกับที่ลูกค้าแจ้ง: ${m.customer_said}` : ' — ขัดกับที่ลูกค้าแจ้ง'
+                    }`}
               </span>
             </div>
           ))}
