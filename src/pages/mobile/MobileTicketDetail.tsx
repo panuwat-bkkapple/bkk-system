@@ -823,7 +823,12 @@ export const MobileTicketDetail = () => {
           <AmendmentBanner jobId={job.id} />
 
           {/* === KYC (rider-captured at pickup, admin-captured at branch for Store-in) === */}
-          <KYCInfoCard job={job} onCaptureKyc={() => setShowKycModal(true)} />
+          <KYCInfoCard
+            job={job}
+            onCaptureKyc={() => setShowKycModal(true)}
+            staffName={currentUser?.name}
+            currentRole={currentUser?.role}
+          />
 
           {/* === Location verification (registration vs typed address) === */}
           <LocationVerificationCard job={job} />

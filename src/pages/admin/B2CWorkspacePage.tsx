@@ -13,6 +13,7 @@ import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
 import { sumAppliedAdjustments, listAdjustments, type JobAdjustment } from '@/utils/adjustments';
 
+import { AdminKYCModal } from '../mobile/components/AdminKYCModal';
 import { SmartPipeline } from './components/SmartPipeline';
 import { CustomerInfoCard } from './components/CustomerInfoCard';
 import { KYCInfoCard } from './components/KYCInfoCard';
@@ -39,6 +40,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const [isEditingCustomer, setIsEditingCustomer] = useState(false);
   const [editCustData, setEditCustData] = useState({ name: '', phone: '', email: '', address: '' });
   const [isQCModalOpen, setIsQCModalOpen] = useState(false);
+  const [isKycModalOpen, setIsKycModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
   const [modelsData, setModelsData] = useState<any[]>([]);
@@ -395,7 +397,12 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
             )}
             <AmendmentBanner jobId={job.id} />
             <CustomerInfoCard job={job} isEditing={isEditingCustomer} editData={editCustData} onSave={handleSaveCustomerInfo} onToggleEdit={handleToggleEdit} onEditChange={setEditCustData} />
-            <KYCInfoCard job={job} />
+            <KYCInfoCard
+              job={job}
+              onCaptureKyc={() => setIsKycModalOpen(true)}
+              staffName={currentUser?.name}
+              currentRole={currentUser?.role}
+            />
             <LocationVerificationCard job={job} />
             <CheckpointsCard job={job} />
             <ConditionVerification job={job} modelsData={modelsData} conditionSets={conditionSets} />
@@ -413,6 +420,11 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
       <div className="relative z-[99999]">
         <InternalQCModal isOpen={isQCModalOpen} onClose={() => setIsQCModalOpen(false)} job={job} modelsData={modelsData} conditionSets={conditionSets} />
       </div>
+      {isKycModalOpen && job && (
+        <div className="relative z-[99999]">
+          <AdminKYCModal job={job} staffName={currentUser?.name || 'Admin'} onClose={() => setIsKycModalOpen(false)} />
+        </div>
+      )}
       {activeChatJobId && (
         <div className="fixed inset-0 z-[100000]">
           <AdminChatBox jobId={activeChatJobId} onClose={() => setActiveChatJobId(null)} adminName={currentUser?.name || "Admin"} />
