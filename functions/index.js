@@ -5185,3 +5185,11 @@ exports.createDiagnosticSession = diagnostics.createDiagnosticSession;
 exports.claimDiagnosticSession = diagnostics.claimDiagnosticSession;
 exports.finalizeDiagnosticSession = diagnostics.finalizeDiagnosticSession;
 exports.cleanupDiagnosticSessions = diagnostics.cleanupDiagnosticSessions;
+
+// =============================================================================
+// AI-first website chat widget — responder + escalation (see ./chat-ai.js)
+// Injected with dispatchAdminPush so the broadcast fallback shares the same
+// dead-token policy as every other admin push.
+// =============================================================================
+const { registerChatAi } = require("./chat-ai");
+exports.chatWidgetAiReply = registerChatAi({ dispatchAdminPush }).chatWidgetAiReply;
