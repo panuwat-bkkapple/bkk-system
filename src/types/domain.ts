@@ -781,6 +781,8 @@ export interface AttributeOptionModifier {
   value: string;
   newPriceMod: number;
   usedPriceMod: number;
+  /** รูปเฉพาะตัวเลือกนี้ (เช่น Titanium / Black Titanium) — ไม่ตั้ง = fallback รูปสินค้าหลักของรุ่น */
+  imageUrl?: string;
 }
 
 /** Modifier data ของ attribute หนึ่งตัว */

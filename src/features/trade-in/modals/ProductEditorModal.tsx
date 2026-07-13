@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS, resolveCategorySchema } from '../constants/categorySchemas';
 import { ModifierPricingEditor } from '../components/pricing/ModifierPricingEditor';
+import { OptionImageEditor } from '../components/pricing/OptionImageEditor';
 import { PriceSimulatorPanel } from '../components/pricing/PriceSimulatorPanel';
 import { LegacyVariantEditor } from '../components/pricing/LegacyVariantEditor';
 import { UpgradePreviewPanel } from '../components/pricing/UpgradePreviewPanel';
@@ -330,6 +331,11 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Option Images — รูปเฉพาะตัวเลือก (modifier mode เท่านั้น) */}
+                {isModifier && (
+                  <OptionImageEditor editingItem={editingItem} onEditingItemChange={onEditingItemChange} />
+                )}
               </div>
 
               {/* Trade-in Settings */}
