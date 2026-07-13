@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
+import { ref as storageRef, deleteObject } from 'firebase/storage';
 import {
   ShieldCheck, AlertTriangle, IdCard, MapPin, Smartphone, User, PencilLine,
   ImageOff, Eye, EyeOff, Copy, Check, ExternalLink, Clock, Calendar, CalendarX,
+  Trash2, Loader2,
 } from 'lucide-react';
-import { db } from '@/api/firebase';
+import { db, auth, storage } from '@/api/firebase';
 import type { Job, KYCRecord } from '@/types/domain';
 import { KYC_AMLO_THRESHOLD, KYC_FALLBACK_REASON_LABEL_TH } from '@/types/domain';
 import { useToast } from '../../../components/ui/ToastProvider';
@@ -14,6 +16,10 @@ interface KYCInfoCardProps {
   /** When provided, the empty state on Store-in jobs shows a "บันทึก KYC ที่สาขา"
    *  button that invokes this callback. Other job types ignore it. */
   onCaptureKyc?: () => void;
+  /** Operator name recorded in qc_logs when KYC is deleted/reset. */
+  staffName?: string;
+  /** Role of the viewer — delete/reset is gated to CEO + MANAGER. */
+  currentRole?: string;
 }
 
 // Format 1234567890123 → 1-2345-67890-12-3 (Thai NID display style)
@@ -110,11 +116,13 @@ function isExpired(s: string | undefined): boolean {
   return d.getTime() < today.getTime();
 }
 
-export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) => {
+export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc, staffName, currentRole }) => {
   const toast = useToast();
   const [showFullNid, setShowFullNid] = useState(false);
   const [copiedNid, setCopiedNid] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   // Loaded from /jobs_kyc/{jobId} — separate node from /jobs/{id} so RTDB
   // read rules can lock down access (admin + assigned rider only) instead
   // of inheriting the public-by-jobId rule used for customer tracking.
@@ -138,6 +146,54 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
   const netPayout = Number((job as any).net_payout ?? job.final_price ?? job.price ?? 0);
   const amloApplies = netPayout >= KYC_AMLO_THRESHOLD;
   const isPickup = (job.receive_method || '').toLowerCase() === 'pickup';
+
+  // Delete/reset is destructive on AMLO/PDPA evidence — gate to CEO + MANAGER.
+  const canDeleteKyc = currentRole === 'CEO' || currentRole === 'MANAGER';
+
+  const handleDeleteKyc = async () => {
+    if (!kyc || !job.id || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      // Capture photo URLs before the record disappears from state.
+      const photoUrls = [kyc.id_card_url, kyc.id_with_device_url, kyc.holder_url, kyc.signature_url]
+        .filter((u): u is string => Boolean(u));
+
+      // qc_logs is an array — prepend-and-replace like the rest of the
+      // codebase (string keys into the array path corrupt it into a map).
+      const newLog = {
+        action: 'KYC_DELETED',
+        by: staffName || 'Admin',
+        ...(auth.currentUser ? { by_uid: auth.currentUser.uid } : {}),
+        timestamp: Date.now(),
+        details: `ลบ/รีเซ็ตข้อมูล KYC (${kyc.method === 'typed_fallback' ? 'ไม่มีบัตร' : 'มีบัตร'} — บันทึกเดิมเมื่อ ${formatTimestamp(kyc.verified_at)} โดย ${kyc.verified_by_rider_name || '—'})`,
+      };
+      await update(ref(db), {
+        [`jobs_kyc/${job.id}`]: null,
+        [`jobs/${job.id}/kyc_verified_at`]: null,
+        [`jobs/${job.id}/kyc_method`]: null,
+        [`jobs/${job.id}/qc_logs`]: [newLog, ...((job.qc_logs as unknown[]) || [])],
+      });
+
+      // Best-effort Storage cleanup (PDPA) — the DB record is already gone,
+      // so a rules-denied delete only leaves orphaned files, never a broken UI.
+      const results = await Promise.allSettled(
+        photoUrls.map((u) => deleteObject(storageRef(storage, u))),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        console.warn(`[KYCInfoCard] ${failed}/${photoUrls.length} KYC photos could not be deleted from Storage`);
+        toast.info('ลบข้อมูล KYC แล้ว แต่ลบรูปใน Storage ไม่สำเร็จบางส่วน');
+      } else {
+        toast.success('ลบข้อมูล KYC แล้ว — บันทึกใหม่ได้ทันที');
+      }
+      setShowDeleteConfirm(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error('ลบ KYC ไม่สำเร็จ: ' + msg);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleCopyNid = async () => {
     if (!kyc?.id_number) return;
@@ -228,13 +284,24 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
               </p>
             </div>
           </div>
-          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md border ${
-            isFallback
-              ? 'text-amber-700 bg-amber-50 border-amber-200'
-              : 'text-emerald-700 bg-emerald-50 border-emerald-200'
-          }`}>
-            {isFallback ? 'Fallback' : 'Photo Verified'}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md border ${
+              isFallback
+                ? 'text-amber-700 bg-amber-50 border-amber-200'
+                : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+            }`}>
+              {isFallback ? 'Fallback' : 'Photo Verified'}
+            </span>
+            {canDeleteKyc && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="p-2 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition"
+                title="ลบ / รีเซ็ต KYC"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Fallback warning banner */}
@@ -380,6 +447,49 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc }) =
           </div>
         </div>
       </div>
+
+      {/* Delete / reset confirmation */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">ลบ / รีเซ็ต KYC</h3>
+                <p className="text-xs text-slate-500">งาน {job.id}</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800 leading-relaxed space-y-1">
+              <p className="font-bold">ข้อมูล KYC ทั้งหมดของงานนี้จะถูกลบ:</p>
+              <p>• เลขบัตรประชาชน ที่อยู่ และข้อมูลตามบัตร</p>
+              <p>• รูปถ่ายหลักฐานทั้งหมด (บัตร / บัตร+เครื่อง / ลูกค้าถือบัตร / ลายเซ็น)</p>
+              <p className="pt-1">การลบจะถูกบันทึกใน log และสามารถบันทึก KYC ใหม่ได้ทันทีหลังลบ</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 text-sm font-medium border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleDeleteKyc}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 text-sm font-bold rounded-xl bg-red-500 text-white hover:bg-red-600 disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? (
+                  <><Loader2 size={14} className="animate-spin" /> กำลังลบ...</>
+                ) : (
+                  <><Trash2 size={14} /> ลบ KYC</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightboxUrl && (
