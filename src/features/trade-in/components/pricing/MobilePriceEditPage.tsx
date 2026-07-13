@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../../utils/uploadImage';
 import { CATEGORY_SCHEMAS, resolveCategorySchema } from '../../constants/categorySchemas';
 import { ModifierPricingEditor } from './ModifierPricingEditor';
+import { OptionImageEditor } from './OptionImageEditor';
 import { LegacyVariantEditor } from './LegacyVariantEditor';
 
 interface MobilePriceEditPageProps {
@@ -159,6 +160,10 @@ export const MobilePriceEditPage: React.FC<MobilePriceEditPageProps> = ({
                 <ImageUploadButton onUploaded={(url) => onEditingItemChange({ ...editingItem, imageUrl: url })} />
               </div>
             </div>
+            {/* Option Images — รูปเฉพาะตัวเลือก (modifier mode เท่านั้น) */}
+            {isModifier && (
+              <OptionImageEditor editingItem={editingItem} onEditingItemChange={onEditingItemChange} />
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">Category</label>

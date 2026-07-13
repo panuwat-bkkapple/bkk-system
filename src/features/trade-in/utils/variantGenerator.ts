@@ -28,6 +28,8 @@ export interface ModifierOption {
   sellUsedPriceMod?: number;
   newPriceMod: number;
   usedPriceMod: number;
+  /** รูปเฉพาะตัวเลือกนี้ (เช่น Titanium / Black Titanium) — ไม่ตั้ง = fallback รูปสินค้าหลักของรุ่น */
+  imageUrl?: string;
 }
 
 export interface ModifierGroup {
@@ -40,6 +42,24 @@ export interface GeneratedVariant {
   attributes: Record<string, string>;
   newPrice: number;
   usedPrice: number;
+  /** รูปตามตัวเลือก (option image) ของ combination นี้ — ไม่มี = ผู้อ่านใช้รูปสินค้าหลักของรุ่น */
+  imageUrl?: string;
+}
+
+/**
+ * หา option image ของ combination หนึ่ง: ไล่ attribute ตามลำดับ schema
+ * ตัวเลือกแรกที่ตั้งรูปไว้ชนะ (ปกติจะตั้งรูปไว้กับ attribute เดียว เช่น สี/วัสดุ)
+ */
+export function resolveOptionImage(
+  modifiers: Record<string, ModifierGroup>,
+  attrKeys: string[],
+  attributes: Record<string, string>
+): string {
+  for (const key of attrKeys) {
+    const opt = modifiers[key]?.options.find(o => o.value === attributes[key]);
+    if (opt?.imageUrl) return opt.imageUrl;
+  }
+  return '';
 }
 
 export interface PriceOverride {
@@ -129,13 +149,18 @@ export function generateVariantsFromModifiers(
     // สร้าง name จาก ordered values
     const name = combo.join(' | ');
 
-    return {
+    const variant: GeneratedVariant = {
       id: `v${idx + 1}`,
       name,
       attributes,
       newPrice,
       usedPrice,
     };
+    // ใส่ key เฉพาะเมื่อมีรูปจริง — Firebase update() ไม่รับค่า undefined
+    const imageUrl = resolveOptionImage(modifiers, attrKeys, attributes);
+    if (imageUrl) variant.imageUrl = imageUrl;
+
+    return variant;
   });
 }
 

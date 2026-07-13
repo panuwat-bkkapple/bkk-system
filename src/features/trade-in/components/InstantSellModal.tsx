@@ -47,7 +47,7 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
             variant: v.name || '',
             newPrice: Number(v.newPrice || 0),
             usedPrice: Number(v.usedPrice || v.price || 0),
-            imageUrl: model.imageUrl || '',
+            imageUrl: v.imageUrl || model.imageUrl || '',
           });
         });
       }
