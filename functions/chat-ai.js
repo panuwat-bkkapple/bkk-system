@@ -515,7 +515,8 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     ``,
     `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
     `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
-    `- ทุกช่องทาง: ตรวจสภาพเครื่องก่อน ยืนยันราคากับลูกค้า แล้วจึงโอนเงิน`,
+    `- การจ่ายเงิน: ตรวจสภาพเครื่อง ยืนยันราคากับลูกค้า แล้วโอนเงินทันทีหน้างานตอนรับเครื่อง (Pickup โอนถึงหน้าบ้าน, Store-in โอนที่ร้าน, Mail-in โอนทันทีหลังเครื่องถึงร้านและตรวจสภาพเสร็จ) ไม่ต้องรอหลายวัน`,
+    `- ระยะเวลา/SLA อื่นใดที่ไม่ได้เขียนไว้ตรงนี้หรือไม่ได้มาจาก tool (เช่น กี่วันทำการ, กี่ชั่วโมง): ห้ามแต่งตัวเลขเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน`,
     ``,
     `สถานะตอนนี้: ${inHours ? "อยู่ในเวลาทำการ" : "นอกเวลาทำการ"} (เวลาทำการ ${hoursText})`,
     ``,
@@ -582,7 +583,19 @@ async function pushToStaffOrBroadcast(db, dispatchAdminPush, staffId, message, t
 // Message writers
 // ---------------------------------------------------------------------------
 
-async function writeAiMessage(db, convoId, assistantName, text) {
+// วิดเจ็ตลูกค้าแสดงข้อความเป็น plain text — ถ้าโมเดลเผลอใส่ markdown
+// (**หนา**, *เอียง*, `code`, # หัวข้อ) ลูกค้าจะเห็นเครื่องหมายดิบๆ จึงลอกทิ้ง
+function stripMarkdown(text) {
+  return String(text || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,!?])/g, "$1$2")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,4}\s+/gm, "");
+}
+
+async function writeAiMessage(db, convoId, assistantName, rawText) {
+  const text = stripMarkdown(rawText);
   const now = Date.now();
   await db.ref(`inbox/${convoId}/messages`).push({
     sender: "ai",
