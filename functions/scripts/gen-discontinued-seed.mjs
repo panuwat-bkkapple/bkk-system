@@ -82,6 +82,37 @@ function watch(name, sizes) {
   };
 }
 
+// Mac uses a push-id condition set; reuse an existing one (cosmetic only —
+// isActive:false models are never assessed). One representative variant.
+const MAC_CONDITION_SET = "-Onpk66iHllbIgUf0uax";
+function mac(name, series, processor, ram = "8GB", storage = "256GB") {
+  return {
+    name,
+    brand: "Apple",
+    category: "Mac / Laptop",
+    series,
+    conditionSetId: MAC_CONDITION_SET,
+    pricingMode: "legacy",
+    isActive: false,
+    imageUrl: "",
+    ...FLAGS,
+    attributesSchema: [
+      { key: "processor", label: "Processor (ชิป)", type: "text" },
+      { key: "ram", label: "RAM (หน่วยความจำ)", type: "text" },
+      { key: "storage", label: "Storage (ความจุ)", type: "text" },
+      { key: "display", label: "Display (จอ)", type: "select", options: ["Standard Glass", "Nano-Texture"] },
+    ],
+    variants: [
+      {
+        name: `${processor} | ${ram} | ${storage} | Standard Glass`,
+        attributes: { processor, ram, storage, display: "Standard Glass" },
+        usedPrice: 0,
+        newPrice: 0,
+      },
+    ],
+  };
+}
+
 function ipad(name, storages) {
   return {
     name,
@@ -151,6 +182,38 @@ const models = [
   ipad('iPad Pro 12.9" (2018)', ["64GB", "256GB", "512GB", "1TB"]),
   ipad('iPad Pro 11" (2020)', ["128GB", "256GB", "512GB", "1TB"]),
   ipad('iPad Pro 12.9" (2020)', ["128GB", "256GB", "512GB", "1TB"]),
+
+  // ---- Mac: older models NOT already in the catalogue (dedup'd against the
+  // existing 48 active + Intel งดรับ set; all pre-2017 / earlier Intel) ----
+  mac('MacBook Air 11" (Intel, 2013)', 'MacBook Air 11"', "Intel Core i5"),
+  mac('MacBook Air 11" (Intel, 2014)', 'MacBook Air 11"', "Intel Core i5"),
+  mac('MacBook Air 11" (Intel, 2015)', 'MacBook Air 11"', "Intel Core i5"),
+  mac('MacBook Air 13" (Intel, 2013)', 'MacBook Air 13"', "Intel Core i5"),
+  mac('MacBook Air 13" (Intel, 2014)', 'MacBook Air 13"', "Intel Core i5"),
+  mac('MacBook Air 13" (Intel, 2015)', 'MacBook Air 13"', "Intel Core i5"),
+  mac('MacBook Air 13" (Intel, 2016)', 'MacBook Air 13"', "Intel Core i5"),
+  mac('MacBook 12" (Retina, 2015)', 'MacBook 12"', "Intel Core m"),
+  mac('MacBook 12" (Retina, 2016)', 'MacBook 12"', "Intel Core m"),
+  mac('MacBook 12" (Retina, 2017)', 'MacBook 12"', "Intel Core m3"),
+  mac('MacBook Pro 13" (Intel, 2013)', 'MacBook Pro 13"', "Intel Core i5"),
+  mac('MacBook Pro 13" (Intel, 2014)', 'MacBook Pro 13"', "Intel Core i5"),
+  mac('MacBook Pro 13" (Intel, 2015)', 'MacBook Pro 13"', "Intel Core i5"),
+  mac('MacBook Pro 13" (Intel, 2016)', 'MacBook Pro 13"', "Intel Core i5"),
+  mac('MacBook Pro 15" (Intel, 2013)', 'MacBook Pro 15"', "Intel Core i7", "16GB", "512GB"),
+  mac('MacBook Pro 15" (Intel, 2014)', 'MacBook Pro 15"', "Intel Core i7", "16GB", "512GB"),
+  mac('MacBook Pro 15" (Intel, 2015)', 'MacBook Pro 15"', "Intel Core i7", "16GB", "512GB"),
+  mac('MacBook Pro 15" (Intel, 2016)', 'MacBook Pro 15"', "Intel Core i7", "16GB", "512GB"),
+  mac('iMac 21.5" (Intel, 2013)', 'iMac 21.5"', "Intel Core i5", "8GB", "1TB"),
+  mac('iMac 21.5" (Intel, 2014)', 'iMac 21.5"', "Intel Core i5", "8GB", "1TB"),
+  mac('iMac 21.5" (Intel, 2015)', 'iMac 21.5"', "Intel Core i5", "8GB", "1TB"),
+  mac('iMac 27" (Intel, 2013)', 'iMac 27"', "Intel Core i5", "8GB", "1TB"),
+  mac('iMac 27" (Intel, 2014)', 'iMac 27"', "Intel Core i5", "8GB", "1TB"),
+  mac('iMac 27" (Intel, 2015)', 'iMac 27"', "Intel Core i5", "8GB", "1TB"),
+  mac('Mac mini (Intel, 2012)', "Mac mini", "Intel Core i5", "4GB", "500GB"),
+  mac('Mac mini (Intel, 2014)', "Mac mini", "Intel Core i5", "8GB", "1TB"),
+  mac('Mac mini (Intel, 2018)', "Mac mini", "Intel Core i5", "8GB", "256GB"),
+  mac('Mac Pro (Intel, 2013)', "Mac Pro", "Intel Xeon E5", "16GB", "256GB"),
+  mac('Mac Pro (Intel, 2019)', "Mac Pro", "Intel Xeon W", "32GB", "512GB"),
 ];
 
 // Dedup + assign stable variant ids.

@@ -2260,5 +2260,1571 @@
         "id": "disc-113"
       }
     ]
+  },
+  {
+    "name": "MacBook Air 11\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 11\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-114"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 11\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 11\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-115"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 11\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 11\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-116"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 13\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-117"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 13\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-118"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 13\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-119"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Air 13\" (Intel, 2016)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Air 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-120"
+      }
+    ]
+  },
+  {
+    "name": "MacBook 12\" (Retina, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook 12\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core m | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core m",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-121"
+      }
+    ]
+  },
+  {
+    "name": "MacBook 12\" (Retina, 2016)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook 12\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core m | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core m",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-122"
+      }
+    ]
+  },
+  {
+    "name": "MacBook 12\" (Retina, 2017)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook 12\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core m3 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core m3",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-123"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 13\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-124"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 13\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-125"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 13\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-126"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 13\" (Intel, 2016)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 13\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-127"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 15\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 15\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i7 | 16GB | 512GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i7",
+          "ram": "16GB",
+          "storage": "512GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-128"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 15\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 15\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i7 | 16GB | 512GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i7",
+          "ram": "16GB",
+          "storage": "512GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-129"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 15\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 15\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i7 | 16GB | 512GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i7",
+          "ram": "16GB",
+          "storage": "512GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-130"
+      }
+    ]
+  },
+  {
+    "name": "MacBook Pro 15\" (Intel, 2016)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "MacBook Pro 15\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i7 | 16GB | 512GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i7",
+          "ram": "16GB",
+          "storage": "512GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-131"
+      }
+    ]
+  },
+  {
+    "name": "iMac 21.5\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 21.5\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-132"
+      }
+    ]
+  },
+  {
+    "name": "iMac 21.5\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 21.5\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-133"
+      }
+    ]
+  },
+  {
+    "name": "iMac 21.5\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 21.5\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-134"
+      }
+    ]
+  },
+  {
+    "name": "iMac 27\" (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 27\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-135"
+      }
+    ]
+  },
+  {
+    "name": "iMac 27\" (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 27\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-136"
+      }
+    ]
+  },
+  {
+    "name": "iMac 27\" (Intel, 2015)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "iMac 27\"",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-137"
+      }
+    ]
+  },
+  {
+    "name": "Mac mini (Intel, 2012)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "Mac mini",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 4GB | 500GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "4GB",
+          "storage": "500GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-138"
+      }
+    ]
+  },
+  {
+    "name": "Mac mini (Intel, 2014)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "Mac mini",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 1TB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "1TB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-139"
+      }
+    ]
+  },
+  {
+    "name": "Mac mini (Intel, 2018)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "Mac mini",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Core i5 | 8GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Core i5",
+          "ram": "8GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-140"
+      }
+    ]
+  },
+  {
+    "name": "Mac Pro (Intel, 2013)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "Mac Pro",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Xeon E5 | 16GB | 256GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Xeon E5",
+          "ram": "16GB",
+          "storage": "256GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-141"
+      }
+    ]
+  },
+  {
+    "name": "Mac Pro (Intel, 2019)",
+    "brand": "Apple",
+    "category": "Mac / Laptop",
+    "series": "Mac Pro",
+    "conditionSetId": "-Onpk66iHllbIgUf0uax",
+    "pricingMode": "legacy",
+    "isActive": false,
+    "imageUrl": "",
+    "inStore": true,
+    "pickup": true,
+    "mailIn": true,
+    "isFeatured": false,
+    "attributesSchema": [
+      {
+        "key": "processor",
+        "label": "Processor (ชิป)",
+        "type": "text"
+      },
+      {
+        "key": "ram",
+        "label": "RAM (หน่วยความจำ)",
+        "type": "text"
+      },
+      {
+        "key": "storage",
+        "label": "Storage (ความจุ)",
+        "type": "text"
+      },
+      {
+        "key": "display",
+        "label": "Display (จอ)",
+        "type": "select",
+        "options": [
+          "Standard Glass",
+          "Nano-Texture"
+        ]
+      }
+    ],
+    "variants": [
+      {
+        "name": "Intel Xeon W | 32GB | 512GB | Standard Glass",
+        "attributes": {
+          "processor": "Intel Xeon W",
+          "ram": "32GB",
+          "storage": "512GB",
+          "display": "Standard Glass"
+        },
+        "usedPrice": 0,
+        "newPrice": 0,
+        "id": "disc-142"
+      }
+    ]
   }
 ]
