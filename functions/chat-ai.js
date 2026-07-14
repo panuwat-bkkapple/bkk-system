@@ -38,6 +38,12 @@ const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_MODEL = "claude-haiku-4-5";
+// Hybrid routing: turns that involve money/policy/appraisal/cancellation go to
+// the stronger model (far less guessing); trivial small-talk stays on Haiku.
+const STRONG_MODEL = "claude-sonnet-5";
+// Verifier = independent 2nd-pass gate that vets the drafted reply before it is
+// sent, catching dangerous hallucinations the main model may still produce.
+const VERIFIER_MODEL = "claude-sonnet-5";
 const DEFAULT_DAILY_CALL_CAP = 1500;
 const LLM_TIMEOUT_MS = 45000;
 const MAX_TOOL_ROUNDS = 6;
@@ -403,6 +409,9 @@ async function callClaude({ apiKey, model, system, messages, tools, toolChoice }
     const body = {
       model,
       max_tokens: 2048,
+      // ต่ำเข้าไว้: บอตนี้ต้องตอบจากข้อเท็จจริง (tool/FAQ) ไม่ใช่แต่งเอง —
+      // default ของ API คือ 1.0 (สุ่มสูง) ซึ่งทำให้ "เดา/หลุดโฟกัส"
+      temperature: 0.2,
       system,
       messages,
       tools,
@@ -425,6 +434,82 @@ async function callClaude({ apiKey, model, system, messages, tools, toolChoice }
     return JSON.parse(bodyText);
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid model routing — pick the strong model for turns where a wrong answer
+// is costly (money / lock+installment policy / appraisal / cancellation /
+// order status / sell-process). Trivial greetings & acknowledgements stay on
+// the cheap model. Admin override (settings.model) always wins.
+// ---------------------------------------------------------------------------
+const STRONG_INTENT_RE =
+  /ราคา|กี่บาท|เท่าไห?ร่|ประเมิน|รับซื้อ|ขาย|มือ\s?1|มือหนึ่ง|มือ\s?2|มือสอง|สภาพ|แบต|จอ|ผ่อน|icloud|ไอคลาวด์|mdm|ล็อก|ล็อค|blacklist|แบล็?ค|ยกเลิก|คืนเงิน|คืนเครื่อง|สถานะ|ออเดอร์|order|นัด|เลื่อน|รับถึง|ถึงบ้าน|ถึงที่|pickup|ส่งพัสดุ|mail|จ่ายเงิน|โอนเงิน|คูปอง|โปร|ส่วนลด|สาขา|ขั้นตอน|เอกสาร|iphone|ipad|macbook|imac|mac\s|watch|airpod|samsung|ประกัน|ซ่อม|เปลี่ยน/i;
+
+function pickModel({ settingsModel, text }) {
+  if (settingsModel) return String(settingsModel); // admin override wins
+  const t = String(text || "");
+  // Short & no risky keyword => cheap model; otherwise use the strong model.
+  if (t.length <= 24 && !STRONG_INTENT_RE.test(t)) return DEFAULT_MODEL;
+  return STRONG_INTENT_RE.test(t) ? STRONG_MODEL : DEFAULT_MODEL;
+}
+
+// ---------------------------------------------------------------------------
+// Verifier pass — an independent gate that reads the drafted reply and blocks
+// the dangerous hallucination classes we cannot fully prevent by prompting.
+// Returns { ok, issue, corrected } (corrected = safe rewrite when fixable).
+// Fail-open on any error (never block the whole chat on a flaky verifier).
+// ---------------------------------------------------------------------------
+const VERIFIER_SYSTEM = [
+  `คุณคือด่านตรวจสอบคำตอบของผู้ช่วย AI ร้านรับซื้อมือถือ BKK APPLE ก่อนส่งถึงลูกค้า`,
+  `หน้าที่: ตรวจว่า "ร่างคำตอบ" มีข้อผิดพลาดอันตรายข้อใดข้อหนึ่งด้านล่างหรือไม่ แล้วตอบกลับเป็น JSON เท่านั้น`,
+  `รายการต้องห้าม (ถ้าเจอข้อใดข้อหนึ่ง = ไม่ผ่าน):`,
+  `1. บอกว่า "รับซื้อ" เครื่องที่ติดล็อก iCloud/FMI/Activation Lock/MDM/Blacklist หรือเครื่องที่ยังผ่อนไม่หมด — นโยบายคือ "ไม่รับ" ต้องปลดล็อก/ผ่อนครบก่อน (ห้ามพูดว่ารับแล้วหักราคา/รับไปปลดล็อกเอง)`,
+  `2. อธิบายบริการรับถึงที่ (Pickup) ว่าจ่ายเงินทีหลัง/ต้องเอาเครื่องกลับไปตรวจที่ร้านก่อนแล้วค่อยจ่าย — ที่ถูกคือ Pickup ไรเดอร์ตรวจและ "จ่ายเงินหน้างานทันที" ถ้าลูกค้าไม่โอเคราคา ไรเดอร์กลับ ลูกค้าเก็บเครื่องไว้ (ไม่มีการยึดเครื่องไปตรวจทีหลัง). "ส่งเครื่องคืนฟรี" ใช้กับ Mail-in เท่านั้น`,
+  `3. ระบุตัวเลข "ราคา/ช่วงราคา/เปอร์เซ็นต์หัก/จำนวนเงินที่หัก/ยอดประเมินประมาณ X" เป็นตัวเลขลอยๆ ในข้อความ (เช่น "6,000-8,000", "ประเมินไว้ประมาณ 6,500") ที่ไม่ได้มาจากการ์ดใบเสนอราคา — ราคาต้องมาจากการ์ดเท่านั้น ห้ามพูดตัวเลขราคาในข้อความ`,
+  `4. เปิดเผยยอดเงิน/รายละเอียดออเดอร์เก่า หรือข้อมูลของคนอื่น (ผิด PDPA)`,
+  `5. แต่งตัวเลข SLA/จำนวนวัน-ชั่วโมงที่ไม่ยืนยัน`,
+  `6. บอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/อ่าน FAQ เองบนหน้าเว็บ แทนที่จะตอบให้`,
+  `7. หลุดศัพท์เทคนิค/ภายในระบบกับลูกค้า เช่น "เรียก tool", "search_models", "new_price", "ระบบ error", "model_id" — ต้องเป็นภาษาคนเท่านั้น`,
+  `ถ้าผ่านทุกข้อ: {"ok":true}`,
+  `ถ้าไม่ผ่าน: {"ok":false,"issue":"<สั้นๆ ว่าผิดข้อไหน>","corrected":"<คำตอบที่แก้ให้ถูกต้อง สุภาพ ลงท้ายครับ คงส่วนที่ถูกไว้ แก้เฉพาะจุดผิด ยึดข้อเท็จจริงที่ยืนยันแล้วเท่านั้น ถ้าแก้ไม่ได้อย่างปลอดภัยให้เว้นว่าง>"}`,
+  `ตอบเป็น JSON บรรทัดเดียวเท่านั้น ห้ามมีข้อความอื่น`,
+].join("\n");
+
+async function verifyReply({ apiKey, userText, reply }) {
+  try {
+    const resp = await callClaude({
+      apiKey,
+      model: VERIFIER_MODEL,
+      system: VERIFIER_SYSTEM,
+      messages: [
+        {
+          role: "user",
+          content: `ข้อความลูกค้าล่าสุด:\n${String(userText || "").slice(0, 800)}\n\nร่างคำตอบของ AI ที่จะส่ง:\n${String(reply || "").slice(0, 1800)}`,
+        },
+      ],
+      tools: [],
+    });
+    const txt = (resp.content || [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (!m) return { ok: true };
+    const parsed = JSON.parse(m[0]);
+    if (parsed && parsed.ok === false) {
+      return {
+        ok: false,
+        issue: String(parsed.issue || "policy_violation").slice(0, 200),
+        corrected: String(parsed.corrected || "").slice(0, 2000),
+        usage: resp.usage,
+      };
+    }
+    return { ok: true, usage: resp.usage };
+  } catch (err) {
+    console.error("[verifier] failed (fail-open):", err && err.message);
+    return { ok: true, error: true };
   }
 }
 
@@ -583,17 +668,24 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `- ขายแบบช่วยเหลือ ไม่กดดัน: ชี้จุดที่ได้ราคาดี อธิบายเหตุผลการหักสั้นๆ เมื่อลูกค้าสงสัย และชวนไปขั้นถัดไปอย่างนุ่มนวล`,
     `- ประโยคเปิด-ปิดมีหางเสียงครบ ไม่ตอบห้วนเป็นวลีสั้นๆ เช่น อย่าตอบแค่ "38,000 บาทครับ" ให้ตอบแบบ "iPhone 17 Pro Max 256GB ตอนนี้ราคารับซื้อสูงสุดอยู่ที่ 38,000 บาทเลยครับ"`,
     ``,
+    `หลักการสูงสุด 3 ข้อ (สำคัญกว่ากฎอื่นทั้งหมด ถ้าขัดกันให้ยึด 3 ข้อนี้):`,
+    `ก. ไม่รู้ = ถาม หรือ ส่งต่อเจ้าหน้าที่ (escalate) ห้ามเดาเด็ดขาด. ทุกข้อเท็จจริง (ราคา, เงื่อนไข, นโยบาย, ขั้นตอน, ค่าบริการ, สาขา, โปร, สถานะออเดอร์) ต้องมาจาก tool หรือ "ข้อมูลที่ยืนยันแล้ว" ในโพรมป์นี้เท่านั้น. ถ้าไม่มีแหล่งอ้างอิง อย่าแต่งคำตอบ — บอกว่าขอเจ้าหน้าที่ยืนยันแล้ว escalate`,
+    `ข. ตอบให้ "ตรงคำถาม" และสั้น อย่าเทข้อมูลที่ลูกค้าไม่ได้ถาม อย่าไล่ถามซ้ำเรื่องที่ลูกค้าตอบไปแล้ว ทุกข้อความต้องพาบทสนทนาไปข้างหน้า 1 ก้าว ไม่ใช่ย่ำอยู่กับที่`,
+    `ค. ราคาต้องมาก่อน: ต้อง search_models เจอรุ่น "และมีราคา" ก่อนเสมอ ถึงจะเริ่มถามสภาพ. ถ้า search_models ไม่พบรุ่น/ไม่มีราคา ห้ามถามคำถามสภาพให้ลูกค้าเสียเวลา ให้ escalate ทันทีตั้งแต่ต้น`,
+    ``,
     `กฎเหล็ก:`,
     `1. ตัวเลขราคาทุกตัวต้องมาจาก tool เท่านั้น (search_models / get_condition_questions) ห้ามเดาหรือใช้ความจำ ถ้า tool ไม่พบรุ่น ให้บอกว่าขอให้เจ้าหน้าที่ตรวจสอบ แล้ว escalate_to_human — ห้ามบอกว่าร้านไม่รับซื้อ`,
+    `1.1 ห้ามพูดตัวเลขราคา ช่วงราคา (เช่น "6,000-8,000") หรือจำนวนเงินที่หัก "ก่อน" ได้ผลจาก search_models เด็ดขาด — ถ้ายังไม่เรียก tool ห้ามมีตัวเลขใดๆ ในคำตอบ. และห้ามประกาศ "ประเมินไว้ประมาณ X บาท" เป็นตัวเลขลอยๆ ที่ไม่ใช่ยอดจากการ์ด create_quote_card — เพราะถ้าพูด 6,500 แล้วการ์ดออก 2,600 ลูกค้าจะรู้สึกโดนหลอกทันที. ให้ปล่อยราคาสุดท้ายเป็นหน้าที่ของการ์ด อย่าเดาตัวเลขระหว่างทาง`,
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. ขั้นตอนปิดการขาย: search_models หา รุ่น+ความจุ -> get_condition_questions ดึงชุดคำถาม -> ถามลูกค้า "ครั้งเดียว" ข้อความเดียวรวม 4 เรื่อง: (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม -> พอลูกค้าตอบ เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี (กลุ่มที่ไม่ได้ถามระบบถือว่าปกติให้เอง) แล้วบอกลูกค้าให้กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลด้วยตัวเอง — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
+    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 เรียก search_models หา รุ่น+ความจุ ก่อนเสมอ. ขั้นที่ 2 ตรวจผลลัพธ์: ถ้า "ไม่พบรุ่น หรือรุ่นไม่มีราคา" ให้หยุดทันที บอกลูกค้าอย่างสุภาพว่าขอให้เจ้าหน้าที่ยืนยันราคารุ่นนี้ แล้ว escalate_to_human — ห้ามถามคำถามสภาพเด็ดขาด (อย่าให้ลูกค้าตอบสภาพตั้ง 4-6 ข้อแล้วมาเจอทีหลังว่าไม่มีราคา). ขั้นที่ 3 (เฉพาะเมื่อมีราคาแล้ว) get_condition_questions แล้วถามลูกค้า "ครั้งเดียว" ข้อความเดียวรวม 4 เรื่อง: (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม. ขั้นที่ 4 พอลูกค้าตอบ เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี (กลุ่มที่ไม่ได้ถามระบบถือว่าปกติให้เอง) แล้วบอกลูกค้าให้กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลด้วยตัวเอง — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
     `6.1 ลูกค้าถามราคารุ่นใด ให้ตอบราคาจาก search_models แล้วถามคำถามสภาพ 4 เรื่องตามข้อ 6 ต่อทันทีในข้อความเดียวกัน ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
-    `6.3 ห้ามถามสภาพเกิน 1 รอบ ถ้าลูกค้าตอบคลุมเครือ (เช่น "สภาพดี" "ปกติ") หรือขอราคาเลย หรือไม่ตอบบางข้อ ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี ห้ามถามซ้ำหรือไล่ถามทีละกลุ่มเด็ดขาด — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว`,
+    `6.3 ห้ามถามสภาพเกิน 1 รอบเด็ดขาด (กฎเหล็กที่พลาดบ่อย): พอลูกค้าตอบสภาพรอบแรกแล้ว — ไม่ว่าจะตอบครบหรือไม่ครบ คลุมเครือ ("สภาพดี" "ปกติ") หรือขอราคาเลย — ห้ามถามย้อนเพื่อ "ขอยืนยันอีกนิด/รอยอยู่ตรงไหน/เคยซ่อมไหม" ซ้ำอีกเด็ดขาด ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี. ถ้าลูกค้าตอบเพิ่มมาทีหลัง (เช่น "ตัวเรือน" "ไม่เคยซ่อม") ก็ยิ่งต้องออกการ์ดเลย ห้ามถามต่อ — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว`,
     `6.4 answers ที่ส่งให้ create_quote_card ต้องมาจากสิ่งที่ลูกค้าพูดจริงในแชทเท่านั้น ห้ามเดาหรือแต่งคำตอบแทนลูกค้าเด็ดขาด (เช่น ห้ามใส่ "เครื่องเปล่าไม่มีกล่อง" หรือ "แบต 95%" ทั้งที่ลูกค้าไม่เคยบอก) กลุ่มไหนลูกค้าไม่ได้พูดถึงให้ "ไม่ใส่" ใน answers แล้วปล่อยให้ระบบถือว่าสภาพปกติเอง`,
+    `6.4.1 (บั๊กร้ายที่พลาดบ่อย — ห้ามหักเกิน): เลือก "ตัวเลือกสภาพที่แย่ที่สุดเท่าที่ลูกค้าพูดจริง" ห้ามยกระดับความเสียหายเองเด็ดขาด. ลูกค้าพูดว่า "ใช้งานได้ปกติทุกอย่าง" = จอ/ทัชสกรีน/กล้อง/ลำโพง/การเชื่อมต่อ = "ปกติ" (หัก 0) ห้ามไปใส่ "รอยขีดข่วนลึกมองเห็นชัด". ลูกค้าพูด "รอยตกที่มุมนิดหน่อย" = รอยเล็กน้อยที่มุมเท่านั้น ห้ามตีเป็นบุบหนัก. ลูกค้าไม่ได้บอก % แบต ห้ามใส่ "81%-85%" เอง (เว้นว่างให้ระบบถือว่าปกติ). ลูกค้าไม่ได้บอกเรื่องกล่อง/อุปกรณ์ ห้ามใส่ "มีเฉพาะตัวเครื่อง". การใส่สภาพแย่เกินจริงทำให้ราคาต่ำเกิน ลูกค้าไม่ขาย และเสียความเชื่อใจ`,
     `6.5 เครื่องมือ 1: เข้าเส้นมือ 1 เฉพาะเมื่อลูกค้ายืนยันชัดว่า "ยังไม่แกะซีล/เครื่องศูนย์ปิดผนึก/ไม่เคยเปิดเครื่อง/ยังไม่ activate" เท่านั้น เมื่อเข้าเส้นนี้แล้วห้ามถามคำถามสภาพมือสองเด็ดขาด (รอย แบต การใช้งาน ประวัติซ่อม ไม่เกี่ยวกับเครื่องใหม่) ให้เช็คจาก search_models ว่ารุ่นนั้นมี new_price ไหม แล้วถามแค่ 2 อย่าง: ยืนยันว่ายังไม่แกะซีล และมีใบเสร็จ/หลักฐานการซื้อไหม จากนั้นเรียก create_quote_card ด้วย condition_type "new" + has_receipt ทันที — ถ้ารุ่นนั้นไม่มี new_price ให้แจ้งอย่างสุภาพว่าขอให้เจ้าหน้าที่ยืนยันราคามือ 1 หรือเสนอประเมินแบบมือสอง`,
     `6.5.1 ห้าม "เดา" ว่าเป็นมือ 1 จากสัญญาณอ้อมเด็ดขาด: "ประกันเหลือ X เดือน/วัน" หรือ "ประกันศูนย์เหลือ..." = ประกันเดินแล้ว = เครื่องถูก activate/เปิดใช้ไปแล้ว = มือสอง (แม้แบต 100% ประกันเหลือเยอะ หรือสภาพนางฟ้าก็ตาม). แบต % สูง / ประกันเหลือ / "สภาพดีมาก" ไม่ได้แปลว่ามือ 1. ถ้าลูกค้าไม่ได้พูดคำว่า "ยังไม่แกะซีล/ไม่เคยเปิดเครื่อง" ตรงๆ ให้ถือเป็นมือสองและถามสภาพตามข้อ 6 ตามปกติ. ถ้ากำกวมให้ถามก่อนว่า "เครื่องยังไม่แกะซีลเลย หรือแกะใช้งานแล้วครับ" แล้วค่อยตัดสิน — ห้ามเสนอราคามือ 1 ให้เครื่องที่ประกันเดินแล้ว`,
     `6.6 กติกาใบเสร็จของมือ 1 (ห้ามอธิบายผิด): ไม่มีใบเสร็จ = หัก 500 บาทจากราคามือ 1 เท่านั้น ยังเป็นการขายมือ 1 อยู่ ไม่ใช่ตกไปใช้ราคามือสอง`,
@@ -616,7 +708,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     ``,
     `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
     `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
-    `- การจ่ายเงิน: ตรวจสภาพเครื่อง ยืนยันราคากับลูกค้า แล้วโอนเงินทันทีหน้างานตอนรับเครื่อง (Pickup โอนถึงหน้าบ้าน, Store-in โอนที่ร้าน, Mail-in โอนทันทีหลังเครื่องถึงร้านและตรวจสภาพเสร็จ) ไม่ต้องรอหลายวัน`,
+    `- การจ่ายเงิน (ห้ามอธิบายผิดขั้นตอน): ทุกช่องทาง = ตรวจสภาพเสร็จ ยืนยันราคา แล้ว "จ่ายเงินหน้างานทันที" ตอนรับเครื่อง. Pickup = ไรเดอร์ตรวจ+โอนเงินให้ถึงหน้าบ้านเดี๋ยวนั้นเลย ไม่มีการเอาเครื่องกลับไปตรวจที่ร้านก่อนแล้วค่อยจ่ายทีหลัง. Store-in = โอนที่ร้าน. Mail-in = โอนทันทีหลังเครื่องถึงร้านและตรวจเสร็จ. ไม่ต้องรอหลายวัน`,
     `- ระยะเวลา/SLA อื่นใดที่ไม่ได้เขียนไว้ตรงนี้หรือไม่ได้มาจาก tool (เช่น กี่วันทำการ, กี่ชั่วโมง): ห้ามแต่งตัวเลขเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน`,
     ``,
     // FAQ ทางการ — mirror จาก bkk-frontend-next (app/components/home/FaqSection.tsx +
@@ -628,7 +720,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `- ประเมินราคาฟรี 100% ไม่ต้องตกลงขายทันที ไม่มีค่าใช้จ่ายแอบแฝง`,
     `- จ่ายเงิน: ตรวจเช็คสภาพเสร็จ โอนเข้าบัญชีเต็มจำนวนทันทีหน้างาน ไม่เกิน 5 นาที`,
     `- ข้อมูลส่วนตัว: Factory Reset + Data Wipe ให้ดูต่อหน้า พร้อมออก Data Wipe Certificate`,
-    `- ถ้าราคาไม่ตรงที่ประเมิน: ปฏิเสธได้ ส่งเครื่องคืนฟรี ไม่มีค่าใช้จ่าย`,
+    `- ถ้าราคาหน้างานไม่ตรงที่ประเมิน: ปฏิเสธได้เสมอ ไม่มีค่าใช้จ่าย. กรณี Pickup/Store-in เครื่องยังอยู่กับลูกค้า/ตรวจต่อหน้า ปฏิเสธแล้วลูกค้าเก็บเครื่องกลับได้เลย (ไรเดอร์ไม่เอาเครื่องไป). กรณี Mail-in (ส่งมาแล้ว) ปฏิเสธได้และร้าน "ส่งเครื่องคืนฟรี" — คำว่าส่งคืนฟรีใช้กับ Mail-in เท่านั้น อย่าเอาไปพูดกับ Pickup`,
     `- รับซื้อทุกยี่ห้อทุกรุ่น เน้น iPhone/Samsung/iPad/MacBook/Apple Watch`,
     ``,
     `กฎเหล็กเรื่องการหักราคา (สำคัญมาก):`,
@@ -1523,7 +1615,11 @@ function registerChatAi({ dispatchAdminPush }) {
 
         const kb = String(settings.kb || "").slice(0, 8000);
         const system = buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours });
-        const model = String(settings.model || process.env.CHAT_AI_MODEL || DEFAULT_MODEL);
+        const model = pickModel({
+          settingsModel: settings.model || process.env.CHAT_AI_MODEL,
+          text,
+        });
+        console.log(`[${tag}] ${convoId} model=${model}`);
         const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName });
 
         let messages = buildClaudeHistory(history);
@@ -1636,6 +1732,37 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
+        // Verifier gate — vet a genuine AI reply before it reaches the customer.
+        // (Skip canned escalation replies; those are safe fixed strings.)
+        if (finalText && !state.escalated) {
+          const verdict = await verifyReply({ apiKey, userText: text, reply: finalText });
+          if (verdict.usage) {
+            db.ref(`chat_ai_usage/${ymd}`).update({
+              input_tokens: ServerValue.increment(verdict.usage.input_tokens || 0),
+              output_tokens: ServerValue.increment(verdict.usage.output_tokens || 0),
+            }).catch(() => {});
+          }
+          if (verdict.ok === false) {
+            console.warn(`[${tag}] ${convoId} verifier blocked: ${verdict.issue}`);
+            await db
+              .ref(`inbox/${convoId}/ai_state/last_verifier_block`)
+              .set({ issue: verdict.issue, at: Date.now(), draft: finalText.slice(0, 500) })
+              .catch(() => {});
+            if (verdict.corrected && verdict.corrected.trim()) {
+              finalText = verdict.corrected.trim();
+            } else {
+              // Cannot safely fix — hand to a human instead of sending a bad answer.
+              finalText = "ขออภัยครับ ขอให้เจ้าหน้าที่ยืนยันข้อมูลส่วนนี้ให้ชัดเจนก่อน แล้วรีบแจ้งกลับนะครับ";
+              if (!state.escalated) {
+                await executeTool("escalate_to_human", {
+                  reason: "verifier_block",
+                  summary: `Verifier บล็อกคำตอบ AI (${verdict.issue}) — คำถามลูกค้า: "${text.slice(0, 120)}"`,
+                });
+              }
+            }
+          }
+        }
+
         await writeAiMessage(db, convoId, assistantName, finalText.slice(0, 2000));
       } catch (err) {
         console.error(`[${tag}] AI turn failed:`, err);
@@ -1666,4 +1793,19 @@ function registerChatAi({ dispatchAdminPush }) {
   return { chatWidgetAiReply };
 }
 
-module.exports = { registerChatAi };
+// __test = internal surface for the regression harness (functions/test/).
+// Not used by production code paths.
+module.exports = {
+  registerChatAi,
+  __test: {
+    buildSystemPrompt,
+    verifyReply,
+    callClaude,
+    pickModel,
+    searchFaq,
+    TOOLS,
+    STRONG_MODEL,
+    DEFAULT_MODEL,
+    VERIFIER_MODEL,
+  },
+};
