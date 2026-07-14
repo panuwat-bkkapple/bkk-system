@@ -3,7 +3,7 @@
 import { getAuth } from 'firebase/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid
+  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive
 } from 'lucide-react';
 import { ref, push, update, remove, onValue, get } from 'firebase/database';
 import { db, app } from '../../api/firebase';
@@ -22,6 +22,7 @@ import { MobilePriceEditPage } from './components/pricing/MobilePriceEditPage';
 import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
 import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
+import { DISCONTINUED_MODELS } from './constants/discontinuedModels';
 
 export const PriceEditor = () => {
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
@@ -349,6 +350,36 @@ export const PriceEditor = () => {
   const handleToggleStatus = async (item: any) => { await update(ref(db, `models/${item.id}`), { isActive: !item.isActive }); };
   const handleToggleFeatured = async (item: any) => { await update(ref(db, `models/${item.id}`), { isFeatured: !item.isFeatured }); };
 
+  // One-tap import of the discontinued ("งดรับซื้อ", isActive:false) catalogue.
+  // Runs from the admin session (works on iPhone), idempotent: skips any model
+  // whose name already exists.
+  const [importingDiscontinued, setImportingDiscontinued] = useState(false);
+  const handleImportDiscontinued = async () => {
+    if (importingDiscontinued) return;
+    const existingNames = new Set(modelsData.map((m: any) => String(m.name || '').trim()));
+    const toAdd = DISCONTINUED_MODELS.filter((m) => !existingNames.has(String(m.name).trim()));
+    if (toAdd.length === 0) {
+      toast('รุ่นงดรับซื้อทั้งหมดอยู่ในระบบแล้วครับ');
+      return;
+    }
+    if (!confirm(`นำเข้ารุ่นงดรับซื้อ (isActive:false) ${toAdd.length} รุ่น?\nรุ่นที่มีชื่อซ้ำจะถูกข้ามอัตโนมัติ ราคาเริ่มที่ 0 และยังไม่มีรูป (เติมทีหลังได้)`)) return;
+    setImportingDiscontinued(true);
+    const t = toast.loading(`กำลังนำเข้า 0/${toAdd.length}...`);
+    try {
+      let n = 0;
+      for (const m of toAdd) {
+        await update(push(ref(db, 'models')), { ...m, isActive: false, updatedAt: Date.now() });
+        n++;
+        toast.loading(`กำลังนำเข้า ${n}/${toAdd.length}...`, { id: t });
+      }
+      toast.success(`นำเข้าสำเร็จ ${n} รุ่น (งดรับซื้อ)`, { id: t });
+    } catch {
+      toast.error('นำเข้าไม่สำเร็จ ลองใหม่อีกครั้งครับ', { id: t });
+    } finally {
+      setImportingDiscontinued(false);
+    }
+  };
+
   // Schema-driven auto-migration. Legacy variants store the combined attribute
   // string in `v.name` joined by '|'. We resolve the (admin-editable) schema for
   // the category and assign each pipe-separated part to schema[i].key in order.
@@ -470,6 +501,7 @@ export const PriceEditor = () => {
           <button onClick={() => setIsCategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><LayoutGrid size={18} className="text-emerald-500" /> Manage Categories</button>
           <button onClick={() => setIsSubcategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Layers size={18} className="text-violet-500" /> Subcategories</button>
           <button onClick={() => setIsSeriesModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><FolderTree size={18} className="text-blue-500" /> Manage Series</button>
+          <button onClick={handleImportDiscontinued} disabled={importingDiscontinued} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm disabled:opacity-50"><Archive size={18} className="text-slate-400" /> นำเข้ารุ่นงดรับซื้อ</button>
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
         </div>
       </div>
