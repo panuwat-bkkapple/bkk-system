@@ -6,12 +6,13 @@ import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
   CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
-  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin
+  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin, History
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import QuoteComposer from './QuoteComposer';
 import ContactEditModal from './ContactEditModal';
+import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 
 // =============================================================================
 // Types
@@ -123,6 +124,7 @@ export const InboxPage = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [showQuoteComposer, setShowQuoteComposer] = useState(false);
   const [showContactEdit, setShowContactEdit] = useState(false);
+  const [showCustomerTimeline, setShowCustomerTimeline] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -628,6 +630,16 @@ export const InboxPage = () => {
                       <Pencil size={12} />
                     </button>
                   )}
+                  {/* ประวัติลูกค้า 360 — staff only, อ่านอย่างเดียว (join ด้วยเบอร์) */}
+                  {(selectedConversation.customer_phone || selectedConversation.phone) && (
+                    <button
+                      onClick={() => setShowCustomerTimeline(true)}
+                      title="ดูประวัติลูกค้า (ซื้อ/ขาย) จากเบอร์นี้"
+                      className="text-slate-300 hover:text-violet-600 transition-colors shrink-0"
+                    >
+                      <History size={12} />
+                    </button>
+                  )}
                 </h3>
                 <div className="flex items-center gap-2 flex-wrap">
                   {(selectedConversation.customer_phone || selectedConversation.phone) && (
@@ -903,6 +915,16 @@ export const InboxPage = () => {
             customer_address: selectedConversation.customer_address,
           }}
           onClose={() => setShowContactEdit(false)}
+        />
+      )}
+
+      {/* ===== Customer Timeline 360 (staff only, read-only) ===== */}
+      {showCustomerTimeline && selectedConversation &&
+        (selectedConversation.customer_phone || selectedConversation.phone) && (
+        <CustomerTimelineModal
+          phone={(selectedConversation.customer_phone || selectedConversation.phone) as string}
+          name={selectedConversation.customer_name || selectedConversation.name}
+          onClose={() => setShowCustomerTimeline(false)}
         />
       )}
 
