@@ -455,20 +455,19 @@ async function callClaudeResilient(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Hybrid model routing — pick the strong model for turns where a wrong answer
-// is costly (money / lock+installment policy / appraisal / cancellation /
-// order status / sell-process). Trivial greetings & acknowledgements stay on
-// the cheap model. Admin override (settings.model) always wins.
+// Hybrid model routing — accuracy-first: the strong model is the DEFAULT for
+// every real question. Only a short, pure greeting / acknowledgement (no
+// substance to get wrong) stays on the cheap model. Admin override wins.
 // ---------------------------------------------------------------------------
-const STRONG_INTENT_RE =
-  /ราคา|กี่บาท|เท่าไห?ร่|ประเมิน|รับซื้อ|ขาย|มือ\s?1|มือหนึ่ง|มือ\s?2|มือสอง|สภาพ|แบต|จอ|ผ่อน|icloud|ไอคลาวด์|mdm|ล็อก|ล็อค|blacklist|แบล็?ค|ยกเลิก|คืนเงิน|คืนเครื่อง|สถานะ|ออเดอร์|order|นัด|เลื่อน|รับถึง|ถึงบ้าน|ถึงที่|pickup|ส่งพัสดุ|mail|จ่ายเงิน|โอนเงิน|คูปอง|โปร|ส่วนลด|สาขา|ขั้นตอน|เอกสาร|iphone|ipad|macbook|imac|mac\s|watch|airpod|samsung|ประกัน|ซ่อม|เปลี่ยน/i;
+const TRIVIAL_RE =
+  /^(สวัสดี|หวัดดี|ดีครับ|ดีค่ะ|hello|hi+|hey|ขอบคุณ|ขอบใจ|thanks?|thx|โอเค|โอเต|ok|okay|ครับ|ค่ะ|คับ|จ้า|จ้าา|ได้ครับ|ได้ค่ะ|เยี่ยม|ดีเลย|👍|🙏|😊)[\s!.ๆๆครับคะค่ะจ้า]*$/iu;
 
 function pickModel({ settingsModel, text }) {
   if (settingsModel) return String(settingsModel); // admin override wins
-  const t = String(text || "");
-  // Short & no risky keyword => cheap model; otherwise use the strong model.
-  if (t.length <= 24 && !STRONG_INTENT_RE.test(t)) return DEFAULT_MODEL;
-  return STRONG_INTENT_RE.test(t) ? STRONG_MODEL : DEFAULT_MODEL;
+  const t = String(text || "").trim();
+  // Only trivial greetings/acks stay cheap; everything substantive => strong.
+  if (t.length <= 20 && TRIVIAL_RE.test(t)) return DEFAULT_MODEL;
+  return STRONG_MODEL;
 }
 
 // ---------------------------------------------------------------------------
