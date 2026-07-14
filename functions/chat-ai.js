@@ -132,10 +132,18 @@ async function loadModelsLight(db) {
 // Claude API
 // ---------------------------------------------------------------------------
 
-async function callClaude({ apiKey, model, system, messages, tools }) {
+async function callClaude({ apiKey, model, system, messages, tools, toolChoice }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
+    const body = {
+      model,
+      max_tokens: 2048,
+      system,
+      messages,
+      tools,
+    };
+    if (toolChoice) body.tool_choice = toolChoice;
     const res = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: {
@@ -143,13 +151,7 @@ async function callClaude({ apiKey, model, system, messages, tools }) {
         "x-api-key": apiKey,
         "anthropic-version": ANTHROPIC_VERSION,
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system,
-        messages,
-        tools,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     const bodyText = await res.text();
@@ -774,6 +776,10 @@ function registerChatAi({ dispatchAdminPush }) {
         if (messages.length === 0) messages = [{ role: "user", content: text }];
 
         let finalText = "";
+        // Text the model wrote alongside tool calls in earlier rounds — used
+        // as the reply if the loop ends without a clean final text (tool-round
+        // exhaustion, empty last response) instead of dead-ending to escalate.
+        let lastRoundText = "";
         let totalIn = 0;
         let totalOut = 0;
 
@@ -784,6 +790,13 @@ function registerChatAi({ dispatchAdminPush }) {
 
           const toolUses = (resp.content || []).filter((b) => b.type === "tool_use");
           const textBlocks = (resp.content || []).filter((b) => b.type === "text");
+          const roundText = textBlocks.map((b) => b.text).join("\n").trim();
+          if (roundText) lastRoundText = roundText;
+          console.log(
+            `[${tag}] ${convoId} round=${round} stop=${resp.stop_reason} blocks=${(resp.content || [])
+              .map((b) => b.type)
+              .join(",") || "none"}`
+          );
 
           if (resp.stop_reason === "tool_use" && toolUses.length > 0) {
             messages.push({ role: "assistant", content: resp.content });
@@ -809,8 +822,34 @@ function registerChatAi({ dispatchAdminPush }) {
             continue;
           }
 
-          finalText = textBlocks.map((b) => b.text).join("\n").trim();
+          finalText = roundText;
           break;
+        }
+
+        // Loop ended without usable text — salvage in order: text written
+        // alongside earlier tool calls, then one forced text-only turn.
+        if (!finalText) finalText = lastRoundText;
+        if (!finalText && !state.escalated) {
+          console.warn(`[${tag}] ${convoId} empty final text — forcing a text-only turn`);
+          try {
+            const finalResp = await callClaude({
+              apiKey,
+              model,
+              system,
+              messages,
+              tools: TOOLS,
+              toolChoice: { type: "none" },
+            });
+            totalIn += (finalResp.usage && finalResp.usage.input_tokens) || 0;
+            totalOut += (finalResp.usage && finalResp.usage.output_tokens) || 0;
+            finalText = (finalResp.content || [])
+              .filter((b) => b.type === "text")
+              .map((b) => b.text)
+              .join("\n")
+              .trim();
+          } catch (err) {
+            console.error(`[${tag}] forced text-only turn failed:`, err);
+          }
         }
 
         // Usage ledger (fire-and-forget accuracy is fine here).
