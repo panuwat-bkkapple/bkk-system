@@ -13,24 +13,27 @@ const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
 const { rankModels } = __test;
 
-// Minimal fixture mirroring the real catalogue shape (brand/name/category).
+// Minimal fixture mirroring the real catalogue shape. is_active === false marks
+// a delisted ("งดรับซื้อ") model, as loadModelsLight sets it.
 const CATALOG = [
-  { brand: "Apple", name: "Apple Watch Series 8", category: "Smart Watch" },
-  { brand: "Apple", name: "Apple Watch Series 9", category: "Smart Watch" },
-  { brand: "Apple", name: "Apple Watch Series 10", category: "Smart Watch" },
-  { brand: "Apple", name: "Apple Watch Series 11", category: "Smart Watch" },
-  { brand: "Apple", name: "Apple Watch SE 2", category: "Smart Watch" },
-  { brand: "Apple", name: "Apple Watch Ultra 2", category: "Smart Watch" },
-  { brand: "Apple", name: "iPhone 13", category: "Smartphone" },
-  { brand: "Apple", name: "iPhone 13 Pro Max", category: "Smartphone" },
-  { brand: "Apple", name: "iPhone 17 Pro Max", category: "Smartphone" },
-  { brand: "Apple", name: "iPad Generation 9", category: "Tablet" },
-  { brand: "Apple", name: "iPad Air 5 (ชิป M1, 2022)", category: "Tablet" },
-  { brand: "Apple", name: 'iPad Pro 11" (ชิป M2, 2022)', category: "Tablet" },
-  { brand: "Apple", name: 'MacBook Air 13" (Intel, 2020)', category: "Mac" },
+  { brand: "Apple", name: "Apple Watch Series 8", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "Apple Watch Series 9", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "Apple Watch Series 10", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "Apple Watch Series 11", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "Apple Watch SE 2", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "Apple Watch Ultra 2", category: "Smart Watch", is_active: true },
+  { brand: "Apple", name: "iPhone 13", category: "Smartphone", is_active: true },
+  { brand: "Apple", name: "iPhone 13 mini", category: "Smartphone", is_active: false },
+  { brand: "Apple", name: "iPhone 13 Pro Max", category: "Smartphone", is_active: true },
+  { brand: "Apple", name: "iPhone 17 Pro Max", category: "Smartphone", is_active: true },
+  { brand: "Apple", name: "iPad Generation 9", category: "Tablet", is_active: true },
+  { brand: "Apple", name: "iPad Air 5 (ชิป M1, 2022)", category: "Tablet", is_active: true },
+  { brand: "Apple", name: 'iPad Pro 11" (ชิป M2, 2022)', category: "Tablet", is_active: true },
+  { brand: "Apple", name: 'MacBook Air 13" (Intel, 2020)', category: "Mac", is_active: true },
 ];
 
-const names = (q) => rankModels(CATALOG, q).map((m) => m.name);
+const ranked = (q) => rankModels(CATALOG, q);
+const names = (q) => ranked(q).map((m) => m.name);
 
 const CASES = [
   // The reported bug: Series 5 is not carried -> must return nothing (escalate),
@@ -47,6 +50,10 @@ const CASES = [
   // Inch-quote names must still match on their generation number.
   { q: "iPad Pro 11", top: 'iPad Pro 11" (ชิป M2, 2022)' },
   { q: "macbook air 13", top: 'MacBook Air 13" (Intel, 2020)' },
+  // A delisted model asked by name ranks first (executor then declines it);
+  // it must NOT be the top when the customer asks the active sibling.
+  { q: "iPhone 13 mini", top: "iPhone 13 mini", topInactive: true },
+  { q: "iPhone 13", top: "iPhone 13" },
 ];
 
 let failures = 0;
@@ -54,6 +61,8 @@ for (const c of CASES) {
   const got = names(c.q);
   let ok = true;
   if (c.expectEmpty) ok = got.length === 0;
+  else if (c.topInactive)
+    ok = got[0] === c.top && ranked(c.q)[0].is_active === false;
   else ok = got[0] === c.top && !got.includes("Apple Watch Series 5");
   if (!ok) {
     failures++;
