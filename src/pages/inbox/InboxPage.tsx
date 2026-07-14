@@ -670,35 +670,6 @@ export const InboxPage = () => {
                 </button>
                 {showMenu && (
                   <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl py-1 w-48 z-50">
-                    {selectedConversation.status && (
-                      <div className="sm:hidden border-b border-slate-100 pb-1 mb-1">
-                        {(selectedConversation.status === 'ai' || selectedConversation.status === 'waiting_human' ||
-                          (selectedConversation.status === 'human' && selectedConversation.assigned_staff_id !== staffId)) && (
-                          <button
-                            onClick={() => { setShowMenu(false); handleTakeover(); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50 transition-colors"
-                          >
-                            <UserCheck size={14} /> รับเรื่อง
-                          </button>
-                        )}
-                        {selectedConversation.status === 'human' && selectedConversation.assigned_staff_id === staffId && (
-                          <button
-                            onClick={() => { setShowMenu(false); handleReturnToAi(); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-violet-600 hover:bg-violet-50 transition-colors"
-                          >
-                            <RotateCcw size={14} /> คืนให้ AI
-                          </button>
-                        )}
-                        {selectedConversation.status !== 'resolved' && (
-                          <button
-                            onClick={() => { setShowMenu(false); handleResolve(); }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors"
-                          >
-                            <CheckCircle2 size={14} /> ปิดจ็อบ
-                          </button>
-                        )}
-                      </div>
-                    )}
                     <button
                       onClick={handleDeleteConvo}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
@@ -709,6 +680,37 @@ export const InboxPage = () => {
                 )}
               </div>
             </div>
+
+            {/* Console action bar — mobile (จอเล็กปุ่มบน header ถูกซ่อน จึงโชว์เป็นแถบเต็มความกว้างแทน) */}
+            {selectedConversation.status && (
+              <div className="sm:hidden flex items-center gap-2 px-4 py-2 border-b border-slate-100 bg-white">
+                {(selectedConversation.status === 'ai' || selectedConversation.status === 'waiting_human' ||
+                  (selectedConversation.status === 'human' && selectedConversation.assigned_staff_id !== staffId)) && (
+                  <button
+                    onClick={handleTakeover}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-full bg-blue-600 text-white active:bg-blue-700 transition-colors"
+                  >
+                    <UserCheck size={14} /> รับเรื่อง
+                  </button>
+                )}
+                {selectedConversation.status === 'human' && selectedConversation.assigned_staff_id === staffId && (
+                  <button
+                    onClick={handleReturnToAi}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-full border border-violet-300 text-violet-600 active:bg-violet-50 transition-colors"
+                  >
+                    <RotateCcw size={14} /> คืนให้ AI
+                  </button>
+                )}
+                {selectedConversation.status !== 'resolved' && (
+                  <button
+                    onClick={handleResolve}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-full border border-emerald-300 text-emerald-600 active:bg-emerald-50 transition-colors"
+                  >
+                    <CheckCircle2 size={14} /> ปิดจ็อบ
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50">
