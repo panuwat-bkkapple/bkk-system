@@ -1,0 +1,119 @@
+ iPad Air 11" (ชิป M4, 2026)
+ iPad Air 13" (ชิป M4, 2026)
+Apple Watch SE 1
+Apple Watch SE 2
+Apple Watch SE 3
+Apple Watch Series 10
+Apple Watch Series 11
+Apple Watch Series 8
+Apple Watch Series 9
+Apple Watch Ultra 1
+Apple Watch Ultra 2
+Apple Watch Ultra 3
+Mac mini (ชิป M1, 2020)
+Mac mini (ชิป M2 Pro, 2023)
+Mac mini (ชิป M2, 2023)
+Mac mini (ชิป M4 Pro, 2024)
+Mac mini (ชิป M4, 2024)
+MacBook Air 13" (Intel, 2017)
+MacBook Air 13" (Intel, 2018)
+MacBook Air 13" (Intel, 2019)
+MacBook Air 13" (Intel, 2020)
+MacBook Air 13" (ชิป M1, 2020)
+MacBook Air 13" (ชิป M2, 2022)
+MacBook Air 13" (ชิป M3, 2024)
+MacBook Air 13" (ชิป M4, 2025)
+MacBook Air 13" (ชิป M5, 2026)
+MacBook Air 15" (ชิป M2, 2023)
+MacBook Air 15" (ชิป M3, 2024)
+MacBook Air 15" (ชิป M4, 2025)
+MacBook Air 15" (ชิป M5, 2026)
+MacBook Neo 13" ( ชิป A18 Pro, 2026)
+MacBook Pro 13" (Intel, 2017)
+MacBook Pro 13" (Intel, 2018)
+MacBook Pro 13" (Intel, 2019)
+MacBook Pro 13" (Intel, 2020)
+MacBook Pro 13" (ชิป M1, 2020)
+MacBook Pro 13" (ชิป M2, 2022)
+MacBook Pro 13" Touch Bar (Intel, 2017)
+MacBook Pro 14" (ชิป M1 Max, 2021)
+MacBook Pro 14" (ชิป M1 Pro, 2021)
+MacBook Pro 14" (ชิป M2 Max, 2023)
+MacBook Pro 14" (ชิป M2 Pro, 2023)
+MacBook Pro 14" (ชิป M3 Max, 2023)
+MacBook Pro 14" (ชิป M3 Pro, 2023)
+MacBook Pro 14" (ชิป M3, 2023)
+MacBook Pro 14" (ชิป M4 Max, 2024)
+MacBook Pro 14" (ชิป M4 Pro, 2024)
+MacBook Pro 14" (ชิป M4, 2024)
+MacBook Pro 14" (ชิป M5 Max, 2026)
+MacBook Pro 14" (ชิป M5 Pro, 2026)
+MacBook Pro 14" (ชิป M5, 2025)
+MacBook Pro 15" (Intel, 2017)
+MacBook Pro 15" (Intel, 2018)
+MacBook Pro 15" (Intel, 2019)
+MacBook Pro 16" (Intel, 2019)
+MacBook Pro 16" (ชิป M1 Max, 2021)
+MacBook Pro 16" (ชิป M1 Pro, 2021)
+MacBook Pro 16" (ชิป M2 Max, 2023)
+MacBook Pro 16" (ชิป M2 Pro, 2023)
+MacBook Pro 16" (ชิป M3 Max, 2023)
+MacBook Pro 16" (ชิป M3 Pro, 2023)
+MacBook Pro 16" (ชิป M4 Max, 2024)
+MacBook Pro 16" (ชิป M4 Pro, 2024)
+MacBook Pro 16" (ชิป M5 Max, 2026)
+MacBook Pro 16" (ชิป M5 Pro, 2026)
+iMac 21.5" (Intel, 2017)
+iMac 21.5" (Intel, 2019)
+iMac 24" (ชิป M1, 2021)
+iMac 24" (ชิป M3, 2023)
+iMac 24" (ชิป M4, 2024)
+iMac 27" (Intel, 2017)
+iMac 27" (Intel, 2019)
+iMac 27" (Intel, 2020)
+iPad Air 11" (ชิป M2, 2024)
+iPad Air 11" (ชิป M3, 2025)
+iPad Air 13" (ชิป M2, 2024)
+iPad Air 13" (ชิป M3, 2025)
+iPad Air 4 (2020)
+iPad Air 5 (ชิป M1, 2022)
+iPad Generation 10
+iPad Generation 11
+iPad Generation 9
+iPad Pro 11" (ชิป M1, 2021)
+iPad Pro 11" (ชิป M2, 2022)
+iPad Pro 11" (ชิป M4, 2024)
+iPad Pro 11" (ชิป M5, 2025)
+iPad Pro 12.9" (ชิป M1, 2021)
+iPad Pro 12.9" (ชิป M2, 2022)
+iPad Pro 13" (ชิป M4, 2024)
+iPad Pro 13" (ชิป M5, 2025)
+iPad mini (รุ่นที่ 6)
+iPad mini รุ่นที่ 7 (ชิป A17 Pro)
+iPhone 11
+iPhone 11 Pro
+iPhone 11 Pro Max
+iPhone 12
+iPhone 12 Pro
+iPhone 12 Pro Max
+iPhone 12 mini
+iPhone 13
+iPhone 13 Pro
+iPhone 13 Pro Max
+iPhone 13 mini
+iPhone 14
+iPhone 14 Plus
+iPhone 14 Pro
+iPhone 14 Pro Max
+iPhone 15
+iPhone 15 Plus
+iPhone 15 Pro
+iPhone 15 Pro Max
+iPhone 16
+iPhone 16 Plus
+iPhone 16 Pro
+iPhone 16 Pro Max
+iPhone 17
+iPhone 17 Air
+iPhone 17 Pro
+iPhone 17 Pro Max
