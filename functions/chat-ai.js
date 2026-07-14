@@ -113,6 +113,174 @@ function resolveOptionDeduction(opt, basePrice, liquidityFactor) {
 }
 
 // ---------------------------------------------------------------------------
+// พื้นที่บริการ Pickup + โปรโมชั่น — mirror จาก bkk-frontend-next
+//   - zone pricing: functions/src/deliveryZones.ts (สูตรเดียวกับ validateAndCreateOrder
+//     และ recomputeCustomerPickupFee: หาโซนจากจังหวัด, ระยะ = haversine x 1.3
+//     จากสาขา active ที่ใกล้สุด)
+//   - จังหวัด: functions/src/provinces.ts (kongvut canonical ids)
+//   - โปรฯ ค่าไรเดอร์: riderFeePromoEligible / riderFeePromoDiscount ใน index.ts
+// แก้กติกาโซน/โปรฯ ที่ repo นั้นต้องมาแก้ mirror นี้ด้วย
+// ---------------------------------------------------------------------------
+
+const STORE_LOCATION = { lat: 13.8481527, lng: 100.6123554 };
+
+const TH_PROVINCES = [
+  [1, "กรุงเทพมหานคร"], [2, "สมุทรปราการ"], [3, "นนทบุรี"], [4, "ปทุมธานี"],
+  [5, "พระนครศรีอยุธยา"], [6, "อ่างทอง"], [7, "ลพบุรี"], [8, "สิงห์บุรี"],
+  [9, "ชัยนาท"], [10, "สระบุรี"], [11, "ชลบุรี"], [12, "ระยอง"],
+  [13, "จันทบุรี"], [14, "ตราด"], [15, "ฉะเชิงเทรา"], [16, "ปราจีนบุรี"],
+  [17, "นครนายก"], [18, "สระแก้ว"], [19, "นครราชสีมา"], [20, "บุรีรัมย์"],
+  [21, "สุรินทร์"], [22, "ศรีสะเกษ"], [23, "อุบลราชธานี"], [24, "ยโสธร"],
+  [25, "ชัยภูมิ"], [26, "อำนาจเจริญ"], [27, "หนองบัวลำภู"], [28, "ขอนแก่น"],
+  [29, "อุดรธานี"], [30, "เลย"], [31, "หนองคาย"], [32, "มหาสารคาม"],
+  [33, "ร้อยเอ็ด"], [34, "กาฬสินธุ์"], [35, "สกลนคร"], [36, "นครพนม"],
+  [37, "มุกดาหาร"], [38, "เชียงใหม่"], [39, "ลำพูน"], [40, "ลำปาง"],
+  [41, "อุตรดิตถ์"], [42, "แพร่"], [43, "น่าน"], [44, "พะเยา"],
+  [45, "เชียงราย"], [46, "แม่ฮ่องสอน"], [47, "นครสวรรค์"], [48, "อุทัยธานี"],
+  [49, "กำแพงเพชร"], [50, "ตาก"], [51, "สุโขทัย"], [52, "พิษณุโลก"],
+  [53, "พิจิตร"], [54, "เพชรบูรณ์"], [55, "ราชบุรี"], [56, "กาญจนบุรี"],
+  [57, "สุพรรณบุรี"], [58, "นครปฐม"], [59, "สมุทรสาคร"], [60, "สมุทรสงคราม"],
+  [61, "เพชรบุรี"], [62, "ประจวบคีรีขันธ์"], [63, "นครศรีธรรมราช"], [64, "กระบี่"],
+  [65, "พังงา"], [66, "ภูเก็ต"], [67, "สุราษฎร์ธานี"], [68, "ระนอง"],
+  [69, "ชุมพร"], [70, "สงขลา"], [71, "สตูล"], [72, "ตรัง"],
+  [73, "พัทลุง"], [74, "ปัตตานี"], [75, "ยะลา"], [76, "นราธิวาส"],
+  [77, "บึงกาฬ"],
+];
+
+function provinceIdFromName(name) {
+  if (!name) return null;
+  const norm = (s) => String(s).replace(/จังหวัด/g, "").replace(/\s+/g, "").trim().toLowerCase();
+  const n = norm(name);
+  if (!n) return null;
+  if (n === "กทม" || n === "กทม.") return 1;
+  for (const [id, th] of TH_PROVINCES) if (norm(th) === n) return id;
+  for (const [id, th] of TH_PROVINCES) {
+    const t = norm(th);
+    if (t && (n.includes(t) || t.includes(n))) return id;
+  }
+  return null;
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+const DEFAULT_DELIVERY_ZONES = [
+  {
+    id: "metro",
+    name: "กรุงเทพและปริมณฑล",
+    provinceIds: [1, 2, 3, 4, 58, 59],
+    pricing: { type: "distance", baseFare: 50, freeRadius: 5, perKmRate: 10, maxFee: 300 },
+    etaText: "1-2 ชั่วโมง",
+  },
+  {
+    id: "eastern",
+    name: "ชลบุรี / พัทยา / ฉะเชิงเทรา",
+    provinceIds: [11, 15],
+    pricing: { type: "flat", flatFee: 500 },
+    etaText: "2-3 ชั่วโมง",
+  },
+];
+
+function deliveryZonesFrom(raw) {
+  if (raw && typeof raw === "object" && Array.isArray(raw.zones)) return raw.zones;
+  if (raw && typeof raw === "object" && (raw.baseFare != null || raw.perKmRate != null)) {
+    return [
+      {
+        ...DEFAULT_DELIVERY_ZONES[0],
+        pricing: {
+          type: "distance",
+          baseFare: typeof raw.baseFare === "number" ? raw.baseFare : 50,
+          freeRadius: typeof raw.freeRadius === "number" ? raw.freeRadius : 5,
+          perKmRate: typeof raw.perKmRate === "number" ? raw.perKmRate : 10,
+          maxFee: typeof raw.maxFee === "number" ? raw.maxFee : 300,
+        },
+      },
+      DEFAULT_DELIVERY_ZONES[1],
+    ];
+  }
+  return DEFAULT_DELIVERY_ZONES;
+}
+
+function zoneFeeOf(zone, distanceKm) {
+  const p = zone && zone.pricing;
+  if (!p) return null;
+  if (p.type === "flat") return Number(p.flatFee) || 0;
+  if (distanceKm <= 0) return 0;
+  const chargeable = Math.max(0, distanceKm - (Number(p.freeRadius) || 0));
+  let fee = Math.round((Number(p.baseFare) || 0) + chargeable * (Number(p.perKmRate) || 0));
+  const maxFee = Number(p.maxFee) || 0;
+  if (maxFee > 0 && fee > maxFee) fee = maxFee;
+  return fee;
+}
+
+function toEpochMs(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v > 1e11 ? v : v * 1000;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : null;
+}
+
+function promoWindowOpen(item, now) {
+  const start = toEpochMs(item.start_date);
+  let end = toEpochMs(item.end_date);
+  // end_date แบบ date-only ("2026-07-31") ให้เผื่อถึงสิ้นวัน
+  if (end != null && typeof item.end_date === "string" && !/[T ]/.test(item.end_date)) {
+    end += 86399999;
+  }
+  if (start != null && now < start) return false;
+  if (end != null && now > end) return false;
+  return true;
+}
+
+function quotaFull(item) {
+  return !!(item.total_limit && (item.used_count || 0) >= item.total_limit);
+}
+
+async function geocodeThaiArea(text) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return { error: "maps_api_key_missing" };
+  try {
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("address", String(text));
+    url.searchParams.set("components", "country:TH");
+    url.searchParams.set("language", "th");
+    url.searchParams.set("key", apiKey);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return { error: `geocode_http_${res.status}` };
+    const data = await res.json();
+    if (data.status !== "OK" || !Array.isArray(data.results) || data.results.length === 0) {
+      return { error: "not_found" };
+    }
+    const r = data.results[0];
+    const comp = (r.address_components || []).find(
+      (c) => (c.types || []).includes("administrative_area_level_1")
+    );
+    const loc = r.geometry && r.geometry.location;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
+      return { error: "not_found" };
+    }
+    return {
+      lat: loc.lat,
+      lng: loc.lng,
+      province_name: comp ? comp.long_name : null,
+      formatted: r.formatted_address || "",
+    };
+  } catch {
+    return { error: "geocode_failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Models catalogue cache (public data, reused across warm invocations)
 // ---------------------------------------------------------------------------
 
@@ -267,6 +435,31 @@ const TOOLS = [
     },
   },
   {
+    name: "check_pickup_service",
+    description:
+      "เช็คพื้นที่ให้บริการรับซื้อถึงที่ (Pickup) และค่าบริการโดยประมาณจากทำเลของลูกค้า ใช้ทุกครั้งที่ลูกค้าถามว่ารับถึงที่ไหม / พื้นที่ให้บริการ / ค่าบริการรับเครื่องเท่าไหร่ — ต้องรู้ทำเลลูกค้าก่อน (เขต/อำเภอ + จังหวัด) ถ้ายังไม่รู้ให้ถามลูกค้าก่อนแล้วค่อยเรียก",
+    input_schema: {
+      type: "object",
+      properties: {
+        area_text: {
+          type: "string",
+          description: "ทำเลที่ลูกค้าบอก เช่น 'ลาดพร้าว กรุงเทพ', 'อ.บางละมุง ชลบุรี', 'เมืองทองธานี'",
+        },
+        model_id: {
+          type: "string",
+          description: "model_id ของรุ่นที่คุยกันอยู่ (ถ้ามี) เพื่อเช็คโปรส่วนลดเฉพาะรุ่น",
+        },
+      },
+      required: ["area_text"],
+    },
+  },
+  {
+    name: "get_promotions",
+    description:
+      "ดึงโปรโมชั่น คูปอง และส่วนลดที่เปิดใช้งานอยู่ตอนนี้จากระบบ ใช้ทุกครั้งที่ลูกค้าถามเรื่องโปรโมชั่น/คูปอง/ส่วนลด/สิทธิพิเศษ ห้ามตอบเรื่องโปรจากความจำ",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "create_ticket",
     description:
       "สร้างเรื่องติดตาม (ticket) ให้เจ้าหน้าที่ติดต่อกลับ ใช้เมื่อนอกเวลาทำการและลูกค้าต้องการฝากเรื่อง หรือเรื่องที่ไม่เร่งด่วน",
@@ -309,6 +502,13 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
     `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
     `11. เมื่อ escalate แล้ว ให้บอกลูกค้าว่าส่งเรื่องถึงเจ้าหน้าที่แล้ว${inHours ? " เจ้าหน้าที่จะเข้ามาตอบในไม่กี่นาที" : ` ขณะนี้นอกเวลาทำการ (เวลาทำการ ${hoursText}) เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ`}`,
+    `12. คำถามพื้นที่บริการ/รับถึงที่/ค่าบริการรับเครื่อง: ห้ามตอบจากความจำ ให้ถามก่อนว่าลูกค้าอยู่แถวไหน (เขต/อำเภอ + จังหวัด) แล้วเรียก check_pickup_service เพื่อตอบจากข้อมูลจริง แจ้งเป็นค่าประมาณเสมอ ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout`,
+    `13. คำถามโปรโมชั่น/คูปอง/ส่วนลด: เรียก get_promotions ทุกครั้ง ตอบเฉพาะรายการที่เปิดอยู่จริงพร้อมเงื่อนไขและวันหมดเขต ถ้าไม่มีให้บอกตรงๆ อย่างสุภาพว่าช่วงนี้ยังไม่มี ห้ามแต่งโปรโมชั่นเอง`,
+    `14. นโยบาย/ขั้นตอน/บริการใดที่ไม่มีใน tool, ข้อมูลบริการด้านล่าง หรือข้อมูลนโยบายร้าน: ห้ามแต่งเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน แล้วเสนอส่งเรื่องต่อเจ้าหน้าที่`,
+    ``,
+    `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
+    `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
+    `- ทุกช่องทาง: ตรวจสภาพเครื่องก่อน ยืนยันราคากับลูกค้า แล้วจึงโอนเงิน`,
     ``,
     `สถานะตอนนี้: ${inHours ? "อยู่ในเวลาทำการ" : "นอกเวลาทำการ"} (เวลาทำการ ${hoursText})`,
     ``,
@@ -596,6 +796,162 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             (assumedGroups.length > 0
               ? " (ส่วนที่ไม่ได้ถามระบบประเมินตามสภาพปกติแล้ว บอกลูกค้าสั้นๆ ว่าถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง)"
               : ""),
+        };
+      }
+
+      case "check_pickup_service": {
+        const geo = await geocodeThaiArea(input.area_text || "");
+        if (geo.error) {
+          return {
+            error: geo.error,
+            note: "หาตำแหน่งจากข้อความไม่ได้ ขอให้ลูกค้าระบุพื้นที่ชัดขึ้น (เขต/อำเภอ + จังหวัด) ถ้ายังไม่ได้อีกให้ escalate ให้เจ้าหน้าที่",
+          };
+        }
+        const provinceId = provinceIdFromName(geo.province_name);
+        const [pricingSnap, branchesSnap, promosSnap] = await Promise.all([
+          db.ref("settings/store/delivery_pricing").once("value"),
+          db.ref("settings/branches").once("value"),
+          db.ref("rider_fee_promotions").once("value"),
+        ]);
+        const zones = deliveryZonesFrom(pricingSnap.val());
+        const zone = provinceId
+          ? zones.find((z) => Array.isArray(z.provinceIds) && z.provinceIds.includes(provinceId)) || null
+          : null;
+
+        // สาขา active ที่ใกล้ลูกค้าที่สุด (fallback = ที่ตั้งร้านหลัก)
+        let origin = STORE_LOCATION;
+        let branchName = null;
+        const branches = branchesSnap.val() || {};
+        let bestD = Infinity;
+        for (const key of Object.keys(branches)) {
+          const b = branches[key];
+          if (!b || b.isActive === false || typeof b.lat !== "number" || typeof b.lng !== "number") continue;
+          const d = haversineKm(geo.lat, geo.lng, b.lat, b.lng);
+          if (d < bestD) {
+            bestD = d;
+            origin = { lat: b.lat, lng: b.lng };
+            branchName = b.name || key;
+          }
+        }
+
+        if (!zone) {
+          return {
+            serviceable: false,
+            province: geo.province_name || null,
+            area: geo.formatted,
+            nearest_branch: branchName,
+            alternatives:
+              "Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ (มีประกันความเสียหายเต็มมูลค่า) หรือ Store-in นำเครื่องมาที่หน้าร้าน",
+            note: "พื้นที่นี้ยังไม่อยู่ในเขตบริการไรเดอร์ไปรับถึงที่ แนะนำช่องทางอื่นให้ลูกค้าอย่างนุ่มนวล",
+          };
+        }
+
+        const distKm = haversineKm(geo.lat, geo.lng, origin.lat, origin.lng) * 1.3;
+        const fee = zoneFeeOf(zone, distKm);
+
+        // โปรส่วนลดค่าไรเดอร์ (mirror riderFeePromoEligible/riderFeePromoDiscount)
+        const nowP = Date.now();
+        const modelIds = input.model_id ? [String(input.model_id)] : [];
+        let promo = null;
+        const promos = promosSnap.val() || {};
+        for (const pid of Object.keys(promos)) {
+          const p = promos[pid];
+          if (!p || p.is_active === false || !promoWindowOpen(p, nowP) || quotaFull(p)) continue;
+          const provs = Array.isArray(p.applicable_provinces)
+            ? p.applicable_provinces.map(Number).filter(Number.isFinite)
+            : [];
+          if ((p.is_province_restricted === true || provs.length > 0) && provs.length === 0) continue;
+          if (provs.length > 0 && (provinceId == null || !provs.includes(Number(provinceId)))) continue;
+          const applicable = Array.isArray(p.applicable_models) ? p.applicable_models : [];
+          const excluded = Array.isArray(p.excluded_models) ? p.excluded_models : [];
+          if ((p.is_model_restricted === true || applicable.length > 0) && applicable.length === 0) continue;
+          if (applicable.length > 0 && !modelIds.some((m) => applicable.includes(m))) continue;
+          if (excluded.length > 0 && modelIds.some((m) => excluded.includes(m))) continue;
+          let raw;
+          if (p.discount_type === "waive") raw = fee;
+          else if (p.discount_type === "percentage") {
+            raw = fee * (Number(p.value || 0) / 100);
+            if (p.max_discount > 0) raw = Math.min(raw, p.max_discount);
+          } else {
+            raw = Number(p.value || 0);
+            if (p.max_discount > 0) raw = Math.min(raw, p.max_discount);
+          }
+          const discount = Math.max(0, Math.min(fee, Math.floor(raw)));
+          if (discount > 0 && (!promo || discount > promo.discount)) {
+            promo = { name: p.name || p.code || "", discount };
+          }
+        }
+        const effective = Math.max(0, fee - (promo ? promo.discount : 0));
+        return {
+          serviceable: true,
+          zone: zone.name || zone.id,
+          province: geo.province_name || null,
+          area: geo.formatted,
+          distance_km_approx: Math.round(distKm * 10) / 10,
+          pickup_fee_approx: fee,
+          promo_applied: promo,
+          effective_fee_approx: effective,
+          free_pickup: effective === 0,
+          eta: zone.etaText || null,
+          nearest_branch: branchName,
+          note: "ค่าบริการเป็นค่าประมาณจากทำเลที่ลูกค้าบอก ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout — แจ้งลูกค้าด้วยคำว่า 'ประมาณ' เสมอ ห้ามการันตีตัวเลข",
+        };
+      }
+
+      case "get_promotions": {
+        const nowG = Date.now();
+        const [couponsSnap, promosSnap] = await Promise.all([
+          db.ref("coupons").once("value"),
+          db.ref("rider_fee_promotions").once("value"),
+        ]);
+        const coupons = [];
+        const cs = couponsSnap.val() || {};
+        for (const key of Object.keys(cs)) {
+          const c = cs[key];
+          // system master (เช่น REVIEW_REWARD) ห้ามโฆษณาเป็นคูปองแจก
+          if (!c || c.system === true) continue;
+          if (c.is_active === false || !promoWindowOpen(c, nowG) || quotaFull(c)) continue;
+          coupons.push({
+            code: c.code || key,
+            name: c.name || c.title || "",
+            type: c.type || "fixed",
+            value: Number(c.value || 0),
+            min_trade_value: Number(c.min_trade_value || 0) || undefined,
+            model_restricted:
+              c.is_model_restricted === true ||
+              (Array.isArray(c.applicable_models) && c.applicable_models.length > 0) ||
+              undefined,
+            end_date: c.end_date || null,
+          });
+        }
+        const riderPromos = [];
+        const ps = promosSnap.val() || {};
+        for (const key of Object.keys(ps)) {
+          const p = ps[key];
+          if (!p || p.is_active === false || !promoWindowOpen(p, nowG) || quotaFull(p)) continue;
+          riderPromos.push({
+            name: p.name || p.code || key,
+            discount_type: p.discount_type || "fixed",
+            value: Number(p.value || 0),
+            max_discount: Number(p.max_discount || 0) || undefined,
+            province_restricted:
+              p.is_province_restricted === true ||
+              (Array.isArray(p.applicable_provinces) && p.applicable_provinces.length > 0) ||
+              undefined,
+            model_restricted:
+              p.is_model_restricted === true ||
+              (Array.isArray(p.applicable_models) && p.applicable_models.length > 0) ||
+              undefined,
+            end_date: p.end_date || null,
+          });
+        }
+        return {
+          coupons,
+          pickup_fee_promotions: riderPromos,
+          note:
+            coupons.length || riderPromos.length
+              ? "ตอบเฉพาะรายการเหล่านี้พร้อมเงื่อนไขและวันหมดเขต ห้ามแต่งโปรเพิ่มเอง (pickup_fee_promotions คือส่วนลดค่าบริการรับถึงที่)"
+              : "ตอนนี้ไม่มีโปรโมชั่นหรือคูปองที่เปิดอยู่ บอกลูกค้าตรงๆ อย่างสุภาพ ห้ามแต่งโปรเอง",
         };
       }
 
