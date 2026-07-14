@@ -254,6 +254,21 @@ export const InboxPage = () => {
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
 
+  // บทสนทนาอื่นของลูกค้าคนเดียวกัน (join ด้วยเบอร์ normalize 0xxxxxxxx)
+  // — inbox ผูกด้วย uid คนละ session/uid จึงเป็นคนละแชท แต่เบอร์เดียวกัน = คนเดียวกัน
+  const linkedConvos = useMemo(() => {
+    const norm = (s?: string) => {
+      let d = (s || '').replace(/\D/g, '');
+      if (d.startsWith('66')) d = '0' + d.slice(2);
+      return d;
+    };
+    const cur = norm(selectedConversation?.customer_phone || selectedConversation?.phone);
+    if (!cur || cur.length < 9) return [];
+    return conversations
+      .filter((c) => c.id !== selectedConvo && norm(c.customer_phone || c.phone) === cur)
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  }, [conversations, selectedConversation, selectedConvo]);
+
   // ---------------------------------------------------------------------------
   // Unread counts per tab
   // ---------------------------------------------------------------------------
@@ -783,6 +798,28 @@ export const InboxPage = () => {
                     {(selectedConversation.matched_orders_count || 0) > 0 && (
                       <p className="mt-1 font-bold">พบ {selectedConversation.matched_orders_count} ออเดอร์จากเบอร์ที่ลูกค้าแจ้ง (ยังไม่ยืนยันตัวตน)</p>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* ลูกค้าคนเดียวกันมีหลายแชท (เบอร์เดียวกัน คนละ session/uid) — สลับไปมาได้ */}
+              {linkedConvos.length > 0 && (
+                <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+                  <Users size={15} className="text-violet-500 shrink-0 mt-0.5" />
+                  <div className="text-xs text-violet-800 flex-1 min-w-0">
+                    <p className="font-black mb-1.5">ลูกค้าคนนี้มีอีก {linkedConvos.length} แชท (เบอร์เดียวกัน)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {linkedConvos.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => { setSelectedConvo(c.id); setShowMobileChat(true); }}
+                          title={c.lastMessage}
+                          className="px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 font-bold hover:bg-violet-100 transition-colors max-w-[220px] truncate"
+                        >
+                          {(c.customer_name || c.name)} · {formatTime(c.lastMessageAt)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
