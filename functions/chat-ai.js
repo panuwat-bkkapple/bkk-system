@@ -166,7 +166,7 @@ const TOOLS = [
   {
     name: "search_models",
     description:
-      "ค้นหารุ่นอุปกรณ์ที่ BKK APPLE รับซื้อ พร้อมราคากลางต่อความจุ (ราคาเครื่องมือสองสภาพดี ก่อนหักตามสภาพ) ใช้ทุกครั้งก่อนพูดถึงราคา ห้ามเดาราคาเอง",
+      "ค้นหารุ่นอุปกรณ์ที่ BKK APPLE รับซื้อ พร้อมราคากลางต่อความจุ (ราคาเครื่องมือสองสภาพดี ก่อนหักตามสภาพ) เรียกทันทีทุกครั้งที่ลูกค้าเอ่ยชื่อรุ่น — รวมถึงรุ่นที่คุณไม่รู้จักหรือคิดว่ายังไม่วางขาย เพราะฐานข้อมูลนี้มีรุ่นใหม่กว่าความรู้ในตัวคุณเสมอ (เช่น iPhone รุ่นล่าสุด) ห้ามเดาราคาหรือสรุปว่ารุ่นไม่มีจากความจำเด็ดขาด",
     input_schema: {
       type: "object",
       properties: {
@@ -242,16 +242,17 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `คุณคือ "${assistantName}" ผู้ช่วย AI ของ BKK APPLE (บริษัท เก็ทโมบี้ จำกัด) เว็บไซต์รับซื้ออุปกรณ์ Apple มือสอง (bkkapple.com) คุณคุยกับลูกค้าผ่านกล่องแชทบนเว็บไซต์`,
     ``,
     `กฎเหล็ก:`,
-    `1. ตัวเลขราคาทุกตัวต้องมาจาก tool เท่านั้น (search_models / get_condition_questions) ห้ามเดาหรือใช้ความจำ ถ้า tool ไม่พบรุ่น ให้บอกตรงๆ และส่งต่อเจ้าหน้าที่`,
-    `2. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
-    `3. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
-    `4. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `5. เมื่อประเมินราคาแล้วลูกค้าสนใจขาย: แนะนำให้กดปุ่ม "ขายเลย/ประเมินราคา" บนหน้าเว็บ (เมนูขายอุปกรณ์) เพื่อยืนยันสภาพและกรอกข้อมูลด้วยตัวเอง ระบบจะสร้างออเดอร์ให้ทันที`,
-    `6. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับ ไม่เกิน 3-4 ประโยคต่อข้อความ ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
-    `7. ถามสภาพเครื่องทีละ 1-2 ข้อ อย่ายิงคำถามยาวเป็นชุด`,
-    `8. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
-    `9. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
-    `10. เมื่อ escalate แล้ว ให้บอกลูกค้าว่าส่งเรื่องถึงเจ้าหน้าที่แล้ว${inHours ? " เจ้าหน้าที่จะเข้ามาตอบในไม่กี่นาที" : ` ขณะนี้นอกเวลาทำการ (เวลาทำการ ${hoursText}) เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ`}`,
+    `1. ตัวเลขราคาทุกตัวต้องมาจาก tool เท่านั้น (search_models / get_condition_questions) ห้ามเดาหรือใช้ความจำ ถ้า tool ไม่พบรุ่น ให้บอกว่าขอให้เจ้าหน้าที่ตรวจสอบ แล้ว escalate_to_human — ห้ามบอกว่าร้านไม่รับซื้อ`,
+    `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
+    `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
+    `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
+    `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
+    `6. เมื่อประเมินราคาแล้วลูกค้าสนใจขาย: แนะนำให้กดปุ่ม "ขายเลย/ประเมินราคา" บนหน้าเว็บ (เมนูขายอุปกรณ์) เพื่อยืนยันสภาพและกรอกข้อมูลด้วยตัวเอง ระบบจะสร้างออเดอร์ให้ทันที`,
+    `7. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับ ไม่เกิน 3-4 ประโยคต่อข้อความ ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
+    `8. ถามสภาพเครื่องทีละ 1-2 ข้อ อย่ายิงคำถามยาวเป็นชุด`,
+    `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
+    `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
+    `11. เมื่อ escalate แล้ว ให้บอกลูกค้าว่าส่งเรื่องถึงเจ้าหน้าที่แล้ว${inHours ? " เจ้าหน้าที่จะเข้ามาตอบในไม่กี่นาที" : ` ขณะนี้นอกเวลาทำการ (เวลาทำการ ${hoursText}) เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ`}`,
     ``,
     `สถานะตอนนี้: ${inHours ? "อยู่ในเวลาทำการ" : "นอกเวลาทำการ"} (เวลาทำการ ${hoursText})`,
     ``,
@@ -356,9 +357,18 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
-        const q = String(input.query || "").toLowerCase().trim();
+        // Normalize common customer spellings: "iphone17promax" / "promax" /
+        // "256gb" glued to the model name must still match the catalogue.
+        const q = String(input.query || "")
+          .toLowerCase()
+          .trim()
+          .replace(/promax/g, "pro max")
+          .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+          .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
         if (!q) return { results: [] };
-        const tokens = q.split(/\s+/).filter(Boolean);
+        const tokens = q
+          .split(/\s+/)
+          .filter((t) => t && t !== "gb" && t !== "tb");
         const list = await loadModelsLight(db);
         const scored = list
           .map((m) => {
@@ -370,6 +380,23 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
           .slice(0, 5)
           .map((x) => x.m);
+        if (scored.length === 0) {
+          // Never let the model conclude "we don't buy this" from an empty
+          // search — hand it the nearby catalogue names to retry with, or
+          // escalate.
+          const firstAlpha = tokens.find((t) => /[a-z฀-๿]/.test(t));
+          const family = firstAlpha
+            ? list
+                .filter((m) => `${m.brand} ${m.name}`.toLowerCase().includes(firstAlpha))
+                .slice(0, 40)
+                .map((m) => m.name)
+            : [];
+          return {
+            results: [],
+            similar_models_in_catalog: family,
+            note: "ไม่พบรุ่นที่ตรงพอดี — ถ้าใน similar_models_in_catalog มีรุ่นที่ลูกค้าน่าจะหมายถึง ให้เรียก search_models ใหม่ด้วยชื่อเต็มจากรายชื่อนั้น ถ้าไม่มีจริงๆ ห้ามบอกว่าร้านไม่รับซื้อ ให้บอกว่าขอให้เจ้าหน้าที่ตรวจสอบแล้วเรียก escalate_to_human",
+          };
+        }
         return {
           results: scored,
           note: "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ",
@@ -762,6 +789,9 @@ function registerChatAi({ dispatchAdminPush }) {
             messages.push({ role: "assistant", content: resp.content });
             const results = [];
             for (const tu of toolUses) {
+              console.log(
+                `[${tag}] ${convoId} tool ${tu.name} input=${JSON.stringify(tu.input || {}).slice(0, 300)}`
+              );
               let result;
               try {
                 result = await executeTool(tu.name, tu.input || {});
