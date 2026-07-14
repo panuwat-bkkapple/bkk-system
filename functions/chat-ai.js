@@ -363,6 +363,53 @@ function searchFaq(query) {
 let modelsCache = { at: 0, list: [] };
 const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Pure model matcher (extracted so it can be unit-tested offline).
+// list items only need { brand, name, category }.
+function rankModels(list, rawQuery) {
+  const q = String(rawQuery || "")
+    .toLowerCase()
+    .trim()
+    .replace(/promax/g, "pro max")
+    .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
+  if (!q) return [];
+  const tokens = q.split(/\s+/).filter((t) => t && t !== "gb" && t !== "tb");
+  // Model-generation numbers live in 3..20 (iPhone 13, Watch Series 10, iPad 9).
+  // Storage sizes (32..1024) are >20 and 1TB/2TB map to 1/2 (<3), so this cleanly
+  // separates generation from storage. A candidate must contain EVERY version
+  // token — otherwise "Apple Watch Series 5" falsely matches "Series 10/11" on
+  // 3 of 4 tokens for a model we do not carry.
+  const versionTokens = tokens.filter((t) => {
+    const n = Number(t);
+    return Number.isInteger(n) && n >= 3 && n <= 20;
+  });
+  // "apple" matches every product; a brand+number-only hit is not a real match
+  // (e.g. "Apple Watch Series 5" must not surface "iPad Air 5"). Require at
+  // least one meaningful (non-brand, non-version) token to hit.
+  const GENERIC = new Set(["apple"]);
+  const meaningfulTokens = tokens.filter((t) => !GENERIC.has(t) && !versionTokens.includes(t));
+  return list
+    .map((m) => {
+      const hay = `${m.brand} ${m.name} ${m.category}`.toLowerCase();
+      // Strip punctuation so 13" / (Intel, / 2017) tokenize to bare words —
+      // else a version match on "13" would miss 'MacBook Air 13"'.
+      const nameTokens = `${m.brand} ${m.name}`
+        .toLowerCase()
+        .replace(/[^a-z0-9฀-๿]+/g, " ")
+        .split(/\s+/)
+        .filter(Boolean);
+      const hits = tokens.filter((t) => hay.includes(t)).length;
+      const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
+      const meaningfulOk =
+        meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
+      return { m, hits, versionOk, meaningfulOk };
+    })
+    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk)
+    .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
+    .slice(0, 5)
+    .map((x) => x.m);
+}
+
 async function loadModelsLight(db) {
   if (Date.now() - modelsCache.at < MODELS_CACHE_TTL_MS && modelsCache.list.length) {
     return modelsCache.list;
@@ -857,37 +904,22 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
-        // Normalize common customer spellings: "iphone17promax" / "promax" /
-        // "256gb" glued to the model name must still match the catalogue.
-        const q = String(input.query || "")
-          .toLowerCase()
-          .trim()
-          .replace(/promax/g, "pro max")
-          .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
-          .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
-        if (!q) return { results: [] };
-        const tokens = q
-          .split(/\s+/)
-          .filter((t) => t && t !== "gb" && t !== "tb");
         const list = await loadModelsLight(db);
-        const scored = list
-          .map((m) => {
-            const hay = `${m.brand} ${m.name} ${m.category}`.toLowerCase();
-            const hits = tokens.filter((t) => hay.includes(t)).length;
-            return { m, hits };
-          })
-          .filter((x) => x.hits > 0)
-          .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
-          .slice(0, 5)
-          .map((x) => x.m);
+        const scored = rankModels(list, input.query);
         if (scored.length === 0) {
           // Never let the model conclude "we don't buy this" from an empty
           // search — hand it the nearby catalogue names to retry with, or
           // escalate.
-          const firstAlpha = tokens.find((t) => /[a-z฀-๿]/.test(t));
-          const family = firstAlpha
+          // Pick the first meaningful word (skip the brand "apple", which matches
+          // everything) to list the right family, e.g. "watch" -> the Watch lineup.
+          const words = String(input.query || "")
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((t) => /[a-z฀-๿]/.test(t) && t !== "apple");
+          const familyWord = words[0];
+          const family = familyWord
             ? list
-                .filter((m) => `${m.brand} ${m.name}`.toLowerCase().includes(firstAlpha))
+                .filter((m) => `${m.brand} ${m.name}`.toLowerCase().includes(familyWord))
                 .slice(0, 40)
                 .map((m) => m.name)
             : [];
@@ -1818,6 +1850,7 @@ module.exports = {
     verifyReply,
     callClaude,
     pickModel,
+    rankModels,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
