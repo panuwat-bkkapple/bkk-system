@@ -386,18 +386,27 @@ const TOOLS = [
   {
     name: "create_quote_card",
     description:
-      "สร้างใบเสนอราคา (Quote Card) พร้อมปุ่มยืนยันขาย ส่งให้ลูกค้าในแชท ใช้เมื่อรู้รุ่น+ความจุจาก search_models แล้ว — answers ใส่เฉพาะกลุ่มที่ลูกค้าตอบ (optionId จริงจาก get_condition_questions) กลุ่มที่ไม่ส่งมาระบบจะถือว่าสภาพปกติให้อัตโนมัติ ไม่ต้องถามลูกค้าครบทุกกลุ่ม ระบบคำนวณราคาด้วยสูตรเดียวกับหน้าเว็บและแนบปุ่มยืนยันขายให้ในการ์ด ห้ามคำนวณหรือพิมพ์ราคาเองก่อนเรียก tool นี้",
+      "สร้างใบเสนอราคา (Quote Card) พร้อมปุ่มยืนยันขาย ส่งให้ลูกค้าในแชท ใช้เมื่อรู้รุ่น+ความจุจาก search_models แล้ว — เครื่องมือสอง: answers ใส่เฉพาะกลุ่มที่ลูกค้าตอบ (optionId จริงจาก get_condition_questions) กลุ่มที่ไม่ส่งมาระบบจะถือว่าสภาพปกติให้อัตโนมัติ | เครื่องมือ 1 ยังไม่แกะซีล: ส่ง condition_type 'new' + has_receipt (ใช้ new_price ของรุ่น ไม่ต้องถามสภาพมือสองใดๆ) ระบบคำนวณราคาด้วยสูตรเดียวกับหน้าเว็บ ห้ามคำนวณหรือพิมพ์ราคาเองก่อนเรียก tool นี้",
     input_schema: {
       type: "object",
       properties: {
         model_id: { type: "string", description: "id ของรุ่นจาก search_models" },
         variant_name: { type: "string", description: "ชื่อความจุ/variant ตรงตามระบบ เช่น '256GB'" },
+        condition_type: {
+          type: "string",
+          enum: ["used", "new"],
+          description: "'new' = เครื่องมือ 1 ยังไม่แกะซีล/ไม่เคยเปิดใช้งาน (ต้องมี new_price ในระบบ), ไม่ส่ง = มือสอง",
+        },
+        has_receipt: {
+          type: "boolean",
+          description: "เฉพาะ condition_type 'new': ลูกค้ามีใบเสร็จ/หลักฐานการซื้อไหม (ไม่มี ระบบหัก 500 บาทตามกติกาเว็บ)",
+        },
         answers: {
           type: "object",
-          description: "แผนที่ groupId -> optionId ที่ลูกค้าเลือก จากชุดคำถาม get_condition_questions ครบทุกกลุ่ม",
+          description: "เฉพาะมือสอง: แผนที่ groupId -> optionId ที่ลูกค้าตอบจริง จากชุดคำถาม get_condition_questions",
         },
       },
-      required: ["model_id", "variant_name", "answers"],
+      required: ["model_id", "variant_name"],
     },
   },
   {
@@ -503,6 +512,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
     `6.3 ห้ามถามสภาพเกิน 1 รอบ ถ้าลูกค้าตอบคลุมเครือ (เช่น "สภาพดี" "ปกติ") หรือขอราคาเลย หรือไม่ตอบบางข้อ ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี ห้ามถามซ้ำหรือไล่ถามทีละกลุ่มเด็ดขาด — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว`,
     `6.4 answers ที่ส่งให้ create_quote_card ต้องมาจากสิ่งที่ลูกค้าพูดจริงในแชทเท่านั้น ห้ามเดาหรือแต่งคำตอบแทนลูกค้าเด็ดขาด (เช่น ห้ามใส่ "เครื่องเปล่าไม่มีกล่อง" หรือ "แบต 95%" ทั้งที่ลูกค้าไม่เคยบอก) กลุ่มไหนลูกค้าไม่ได้พูดถึงให้ "ไม่ใส่" ใน answers แล้วปล่อยให้ระบบถือว่าสภาพปกติเอง`,
+    `6.5 เครื่องมือ 1: ถ้าลูกค้าบอกว่าเครื่องใหม่/ยังไม่แกะกล่อง/ยังไม่แกะซีล/ไม่เคยเปิดใช้งาน ห้ามถามคำถามสภาพมือสองเด็ดขาด (รอย แบต การใช้งาน ประวัติซ่อม ไม่เกี่ยวกับเครื่องใหม่) ให้เช็คจาก search_models ว่ารุ่นนั้นมี new_price ไหม แล้วถามแค่ 2 อย่าง: ยืนยันว่ายังไม่แกะซีล และมีใบเสร็จ/หลักฐานการซื้อไหม (ไม่มีใบเสร็จระบบหัก 500 บาท) จากนั้นเรียก create_quote_card ด้วย condition_type "new" + has_receipt ทันที — ถ้ารุ่นนั้นไม่มี new_price ให้แจ้งอย่างสุภาพว่าขอให้เจ้าหน้าที่ยืนยันราคามือ 1 หรือเสนอประเมินแบบมือสอง`,
     `7. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับแต่ไม่ห้วน (ปกติ 2-5 ประโยค) ตามบุคลิกด้านบน ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
     `8. คำถามสภาพเครื่องให้รวมเป็นข้อความเดียว 4 เรื่องตามข้อ 6 สั้นกระชับ อย่าไล่ถามทีละกลุ่มจากชุดคำถามทั้งหมด`,
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
@@ -723,46 +733,83 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             available_variants: variantsRaw.map((v) => v && v.name).filter(Boolean),
           };
         }
-        const basePrice = Number(variant.usedPrice || variant.price || 0);
-        if (!basePrice) return { error: "no_price_for_variant", note: "ให้ escalate_to_human" };
-        const setId = model.conditionSetId || model.engineId;
-        const setSnap = setId ? await db.ref(`settings/condition_sets/${setId}`).once("value") : null;
-        const set = setSnap && setSnap.exists() ? setSnap.val() : null;
-        if (!set) return { error: "no_condition_set", note: "รุ่นนี้ไม่มีชุดคำถามประเมิน ให้ escalate_to_human" };
-        const qGroups = (Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {})).filter(
-          (g) => g && g.id
-        );
+        const isNewDevice = String(input.condition_type || "") === "new";
+        const basePrice = isNewDevice
+          ? Number(variant.newPrice || 0)
+          : Number(variant.usedPrice || variant.price || 0);
+        if (!basePrice) {
+          return isNewDevice
+            ? {
+                error: "new_price_not_available",
+                note: "รุ่น/ความจุนี้ยังไม่มีราคารับซื้อมือ 1 ในระบบ แจ้งลูกค้าอย่างสุภาพว่ารับประเมินเป็นมือสองได้ หรือส่งเรื่องให้เจ้าหน้าที่ยืนยันราคามือ 1",
+              }
+            : { error: "no_price_for_variant", note: "ให้ escalate_to_human" };
+        }
         const assumedGroups = [];
         const lines = [];
         const customerConditions = [];
         const rawConditions = {};
         let totalDeduct = 0;
-        for (const group of qGroups) {
-          const options = (Array.isArray(group.options) ? group.options : Object.values(group.options || {})).filter(
-            (o) => o && o.id != null
-          );
-          if (options.length === 0) continue;
-          const optId = answers[group.id];
-          let opt = optId != null ? options.find((o) => o.id === optId) : null;
-          let assumed = false;
-          if (!opt) {
-            // กลุ่มที่ลูกค้าไม่ได้ตอบ = ถือว่าสภาพปกติ (ตัวเลือกที่หักน้อยที่สุด ตัวแรกในลิสต์)
-            opt = options.reduce((best, o) =>
-              resolveOptionDeduction(o, basePrice, model.liquidityFactor) <
-              resolveOptionDeduction(best, basePrice, model.liquidityFactor)
-                ? o
-                : best
-            );
-            assumed = true;
-            assumedGroups.push(group.title || group.name || group.id);
+        let hasReceipt = null;
+        if (isNewDevice) {
+          // มือ 1 ยังไม่แกะซีล — mirror handleNewDeviceCheckout (SellPageClient):
+          // เงื่อนไขคงที่ 5 ข้อ รายการหักเดียวคือไม่มีใบเสร็จ -500
+          hasReceipt = input.has_receipt === true;
+          const proofDeduct = hasReceipt ? 0 : 500;
+          totalDeduct = proofDeduct;
+          const newConds = [
+            { id: "sealed_box", title: "สภาพกล่อง", value: "ซีลไม่ฉีก / ยังไม่แกะกล่อง", deduct: 0 },
+            { id: "never_activated", title: "การเปิดใช้งาน", value: "ไม่เคยเปิดเครื่องหรือ Activate", deduct: 0 },
+            { id: "full_accessories", title: "อุปกรณ์ในกล่อง", value: "อุปกรณ์ครบกล่อง ไม่มีชิ้นส่วนสูญหาย", deduct: 0 },
+            { id: "no_damage", title: "สภาพภายนอก", value: "ไม่มีรอยบุบ รอยขีดข่วน หรือตำหนิใดๆ", deduct: 0 },
+            {
+              id: "purchase_proof",
+              title: "หลักฐานการซื้อ",
+              value: hasReceipt
+                ? "มีใบเสร็จหรือหลักฐานการซื้อจากร้านค้าที่ได้รับอนุญาต"
+                : "ไม่มีหลักฐานการซื้อ",
+              deduct: proofDeduct,
+            },
+          ];
+          for (const c of newConds) {
+            lines.push({ title: c.title, label: c.value, amount: c.deduct });
+            customerConditions.push({ id: c.id, title: c.title, value: c.value, deductAmount: c.deduct, isNegative: c.deduct > 0 });
           }
-          const amount = resolveOptionDeduction(opt, basePrice, model.liquidityFactor);
-          totalDeduct += amount;
-          const title = group.title || group.name || "";
-          const label = opt.label || opt.name || "";
-          rawConditions[group.id] = opt.id;
-          lines.push(assumed ? { title, label, amount, assumed: true } : { title, label, amount });
-          customerConditions.push({ id: group.id, title, value: label, deductAmount: amount, isNegative: amount > 0 });
+        } else {
+          const setId = model.conditionSetId || model.engineId;
+          const setSnap = setId ? await db.ref(`settings/condition_sets/${setId}`).once("value") : null;
+          const set = setSnap && setSnap.exists() ? setSnap.val() : null;
+          if (!set) return { error: "no_condition_set", note: "รุ่นนี้ไม่มีชุดคำถามประเมิน ให้ escalate_to_human" };
+          const qGroups = (Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {})).filter(
+            (g) => g && g.id
+          );
+          for (const group of qGroups) {
+            const options = (Array.isArray(group.options) ? group.options : Object.values(group.options || {})).filter(
+              (o) => o && o.id != null
+            );
+            if (options.length === 0) continue;
+            const optId = answers[group.id];
+            let opt = optId != null ? options.find((o) => o.id === optId) : null;
+            let assumed = false;
+            if (!opt) {
+              // กลุ่มที่ลูกค้าไม่ได้ตอบ = ถือว่าสภาพปกติ (ตัวเลือกที่หักน้อยที่สุด ตัวแรกในลิสต์)
+              opt = options.reduce((best, o) =>
+                resolveOptionDeduction(o, basePrice, model.liquidityFactor) <
+                resolveOptionDeduction(best, basePrice, model.liquidityFactor)
+                  ? o
+                  : best
+              );
+              assumed = true;
+              assumedGroups.push(group.title || group.name || group.id);
+            }
+            const amount = resolveOptionDeduction(opt, basePrice, model.liquidityFactor);
+            totalDeduct += amount;
+            const title = group.title || group.name || "";
+            const label = opt.label || opt.name || "";
+            rawConditions[group.id] = opt.id;
+            lines.push(assumed ? { title, label, amount, assumed: true } : { title, label, amount });
+            customerConditions.push({ id: group.id, title, value: label, deductAmount: amount, isNegative: amount > 0 });
+          }
         }
         const estimated = Math.max(0, basePrice - totalDeduct);
         const nowQ = Date.now();
@@ -787,11 +834,13 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           rules: model.rules != null ? model.rules : null,
           pickup_eligible: model.pickup !== false,
           max_pickup_distance_km: Number(model.maxPickupDistanceKm) || 0,
+          is_new_device: isNewDevice,
+          has_receipt: hasReceipt,
           created_at: nowQ,
           expires_at: nowQ + 48 * 60 * 60 * 1000,
         };
         await quoteRef.set({ uid: convoId, status: "offered", ...payload });
-        const summary = `ใบเสนอราคา ${payload.model_name} ${payload.variant_name}: ${estimated.toLocaleString("th-TH")} บาท (ราคาประเมินเบื้องต้น)`;
+        const summary = `ใบเสนอราคา ${payload.model_name} ${payload.variant_name}${isNewDevice ? " (มือ 1 ยังไม่แกะซีล)" : ""}: ${estimated.toLocaleString("th-TH")} บาท (ราคาประเมินเบื้องต้น)`;
         await db.ref(`inbox/${convoId}/messages`).push({
           sender: "ai",
           senderName: assistantName || "BKK APPLE Assistant",
