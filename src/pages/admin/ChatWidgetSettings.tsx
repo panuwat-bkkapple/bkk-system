@@ -22,6 +22,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 
 interface ChatWidgetConfig {
   enabled: boolean;
+  preview_enabled: boolean;
   assistant_name: string;
   welcome_message: string;
   offline_message: string;
@@ -34,6 +35,7 @@ interface ChatWidgetConfig {
 
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
+  preview_enabled: false,
   assistant_name: 'BKK APPLE Assistant',
   welcome_message: '',
   offline_message: '',
@@ -58,6 +60,7 @@ export default function ChatWidgetSettings() {
           const pub = val.public || {};
           setConfig({
             enabled: pub.enabled === true,
+            preview_enabled: pub.preview_enabled === true,
             assistant_name: pub.assistant_name || DEFAULTS.assistant_name,
             welcome_message: pub.welcome_message || '',
             offline_message: pub.offline_message || '',
@@ -80,6 +83,7 @@ export default function ChatWidgetSettings() {
       await update(ref(db, 'settings/chat_widget'), {
         public: {
           enabled: config.enabled,
+          preview_enabled: config.preview_enabled,
           assistant_name: config.assistant_name.trim() || DEFAULTS.assistant_name,
           welcome_message: config.welcome_message.trim(),
           offline_message: config.offline_message.trim(),
@@ -132,6 +136,25 @@ export default function ChatWidgetSettings() {
           aria-label="เปิด/ปิดแชท"
         >
           <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${config.enabled ? 'left-7' : 'left-1'}`} />
+        </button>
+      </div>
+
+      {/* Preview / test mode */}
+      <div className="bg-amber-50 rounded-2xl border border-amber-200 p-5 flex items-center justify-between">
+        <div>
+          <h2 className="font-black text-sm text-slate-800">โหมดทดสอบ (Preview)</h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-md">
+            เปิดแล้วลูกค้าทั่วไปยังไม่เห็นแชท — เห็นเฉพาะคนที่เปิดเว็บด้วยลิงก์{' '}
+            <code className="bg-white px-1.5 py-0.5 rounded border border-amber-200 text-[11px]">bkkapple.com/?chat_preview=1</code>{' '}
+            (AI ตอบจริง แจ้งเตือนเข้า Inbox จริง) ใช้ทดสอบก่อนเปิดใช้งานจริง แล้วปิดเมื่อทดสอบเสร็จ
+          </p>
+        </div>
+        <button
+          onClick={() => setConfig((c) => ({ ...c, preview_enabled: !c.preview_enabled }))}
+          className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ${config.preview_enabled ? 'bg-amber-500' : 'bg-slate-300'}`}
+          aria-label="เปิด/ปิดโหมดทดสอบ"
+        >
+          <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${config.preview_enabled ? 'left-7' : 'left-1'}`} />
         </button>
       </div>
 

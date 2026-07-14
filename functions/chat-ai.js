@@ -570,10 +570,12 @@ function registerChatAi({ dispatchAdminPush }) {
       const db = getDatabase();
 
       // Master gate — widget disabled means this whole system is inert.
+      // preview_enabled = test mode: the widget is only visible to admins
+      // using ?chat_preview=1, but this function must answer their messages.
       const settingsSnap = await db.ref("settings/chat_widget").once("value");
       const settings = settingsSnap.val() || {};
       const pub = settings.public || {};
-      if (pub.enabled !== true) return;
+      if (pub.enabled !== true && pub.preview_enabled !== true) return;
 
       // Idempotency — RTDB triggers can retry; only the first claim proceeds.
       const guard = await db
