@@ -87,6 +87,32 @@ function isBusinessHours(pub) {
 }
 
 // ---------------------------------------------------------------------------
+// Pricing resolver — MIRROR of src/utils/pricingResolver.ts (and the other
+// cross-repo copies; see CLAUDE.md invariant #8). Precedence per option:
+// pct (% of base) > deduct (flat baht) > legacy t1/t2/t3 tier buckets.
+// Change the formula there -> change it here too.
+// ---------------------------------------------------------------------------
+
+function tierDeduction(opt, basePrice) {
+  const b = Number(basePrice) || 0;
+  if (b >= 30000) return Number((opt && opt.t1) || 0);
+  if (b >= 15000) return Number((opt && opt.t2) || 0);
+  return Number((opt && opt.t3) || 0);
+}
+
+function resolveOptionDeduction(opt, basePrice, liquidityFactor) {
+  const lfn = Number(liquidityFactor);
+  const lf = lfn > 0 ? lfn : 1;
+  if (opt && opt.pct != null && Number.isFinite(Number(opt.pct)) && Number(opt.pct) >= 0) {
+    return Math.round((((Number(basePrice) || 0) * Number(opt.pct)) / 100) * lf);
+  }
+  if (opt && opt.deduct != null && Number.isFinite(Number(opt.deduct)) && Number(opt.deduct) >= 0) {
+    return Math.round(Number(opt.deduct) * lf);
+  }
+  return Math.round(tierDeduction(opt, basePrice) * lf);
+}
+
+// ---------------------------------------------------------------------------
 // Models catalogue cache (public data, reused across warm invocations)
 // ---------------------------------------------------------------------------
 
@@ -190,6 +216,23 @@ const TOOLS = [
     },
   },
   {
+    name: "create_quote_card",
+    description:
+      "สร้างใบเสนอราคา (Quote Card) พร้อมปุ่มยืนยันขาย ส่งให้ลูกค้าในแชท ใช้เมื่อ (1) รู้รุ่น+ความจุจาก search_models แล้ว และ (2) ลูกค้าตอบคำถามสภาพครบทุกกลุ่มจาก get_condition_questions แล้ว — answers ต้องเป็น optionId จริงจากชุดคำถามเท่านั้น ระบบจะคำนวณราคาด้วยสูตรเดียวกับหน้าเว็บและแนบปุ่มยืนยันขายให้ในการ์ด ห้ามคำนวณหรือพิมพ์ราคาเองก่อนเรียก tool นี้",
+    input_schema: {
+      type: "object",
+      properties: {
+        model_id: { type: "string", description: "id ของรุ่นจาก search_models" },
+        variant_name: { type: "string", description: "ชื่อความจุ/variant ตรงตามระบบ เช่น '256GB'" },
+        answers: {
+          type: "object",
+          description: "แผนที่ groupId -> optionId ที่ลูกค้าเลือก จากชุดคำถาม get_condition_questions ครบทุกกลุ่ม",
+        },
+      },
+      required: ["model_id", "variant_name", "answers"],
+    },
+  },
+  {
     name: "check_order_status",
     description:
       "เช็คออเดอร์ของลูกค้าคนนี้ (ตามบัญชีที่ใช้แชทอยู่) คืนรายละเอียดเต็มเฉพาะออเดอร์ที่เป็นของบัญชีนี้จริง ถ้าพบออเดอร์จากเบอร์โทรที่ลูกค้าแจ้งในแชท (ยังไม่ยืนยันตัวตน) จะบอกแค่จำนวน ห้ามเปิดเผยรายละเอียด ให้ส่งต่อเจ้าหน้าที่",
@@ -249,7 +292,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. เมื่อประเมินราคาแล้วลูกค้าสนใจขาย: แนะนำให้กดปุ่ม "ขายเลย/ประเมินราคา" บนหน้าเว็บ (เมนูขายอุปกรณ์) เพื่อยืนยันสภาพและกรอกข้อมูลด้วยตัวเอง ระบบจะสร้างออเดอร์ให้ทันที`,
+    `6. ขั้นตอนปิดการขาย: search_models หา รุ่น+ความจุ -> get_condition_questions ดึงชุดคำถามสภาพ -> ถามลูกค้าทีละ 1-2 ข้อจนครบทุกกลุ่ม -> เรียก create_quote_card เพื่อส่งใบเสนอราคาพร้อมปุ่มยืนยันขายในแชท แล้วบอกลูกค้าให้กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลติดต่อ/รับเงินด้วยตัวเอง — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
     `7. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับ ไม่เกิน 3-4 ประโยคต่อข้อความ ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
     `8. ถามสภาพเครื่องทีละ 1-2 ข้อ อย่ายิงคำถามยาวเป็นชุด`,
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
@@ -355,7 +398,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -428,6 +471,117 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               .map((o) => ({ id: o.id, label: o.label || o.name })),
           }));
         return { model_id: modelId, groups };
+      }
+
+      case "create_quote_card": {
+        const modelId = String(input.model_id || "");
+        const wantVariant = String(input.variant_name || "").trim();
+        const answers = input.answers && typeof input.answers === "object" ? input.answers : {};
+        const modelSnap = await db.ref(`models/${modelId}`).once("value");
+        if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
+        const model = modelSnap.val();
+        const variantsRaw = Array.isArray(model.variants)
+          ? model.variants
+          : Object.values(model.variants || {});
+        const variant = variantsRaw.find(
+          (v) => v && String(v.name || "").trim().toLowerCase() === wantVariant.toLowerCase()
+        );
+        if (!variant) {
+          return {
+            error: "variant_not_found",
+            available_variants: variantsRaw.map((v) => v && v.name).filter(Boolean),
+          };
+        }
+        const basePrice = Number(variant.usedPrice || variant.price || 0);
+        if (!basePrice) return { error: "no_price_for_variant", note: "ให้ escalate_to_human" };
+        const setId = model.conditionSetId || model.engineId;
+        const setSnap = setId ? await db.ref(`settings/condition_sets/${setId}`).once("value") : null;
+        const set = setSnap && setSnap.exists() ? setSnap.val() : null;
+        if (!set) return { error: "no_condition_set", note: "รุ่นนี้ไม่มีชุดคำถามประเมิน ให้ escalate_to_human" };
+        const qGroups = (Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {})).filter(
+          (g) => g && g.id
+        );
+        const missing = [];
+        const lines = [];
+        const customerConditions = [];
+        let totalDeduct = 0;
+        for (const group of qGroups) {
+          const options = Array.isArray(group.options) ? group.options : Object.values(group.options || {});
+          const optId = answers[group.id];
+          const opt = optId != null ? options.find((o) => o && o.id === optId) : null;
+          if (!opt) {
+            missing.push({
+              id: group.id,
+              title: group.title || group.name || "",
+              options: options
+                .filter((o) => o && (o.label || o.name))
+                .slice(0, 12)
+                .map((o) => ({ id: o.id, label: o.label || o.name })),
+            });
+            continue;
+          }
+          const amount = resolveOptionDeduction(opt, basePrice, model.liquidityFactor);
+          totalDeduct += amount;
+          const title = group.title || group.name || "";
+          const label = opt.label || opt.name || "";
+          lines.push({ title, label, amount });
+          customerConditions.push({ id: group.id, title, value: label, deductAmount: amount, isNegative: amount > 0 });
+        }
+        if (missing.length > 0) {
+          return {
+            error: "missing_answers",
+            missing_groups: missing,
+            note: "ยังตอบสภาพไม่ครบทุกกลุ่ม ให้ถามลูกค้าต่อ (ทีละ 1-2 ข้อ) แล้วเรียกใหม่เมื่อครบ",
+          };
+        }
+        const estimated = Math.max(0, basePrice - totalDeduct);
+        const nowQ = Date.now();
+        const quoteRef = db.ref("chat_quotes").push();
+        const capacity = String(
+          (variant.attributes && (variant.attributes.storage || variant.attributes.capacity)) ||
+            variant.name ||
+            wantVariant
+        );
+        const payload = {
+          quote_id: quoteRef.key,
+          model_id: modelId,
+          model_name: model.name || "",
+          variant_name: String(variant.name || wantVariant),
+          capacity,
+          base_price: basePrice,
+          estimated_price: estimated,
+          lines,
+          raw_conditions: answers,
+          customer_conditions: customerConditions,
+          image_url: variant.imageUrl || model.imageUrl || null,
+          rules: model.rules != null ? model.rules : null,
+          pickup_eligible: model.pickup !== false,
+          max_pickup_distance_km: Number(model.maxPickupDistanceKm) || 0,
+          created_at: nowQ,
+          expires_at: nowQ + 48 * 60 * 60 * 1000,
+        };
+        await quoteRef.set({ uid: convoId, status: "offered", ...payload });
+        const summary = `ใบเสนอราคา ${payload.model_name} ${payload.variant_name}: ${estimated.toLocaleString("th-TH")} บาท (ราคาประเมินเบื้องต้น)`;
+        await db.ref(`inbox/${convoId}/messages`).push({
+          sender: "ai",
+          senderName: assistantName || "BKK APPLE Assistant",
+          senderRole: "ai",
+          kind: "card_quote",
+          text: summary,
+          payload,
+          timestamp: nowQ,
+          read: false,
+        });
+        await db.ref(`inbox/${convoId}`).update({
+          lastMessage: summary.slice(0, 200),
+          lastMessageAt: nowQ,
+          customer_unread: ServerValue.increment(1),
+        });
+        return {
+          ok: true,
+          estimated_price: estimated,
+          note: "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ",
+        };
       }
 
       case "check_order_status": {
@@ -770,7 +924,7 @@ function registerChatAi({ dispatchAdminPush }) {
         const kb = String(settings.kb || "").slice(0, 8000);
         const system = buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours });
         const model = String(settings.model || process.env.CHAT_AI_MODEL || DEFAULT_MODEL);
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state });
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
