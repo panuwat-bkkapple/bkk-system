@@ -44,6 +44,8 @@ interface Conversation {
   customer_email?: string;
   customer_address?: string;
   phone_source?: 'chat' | 'account' | 'admin';
+  identity_confirmed?: boolean;
+  identity_confirmed_by?: string;
   source_url?: string;
   matched_orders_count?: number;
   escalation?: { reason?: string; summary?: string; at?: number };
@@ -161,6 +163,8 @@ export const InboxPage = () => {
         customer_email: val.customer_email,
         customer_address: val.customer_address,
         phone_source: val.phone_source,
+        identity_confirmed: val.identity_confirmed,
+        identity_confirmed_by: val.identity_confirmed_by,
         source_url: val.source_url,
         matched_orders_count: val.matched_orders_count,
         escalation: val.escalation,
@@ -456,6 +460,43 @@ export const InboxPage = () => {
       toast.success('ลบการสนทนาแล้ว');
     } catch {
       toast.error('ไม่สามารถลบได้');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Merge / unmerge identity (ยืนยันว่าแชทเบอร์เดียวกันเป็นลูกค้าคนเดียวกัน)
+  // ไม่ย้าย message — แค่ตั้งธง identity_confirmed บนทุกแชทของกลุ่ม (staff-only)
+  // ---------------------------------------------------------------------------
+  const handleConfirmMerge = async () => {
+    if (!selectedConvo) return;
+    const ids = [selectedConvo, ...linkedConvos.map((c) => c.id)];
+    const now = Date.now();
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          update(ref(db, `inbox/${id}`), {
+            identity_confirmed: true,
+            identity_confirmed_by: staffName,
+            identity_confirmed_at: now,
+          })
+        )
+      );
+      toast.success('ยืนยันรวมเป็นลูกค้าเดียวกันแล้ว');
+    } catch {
+      toast.error('รวมไม่สำเร็จ');
+    }
+  };
+
+  const handleUnmerge = async () => {
+    if (!selectedConvo) return;
+    const ids = [selectedConvo, ...linkedConvos.map((c) => c.id)];
+    try {
+      await Promise.all(
+        ids.map((id) => update(ref(db, `inbox/${id}`), { identity_confirmed: false }))
+      );
+      toast.success('ยกเลิกการรวมแล้ว');
+    } catch {
+      toast.error('ยกเลิกไม่สำเร็จ');
     }
   };
 
@@ -802,26 +843,64 @@ export const InboxPage = () => {
                 </div>
               )}
 
-              {/* ลูกค้าคนเดียวกันมีหลายแชท (เบอร์เดียวกัน คนละ session/uid) — สลับไปมาได้ */}
+              {/* ตรวจพบแชทเบอร์เดียวกัน (คนละ session/uid) — ต้องกดยืนยันก่อนถึงถือว่าเป็นคนเดียวกัน */}
               {linkedConvos.length > 0 && (
-                <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
-                  <Users size={15} className="text-violet-500 shrink-0 mt-0.5" />
-                  <div className="text-xs text-violet-800 flex-1 min-w-0">
-                    <p className="font-black mb-1.5">ลูกค้าคนนี้มีอีก {linkedConvos.length} แชท (เบอร์เดียวกัน)</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {linkedConvos.map((c) => (
+                selectedConversation.identity_confirmed ? (
+                  /* ยืนยันรวมแล้ว */
+                  <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+                    <Users size={15} className="text-violet-500 shrink-0 mt-0.5" />
+                    <div className="text-xs text-violet-800 flex-1 min-w-0">
+                      <p className="font-black mb-1.5 flex items-center gap-1">
+                        <CheckCircle2 size={12} className="text-violet-500" /> ลูกค้าคนเดียวกัน (ยืนยันแล้ว) · อีก {linkedConvos.length} แชท
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {linkedConvos.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => { setSelectedConvo(c.id); setShowMobileChat(true); }}
+                            title={c.lastMessage}
+                            className="px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 font-bold hover:bg-violet-100 transition-colors max-w-[220px] truncate"
+                          >
+                            {(c.customer_name || c.name)} · {formatTime(c.lastMessageAt)}
+                          </button>
+                        ))}
                         <button
-                          key={c.id}
-                          onClick={() => { setSelectedConvo(c.id); setShowMobileChat(true); }}
-                          title={c.lastMessage}
-                          className="px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 font-bold hover:bg-violet-100 transition-colors max-w-[220px] truncate"
+                          onClick={handleUnmerge}
+                          className="px-2 py-1 rounded-full text-violet-400 hover:text-red-500 hover:bg-red-50 transition-colors text-[11px]"
                         >
-                          {(c.customer_name || c.name)} · {formatTime(c.lastMessageAt)}
+                          ยกเลิกการรวม
                         </button>
-                      ))}
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* เสนอให้รวม — ยังไม่ยืนยัน (gate) */
+                  <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    <Users size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-800 flex-1 min-w-0">
+                      <p className="font-black mb-0.5">ตรวจพบลูกค้าที่อาจเป็นคนเดียวกัน</p>
+                      <p className="mb-1.5">มีอีก {linkedConvos.length} แชทที่ใช้เบอร์เดียวกัน — ตรวจสอบก่อนแล้วกดยืนยันว่าเป็นลูกค้าคนเดียวกัน</p>
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {linkedConvos.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => { setSelectedConvo(c.id); setShowMobileChat(true); }}
+                            title={c.lastMessage}
+                            className="px-2.5 py-1 rounded-full bg-white border border-amber-200 text-amber-700 font-bold hover:bg-amber-100 transition-colors max-w-[200px] truncate"
+                          >
+                            ดู: {(c.customer_name || c.name)} · {formatTime(c.lastMessageAt)}
+                          </button>
+                        ))}
+                        <button
+                          onClick={handleConfirmMerge}
+                          className="px-3 py-1 rounded-full bg-violet-600 text-white font-bold hover:bg-violet-700 transition-colors flex items-center gap-1"
+                        >
+                          <CheckCircle2 size={12} /> ยืนยันรวมเป็นลูกค้าเดียวกัน
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
               )}
 
               {messages.length === 0 && (
