@@ -6,10 +6,11 @@ import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
   CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
-  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe
+  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
+import QuoteComposer from './QuoteComposer';
 
 // =============================================================================
 // Types
@@ -116,6 +117,7 @@ export const InboxPage = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showQuoteComposer, setShowQuoteComposer] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -809,6 +811,16 @@ export const InboxPage = () => {
                   <ImageIcon size={20} />
                 )}
               </button>
+              {/* สร้างใบเสนอราคา — เฉพาะแชทจากเว็บ (มี status) */}
+              {selectedConversation.status && (
+                <button
+                  onClick={() => setShowQuoteComposer(true)}
+                  title="สร้างใบเสนอราคา"
+                  className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                >
+                  <FileText size={20} />
+                </button>
+              )}
               <input
                 type="text"
                 value={inputText}
@@ -840,6 +852,28 @@ export const InboxPage = () => {
 
       {/* ===== New Chat Modal ===== */}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onCreate={handleCreateConvo} />}
+
+      {/* ===== Quote Composer (แอดมินส่งใบเสนอราคาเข้าแชท) ===== */}
+      {showQuoteComposer && selectedConvo && (
+        <QuoteComposer
+          convoId={selectedConvo}
+          staffId={staffId}
+          staffName={staffName}
+          onClose={() => setShowQuoteComposer(false)}
+          onSent={async () => {
+            // ส่งการ์ดแล้ว = แอดมินรับเคสโดยปริยาย (AI หยุดตอบ) เหมือน handleSend
+            const convo = conversations.find((c) => c.id === selectedConvo);
+            if (convo?.status && (convo.status !== 'human' || convo.assigned_staff_id !== staffId)) {
+              await update(ref(db, `inbox/${selectedConvo}`), {
+                status: 'human',
+                assigned_staff_id: staffId,
+                assigned_staff_name: staffName,
+                ai_typing: false,
+              });
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
