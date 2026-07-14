@@ -454,6 +454,12 @@ const TOOLS = [
     },
   },
   {
+    name: "get_branches",
+    description:
+      "ดึงรายชื่อสาขา/หน้าร้านทั้งหมดที่เปิดให้บริการ (ชื่อ ที่อยู่ เบอร์โทร เวลาเปิด-ปิด ลิงก์แผนที่) ใช้ทุกครั้งที่ลูกค้าถามว่ามีสาขาไหม สาขาอยู่ที่ไหน ร้านเปิดกี่โมง หรือจะเดินทางมาที่ร้าน ห้ามตอบข้อมูลสาขาจากความจำ",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "get_promotions",
     description:
       "ดึงโปรโมชั่น คูปอง และส่วนลดที่เปิดใช้งานอยู่ตอนนี้จากระบบ ใช้ทุกครั้งที่ลูกค้าถามเรื่องโปรโมชั่น/คูปอง/ส่วนลด/สิทธิพิเศษ ห้ามตอบเรื่องโปรจากความจำ",
@@ -504,6 +510,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `11. เมื่อ escalate แล้ว ให้บอกลูกค้าว่าส่งเรื่องถึงเจ้าหน้าที่แล้ว${inHours ? " เจ้าหน้าที่จะเข้ามาตอบในไม่กี่นาที" : ` ขณะนี้นอกเวลาทำการ (เวลาทำการ ${hoursText}) เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ`}`,
     `12. คำถามพื้นที่บริการ/รับถึงที่/ค่าบริการรับเครื่อง: ห้ามตอบจากความจำ ให้ถามก่อนว่าลูกค้าอยู่แถวไหน (เขต/อำเภอ + จังหวัด) แล้วเรียก check_pickup_service เพื่อตอบจากข้อมูลจริง แจ้งเป็นค่าประมาณเสมอ ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout`,
     `13. คำถามโปรโมชั่น/คูปอง/ส่วนลด: เรียก get_promotions ทุกครั้ง ตอบเฉพาะรายการที่เปิดอยู่จริงพร้อมเงื่อนไขและวันหมดเขต ถ้าไม่มีให้บอกตรงๆ อย่างสุภาพว่าช่วงนี้ยังไม่มี ห้ามแต่งโปรโมชั่นเอง`,
+    `13.1 คำถามเรื่องสาขา/ที่ตั้งร้าน/เวลาเปิด-ปิด/จะมาที่ร้าน: เรียก get_branches ทุกครั้ง ตอบชื่อ ที่อยู่ เบอร์โทร เวลาเปิด พร้อมลิงก์แผนที่ ห้ามตอบข้อมูลสาขาจากความจำ`,
     `14. นโยบาย/ขั้นตอน/บริการใดที่ไม่มีใน tool, ข้อมูลบริการด้านล่าง หรือข้อมูลนโยบายร้าน: ห้ามแต่งเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน แล้วเสนอส่งเรื่องต่อเจ้าหน้าที่`,
     ``,
     `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
@@ -896,6 +903,41 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           nearest_branch: branchName,
           note: "ค่าบริการเป็นค่าประมาณจากทำเลที่ลูกค้าบอก ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout — แจ้งลูกค้าด้วยคำว่า 'ประมาณ' เสมอ ห้ามการันตีตัวเลข",
         };
+      }
+
+      case "get_branches": {
+        const snap = await db.ref("settings/branches").once("value");
+        const list = [];
+        const all = snap.val() || {};
+        for (const key of Object.keys(all)) {
+          const b = all[key];
+          if (!b || b.isActive === false) continue;
+          const fmtHour = (h) =>
+            Number.isFinite(Number(h)) ? `${String(Number(h)).padStart(2, "0")}:00` : null;
+          const open = fmtHour(b.openHour);
+          const close = fmtHour(b.closeHour);
+          list.push({
+            name: b.name || key,
+            address: b.address || null,
+            phone: b.phone || null,
+            open_hours: open && close ? `${open} - ${close} น.` : null,
+            open_today: b.isOpen === false ? false : true,
+            map_link:
+              typeof b.lat === "number" && typeof b.lng === "number"
+                ? `https://www.google.com/maps?q=${b.lat},${b.lng}`
+                : null,
+            map_info: b.mapInfo || null,
+          });
+        }
+        return list.length > 0
+          ? {
+              branches: list,
+              note: "ตอบเฉพาะข้อมูลนี้ ถ้าลูกค้าจะเดินทางมา แนบ map_link ให้ด้วย (พิมพ์ลิงก์ตรงๆ ได้ ไม่ต้องใช้ markdown)",
+            }
+          : {
+              branches: [],
+              note: "ยังไม่มีข้อมูลสาขาในระบบ ให้บอกลูกค้าว่าขอให้เจ้าหน้าที่ยืนยันที่ตั้งร้าน แล้วเสนอ escalate",
+            };
       }
 
       case "get_promotions": {
