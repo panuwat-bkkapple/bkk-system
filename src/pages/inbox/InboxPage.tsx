@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ref, onValue, push, update, serverTimestamp, remove, increment } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
@@ -94,6 +95,8 @@ const StatusPill = ({ status, assignedName }: { status?: ConvoStatus; assignedNa
 
 export const InboxPage = () => {
   const toast = useToast();
+  const location = useLocation();
+  const isMobileApp = location.pathname.startsWith('/mobile');
   const currentUser = useMemo(() => {
     const saved = sessionStorage.getItem('bkk_session');
     return saved ? JSON.parse(saved) : null;
@@ -433,7 +436,10 @@ export const InboxPage = () => {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="h-[calc(100vh-52px)] flex bg-[#F5F5F7]">
+    // ใน MobileLayout พื้นที่คอนเทนต์คือ flex-1 (มี top bar + tab bar กินที่) —
+    // ต้องใช้ h-full ให้พอดีกรอบ ไม่งั้นหน้าล้น viewport แล้ว iOS ดันหน้าเลื่อน
+    // ตอนเปิดคีย์บอร์ด ทำให้ header ห้องแชท (ปุ่มรับเรื่อง/คืน AI) หลุดจอ
+    <div className={`${isMobileApp ? 'h-full' : 'h-[calc(100vh-52px)]'} flex bg-[#F5F5F7]`}>
       {/* ===== LEFT PANEL: Conversation List ===== */}
       <div className={`${showMobileChat ? 'hidden lg:flex' : 'flex'} w-full lg:w-[380px] flex-col bg-white border-r border-slate-200`}>
         {/* Header */}
