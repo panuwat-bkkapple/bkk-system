@@ -437,6 +437,23 @@ async function callClaude({ apiKey, model, system, messages, tools, toolChoice }
   }
 }
 
+// callClaude, but if a non-default (stronger) model errors — e.g. the API key
+// lacks access to it — fall back once to DEFAULT_MODEL so a routing/verifier
+// upgrade can never take the whole chat down.
+async function callClaudeResilient(args) {
+  try {
+    return await callClaude(args);
+  } catch (err) {
+    if (args.model && args.model !== DEFAULT_MODEL) {
+      console.warn(
+        `[chat-ai] model ${args.model} failed (${err && err.message}); retrying with ${DEFAULT_MODEL}`
+      );
+      return await callClaude({ ...args, model: DEFAULT_MODEL });
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hybrid model routing — pick the strong model for turns where a wrong answer
 // is costly (money / lock+installment policy / appraisal / cancellation /
@@ -1634,7 +1651,7 @@ function registerChatAi({ dispatchAdminPush }) {
         let totalOut = 0;
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-          const resp = await callClaude({ apiKey, model, system, messages, tools: TOOLS });
+          const resp = await callClaudeResilient({ apiKey, model, system, messages, tools: TOOLS });
           totalIn += (resp.usage && resp.usage.input_tokens) || 0;
           totalOut += (resp.usage && resp.usage.output_tokens) || 0;
 
@@ -1694,7 +1711,7 @@ function registerChatAi({ dispatchAdminPush }) {
         if (!finalText && !state.escalated) {
           console.warn(`[${tag}] ${convoId} empty final text — forcing a text-only turn`);
           try {
-            const finalResp = await callClaude({
+            const finalResp = await callClaudeResilient({
               apiKey,
               model,
               system,
