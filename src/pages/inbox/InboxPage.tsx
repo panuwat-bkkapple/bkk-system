@@ -6,11 +6,12 @@ import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
   CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
-  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText
+  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
 import QuoteComposer from './QuoteComposer';
+import ContactEditModal from './ContactEditModal';
 
 // =============================================================================
 // Types
@@ -37,8 +38,11 @@ interface Conversation {
   status?: ConvoStatus;
   assigned_staff_id?: string;
   assigned_staff_name?: string;
+  customer_name?: string;
   customer_phone?: string;
-  phone_source?: 'chat' | 'account';
+  customer_email?: string;
+  customer_address?: string;
+  phone_source?: 'chat' | 'account' | 'admin';
   source_url?: string;
   matched_orders_count?: number;
   escalation?: { reason?: string; summary?: string; at?: number };
@@ -118,6 +122,7 @@ export const InboxPage = () => {
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuoteComposer, setShowQuoteComposer] = useState(false);
+  const [showContactEdit, setShowContactEdit] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,7 +154,10 @@ export const InboxPage = () => {
         status: val.status,
         assigned_staff_id: val.assigned_staff_id,
         assigned_staff_name: val.assigned_staff_name,
+        customer_name: val.customer_name,
         customer_phone: val.customer_phone,
+        customer_email: val.customer_email,
+        customer_address: val.customer_address,
         phone_source: val.phone_source,
         source_url: val.source_url,
         matched_orders_count: val.matched_orders_count,
@@ -609,16 +617,47 @@ export const InboxPage = () => {
                 {selectedConversation.type === 'customer' ? <User size={16} /> : selectedConversation.type === 'rider' ? <Truck size={16} /> : <Users size={16} />}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-black text-sm text-slate-800 truncate">{selectedConversation.name}</h3>
+                <h3 className="font-black text-sm text-slate-800 truncate flex items-center gap-1.5">
+                  {selectedConversation.customer_name || selectedConversation.name}
+                  {selectedConversation.status && (
+                    <button
+                      onClick={() => setShowContactEdit(true)}
+                      title="แก้ข้อมูลติดต่อลูกค้า"
+                      className="text-slate-300 hover:text-blue-600 transition-colors shrink-0"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                </h3>
                 <div className="flex items-center gap-2 flex-wrap">
                   {(selectedConversation.customer_phone || selectedConversation.phone) && (
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Phone size={10} /> {selectedConversation.customer_phone || selectedConversation.phone}
                       {selectedConversation.customer_phone && (
-                        <span className={`font-black px-1 py-0.5 rounded ${selectedConversation.phone_source === 'chat' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {selectedConversation.phone_source === 'chat' ? 'แจ้งในแชท' : 'จากบัญชี'}
+                        <span className={`font-black px-1 py-0.5 rounded ${
+                          selectedConversation.phone_source === 'chat'
+                            ? 'bg-amber-100 text-amber-700'
+                            : selectedConversation.phone_source === 'admin'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {selectedConversation.phone_source === 'chat'
+                            ? 'แจ้งในแชท'
+                            : selectedConversation.phone_source === 'admin'
+                              ? 'แอดมินยืนยัน'
+                              : 'จากบัญชี'}
                         </span>
                       )}
+                    </span>
+                  )}
+                  {selectedConversation.customer_email && (
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 truncate max-w-[160px]">
+                      <Mail size={10} /> {selectedConversation.customer_email}
+                    </span>
+                  )}
+                  {selectedConversation.customer_address && (
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 truncate max-w-[180px]">
+                      <MapPin size={10} /> {selectedConversation.customer_address}
                     </span>
                   )}
                   <StatusPill status={selectedConversation.status} assignedName={selectedConversation.assigned_staff_name} />
@@ -852,6 +891,20 @@ export const InboxPage = () => {
 
       {/* ===== New Chat Modal ===== */}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onCreate={handleCreateConvo} />}
+
+      {/* ===== Contact Edit Modal ===== */}
+      {showContactEdit && selectedConvo && selectedConversation && (
+        <ContactEditModal
+          convoId={selectedConvo}
+          initial={{
+            customer_name: selectedConversation.customer_name || selectedConversation.name,
+            customer_phone: selectedConversation.customer_phone,
+            customer_email: selectedConversation.customer_email,
+            customer_address: selectedConversation.customer_address,
+          }}
+          onClose={() => setShowContactEdit(false)}
+        />
+      )}
 
       {/* ===== Quote Composer (แอดมินส่งใบเสนอราคาเข้าแชท) ===== */}
       {showQuoteComposer && selectedConvo && (
