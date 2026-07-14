@@ -206,7 +206,7 @@ const TOOLS = [
   {
     name: "get_condition_questions",
     description:
-      "ดึงชุดคำถามประเมินสภาพจริงของรุ่นนั้น (กลุ่มคำถาม + ตัวเลือก) ใช้เพื่อถามสภาพเครื่องลูกค้าให้ตรงกับระบบประเมินบนเว็บ",
+      "ดึงชุดคำถามประเมินสภาพของรุ่นนั้น (กลุ่มคำถาม + ตัวเลือก) ใช้เพื่อ map คำตอบลูกค้าเป็น optionId สำหรับ create_quote_card — ไม่ต้องถามลูกค้าครบทุกกลุ่ม ถามแค่ 4 เรื่องหลักตามกฎข้อ 6 พอ",
     input_schema: {
       type: "object",
       properties: {
@@ -218,7 +218,7 @@ const TOOLS = [
   {
     name: "create_quote_card",
     description:
-      "สร้างใบเสนอราคา (Quote Card) พร้อมปุ่มยืนยันขาย ส่งให้ลูกค้าในแชท ใช้เมื่อ (1) รู้รุ่น+ความจุจาก search_models แล้ว และ (2) ลูกค้าตอบคำถามสภาพครบทุกกลุ่มจาก get_condition_questions แล้ว — answers ต้องเป็น optionId จริงจากชุดคำถามเท่านั้น ระบบจะคำนวณราคาด้วยสูตรเดียวกับหน้าเว็บและแนบปุ่มยืนยันขายให้ในการ์ด ห้ามคำนวณหรือพิมพ์ราคาเองก่อนเรียก tool นี้",
+      "สร้างใบเสนอราคา (Quote Card) พร้อมปุ่มยืนยันขาย ส่งให้ลูกค้าในแชท ใช้เมื่อรู้รุ่น+ความจุจาก search_models แล้ว — answers ใส่เฉพาะกลุ่มที่ลูกค้าตอบ (optionId จริงจาก get_condition_questions) กลุ่มที่ไม่ส่งมาระบบจะถือว่าสภาพปกติให้อัตโนมัติ ไม่ต้องถามลูกค้าครบทุกกลุ่ม ระบบคำนวณราคาด้วยสูตรเดียวกับหน้าเว็บและแนบปุ่มยืนยันขายให้ในการ์ด ห้ามคำนวณหรือพิมพ์ราคาเองก่อนเรียก tool นี้",
     input_schema: {
       type: "object",
       properties: {
@@ -292,11 +292,12 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. ขั้นตอนปิดการขาย: search_models หา รุ่น+ความจุ -> get_condition_questions ดึงชุดคำถามสภาพ -> ถามลูกค้าทีละ 1-2 ข้อจนครบทุกกลุ่ม -> เรียก create_quote_card เพื่อส่งใบเสนอราคาพร้อมปุ่มยืนยันขายในแชท แล้วบอกลูกค้าให้กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลติดต่อ/รับเงินด้วยตัวเอง — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
-    `6.1 ลูกค้าถามราคารุ่นใด ให้ตอบราคาจาก search_models แล้ว "เริ่มขั้นตอนข้อ 6 ต่อทันทีในข้อความเดียวกัน" โดยถามคำถามสภาพข้อแรกเลย ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
+    `6. ขั้นตอนปิดการขาย: search_models หา รุ่น+ความจุ -> get_condition_questions ดึงชุดคำถาม -> ถามลูกค้า "ครั้งเดียว" ข้อความเดียวรวม 4 เรื่อง: (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม -> พอลูกค้าตอบ เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี (กลุ่มที่ไม่ได้ถามระบบถือว่าปกติให้เอง) แล้วบอกลูกค้าให้กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลด้วยตัวเอง — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
+    `6.1 ลูกค้าถามราคารุ่นใด ให้ตอบราคาจาก search_models แล้วถามคำถามสภาพ 4 เรื่องตามข้อ 6 ต่อทันทีในข้อความเดียวกัน ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
+    `6.3 ห้ามถามสภาพเกิน 1 รอบ ถ้าลูกค้าตอบคลุมเครือ (เช่น "สภาพดี" "ปกติ") หรือขอราคาเลย หรือไม่ตอบบางข้อ ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี ห้ามถามซ้ำหรือไล่ถามทีละกลุ่มเด็ดขาด — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว`,
     `7. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับ ไม่เกิน 3-4 ประโยคต่อข้อความ ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
-    `8. ถามสภาพเครื่องทีละ 1-2 ข้อ อย่ายิงคำถามยาวเป็นชุด`,
+    `8. คำถามสภาพเครื่องให้รวมเป็นข้อความเดียว 4 เรื่องตามข้อ 6 สั้นกระชับ อย่าไล่ถามทีละกลุ่มจากชุดคำถามทั้งหมด`,
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
     `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
     `11. เมื่อ escalate แล้ว ให้บอกลูกค้าว่าส่งเรื่องถึงเจ้าหน้าที่แล้ว${inHours ? " เจ้าหน้าที่จะเข้ามาตอบในไม่กี่นาที" : ` ขณะนี้นอกเวลาทำการ (เวลาทำการ ${hoursText}) เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ`}`,
@@ -503,38 +504,37 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const qGroups = (Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {})).filter(
           (g) => g && g.id
         );
-        const missing = [];
+        const assumedGroups = [];
         const lines = [];
         const customerConditions = [];
+        const rawConditions = {};
         let totalDeduct = 0;
         for (const group of qGroups) {
-          const options = Array.isArray(group.options) ? group.options : Object.values(group.options || {});
+          const options = (Array.isArray(group.options) ? group.options : Object.values(group.options || {})).filter(
+            (o) => o && o.id != null
+          );
+          if (options.length === 0) continue;
           const optId = answers[group.id];
-          const opt = optId != null ? options.find((o) => o && o.id === optId) : null;
+          let opt = optId != null ? options.find((o) => o.id === optId) : null;
+          let assumed = false;
           if (!opt) {
-            missing.push({
-              id: group.id,
-              title: group.title || group.name || "",
-              options: options
-                .filter((o) => o && (o.label || o.name))
-                .slice(0, 12)
-                .map((o) => ({ id: o.id, label: o.label || o.name })),
-            });
-            continue;
+            // กลุ่มที่ลูกค้าไม่ได้ตอบ = ถือว่าสภาพปกติ (ตัวเลือกที่หักน้อยที่สุด ตัวแรกในลิสต์)
+            opt = options.reduce((best, o) =>
+              resolveOptionDeduction(o, basePrice, model.liquidityFactor) <
+              resolveOptionDeduction(best, basePrice, model.liquidityFactor)
+                ? o
+                : best
+            );
+            assumed = true;
+            assumedGroups.push(group.title || group.name || group.id);
           }
           const amount = resolveOptionDeduction(opt, basePrice, model.liquidityFactor);
           totalDeduct += amount;
           const title = group.title || group.name || "";
           const label = opt.label || opt.name || "";
-          lines.push({ title, label, amount });
+          rawConditions[group.id] = opt.id;
+          lines.push(assumed ? { title, label, amount, assumed: true } : { title, label, amount });
           customerConditions.push({ id: group.id, title, value: label, deductAmount: amount, isNegative: amount > 0 });
-        }
-        if (missing.length > 0) {
-          return {
-            error: "missing_answers",
-            missing_groups: missing,
-            note: "ยังตอบสภาพไม่ครบทุกกลุ่ม ให้ถามลูกค้าต่อ (ทีละ 1-2 ข้อ) แล้วเรียกใหม่เมื่อครบ",
-          };
         }
         const estimated = Math.max(0, basePrice - totalDeduct);
         const nowQ = Date.now();
@@ -553,7 +553,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           base_price: basePrice,
           estimated_price: estimated,
           lines,
-          raw_conditions: answers,
+          raw_conditions: rawConditions,
           customer_conditions: customerConditions,
           image_url: variant.imageUrl || model.imageUrl || null,
           rules: model.rules != null ? model.rules : null,
@@ -582,7 +582,12 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         return {
           ok: true,
           estimated_price: estimated,
-          note: "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ",
+          assumed_groups: assumedGroups,
+          note:
+            "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ" +
+            (assumedGroups.length > 0
+              ? " (ส่วนที่ไม่ได้ถามระบบประเมินตามสภาพปกติแล้ว บอกลูกค้าสั้นๆ ว่าถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง)"
+              : ""),
         };
       }
 
