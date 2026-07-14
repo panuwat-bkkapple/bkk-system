@@ -44,7 +44,7 @@ messaging.onBackgroundMessage((payload) => {
     body: data.body || '',
     icon: '/android-chrome-192x192.png',
     badge: '/android-chrome-192x192.png',
-    tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : isChatMessage ? `chat-${data.jobId}` : 'bkk-admin',
+    tag: isNewTicket ? `ticket-${data.jobId}` : isStatusChange ? `status-${data.jobId}` : isChatMessage ? `chat-${data.jobId}` : data.type === 'inbox_chat' ? `inbox-${data.convoId}` : 'bkk-admin',
     data,
   };
 
@@ -71,6 +71,9 @@ self.addEventListener('notificationclick', (event) => {
     targetUrl = `/mobile/job/${data.jobId}`;
   } else if (data.type === 'chat_message' && data.jobId) {
     targetUrl = `/mobile/job/${data.jobId}`;
+  } else if (data.type === 'inbox_chat') {
+    // Website chat widget conversation (inbox/{convoId}) — open the inbox tab.
+    targetUrl = '/mobile/inbox';
   } else if (data.jobId) {
     targetUrl = `/mobile/job/${data.jobId}`;
   }
@@ -96,7 +99,7 @@ self.addEventListener('notificationclick', (event) => {
 // this forces stuck SWs to re-install on the next page load so admins who
 // silently lost notifications get a clean state. Asset paths align with
 // the favicon_io set referenced from manifest.json (PR #159).
-const CACHE_NAME = 'bkk-system-v4';
+const CACHE_NAME = 'bkk-system-v5';
 const STATIC_ASSETS = [
   '/mobile',
   '/manifest.json',

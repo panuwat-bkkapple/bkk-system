@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ref, onValue, push, update, serverTimestamp, remove } from 'firebase/database';
+import { ref, onValue, push, update, serverTimestamp, remove, increment } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
-  CheckCheck, Check, ArrowLeft, Trash2, MoreVertical
+  CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
+  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -12,6 +13,12 @@ import { useToast } from '../../components/ui/ToastProvider';
 // =============================================================================
 // Types
 // =============================================================================
+
+// Conversations under inbox/ come from two producers:
+//   - the website chat widget (bkk-frontend-next) — keyed by customer uid,
+//     carries status/assignment/identity fields written by chatWidgetAiReply
+//   - manually created admin chats (NewChatModal) — legacy, no status fields
+type ConvoStatus = 'ai' | 'waiting_human' | 'human' | 'resolved';
 
 interface Conversation {
   id: string;
@@ -25,13 +32,22 @@ interface Conversation {
   createdAt: number;
   jobId?: string;
   jobModel?: string;
+  status?: ConvoStatus;
+  assigned_staff_id?: string;
+  assigned_staff_name?: string;
+  customer_phone?: string;
+  phone_source?: 'chat' | 'account';
+  source_url?: string;
+  matched_orders_count?: number;
+  escalation?: { reason?: string; summary?: string; at?: number };
 }
 
 interface Message {
   id: string;
   sender: string;
   senderName: string;
-  senderRole: 'admin' | 'customer' | 'rider' | 'team';
+  senderRole: 'admin' | 'customer' | 'rider' | 'team' | 'ai' | 'system';
+  kind?: 'text' | 'system';
   text: string;
   imageUrl?: string;
   timestamp: number;
@@ -39,6 +55,7 @@ interface Message {
 }
 
 type TabType = 'all' | 'customer' | 'rider' | 'team';
+type StatusFilter = 'all' | 'waiting_human' | 'ai' | 'human' | 'resolved';
 
 const TAB_CONFIG: { key: TabType; label: string; icon: React.ReactNode; color: string }[] = [
   { key: 'all', label: 'ทั้งหมด', icon: <Inbox size={16} />, color: 'blue' },
@@ -46,6 +63,30 @@ const TAB_CONFIG: { key: TabType; label: string; icon: React.ReactNode; color: s
   { key: 'rider', label: 'ไรเดอร์', icon: <Truck size={16} />, color: 'orange' },
   { key: 'team', label: 'ทีมงาน', icon: <Users size={16} />, color: 'purple' },
 ];
+
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'ทุกสถานะ' },
+  { key: 'waiting_human', label: 'รอเจ้าหน้าที่' },
+  { key: 'ai', label: 'AI ดูแล' },
+  { key: 'human', label: 'เจ้าหน้าที่ดูแล' },
+  { key: 'resolved', label: 'ปิดแล้ว' },
+];
+
+const StatusPill = ({ status, assignedName }: { status?: ConvoStatus; assignedName?: string }) => {
+  if (!status) return null;
+  const config: Record<ConvoStatus, { label: string; cls: string }> = {
+    ai: { label: 'AI ดูแล', cls: 'bg-violet-100 text-violet-600' },
+    waiting_human: { label: 'รอเจ้าหน้าที่', cls: 'bg-amber-100 text-amber-700' },
+    human: { label: assignedName || 'เจ้าหน้าที่', cls: 'bg-blue-100 text-blue-600' },
+    resolved: { label: 'ปิดแล้ว', cls: 'bg-emerald-100 text-emerald-600' },
+  };
+  const c = config[status];
+  return (
+    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap ${c.cls}`}>
+      {c.label}
+    </span>
+  );
+};
 
 // =============================================================================
 // Main Component
@@ -58,7 +99,11 @@ export const InboxPage = () => {
     return saved ? JSON.parse(saved) : null;
   }, []);
 
+  const staffId: string = currentUser?.uid || currentUser?.id || 'admin';
+  const staffName: string = currentUser?.name || 'Admin';
+
   const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConvo, setSelectedConvo] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -96,6 +141,14 @@ export const InboxPage = () => {
         createdAt: val.createdAt || 0,
         jobId: val.jobId,
         jobModel: val.jobModel,
+        status: val.status,
+        assigned_staff_id: val.assigned_staff_id,
+        assigned_staff_name: val.assigned_staff_name,
+        customer_phone: val.customer_phone,
+        phone_source: val.phone_source,
+        source_url: val.source_url,
+        matched_orders_count: val.matched_orders_count,
+        escalation: val.escalation,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       setConversations(list);
@@ -124,6 +177,7 @@ export const InboxPage = () => {
           sender: val.sender || '',
           senderName: val.senderName || '',
           senderRole: val.senderRole || 'admin',
+          kind: val.kind || 'text',
           text: val.text || '',
           imageUrl: val.imageUrl,
           timestamp: val.timestamp || 0,
@@ -132,9 +186,9 @@ export const InboxPage = () => {
         .sort((a, b) => a.timestamp - b.timestamp);
       setMessages(list);
 
-      // Mark messages as read
+      // Mark messages as read (customer sees "อ่านแล้ว" on their bubbles)
       Object.entries(data).forEach(([key, val]: [string, any]) => {
-        if (val.senderRole !== 'admin' && !val.read) {
+        if (val.senderRole !== 'admin' && val.senderRole !== 'system' && !val.read) {
           update(ref(db, `inbox/${selectedConvo}/messages/${key}`), { read: true });
         }
       });
@@ -168,6 +222,9 @@ export const InboxPage = () => {
     if (activeTab !== 'all') {
       list = list.filter((c) => c.type === activeTab);
     }
+    if (statusFilter !== 'all') {
+      list = list.filter((c) => c.status === statusFilter);
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -178,7 +235,7 @@ export const InboxPage = () => {
       );
     }
     return list;
-  }, [conversations, activeTab, searchQuery]);
+  }, [conversations, activeTab, statusFilter, searchQuery]);
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
 
@@ -197,6 +254,70 @@ export const InboxPage = () => {
   }, [conversations]);
 
   // ---------------------------------------------------------------------------
+  // Console actions: takeover / return to AI / resolve
+  // The AI responder (chatWidgetAiReply) goes silent whenever status is
+  // 'human' — taking over is what mutes it, handing back re-arms it.
+  // ---------------------------------------------------------------------------
+  const writeSystemMessage = async (convoId: string, text: string) => {
+    await push(ref(db, `inbox/${convoId}/messages`), {
+      sender: 'system',
+      senderRole: 'system',
+      kind: 'system',
+      text,
+      timestamp: Date.now(),
+      read: true,
+    });
+  };
+
+  const handleTakeover = async () => {
+    if (!selectedConvo) return;
+    try {
+      await update(ref(db, `inbox/${selectedConvo}`), {
+        status: 'human',
+        assigned_staff_id: staffId,
+        assigned_staff_name: staffName,
+        ai_typing: false,
+      });
+      await writeSystemMessage(selectedConvo, `${staffName} เข้าร่วมการสนทนา`);
+      await update(ref(db, `inbox/${selectedConvo}`), { customer_unread: increment(1) });
+      toast.success('รับเรื่องแล้ว');
+    } catch {
+      toast.error('รับเรื่องไม่สำเร็จ');
+    }
+  };
+
+  const handleReturnToAi = async () => {
+    if (!selectedConvo) return;
+    try {
+      await update(ref(db, `inbox/${selectedConvo}`), {
+        status: 'ai',
+        assigned_staff_id: null,
+        assigned_staff_name: null,
+      });
+      await writeSystemMessage(selectedConvo, 'ส่งกลับให้ผู้ช่วย AI ดูแลต่อ');
+      toast.success('ส่งกลับให้ AI แล้ว');
+    } catch {
+      toast.error('ดำเนินการไม่สำเร็จ');
+    }
+  };
+
+  const handleResolve = async () => {
+    if (!selectedConvo) return;
+    try {
+      await update(ref(db, `inbox/${selectedConvo}`), {
+        status: 'resolved',
+        assigned_staff_id: null,
+        assigned_staff_name: null,
+      });
+      await writeSystemMessage(selectedConvo, 'เจ้าหน้าที่ปิดการสนทนา หากมีคำถามเพิ่มเติมทักมาได้เลย');
+      await update(ref(db, `inbox/${selectedConvo}`), { customer_unread: increment(1) });
+      toast.success('ปิดการสนทนาแล้ว');
+    } catch {
+      toast.error('ปิดการสนทนาไม่สำเร็จ');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Send message
   // ---------------------------------------------------------------------------
   const handleSend = async () => {
@@ -204,18 +325,33 @@ export const InboxPage = () => {
     const text = inputText.trim();
     setInputText('');
     try {
+      // Replying to a widget conversation the AI still owns = implicit
+      // takeover, so the AI stops answering mid-thread.
+      const convo = conversations.find((c) => c.id === selectedConvo);
+      const isWidgetConvo = !!convo?.status;
+      if (isWidgetConvo && (convo?.status !== 'human' || convo?.assigned_staff_id !== staffId)) {
+        await update(ref(db, `inbox/${selectedConvo}`), {
+          status: 'human',
+          assigned_staff_id: staffId,
+          assigned_staff_name: staffName,
+          ai_typing: false,
+        });
+      }
       await push(ref(db, `inbox/${selectedConvo}/messages`), {
-        sender: currentUser?.uid || 'admin',
-        senderName: currentUser?.name || 'Admin',
+        sender: staffId,
+        senderName: staffName,
         senderRole: 'admin',
+        kind: 'text',
         text,
         timestamp: Date.now(),
         read: false,
       });
-      await update(ref(db, `inbox/${selectedConvo}`), {
+      const updates: Record<string, unknown> = {
         lastMessage: text,
         lastMessageAt: Date.now(),
-      });
+      };
+      if (isWidgetConvo) updates.customer_unread = increment(1);
+      await update(ref(db, `inbox/${selectedConvo}`), updates);
     } catch {
       toast.error('ส่งข้อความไม่สำเร็จ');
     }
@@ -362,6 +498,26 @@ export const InboxPage = () => {
           ))}
         </div>
 
+        {/* Status filter (website chat conversations) */}
+        <div className="flex gap-1.5 px-4 py-2 border-b border-slate-100 overflow-x-auto no-scrollbar">
+          {STATUS_FILTERS.map((f) => {
+            const count = f.key === 'all'
+              ? conversations.filter((c) => !!c.status).length
+              : conversations.filter((c) => c.status === f.key).length;
+            return (
+              <button
+                key={f.key}
+                onClick={() => setStatusFilter(f.key)}
+                className={`shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full transition-colors ${
+                  statusFilter === f.key ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                {f.label}{f.key !== 'all' && count > 0 ? ` ${count}` : ''}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Conversation List */}
         <div className="flex-1 overflow-y-auto">
           {filteredConversations.length === 0 ? (
@@ -407,6 +563,11 @@ export const InboxPage = () => {
                       </span>
                     )}
                   </div>
+                  {convo.status && (
+                    <div className="mt-1">
+                      <StatusPill status={convo.status} assignedName={convo.assigned_staff_name} />
+                    </div>
+                  )}
                   {convo.jobModel && (
                     <p className="text-[10px] text-blue-500 font-bold mt-0.5 truncate">
                       📱 {convo.jobModel}
@@ -441,19 +602,63 @@ export const InboxPage = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-black text-sm text-slate-800 truncate">{selectedConversation.name}</h3>
-                <div className="flex items-center gap-2">
-                  {selectedConversation.phone && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(selectedConversation.customer_phone || selectedConversation.phone) && (
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Phone size={10} /> {selectedConversation.phone}
+                      <Phone size={10} /> {selectedConversation.customer_phone || selectedConversation.phone}
+                      {selectedConversation.customer_phone && (
+                        <span className={`font-black px-1 py-0.5 rounded ${selectedConversation.phone_source === 'chat' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {selectedConversation.phone_source === 'chat' ? 'แจ้งในแชท' : 'จากบัญชี'}
+                        </span>
+                      )}
                     </span>
                   )}
-                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${
-                    selectedConversation.type === 'customer' ? 'bg-emerald-100 text-emerald-600' : selectedConversation.type === 'rider' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600'
-                  }`}>
-                    {selectedConversation.type === 'customer' ? 'ลูกค้า' : selectedConversation.type === 'rider' ? 'ไรเดอร์' : 'ทีมงาน'}
-                  </span>
+                  <StatusPill status={selectedConversation.status} assignedName={selectedConversation.assigned_staff_name} />
+                  {selectedConversation.source_url && (
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 truncate max-w-[180px]">
+                      <Globe size={10} /> {selectedConversation.source_url}
+                    </span>
+                  )}
+                  {!selectedConversation.status && (
+                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${
+                      selectedConversation.type === 'customer' ? 'bg-emerald-100 text-emerald-600' : selectedConversation.type === 'rider' ? 'bg-orange-100 text-orange-600' : 'bg-purple-100 text-purple-600'
+                    }`}>
+                      {selectedConversation.type === 'customer' ? 'ลูกค้า' : selectedConversation.type === 'rider' ? 'ไรเดอร์' : 'ทีมงาน'}
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* Console actions (website chat conversations only) */}
+              {selectedConversation.status && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(selectedConversation.status === 'ai' || selectedConversation.status === 'waiting_human' ||
+                    (selectedConversation.status === 'human' && selectedConversation.assigned_staff_id !== staffId)) && (
+                    <button
+                      onClick={handleTakeover}
+                      className="hidden sm:flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                    >
+                      <UserCheck size={12} /> รับเรื่อง
+                    </button>
+                  )}
+                  {selectedConversation.status === 'human' && selectedConversation.assigned_staff_id === staffId && (
+                    <button
+                      onClick={handleReturnToAi}
+                      className="hidden sm:flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full border border-violet-300 text-violet-600 hover:bg-violet-50 transition-colors"
+                    >
+                      <RotateCcw size={12} /> คืนให้ AI
+                    </button>
+                  )}
+                  {selectedConversation.status !== 'resolved' && (
+                    <button
+                      onClick={handleResolve}
+                      className="hidden sm:flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-300 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                    >
+                      <CheckCircle2 size={12} /> ปิดจ็อบ
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Menu */}
               <div className="relative" ref={menuRef}>
@@ -465,6 +670,35 @@ export const InboxPage = () => {
                 </button>
                 {showMenu && (
                   <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl py-1 w-48 z-50">
+                    {selectedConversation.status && (
+                      <div className="sm:hidden border-b border-slate-100 pb-1 mb-1">
+                        {(selectedConversation.status === 'ai' || selectedConversation.status === 'waiting_human' ||
+                          (selectedConversation.status === 'human' && selectedConversation.assigned_staff_id !== staffId)) && (
+                          <button
+                            onClick={() => { setShowMenu(false); handleTakeover(); }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50 transition-colors"
+                          >
+                            <UserCheck size={14} /> รับเรื่อง
+                          </button>
+                        )}
+                        {selectedConversation.status === 'human' && selectedConversation.assigned_staff_id === staffId && (
+                          <button
+                            onClick={() => { setShowMenu(false); handleReturnToAi(); }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-violet-600 hover:bg-violet-50 transition-colors"
+                          >
+                            <RotateCcw size={14} /> คืนให้ AI
+                          </button>
+                        )}
+                        {selectedConversation.status !== 'resolved' && (
+                          <button
+                            onClick={() => { setShowMenu(false); handleResolve(); }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          >
+                            <CheckCircle2 size={14} /> ปิดจ็อบ
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <button
                       onClick={handleDeleteConvo}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
@@ -478,6 +712,20 @@ export const InboxPage = () => {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50">
+              {/* AI hand-off summary — lets staff reply without re-reading the thread */}
+              {selectedConversation.escalation?.summary && selectedConversation.status === 'waiting_human' && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-800">
+                    <p className="font-black mb-0.5">AI สรุปเรื่องส่งต่อ</p>
+                    <p>{selectedConversation.escalation.summary}</p>
+                    {(selectedConversation.matched_orders_count || 0) > 0 && (
+                      <p className="mt-1 font-bold">พบ {selectedConversation.matched_orders_count} ออเดอร์จากเบอร์ที่ลูกค้าแจ้ง (ยังไม่ยืนยันตัวตน)</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
                   <MessageSquare size={40} className="text-slate-200" />
@@ -487,17 +735,30 @@ export const InboxPage = () => {
               )}
 
               {messages.map((msg) => {
+                if (msg.senderRole === 'system' || msg.kind === 'system') {
+                  return (
+                    <div key={msg.id} className="flex justify-center">
+                      <p className="text-[11px] text-slate-500 bg-slate-200/70 rounded-full px-3.5 py-1 text-center max-w-[90%]">
+                        {msg.text}
+                      </p>
+                    </div>
+                  );
+                }
                 const isMe = msg.senderRole === 'admin';
+                const isAi = msg.senderRole === 'ai';
                 return (
                   <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] p-3 rounded-2xl text-sm ${
                       isMe
                         ? 'bg-blue-600 text-white rounded-tr-sm shadow-md shadow-blue-200'
-                        : 'bg-white text-slate-700 border border-slate-200 rounded-tl-sm shadow-sm'
+                        : isAi
+                          ? 'bg-violet-50 text-slate-700 border border-violet-200 rounded-tl-sm shadow-sm'
+                          : 'bg-white text-slate-700 border border-slate-200 rounded-tl-sm shadow-sm'
                     }`}>
                       {!isMe && (
-                        <p className="text-[10px] font-black text-blue-600 mb-1 uppercase">
-                          {msg.senderName}
+                        <p className={`text-[10px] font-black mb-1 uppercase flex items-center gap-1 ${isAi ? 'text-violet-600' : 'text-blue-600'}`}>
+                          {isAi && <Bot size={11} />}
+                          {isAi ? (msg.senderName || 'AI Assistant') : msg.senderName}
                         </p>
                       )}
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>

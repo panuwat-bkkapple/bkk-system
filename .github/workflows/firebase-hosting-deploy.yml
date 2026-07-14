@@ -89,6 +89,8 @@ jobs:
             printf 'CUSTOMER_TRACKING_BASE_URL=%s\n' "$CUSTOMER_TRACKING_BASE_URL"
             printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
             printf 'TELEGRAM_CHAT_ID=%s\n' "$TELEGRAM_CHAT_ID"
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+            printf 'CHAT_AI_MODEL=%s\n' "$CHAT_AI_MODEL"
           } > functions/.env
         env:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
@@ -101,6 +103,8 @@ jobs:
           CUSTOMER_TRACKING_BASE_URL: ${{ secrets.CUSTOMER_TRACKING_BASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CHAT_AI_MODEL: ${{ secrets.CHAT_AI_MODEL }}
 
       # Deploy via firebase-tools directly (pinned), authenticating with the
       # SAME service-account secret the Hosting job uses successfully, exposed
