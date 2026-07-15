@@ -1805,6 +1805,21 @@ function conditionGroupsOf(set) {
     }));
 }
 
+// True when a reply about a delisted (declined_model) device is NOT a clean
+// decline — it defers to staff / asks staff to verify a price, or never says
+// "งดรับซื้อ" at all. Those replies dead-end the customer on a model we simply
+// do not buy, so the handler overrides them with a deterministic decline.
+function shouldOverrideDeclinedReply(finalText) {
+  const t = String(finalText || "");
+  // Never clobber a reply that also makes a real offer for another (active)
+  // model — a mixed "iPhone 6 งดรับ / iPhone 15 รับ ราคา..." message.
+  if (/ราคาประเมิน|ราคารับซื้อ|\d[\d,]{2,}\s*บาท|ออกใบเสนอราคา/.test(t)) return false;
+  const defersToStaff =
+    /เจ้าหน้าที่[\s\S]{0,30}(ราคา|ตรวจสอบ|ยืนยัน|รับซื้อ)|ส่งเรื่องต่อ|ส่งต่อให้เจ้าหน้าที่|ขอเวลาตรวจสอบ|รอเจ้าหน้าที่/.test(t);
+  const declinesCleanly = /งดรับซื้อ|ยังไม่เปิดรับ|ยังไม่รับซื้อ|ไม่ได้รับซื้อ/.test(t);
+  return defersToStaff || !declinesCleanly;
+}
+
 // System-prompt block enabling the IMEI/serial device check in chat. Only
 // appended when the back-office toggle (settings/chat_widget/sickw.enabled)
 // is on, so a disabled integration never even tempts the model to offer it.
@@ -2135,6 +2150,11 @@ function registerChatAi({ dispatchAdminPush }) {
         // catch the model "narrating" a quote (fake price + 'press the button on
         // the card') without a real card existing.
         let quoteOk = false;
+        // Set when search_models reports a delisted model (isActive:false =
+        // "งดรับซื้อ"). Used by the decline guard below to stop the model from
+        // waffling ("ขอให้เจ้าหน้าที่ตรวจสอบราคา...") on a model we deliberately
+        // don't buy — that read as a dead-end and left the chat stuck in AI.
+        let declinedModel = null;
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const resp = await callClaudeResilient({ apiKey, model, system, messages, tools: TOOLS });
@@ -2179,6 +2199,9 @@ function registerChatAi({ dispatchAdminPush }) {
               }
               if (tu.name === "create_quote_card" && result && result.ok === true) {
                 quoteOk = true;
+              }
+              if (tu.name === "search_models" && result && result.declined_model) {
+                declinedModel = result.declined_model;
               }
               results.push({
                 type: "tool_result",
@@ -2235,6 +2258,28 @@ function registerChatAi({ dispatchAdminPush }) {
               reason: "cannot_answer",
               summary: `AI ตอบไม่ได้: "${text.slice(0, 120)}"`,
             });
+          }
+        }
+
+        // Delisted-model decline guard: search_models flagged the model as
+        // "งดรับซื้อ" (declined_model), but the reply is deferring to staff /
+        // asking staff to verify a price ("ขอให้เจ้าหน้าที่ตรวจสอบราคา",
+        // "ส่งเรื่องต่อเจ้าหน้าที่") instead of declining cleanly. That is the
+        // wrong path (rule 2.1: decline, do NOT escalate) and leaves the chat
+        // stuck. Replace with a deterministic polite decline.
+        if (declinedModel && finalText) {
+          if (shouldOverrideDeclinedReply(finalText)) {
+            console.warn(`[${tag}] ${convoId} declined model ${declinedModel} — overriding deferral with a clean decline`);
+            finalText =
+              `ต้องขออภัยด้วยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น ${declinedModel} แล้วครับ ` +
+              `หากมีรุ่นอื่นที่อยากขาย แจ้งชื่อรุ่นมาได้เลย เดี๋ยวผมประเมินราคาให้ทันทีครับ`;
+            // If the model wrongly escalated a delisted model, pull the
+            // conversation back to AI so it isn't parked waiting for staff on
+            // something we simply don't buy.
+            if (state.escalated) {
+              await db.ref(`inbox/${convoId}`).update({ status: "ai", escalation: null }).catch(() => {});
+              state.escalated = false;
+            }
           }
         }
 
@@ -2403,6 +2448,7 @@ module.exports = {
     buildLastQuoteBlock,
     buildLastSearchBlock,
     buildDeviceCheckBlock,
+    shouldOverrideDeclinedReply,
     verifyReply,
     callClaude,
     pickModel,
