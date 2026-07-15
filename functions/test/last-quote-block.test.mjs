@@ -50,6 +50,42 @@ check(
   block.includes("create_quote_card")
 );
 
+// With a condition-group catalog the block must list every option id so the
+// model can remap an amended answer ("มีกล่องครบ") without calling tools —
+// the fix for the "answers ชุดเดิม ยอดไม่ขยับ 18,500 สามใบ" bug.
+const withGroups = buildLastQuoteBlock(
+  {
+    model_id: "m15pm",
+    model_name: "iPhone 15 Pro Max",
+    variant_name: "256GB",
+    condition_type: "used",
+    answers: { g_battery: "o_bt3", g_accessory: "o_a2" },
+    estimated_price: 18500,
+    at: 1,
+  },
+  [
+    {
+      id: "g_accessory",
+      title: "อุปกรณ์เสริมที่นำมาด้วย",
+      options: [
+        { id: "o_a1", label: "ครบกล่อง (เครื่อง+สาย+กล่อง)" },
+        { id: "o_a2", label: "ขาดกล่อง (มีเครื่อง+สายชาร์จ)" },
+        { id: "o_a3", label: "เครื่องเปล่า (ไม่มีสาย/กล่อง)" },
+      ],
+    },
+  ],
+);
+check("catalog lists group id", withGroups.includes("g_accessory"));
+check("catalog lists the option the customer could switch to", withGroups.includes("o_a1=ครบกล่อง"));
+check(
+  "instructs to update the amended group, not resend identical answers",
+  withGroups.includes("ห้ามส่ง answers ชุดเดิมเป๊ะๆ"),
+);
+check(
+  "no-catalog call still renders the base block",
+  !block.includes("group_id | option_id") && block.includes("create_quote_card"),
+);
+
 // New-device quotes must surface has_receipt so a re-issue keeps the -500 rule.
 const newBlock = buildLastQuoteBlock({
   model_id: "m2",
