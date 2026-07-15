@@ -990,7 +990,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       case "create_quote_card": {
         const modelId = String(input.model_id || "");
         const wantVariant = String(input.variant_name || "").trim();
-        const answers = input.answers && typeof input.answers === "object" ? input.answers : {};
+        let answers = input.answers && typeof input.answers === "object" ? input.answers : {};
         const modelSnap = await db.ref(`models/${modelId}`).once("value");
         if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
         const model = modelSnap.val();
@@ -1007,6 +1007,31 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           };
         }
         const isNewDevice = String(input.condition_type || "") === "new";
+        // Amend mode — when a card for the SAME model+variant already exists in
+        // this conversation, incoming answers are a PATCH merged over the stored
+        // ones. This is the deterministic fix for the "เพิ่งเจอกล่อง → การ์ดลดเหลือ
+        // 15,000" bug: the model rebuilt the whole answer set and invented a
+        // body-dent the customer never mentioned. With the merge, untouched
+        // groups always keep the customer's original answers.
+        let prevQuote = null;
+        if (!isNewDevice) {
+          try {
+            const lqSnap = await db.ref(`inbox/${convoId}/ai_state/last_quote`).once("value");
+            const lq = lqSnap.val();
+            if (
+              lq &&
+              lq.model_id === modelId &&
+              String(lq.variant_name || "").trim().toLowerCase() ===
+                String(variant.name || wantVariant).trim().toLowerCase() &&
+              (lq.condition_type || "used") === "used" &&
+              lq.answers &&
+              typeof lq.answers === "object"
+            ) {
+              prevQuote = lq;
+              answers = { ...lq.answers, ...answers };
+            }
+          } catch { /* merge is best-effort; a fresh quote still works */ }
+        }
         const basePrice = isNewDevice
           ? Number(variant.newPrice || 0)
           : Number(variant.usedPrice || variant.price || 0);
@@ -1180,8 +1205,17 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           ok: true,
           estimated_price: estimated,
           assumed_groups: assumedGroups,
+          ...(prevQuote
+            ? {
+                amended_from_previous: true,
+                previous_estimate: Number(prevQuote.estimated_price) || 0,
+              }
+            : {}),
           note:
             "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ" +
+            (prevQuote
+              ? ` (ใบนี้อัปเดตจากใบเดิมยอด ${Number(prevQuote.estimated_price || 0).toLocaleString("th-TH")} บาท — บอกทิศทางยอดตามจริง: สูงขึ้น/ลดลง/เท่าเดิม ห้ามบอกสวนทางกับตัวเลข)`
+              : "") +
             (assumedGroups.length > 0
               ? " (ส่วนที่ไม่ได้ถามระบบประเมินตามสภาพปกติแล้ว บอกลูกค้าสั้นๆ ว่าถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง)"
               : ""),
@@ -1573,7 +1607,7 @@ function buildLastQuoteBlock(lastQuote, conditionGroups) {
           ),
         ]
       : []),
-    "กติกาอัปเดตใบเสนอราคา: ถ้าลูกค้าเพิ่ม/แก้ข้อมูลสภาพหลังการ์ดออกแล้ว (เช่น มีกล่องเพิ่ม เพิ่มรอย แบตต่ำกว่าที่บอก กล้อง/จอมีปัญหา) ห้ามตอบเลื่อนลอยว่า 'รอตรวจหน้างาน' เฉยๆ และห้ามถามซ้ำ — ให้เรียก create_quote_card ใหม่ทันทีด้วย model_id/variant_name ข้างบน โดยเอา answers เดิมมา 'แก้กลุ่มที่ลูกค้าเพิ่งพูดถึงให้ตรงกับตัวเลือกในรายการข้างบน' ก่อนส่ง (เช่น ลูกค้าบอก 'มีกล่องครบ' = เปลี่ยนกลุ่มอุปกรณ์เป็นตัวเลือกครบกล่อง) — ห้ามส่ง answers ชุดเดิมเป๊ะๆ ทั้งที่ลูกค้าเพิ่งแจ้งข้อมูลใหม่ เพราะยอดจะไม่ขยับและลูกค้าจะไม่เชื่อถือ. ถามเพิ่มได้เฉพาะเมื่อคำพูดลูกค้าคลุมเครือจน map ไม่ได้จริงๆ (ถามสั้นๆ 1 คำถาม). การ์ดใหม่จะใช้แทนใบเดิมโดยอัตโนมัติ และตอบสั้นๆ ชวนกดปุ่ม ไม่ต้องพิมพ์รายละเอียดการ์ดซ้ำในข้อความ",
+    "กติกาอัปเดตใบเสนอราคา: ถ้าลูกค้าเพิ่ม/แก้ข้อมูลสภาพหลังการ์ดออกแล้ว (เช่น มีกล่องเพิ่ม เพิ่มรอย แบตต่ำกว่าที่บอก) ห้ามตอบเลื่อนลอยว่า 'รอตรวจหน้างาน' เฉยๆ และห้ามถามซ้ำ — ให้เรียก create_quote_card ใหม่ทันทีด้วย model_id/variant_name ข้างบน โดยใน answers ใส่ 'เฉพาะกลุ่มที่ลูกค้าเพิ่งพูดถึงในข้อความล่าสุด' (ระบบจะรวมกับ answers เดิมข้างบนให้อัตโนมัติ กลุ่มที่ไม่ส่งมาจะคงคำตอบเดิมไว้) เช่น ลูกค้าบอก 'เจอกล่องแล้ว' = ส่งแค่กลุ่มอุปกรณ์เป็นตัวเลือกครบกล่อง กลุ่มเดียวจบ. ห้ามใส่กลุ่มที่ลูกค้าไม่ได้พูดถึงเด็ดขาด (ห้ามเดารอย/บุบ/สภาพใดๆ เพิ่มเอง — ใส่เกินคือบั๊กร้ายแรง ยอดจะผิดและลูกค้าจะไม่เชื่อถือ). ถามเพิ่มได้เฉพาะเมื่อคำพูดลูกค้าคลุมเครือจน map ไม่ได้จริงๆ (ถามสั้นๆ 1 คำถาม). การ์ดใหม่จะใช้แทนใบเดิมโดยอัตโนมัติ ผลลัพธ์จะบอก previous_estimate ไว้เทียบ — ตอบสั้นๆ บอกยอดใหม่และทิศทาง (ขึ้น/ลง/เท่าเดิม) ตามตัวเลขจริง แล้วชวนกดปุ่ม ไม่ต้องพิมพ์รายละเอียดการ์ดซ้ำ",
   ].join("\n");
 }
 

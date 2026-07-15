@@ -105,8 +105,12 @@ check("reject option is marked in the catalog", withReject.includes("o_c2=มี
 check("normal option is not marked", withReject.includes("o_c1=ปกติ / ใช้งานได้ |"));
 check("catalog lists the option the customer could switch to", withGroups.includes("o_a1=ครบกล่อง"));
 check(
-  "instructs to update the amended group, not resend identical answers",
-  withGroups.includes("ห้ามส่ง answers ชุดเดิมเป๊ะๆ"),
+  "instructs patch semantics — send only the groups the customer just mentioned",
+  withGroups.includes("เฉพาะกลุ่มที่ลูกค้าเพิ่งพูดถึง"),
+);
+check(
+  "forbids inventing groups the customer never mentioned",
+  withGroups.includes("ห้ามใส่กลุ่มที่ลูกค้าไม่ได้พูดถึง"),
 );
 check(
   "no-catalog call still renders the base block",
