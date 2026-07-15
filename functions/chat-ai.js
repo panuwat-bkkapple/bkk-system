@@ -1106,6 +1106,24 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           expires_at: nowQ + 48 * 60 * 60 * 1000,
         };
         await quoteRef.set({ uid: convoId, status: "offered", ...payload });
+        // Remember the ids behind this card. Claude history across turns is
+        // text-only (buildClaudeHistory), so without this the model has no way
+        // to know model_id/variant/answers on a later turn ("ไม่มีกล่องด้วย") —
+        // it would have to guess and create_quote_card would fail.
+        try {
+          await db.ref(`inbox/${convoId}/ai_state/last_quote`).set({
+            model_id: modelId,
+            model_name: model.name || "",
+            variant_name: String(variant.name || wantVariant),
+            condition_type: isNewDevice ? "new" : "used",
+            has_receipt: hasReceipt,
+            answers,
+            estimated_price: estimated,
+            at: nowQ,
+          });
+        } catch (err) {
+          console.warn(`[chatAi] ${convoId} last_quote save failed:`, err && err.message);
+        }
         console.log(
           `[chatAi] ${convoId} quote created ${quoteRef.key} ${payload.model_name} ${payload.variant_name} new=${isNewDevice} est=${estimated}`
         );
@@ -1469,6 +1487,27 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
 // History -> Claude messages
 // ---------------------------------------------------------------------------
 
+// System-prompt block carrying the ids behind the last card issued in this
+// conversation. Cross-turn history is text-only, so this is the ONLY way the
+// model can know model_id/variant/answers when the customer amends conditions
+// later ("ถ้ามีรอยนิดนึง", "ไม่มีกล่องด้วยครับ") — without it the model can only
+// guess ids and create_quote_card fails.
+function buildLastQuoteBlock(lastQuote) {
+  if (!lastQuote || !lastQuote.model_id || !lastQuote.variant_name) return "";
+  const answers =
+    lastQuote.answers && typeof lastQuote.answers === "object" ? lastQuote.answers : {};
+  return [
+    "",
+    "ใบเสนอราคาล่าสุดที่ออกการ์ดจริงแล้วในแชทนี้ (ข้อมูลภายใน ห้ามพูด id ให้ลูกค้าฟัง):",
+    `- model_id: ${lastQuote.model_id} (${lastQuote.model_name || ""})`,
+    `- variant_name: ${lastQuote.variant_name}`,
+    `- condition_type: ${lastQuote.condition_type || "used"}${lastQuote.condition_type === "new" ? ` (has_receipt: ${lastQuote.has_receipt === true})` : ""}`,
+    `- answers ที่ลูกค้าตอบแล้ว: ${JSON.stringify(answers)}`,
+    `- ยอดประเมินการ์ดล่าสุด: ${Number(lastQuote.estimated_price || 0).toLocaleString("th-TH")} บาท`,
+    "กติกาอัปเดตใบเสนอราคา: ถ้าลูกค้าเพิ่ม/แก้ข้อมูลสภาพหลังการ์ดออกแล้ว (เช่น เพิ่มรอย ไม่มีกล่อง แบตต่ำกว่าที่บอก) ห้ามตอบเลื่อนลอยว่า 'รอตรวจหน้างาน' เฉยๆ และห้ามถามซ้ำ — ให้เรียก create_quote_card ใหม่ทันทีด้วย model_id/variant_name ข้างบน + answers เดิมผสานเงื่อนไขใหม่ (ถ้ายังไม่รู้ option id ของเงื่อนไขใหม่ ให้เรียก get_condition_questions ก่อน) การ์ดใหม่จะใช้แทนใบเดิมโดยอัตโนมัติ",
+  ].join("\n");
+}
+
 function buildClaudeHistory(messageList) {
   const turns = [];
   for (const m of messageList) {
@@ -1682,7 +1721,9 @@ function registerChatAi({ dispatchAdminPush }) {
         ].join("\n");
 
         const kb = String(settings.kb || "").slice(0, 8000);
-        const system = buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours });
+        const system =
+          buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+          buildLastQuoteBlock(convo.ai_state && convo.ai_state.last_quote);
         const model = pickModel({
           settingsModel: settings.model || process.env.CHAT_AI_MODEL,
           text,
@@ -1816,26 +1857,52 @@ function registerChatAi({ dispatchAdminPush }) {
             finalText,
           );
         if (finalText && !state.escalated && !quoteOk && announcedQuote) {
-          console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing create_quote_card`);
+          console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing quote recovery`);
           try {
-            const forced = await callClaudeResilient({
-              apiKey, model, system, messages, tools: TOOLS,
-              toolChoice: { type: "tool", name: "create_quote_card" },
-            });
-            totalIn += (forced.usage && forced.usage.input_tokens) || 0;
-            totalOut += (forced.usage && forced.usage.output_tokens) || 0;
-            const fu = (forced.content || []).find(
-              (b) => b.type === "tool_use" && b.name === "create_quote_card",
-            );
-            if (fu) {
-              const r = await executeTool("create_quote_card", fu.input || {});
-              if (r && r.ok === true) {
-                quoteOk = true;
-                finalText = "ออกใบเสนอราคาให้แล้วครับ กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลได้เลยครับ";
+            // Recovery loop, not a one-shot forced call: the model may need
+            // search_models / get_condition_questions first (cross-turn history
+            // has no tool results, so ids can be unknown). tool_choice "any"
+            // forbids text-only replies; loop until a card exists or 3 rounds.
+            const recovery = [
+              ...messages,
+              {
+                role: "user",
+                content:
+                  "[คำสั่งระบบ ไม่ใช่ลูกค้า] ข้อความล่าสุดของคุณอ้างถึงใบเสนอราคา/ราคาประเมิน แต่ยังไม่มีการ์ดจริงในเทิร์นนี้ ให้ออกการ์ดตอนนี้: เรียก create_quote_card ด้วย model_id/variant_name จากบริบท (ดูบล็อก 'ใบเสนอราคาล่าสุด' ใน system ถ้ามี) รวม answers เดิมกับเงื่อนไขที่ลูกค้าเพิ่งบอกเพิ่ม ถ้าไม่รู้ model_id ให้เรียก search_models ก่อน ถ้าไม่รู้ option id ของเงื่อนไขใหม่ให้เรียก get_condition_questions ก่อน ห้ามตอบข้อความอย่างเดียว",
+              },
+            ];
+            for (let r = 0; r < 3 && !quoteOk && !state.escalated; r++) {
+              const forced = await callClaudeResilient({
+                apiKey, model, system, messages: recovery, tools: TOOLS,
+                toolChoice: { type: "any" },
+              });
+              totalIn += (forced.usage && forced.usage.input_tokens) || 0;
+              totalOut += (forced.usage && forced.usage.output_tokens) || 0;
+              const uses = (forced.content || []).filter((b) => b.type === "tool_use");
+              if (uses.length === 0) break;
+              recovery.push({ role: "assistant", content: forced.content });
+              const results = [];
+              for (const tu of uses) {
+                const result = await executeTool(tu.name, tu.input || {});
+                if (result && result.error) {
+                  console.log(`[${tag}] ${convoId} recovery tool ${tu.name} error=${result.error}`);
+                }
+                if (tu.name === "create_quote_card" && result && result.ok === true) {
+                  quoteOk = true;
+                }
+                results.push({
+                  type: "tool_result",
+                  tool_use_id: tu.id,
+                  content: JSON.stringify(result).slice(0, 6000),
+                });
               }
+              recovery.push({ role: "user", content: results });
+            }
+            if (quoteOk) {
+              finalText = "ออกใบเสนอราคาให้แล้วครับ กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลได้เลยครับ";
             }
           } catch (err) {
-            console.error(`[${tag}] forced quote failed:`, err && err.message);
+            console.error(`[${tag}] quote recovery failed:`, err && err.message);
           }
           if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
@@ -1915,6 +1982,7 @@ module.exports = {
   registerChatAi,
   __test: {
     buildSystemPrompt,
+    buildLastQuoteBlock,
     verifyReply,
     callClaude,
     pickModel,
