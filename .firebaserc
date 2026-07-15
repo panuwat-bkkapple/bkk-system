@@ -7,6 +7,9 @@
       "hosting": {
         "admin": [
           "bkk-apple-admin"
+        ],
+        "chat": [
+          "bkk-apple-chat"
         ]
       }
     }

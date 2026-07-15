@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>BKK Chat Console</title>
+
+    <!-- PWA — its own manifest so staff can install "BKK Chat" as a separate
+         app with its own icon/badge, independent of the admin PWA -->
+    <link rel="manifest" href="/chat-manifest.json" />
+    <meta name="theme-color" content="#144EE3" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BKK Chat" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/chat-main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          // Same unified push+caching service worker as the admin app —
+          // registered on this origin so chat push lands on the chat PWA.
+          navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>

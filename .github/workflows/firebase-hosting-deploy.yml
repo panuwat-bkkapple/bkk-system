@@ -59,6 +59,32 @@ jobs:
           projectId: bkk-apple-tradein
           target: admin
 
+      # ── BKK Chat (separate Hosting site, same build) ─────────────────────
+      # Both steps are continue-on-error so a chat-site problem can NEVER
+      # block the admin deploy above. First run needs the site to exist —
+      # this step creates it idempotently (errors like "already exists" are
+      # swallowed). If the service account lacks sites.create permission,
+      # create the site once by hand: Firebase console > Hosting > Add site
+      # > "bkk-apple-chat" (or change the id in .firebaserc + here).
+      - name: Ensure chat hosting site exists
+        continue-on-error: true
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx firebase-tools@13 hosting:sites:create bkk-apple-chat --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+
+      - name: Deploy Hosting (chat console)
+        continue-on-error: true
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          channelId: live
+          projectId: bkk-apple-tradein
+          target: chat
+
   deploy-functions:
     name: Deploy Cloud Functions
     runs-on: ubuntu-latest
