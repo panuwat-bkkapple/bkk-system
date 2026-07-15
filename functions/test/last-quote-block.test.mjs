@@ -13,7 +13,7 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
-const { buildLastQuoteBlock } = __test;
+const { buildLastQuoteBlock, buildLastSearchBlock } = __test;
 
 let failures = 0;
 const check = (label, cond) => {
@@ -129,6 +129,31 @@ const newBlock = buildLastQuoteBlock({
   at: 1,
 });
 check("new-device block carries has_receipt", newBlock.includes("has_receipt: false"));
+
+// last_search block — the pre-first-card blind spot ("iPhone 17" dead-end):
+// tool results vanish across turns, so the found model's id must ride the
+// system prompt or a later quote turn can only guess or escalate.
+check("no last_search -> empty string", buildLastSearchBlock(null) === "");
+check("empty results -> empty string", buildLastSearchBlock({ results: [] }) === "");
+const searchBlock = buildLastSearchBlock({
+  at: 1,
+  results: [
+    {
+      model_id: "ip17",
+      name: "iPhone 17",
+      variants: [
+        { name: "256GB", used_price: 22000, new_price: 24000 },
+        { name: "512GB", used_price: 25000, new_price: 28000 },
+      ],
+    },
+  ],
+});
+check("search block carries model_id", searchBlock.includes("ip17"));
+check("search block carries both prices", searchBlock.includes("22,000") && searchBlock.includes("24,000"));
+check(
+  "search block forbids escalating for lack of an id",
+  searchBlock.includes("ห้าม escalate ด้วยเหตุ 'ไม่รู้รุ่น/ไม่รู้ id'"),
+);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
