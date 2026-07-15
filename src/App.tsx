@@ -54,7 +54,6 @@ const SickwUsagePage = lazy(() => import('./pages/admin/SickwUsagePage'));
 const BranchManager = lazy(() => import('./pages/admin/BranchManager'));
 const ReviewManager = lazy(() => import('./pages/admin/ReviewManager'));
 const AppointmentCalendar = lazy(() => import('./pages/appointments/AppointmentCalendar').then(m => ({ default: m.AppointmentCalendar })));
-const InboxPage = lazy(() => import('./pages/inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').then(m => ({ default: m.MobileTicketsPage })));
 const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
 const MobileNotificationsPage = lazy(() => import('./pages/mobile/MobileNotificationsPage').then(m => ({ default: m.MobileNotificationsPage })));
@@ -97,7 +96,6 @@ export default function App() {
             <Route element={<MobileLayout currentUser={currentUser} onLogout={handleLogout} />}>
               <Route path="/mobile" element={<MobileTicketsPage />} />
               <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
-              <Route path="/mobile/inbox" element={<InboxPage />} />
               <Route path="/mobile/finance" element={<MobileFinancePage />} />
               <Route path="/mobile/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
               <Route path="/mobile/appointments" element={<AppointmentCalendar />} />
@@ -143,7 +141,6 @@ export default function App() {
               <Route path="/financial-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <FinancialReport /> : <Navigate to="/" replace />} />
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
-              <Route path="/inbox" element={<InboxPage />} />
               <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />
               <Route path="/appointments" element={<AppointmentCalendar />} />
               <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />

@@ -11,6 +11,7 @@ import {
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { NavButton } from './NavButton';
+import { CHAT_APP_URL } from '../../config/appLinks';
 import { NotificationCenter } from './NotificationCenter';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 import { useNewTicketAlert } from '../../hooks/useNewTicketAlert';
@@ -156,7 +157,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">CRM & After-Sales</p>}
               <div className="space-y-1">
                 <NavButton collapsed={isCollapsed} to="/crm" icon={<Users size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
-                <NavButton collapsed={isCollapsed} to="/inbox" icon={<Inbox size={18} />} label="Inbox (แชท)" badgeCount={unreadInbox} />
+                <NavButton collapsed={isCollapsed} to="" href={CHAT_APP_URL} icon={<Inbox size={18} />} label="Inbox (แชท) ↗" badgeCount={unreadInbox} />
                 <NavButton collapsed={isCollapsed} to="/chat-settings" icon={<MessageSquareQuote size={18} />} label="ตั้งค่า Chat Widget (AI)" />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />

@@ -109,9 +109,13 @@ export interface RefreshResult {
  * force=true (or a stored last_failure_at) deletes the cached token first so
  * iOS PWA mints a fresh web-push endpoint instead of handing back the dead one.
  */
+// `app` tags which PWA registered this token so the Cloud Function can route
+// customer-chat pushes to the chat app only (dispatchAdminPush audience). The
+// admin app and the standalone chat app (bkk-apple-chat) each register on
+// their own origin — separate localStorage deviceId, separate token entry.
 export async function refreshAdminPushToken(
   staffId: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; app?: 'admin' | 'chat' } = {},
 ): Promise<RefreshResult> {
   if (!('Notification' in window)) return { ok: false, reason: 'unsupported' };
 
@@ -162,6 +166,7 @@ export async function refreshAdminPushToken(
     await set(ref(db, `admin_fcm_tokens/${staffId}/${deviceId}`), {
       token,
       device: isMobile ? 'mobile' : 'desktop',
+      app: opts.app === 'chat' ? 'chat' : 'admin',
       updated_at: Date.now(),
     });
     console.log(`[Push] FCM token saved (${isMobile ? 'mobile' : 'desktop'})`);

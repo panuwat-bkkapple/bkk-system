@@ -45,7 +45,7 @@ function PushPermissionStrip({ staffId }: { staffId: string }) {
         onClick={async () => {
           if (busy) return;
           setBusy(true);
-          await refreshAdminPushToken(staffId, { force: false }).catch(() => {});
+          await refreshAdminPushToken(staffId, { force: false, app: 'chat' }).catch(() => {});
           setPerm('Notification' in window ? Notification.permission : 'unsupported');
           setBusy(false);
         }}
@@ -60,7 +60,7 @@ function PushPermissionStrip({ staffId }: { staffId: string }) {
 
 function ChatShell({ currentUser, onLogout }: { currentUser: StaffUser; onLogout: () => void }) {
   const staffId = currentUser?.uid || currentUser?.id || '';
-  useAdminPushNotifications(staffId || null);
+  useAdminPushNotifications(staffId || null, 'chat');
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F5F5F7]">
       <header

@@ -19,7 +19,10 @@ const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
  * Cloud Function stamped last_failure_at) before re-registering, so an iOS PWA
  * that lost its web-push subscription recovers on the next visit.
  */
-export const useAdminPushNotifications = (staffId: string | null) => {
+export const useAdminPushNotifications = (
+  staffId: string | null,
+  app: 'admin' | 'chat' = 'admin',
+) => {
   useEffect(() => {
     if (!staffId) return;
 
@@ -30,7 +33,7 @@ export const useAdminPushNotifications = (staffId: string | null) => {
     const refresh = async () => {
       if (cancelled) return;
       try {
-        await refreshAdminPushToken(staffId);
+        await refreshAdminPushToken(staffId, { app });
       } catch (err) {
         console.error('[Push] token refresh failed:', err);
       }
@@ -112,5 +115,5 @@ export const useAdminPushNotifications = (staffId: string | null) => {
       if (intervalId) clearInterval(intervalId);
       if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
     };
-  }, [staffId]);
+  }, [staffId, app]);
 };

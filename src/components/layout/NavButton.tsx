@@ -6,16 +6,19 @@ interface NavButtonProps {
   label: string;
   collapsed: boolean;
   badgeCount?: number;
+  // When set, the button opens this URL in a new tab instead of routing
+  // in-app (used for the chat console, which lives on its own origin).
+  href?: string;
 }
 
-export const NavButton = ({ to, icon, label, collapsed, badgeCount }: NavButtonProps) => {
+export const NavButton = ({ to, icon, label, collapsed, badgeCount, href }: NavButtonProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const active = location.pathname === to;
+  const active = !href && location.pathname === to;
 
   return (
     <button
-      onClick={() => navigate(to)}
+      onClick={() => (href ? window.open(href, '_blank', 'noopener') : navigate(to))}
       title={collapsed ? label : ''}
       className={`w-full flex items-center transition-all duration-200 rounded-xl font-bold ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-gray-500 hover:bg-gray-50'} ${collapsed ? 'justify-center p-3 relative' : 'gap-3 px-5 py-3 text-sm'}`}
     >

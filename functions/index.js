@@ -27,7 +27,14 @@ initializeApp();
 // the cleanup-on-failure rule the same everywhere.
 // =============================================================================
 
-async function dispatchAdminPush(message, tag) {
+// audience routes a push to the right app now that the chat console lives on
+// its own origin/PWA (bkk-apple-chat) separate from the admin app:
+//   'admin' (default) → admin-app tokens (app:'admin') + legacy untagged tokens
+//   'chat'            → chat-app tokens only (app:'chat')
+// Each device registers admin_fcm_tokens/{staffId}/{deviceId} with an `app`
+// tag (see src/utils/adminPush.ts). This is what stops customer-chat pushes
+// from double-buzzing on both PWAs.
+async function dispatchAdminPush(message, tag, audience = "admin") {
   const db = getDatabase();
   const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
   if (!tokensSnap.exists()) {
@@ -40,10 +47,12 @@ async function dispatchAdminPush(message, tag) {
   tokensSnap.forEach((staffSnap) => {
     staffSnap.forEach((tokenSnap) => {
       const data = tokenSnap.val();
-      if (data && data.token) {
-        tokens.push(data.token);
-        tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
-      }
+      if (!data || !data.token) return;
+      const tokenApp = data.app === "chat" ? "chat" : "admin"; // untagged legacy = admin
+      const wants = audience === "chat" ? "chat" : "admin";
+      if (tokenApp !== wants) return;
+      tokens.push(data.token);
+      tokenMeta.push({ staffId: staffSnap.key, tokenKey: tokenSnap.key });
     });
   });
 
@@ -4964,7 +4973,11 @@ exports.cleanupDiagnosticSessions = diagnostics.cleanupDiagnosticSessions;
 // dead-token policy as every other admin push.
 // =============================================================================
 const { registerChatAi } = require("./chat-ai");
-const chatAi = registerChatAi({ dispatchAdminPush });
+// Every push chat-ai emits is a customer chat-console notification (inbox/) →
+// route them to the chat app only, so the admin PWA no longer double-buzzes.
+const chatAi = registerChatAi({
+  dispatchAdminPush: (message, tag) => dispatchAdminPush(message, tag, "chat"),
+});
 exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
 // Read-only audit of the AI's built-in knowledge for the chat-settings page.
 exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
