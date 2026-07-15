@@ -1,11 +1,10 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { BrowserRouter as Router, Routes, Route, useNavigate, Navigate, useParams, useLocation } from 'react-router-dom';
 import { LoginScreen } from './components/auth/LoginScreen';
+import { useStaffSession } from './hooks/useStaffSession';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { auth, db } from './api/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { ref, get, push, set } from 'firebase/database';
 import { Toaster } from 'react-hot-toast';
 
 // --- Static Imports (needed immediately) ---
@@ -65,69 +64,9 @@ const MobileFinancePage = lazy(() => import('./pages/mobile/MobileFinancePage').
 // Main App Router
 // ==========================================
 export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<any>(() => {
-    const saved = sessionStorage.getItem('bkk_session');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser && !currentUser) {
-        try {
-          const staffSnap = await get(ref(db, 'staff'));
-          let role = 'STAFF';
-          let staffName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin';
-
-          if (staffSnap.exists()) {
-            const staffData = staffSnap.val();
-            const matched = Object.values(staffData).find(
-              (s: any) => s.email === firebaseUser.email && s.status === 'ACTIVE'
-            ) as any;
-            if (matched) {
-              role = matched.role || 'STAFF';
-              staffName = matched.name || staffName;
-            }
-          } else {
-            // Database is empty - bootstrap first user as CEO
-            const newStaffRef = push(ref(db, 'staff'));
-            await set(newStaffRef, {
-              name: staffName,
-              email: firebaseUser.email,
-              role: 'CEO',
-              status: 'ACTIVE',
-              createdAt: new Date().toISOString(),
-            });
-            role = 'CEO';
-          }
-
-          const autoUser = {
-            uid: firebaseUser.uid,
-            name: staffName,
-            email: firebaseUser.email || '',
-            role,
-          };
-          sessionStorage.setItem('bkk_session', JSON.stringify(autoUser));
-          setCurrentUser(autoUser);
-        } catch (err) {
-          // Auto-login role fetch failed
-        }
-      }
-
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleLogin = (staffUser: any) => {
-    sessionStorage.setItem('bkk_session', JSON.stringify(staffUser));
-    setCurrentUser(staffUser);
-  };
-
-  const handleLogout = () => {
-    sessionStorage.removeItem('bkk_session');
-    setCurrentUser(null);
-  };
+  // Session flow shared verbatim with the standalone chat app (ChatApp) —
+  // see src/hooks/useStaffSession.ts
+  const { loading, currentUser, handleLogin, handleLogout } = useStaffSession();
 
   if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-400">LOADING BKK SYSTEM...</div>;
 

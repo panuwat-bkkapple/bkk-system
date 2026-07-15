@@ -11,6 +11,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // Two entry pages, one build: index.html = admin app, chat.html = the
+      // standalone chat console (served from its own Hosting site/target).
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        chat: path.resolve(__dirname, 'chat.html'),
+      },
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
