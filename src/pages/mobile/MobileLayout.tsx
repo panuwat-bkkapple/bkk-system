@@ -2,9 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
-import { CHAT_APP_URL } from '../../config/appLinks';
 import {
-  ClipboardList, Inbox, Bell, User, LogOut,
+  ClipboardList, Bell, User, LogOut,
   ChevronLeft, Banknote, DollarSign, CalendarDays
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
@@ -21,7 +20,6 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   // Register FCM token for push notifications (lock screen + background)
   useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
   const [newTicketCount, setNewTicketCount] = useState(0);
-  const [inboxUnread, setInboxUnread] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
@@ -70,21 +68,6 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
     return () => unsub();
   }, []);
 
-  // Count inbox unread
-  useEffect(() => {
-    const inboxRef = ref(db, 'inbox');
-    const unsub = onValue(inboxRef, (snap) => {
-      if (!snap.exists()) { setInboxUnread(0); return; }
-      let count = 0;
-      snap.forEach((child) => {
-        const c = child.val();
-        if (c.unreadCount > 0) count += c.unreadCount;
-      });
-      setInboxUnread(count);
-    });
-    return () => unsub();
-  }, []);
-
   const isDetailPage = location.pathname.match(/^\/mobile\/job\/.+/);
 
   const isManager = currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER';
@@ -96,7 +79,6 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       { key: '/mobile/pricing', label: 'ราคา', icon: DollarSign, badge: 0 },
       { key: '/mobile/appointments', label: 'นัดหมาย', icon: CalendarDays, badge: 0 },
     ] : []),
-    { key: 'chat-ext', label: 'แชท ↗', icon: Inbox, badge: inboxUnread, external: CHAT_APP_URL },
     { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: notifCount },
   ];
 
@@ -159,7 +141,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
             return (
               <button
                 key={tab.key}
-                onClick={() => ('external' in tab && tab.external ? window.open(tab.external, '_blank', 'noopener') : navigate(tab.key))}
+                onClick={() => navigate(tab.key)}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-2 relative transition-colors ${
                   isActive ? 'text-blue-600' : 'text-slate-400'
                 }`}
