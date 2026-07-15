@@ -968,9 +968,31 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             note: `ร้าน "งดรับซื้อ" รุ่น ${scored[0].name} แล้ว (เป็นนโยบายที่ประกาศบนหน้าเว็บ badge "งดรับซื้อ") — แจ้งลูกค้าสุภาพตรงๆ ว่าตอนนี้เรางดรับซื้อรุ่นนี้ ยังไม่เปิดรับ. ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา และไม่ต้อง escalate. เสนอช่วยประเมินรุ่นอื่นแทนได้. escalate เฉพาะเมื่อลูกค้ายืนยันจริงจังว่าอยากให้ตรวจสอบเป็นกรณีพิเศษเท่านั้น`,
           };
         }
+        const buyable = scored.filter((m) => m.is_active !== false);
+        // Remember the ids of what was just found. Cross-turn history is
+        // text-only, so BEFORE the first card exists (no last_quote yet) a
+        // later "ออกการ์ดสิ" turn has no model_id in context — the exact gap
+        // behind the "iPhone 17 ตอบครบแล้วโดน escalate" dead-end. The handler
+        // injects this back into the system prompt every turn.
+        try {
+          await db.ref(`inbox/${convoId}/ai_state/last_search`).set({
+            at: Date.now(),
+            results: buyable.slice(0, 3).map((m) => ({
+              model_id: m.id,
+              name: m.name,
+              variants: (m.variants || []).map((v) => ({
+                name: v.name,
+                used_price: Number(v.used_price) || 0,
+                new_price: Number(v.new_price) || 0,
+              })),
+            })),
+          });
+        } catch (err) {
+          console.warn(`[chatAi] ${convoId} last_search save failed:`, err && err.message);
+        }
         return {
           // Never surface a delisted model as buyable alongside active ones.
-          results: scored.filter((m) => m.is_active !== false),
+          results: buyable,
           note: "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ",
         };
       }
@@ -1579,6 +1601,28 @@ function conditionGroupsOf(set) {
     }));
 }
 
+// System-prompt block carrying the ids of the models found earlier in this
+// conversation (ai_state/last_search). Before the first card exists there is
+// no last_quote, and tool results do not survive across turns — without this
+// block a later quote turn has no model_id and the model either re-searches
+// (fine) or gives up and escalates (the "iPhone 17" dead-end).
+function buildLastSearchBlock(lastSearch) {
+  const results = lastSearch && Array.isArray(lastSearch.results) ? lastSearch.results : [];
+  const rows = results.filter((r) => r && r.model_id && r.name);
+  if (rows.length === 0) return "";
+  return [
+    "",
+    "รุ่นที่ค้นพบแล้วในแชทนี้ (ข้อมูลภายใน ห้ามพูด id ให้ลูกค้าฟัง — ใช้ตอนเรียก get_condition_questions/create_quote_card ได้ทันที ไม่ต้อง search_models ซ้ำ):",
+    ...rows.map(
+      (r) =>
+        `- model_id: ${r.model_id} = ${r.name} | ความจุ: ${(r.variants || [])
+          .map((v) => `${v.name} (มือสอง ${Number(v.used_price || 0).toLocaleString("th-TH")}${Number(v.new_price) > 0 ? ` / มือ1 ${Number(v.new_price).toLocaleString("th-TH")}` : ""})`)
+          .join(", ")}`,
+    ),
+    "กติกา: เมื่อลูกค้าตอบสภาพครบพอออกการ์ดแล้ว ห้าม escalate ด้วยเหตุ 'ไม่รู้รุ่น/ไม่รู้ id' เด็ดขาด — id อยู่ตรงนี้แล้ว ให้เรียก create_quote_card เลย (ขาดเรื่องศูนย์ไทย/นอก ให้ default ศูนย์ไทยตามข้อ 6.9)",
+  ].join("\n");
+}
+
 // System-prompt block carrying the ids behind the last card issued in this
 // conversation. Cross-turn history is text-only, so this is the ONLY way the
 // model can know model_id/variant/answers when the customer amends conditions
@@ -1846,6 +1890,7 @@ function registerChatAi({ dispatchAdminPush }) {
         }
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+          buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
         const model = pickModel({
           settingsModel: settings.model || process.env.CHAT_AI_MODEL,
@@ -2134,6 +2179,7 @@ module.exports = {
   __test: {
     buildSystemPrompt,
     buildLastQuoteBlock,
+    buildLastSearchBlock,
     verifyReply,
     callClaude,
     pickModel,
