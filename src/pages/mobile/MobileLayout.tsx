@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { CHAT_APP_URL } from '../../config/appLinks';
 import {
   ClipboardList, Inbox, Bell, User, LogOut,
   ChevronLeft, Banknote, DollarSign, CalendarDays
@@ -95,7 +96,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       { key: '/mobile/pricing', label: 'ราคา', icon: DollarSign, badge: 0 },
       { key: '/mobile/appointments', label: 'นัดหมาย', icon: CalendarDays, badge: 0 },
     ] : []),
-    { key: '/mobile/inbox', label: 'แชท', icon: Inbox, badge: inboxUnread },
+    { key: 'chat-ext', label: 'แชท ↗', icon: Inbox, badge: inboxUnread, external: CHAT_APP_URL },
     { key: '/mobile/notifications', label: 'แจ้งเตือน', icon: Bell, badge: notifCount },
   ];
 
@@ -158,7 +159,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
             return (
               <button
                 key={tab.key}
-                onClick={() => navigate(tab.key)}
+                onClick={() => ('external' in tab && tab.external ? window.open(tab.external, '_blank', 'noopener') : navigate(tab.key))}
                 className={`flex-1 flex flex-col items-center gap-0.5 py-2 relative transition-colors ${
                   isActive ? 'text-blue-600' : 'text-slate-400'
                 }`}
