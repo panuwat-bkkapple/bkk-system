@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
-  X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2
+  X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
+  Copy, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
@@ -15,6 +16,13 @@ const DeductionTableView = lazy(() => import('../components/pricing/DeductionTab
 
 const VIEW_MODE_KEY = 'bkk.deduction.viewMode';
 type ViewMode = 'card' | 'table';
+
+// Monotonic id generator for duplicated groups/options. Date.now() alone
+// collides when cloning a whole group (many options minted in the same tick),
+// which would produce duplicate React keys and duplicate `groupId::optionId`
+// rowKeys in the table view. The counter guarantees uniqueness within a session.
+let _uidSeq = 0;
+const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(_uidSeq++).toString(36)}`;
 
 interface EngineSettingsModalProps {
   conditionSets: any[];
@@ -108,6 +116,43 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   const handleRemoveOption = (groupIndex: number, optionIndex: number) => {
     const newGroups = [...editingSet.groups];
     newGroups[groupIndex].options.splice(optionIndex, 1);
+    setEditingSet({ ...editingSet, groups: newGroups });
+  }
+
+  // Duplicate a whole assessment group (card) — deep-clone so the copy never
+  // shares references with the source, and re-mint every id (group + all its
+  // options) so keys/rowKeys stay unique. Inserted right after the original.
+  const handleDuplicateGroup = (groupIndex: number) => {
+    const src = editingSet.groups[groupIndex];
+    const clone = {
+      ...JSON.parse(JSON.stringify(src)),
+      id: uid('g'),
+      title: `${src.title || 'หัวข้อประเมิน'} (สำเนา)`,
+      options: (src.options || []).map((o: any) => ({ ...JSON.parse(JSON.stringify(o)), id: uid('o') })),
+    };
+    const newGroups = [...editingSet.groups];
+    newGroups.splice(groupIndex + 1, 0, clone);
+    setEditingSet({ ...editingSet, groups: newGroups });
+  }
+
+  // Duplicate a single condition option (rule) within a group, inserted right
+  // after the original. Deep-clone + new id so it is fully independent.
+  const handleDuplicateOption = (groupIndex: number, optionIndex: number) => {
+    const newGroups = [...editingSet.groups];
+    const options = [...newGroups[groupIndex].options];
+    const clone = { ...JSON.parse(JSON.stringify(options[optionIndex])), id: uid('o') };
+    options.splice(optionIndex + 1, 0, clone);
+    newGroups[groupIndex] = { ...newGroups[groupIndex], options };
+    setEditingSet({ ...editingSet, groups: newGroups });
+  }
+
+  // Swap a group card with its neighbour (dir -1 = up, +1 = down). Order is
+  // meaningful: it drives the sequence customers see on the assessment flow.
+  const handleMoveGroup = (groupIndex: number, dir: -1 | 1) => {
+    const target = groupIndex + dir;
+    if (target < 0 || target >= editingSet.groups.length) return;
+    const newGroups = [...editingSet.groups];
+    [newGroups[groupIndex], newGroups[target]] = [newGroups[target], newGroups[groupIndex]];
     setEditingSet({ ...editingSet, groups: newGroups });
   }
 
@@ -313,9 +358,20 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           );
                         })()}
                         <input type="text" placeholder="ชื่อหัวข้อ (เช่น สภาพตัวเครื่อง)" value={g.title} onChange={(e) => { const n = [...editingSet.groups]; n[gi].title = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="font-black text-xl bg-transparent border-none outline-none w-full flex-1 mr-4 focus:text-indigo-600 transition-colors" />
-                        <button onClick={() => handleRemoveGroup(gi)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition opacity-0 group-hover/group:opacity-100">
-                          <Trash2 size={20} />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/group:opacity-100 transition-opacity">
+                          <button onClick={() => handleMoveGroup(gi, -1)} disabled={gi === 0} title="เลื่อนขึ้น" className="text-slate-300 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition disabled:opacity-30 disabled:hover:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+                            <ChevronUp size={20} />
+                          </button>
+                          <button onClick={() => handleMoveGroup(gi, 1)} disabled={gi === (editingSet.groups?.length || 0) - 1} title="เลื่อนลง" className="text-slate-300 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition disabled:opacity-30 disabled:hover:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+                            <ChevronDown size={20} />
+                          </button>
+                          <button onClick={() => handleDuplicateGroup(gi)} title="ทำสำเนาหัวข้อนี้" className="text-slate-300 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition">
+                            <Copy size={18} />
+                          </button>
+                          <button onClick={() => handleRemoveGroup(gi)} title="ลบหัวข้อนี้" className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition">
+                            <Trash2 size={20} />
+                          </button>
+                        </div>
                       </div>
                       {/* Group description — shown to customers under the topic heading */}
                       <input
@@ -418,8 +474,11 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-300 pointer-events-none">%</span>
                               </div>
                             </div>
-                            <div className="col-span-1 flex justify-center">
-                              <button onClick={() => handleRemoveOption(gi, oi)} className="text-slate-300 hover:text-red-500 p-2 rounded-lg opacity-0 group-hover/option:opacity-100 transition">
+                            <div className="col-span-1 flex flex-col items-center justify-center gap-0.5 opacity-0 group-hover/option:opacity-100 transition">
+                              <button onClick={() => handleDuplicateOption(gi, oi)} title="ทำสำเนาตัวเลือกนี้" className="text-slate-300 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition">
+                                <Copy size={15} />
+                              </button>
+                              <button onClick={() => handleRemoveOption(gi, oi)} title="ลบตัวเลือกนี้" className="text-slate-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition">
                                 <Trash2 size={16} />
                               </button>
                             </div>
