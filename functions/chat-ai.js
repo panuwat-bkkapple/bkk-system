@@ -983,20 +983,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         if (!setId) return { error: "no_condition_set", note: "รุ่นนี้ยังไม่มีชุดคำถามประเมิน ให้ส่งต่อเจ้าหน้าที่" };
         const setSnap = await db.ref(`settings/condition_sets/${setId}`).once("value");
         if (!setSnap.exists()) return { error: "no_condition_set" };
-        const set = setSnap.val();
-        const groupsRaw = Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {});
-        const groups = groupsRaw
-          .filter((g) => g && (g.title || g.name))
-          .slice(0, 12)
-          .map((g) => ({
-            id: g.id,
-            title: g.title || g.name,
-            options: (Array.isArray(g.options) ? g.options : Object.values(g.options || {}))
-              .filter((o) => o && (o.label || o.name))
-              .slice(0, 12)
-              .map((o) => ({ id: o.id, label: o.label || o.name })),
-          }));
-        return { model_id: modelId, groups };
+        return { model_id: modelId, groups: conditionGroupsOf(setSnap.val()) };
       }
 
       case "create_quote_card": {
@@ -1506,12 +1493,30 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
 // History -> Claude messages
 // ---------------------------------------------------------------------------
 
+// Question groups + option ids of a condition set, in prompt/tool shape.
+// Single mapper shared by get_condition_questions AND the last-quote system
+// block, so the ids the model sees are always the same either way.
+function conditionGroupsOf(set) {
+  const groupsRaw = Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {});
+  return groupsRaw
+    .filter((g) => g && (g.title || g.name))
+    .slice(0, 12)
+    .map((g) => ({
+      id: g.id,
+      title: g.title || g.name,
+      options: (Array.isArray(g.options) ? g.options : Object.values(g.options || {}))
+        .filter((o) => o && (o.label || o.name))
+        .slice(0, 12)
+        .map((o) => ({ id: o.id, label: o.label || o.name })),
+    }));
+}
+
 // System-prompt block carrying the ids behind the last card issued in this
 // conversation. Cross-turn history is text-only, so this is the ONLY way the
 // model can know model_id/variant/answers when the customer amends conditions
 // later ("ถ้ามีรอยนิดนึง", "ไม่มีกล่องด้วยครับ") — without it the model can only
 // guess ids and create_quote_card fails.
-function buildLastQuoteBlock(lastQuote) {
+function buildLastQuoteBlock(lastQuote, conditionGroups) {
   if (!lastQuote || !lastQuote.model_id || !lastQuote.variant_name) return "";
   const answers =
     lastQuote.answers && typeof lastQuote.answers === "object" ? lastQuote.answers : {};
@@ -1523,7 +1528,18 @@ function buildLastQuoteBlock(lastQuote) {
     `- condition_type: ${lastQuote.condition_type || "used"}${lastQuote.condition_type === "new" ? ` (has_receipt: ${lastQuote.has_receipt === true})` : ""}`,
     `- answers ที่ลูกค้าตอบแล้ว: ${JSON.stringify(answers)}`,
     `- ยอดประเมินการ์ดล่าสุด: ${Number(lastQuote.estimated_price || 0).toLocaleString("th-TH")} บาท`,
-    "กติกาอัปเดตใบเสนอราคา: ถ้าลูกค้าเพิ่ม/แก้ข้อมูลสภาพหลังการ์ดออกแล้ว (เช่น เพิ่มรอย ไม่มีกล่อง แบตต่ำกว่าที่บอก) ห้ามตอบเลื่อนลอยว่า 'รอตรวจหน้างาน' เฉยๆ และห้ามถามซ้ำ — ให้เรียก create_quote_card ใหม่ทันทีด้วย model_id/variant_name ข้างบน + answers เดิมผสานเงื่อนไขใหม่ (ถ้ายังไม่รู้ option id ของเงื่อนไขใหม่ ให้เรียก get_condition_questions ก่อน) การ์ดใหม่จะใช้แทนใบเดิมโดยอัตโนมัติ",
+    ...(Array.isArray(conditionGroups) && conditionGroups.length > 0
+      ? [
+          "ตัวเลือกสภาพทั้งหมดของรุ่นนี้ (group_id | option_id = ความหมาย) — ใช้เลือก option ตอนออกการ์ดใหม่ได้ทันที ไม่ต้องเรียก get_condition_questions ซ้ำ:",
+          ...conditionGroups.map(
+            (g) =>
+              `- ${g.id} "${g.title}": ${(g.options || [])
+                .map((o) => `${o.id}=${o.label}`)
+                .join(" | ")}`,
+          ),
+        ]
+      : []),
+    "กติกาอัปเดตใบเสนอราคา: ถ้าลูกค้าเพิ่ม/แก้ข้อมูลสภาพหลังการ์ดออกแล้ว (เช่น มีกล่องเพิ่ม เพิ่มรอย แบตต่ำกว่าที่บอก กล้อง/จอมีปัญหา) ห้ามตอบเลื่อนลอยว่า 'รอตรวจหน้างาน' เฉยๆ และห้ามถามซ้ำ — ให้เรียก create_quote_card ใหม่ทันทีด้วย model_id/variant_name ข้างบน โดยเอา answers เดิมมา 'แก้กลุ่มที่ลูกค้าเพิ่งพูดถึงให้ตรงกับตัวเลือกในรายการข้างบน' ก่อนส่ง (เช่น ลูกค้าบอก 'มีกล่องครบ' = เปลี่ยนกลุ่มอุปกรณ์เป็นตัวเลือกครบกล่อง) — ห้ามส่ง answers ชุดเดิมเป๊ะๆ ทั้งที่ลูกค้าเพิ่งแจ้งข้อมูลใหม่ เพราะยอดจะไม่ขยับและลูกค้าจะไม่เชื่อถือ. ถามเพิ่มได้เฉพาะเมื่อคำพูดลูกค้าคลุมเครือจน map ไม่ได้จริงๆ (ถามสั้นๆ 1 คำถาม). การ์ดใหม่จะใช้แทนใบเดิมโดยอัตโนมัติ และตอบสั้นๆ ชวนกดปุ่ม ไม่ต้องพิมพ์รายละเอียดการ์ดซ้ำในข้อความ",
   ].join("\n");
 }
 
@@ -1740,9 +1756,29 @@ function registerChatAi({ dispatchAdminPush }) {
         ].join("\n");
 
         const kb = String(settings.kb || "").slice(0, 8000);
+        // The last-quote block also carries the model's full option-id catalog
+        // so a follow-up like "มีกล่องครบนะ" can be re-quoted without the model
+        // having to re-discover ids via tools (the step it skipped in the
+        // "answers ชุดเดิม ยอดไม่ขยับ" bug). Best-effort — block still works
+        // without the catalog.
+        const lastQuote = convo.ai_state && convo.ai_state.last_quote;
+        let lastQuoteGroups = null;
+        if (lastQuote && lastQuote.model_id) {
+          try {
+            const mSnap = await db.ref(`models/${lastQuote.model_id}`).once("value");
+            const m = mSnap.exists() ? mSnap.val() : null;
+            const setId = m && (m.conditionSetId || m.engineId);
+            if (setId) {
+              const sSnap = await db.ref(`settings/condition_sets/${setId}`).once("value");
+              if (sSnap.exists()) lastQuoteGroups = conditionGroupsOf(sSnap.val());
+            }
+          } catch (err) {
+            console.warn(`[${tag}] ${convoId} last_quote groups fetch failed:`, err && err.message);
+          }
+        }
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
-          buildLastQuoteBlock(convo.ai_state && convo.ai_state.last_quote);
+          buildLastQuoteBlock(lastQuote, lastQuoteGroups);
         const model = pickModel({
           settingsModel: settings.model || process.env.CHAT_AI_MODEL,
           text,
