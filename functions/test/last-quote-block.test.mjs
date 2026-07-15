@@ -173,16 +173,12 @@ check(
   shouldOverrideDeclinedReply("ขอให้เจ้าหน้าที่ตรวจสอบราคา iPhone 6 ให้ครับ เพราะรุ่นนี้เก่ามากแล้ว") === true,
 );
 check(
-  "send-to-staff -> override",
-  shouldOverrideDeclinedReply("ผมจะส่งเรื่องต่อเจ้าหน้าที่เพื่อยืนยันว่ารับซื้อหรือไม่ครับ") === true,
+  "reply suggesting other models (some also งดรับซื้อ) -> override",
+  shouldOverrideDeclinedReply("ตอนนี้เรางดรับซื้อ iPhone 7 Plus แล้วครับ แต่ถ้ามี iPhone รุ่นอื่น เช่น iPhone 8, X, 11, 12, 13 ก็บอกมาได้เลย") === true,
 );
 check(
-  "no decline wording -> override",
-  shouldOverrideDeclinedReply("iPhone X เป็นรุ่นเก่านะครับ") === true,
-);
-check(
-  "clean decline -> keep",
-  shouldOverrideDeclinedReply("ต้องขออภัยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น iPhone 6 แล้วครับ มีรุ่นอื่นไหมครับ") === false,
+  "bare decline (no offer) -> normalise to deterministic",
+  shouldOverrideDeclinedReply("ต้องขออภัยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น iPhone 6 แล้วครับ") === true,
 );
 check(
   "mixed reply offering an active model's price -> keep (do not clobber the offer)",

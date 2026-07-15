@@ -1805,19 +1805,19 @@ function conditionGroupsOf(set) {
     }));
 }
 
-// True when a reply about a delisted (declined_model) device is NOT a clean
-// decline — it defers to staff / asks staff to verify a price, or never says
-// "งดรับซื้อ" at all. Those replies dead-end the customer on a model we simply
-// do not buy, so the handler overrides them with a deterministic decline.
+// For a delisted (declined_model) device the reply must be a clean decline
+// with NO model suggestions. The model tends to either defer to staff (a
+// dead-end) or list other iPhones from memory as "sellable" — some of which
+// are ALSO งดรับซื้อ (e.g. it declined iPhone 7 Plus then suggested iPhone 8 /
+// X, both isActive:false). Since the model can't reliably tell which models
+// are active, we normalise to a deterministic decline that just invites the
+// customer to name a model. The ONLY reply we keep as-is is one that already
+// makes a concrete price/quote offer for another model — a mixed
+// "iPhone 6 งดรับ / iPhone 15 รับ ราคา..." answer we must not clobber.
 function shouldOverrideDeclinedReply(finalText) {
   const t = String(finalText || "");
-  // Never clobber a reply that also makes a real offer for another (active)
-  // model — a mixed "iPhone 6 งดรับ / iPhone 15 รับ ราคา..." message.
   if (/ราคาประเมิน|ราคารับซื้อ|\d[\d,]{2,}\s*บาท|ออกใบเสนอราคา/.test(t)) return false;
-  const defersToStaff =
-    /เจ้าหน้าที่[\s\S]{0,30}(ราคา|ตรวจสอบ|ยืนยัน|รับซื้อ)|ส่งเรื่องต่อ|ส่งต่อให้เจ้าหน้าที่|ขอเวลาตรวจสอบ|รอเจ้าหน้าที่/.test(t);
-  const declinesCleanly = /งดรับซื้อ|ยังไม่เปิดรับ|ยังไม่รับซื้อ|ไม่ได้รับซื้อ/.test(t);
-  return defersToStaff || !declinesCleanly;
+  return true;
 }
 
 // System-prompt block enabling the IMEI/serial device check in chat. Only
@@ -2262,14 +2262,14 @@ function registerChatAi({ dispatchAdminPush }) {
         }
 
         // Delisted-model decline guard: search_models flagged the model as
-        // "งดรับซื้อ" (declined_model), but the reply is deferring to staff /
-        // asking staff to verify a price ("ขอให้เจ้าหน้าที่ตรวจสอบราคา",
-        // "ส่งเรื่องต่อเจ้าหน้าที่") instead of declining cleanly. That is the
-        // wrong path (rule 2.1: decline, do NOT escalate) and leaves the chat
-        // stuck. Replace with a deterministic polite decline.
+        // "งดรับซื้อ" (declined_model). Normalise the reply to a deterministic
+        // decline — the model otherwise either defers to staff (a dead-end,
+        // rule 2.1 says decline not escalate) or lists other iPhones from
+        // memory as "sellable", some of which are ALSO งดรับซื้อ. The only
+        // reply kept as-is is one already offering another model's price.
         if (declinedModel && finalText) {
           if (shouldOverrideDeclinedReply(finalText)) {
-            console.warn(`[${tag}] ${convoId} declined model ${declinedModel} — overriding deferral with a clean decline`);
+            console.warn(`[${tag}] ${convoId} declined model ${declinedModel} — normalising to a deterministic decline`);
             finalText =
               `ต้องขออภัยด้วยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น ${declinedModel} แล้วครับ ` +
               `หากมีรุ่นอื่นที่อยากขาย แจ้งชื่อรุ่นมาได้เลย เดี๋ยวผมประเมินราคาให้ทันทีครับ`;
