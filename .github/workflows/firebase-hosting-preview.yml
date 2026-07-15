@@ -30,6 +30,47 @@ jobs:
 
       - run: npm ci
 
+      # Prune old preview channels BEFORE creating a new one. Firebase Hosting
+      # caps preview channels at ~50 per site; past that the deploy step below
+      # fails with HTTP 429 RESOURCE_EXHAUSTED (this bit PR #328). The `expires:
+      # 1d` further down shortens each channel's life, but a burst of PRs can
+      # still pile up faster than they expire, and expired-but-not-yet-GC'd
+      # channels keep counting toward the cap. Keeping only the newest N (by
+      # expiry) hard-bounds the count so we never approach the quota.
+      # Best-effort: cleanup must never fail the build (continue-on-error).
+      - name: Prune stale preview channels
+        continue-on-error: true
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npm install -g firebase-tools@13 >/dev/null 2>&1
+          KEEP=20
+          # `--json` wraps output as { status, result }. result is either an
+          # array of channels or { channels: [...] } depending on CLI version,
+          # so coalesce both. Sort by expireTime descending (newest kept),
+          # delete everything past the newest KEEP. Channels with no expiry
+          # (never auto-expire) sort last and get pruned first — intended.
+          channels=$(firebase hosting:channel:list \
+            --site bkk-apple-admin --project bkk-apple-tradein --json 2>/dev/null || echo '{}')
+          echo "$channels" \
+            | jq -r --argjson keep "$KEEP" '
+                (.result.channels // .result // [])
+                | map(select(.name != null))
+                | sort_by(.expireTime) | reverse
+                | .[$keep:]
+                | .[].name' \
+            | sed 's#.*/channels/##' \
+            | while read -r ch; do
+                [ -z "$ch" ] && continue
+                [ "$ch" = "live" ] && continue
+                echo "Deleting stale preview channel: $ch"
+                firebase hosting:channel:delete "$ch" \
+                  --site bkk-apple-admin --project bkk-apple-tradein --force >/dev/null 2>&1 || true
+              done
+          rm -f "$RUNNER_TEMP/sa.json"
+
       - name: Build project
         run: npm run build
         env:
