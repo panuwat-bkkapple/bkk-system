@@ -67,7 +67,6 @@ interface BuiltinKnowledge {
   faq: { c: string; q: string; a: string }[];
   models: { auto_strong: string; auto_trivial: string; verifier: string };
 }
-
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
   preview_enabled: false,
