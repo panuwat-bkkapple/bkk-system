@@ -13,7 +13,14 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
-const { buildLastQuoteBlock, buildLastSearchBlock, buildDeviceCheckBlock, shouldOverrideDeclinedReply } = __test;
+const {
+  buildLastQuoteBlock,
+  buildLastSearchBlock,
+  buildDeviceCheckBlock,
+  shouldOverrideDeclinedReply,
+  batteryOptionRange,
+  pickBatteryOptionId,
+} = __test;
 
 let failures = 0;
 const check = (label, cond) => {
@@ -184,6 +191,43 @@ check(
   "mixed reply offering an active model's price -> keep (do not clobber the offer)",
   shouldOverrideDeclinedReply("iPhone 6 เก่าไปครับ แต่ iPhone 15 รับซื้อ ราคาประเมิน 15,000 บาทครับ") === false,
 );
+
+// Battery bucketing guard: the model kept rounding a stated battery % UP to a
+// better bracket (79% -> "81-85%", 70% -> "90% ขึ้นไป"), inflating the quote.
+// The server now buckets deterministically from battery_pct. These are the real
+// labels on iphone_standard_set: o_bt1 "90% ขึ้นไป", o_bt2 "85-89%",
+// o_bt3 "80-84%", o_bt4 "แบตต่ำกว่า 80% (Service)".
+const BAT_OPTS = [
+  { id: "o_bt1", label: "90% ขึ้นไป" },
+  { id: "o_bt2", label: "85-89%" },
+  { id: "o_bt3", label: "80-84%" },
+  { id: "o_bt4", label: "แบตต่ำกว่า 80% (Service)" },
+];
+check("range: '90% ขึ้นไป' -> [90, Infinity)", (() => {
+  const r = batteryOptionRange("90% ขึ้นไป");
+  return r.min === 90 && r.max === Infinity;
+})());
+check("range: '85-89%' -> [85, 89]", (() => {
+  const r = batteryOptionRange("85-89%");
+  return r.min === 85 && r.max === 89;
+})());
+check("range: 'แบตต่ำกว่า 80% (Service)' -> [0, 79]", (() => {
+  const r = batteryOptionRange("แบตต่ำกว่า 80% (Service)");
+  return r.min === 0 && r.max === 79;
+})());
+check("range: no digits -> null", batteryOptionRange("ไม่ทราบ") === null);
+// The exact bug the user reported: customer said 79%, card recorded "81%-85%".
+check("79% -> o_bt4 (below 80, Service)", pickBatteryOptionId(BAT_OPTS, 79) === "o_bt4");
+check("82% -> o_bt3 (80-84)", pickBatteryOptionId(BAT_OPTS, 82) === "o_bt3");
+check("80% boundary -> o_bt3 (80-84)", pickBatteryOptionId(BAT_OPTS, 80) === "o_bt3");
+check("89% boundary -> o_bt2 (85-89)", pickBatteryOptionId(BAT_OPTS, 89) === "o_bt2");
+check("87% -> o_bt2 (85-89)", pickBatteryOptionId(BAT_OPTS, 87) === "o_bt2");
+check("95% -> o_bt1 (90+)", pickBatteryOptionId(BAT_OPTS, 95) === "o_bt1");
+check("100% -> o_bt1 (90+)", pickBatteryOptionId(BAT_OPTS, 100) === "o_bt1");
+check("70% -> o_bt4 (below 80, not rounded up)", pickBatteryOptionId(BAT_OPTS, 70) === "o_bt4");
+check("invalid pct -> null", pickBatteryOptionId(BAT_OPTS, NaN) === null);
+check("undefined pct -> null", pickBatteryOptionId(BAT_OPTS, undefined) === null);
+check("no matching bucket -> null", pickBatteryOptionId([{ id: "x", label: "50-60%" }], 79) === null);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

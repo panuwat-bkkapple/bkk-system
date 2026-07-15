@@ -127,6 +127,33 @@ function resolveOptionDeduction(opt, basePrice, liquidityFactor) {
   return Math.round(tierDeduction(opt, basePrice) * lf);
 }
 
+// Parse a battery option label into a % range so a stated battery health can be
+// bucketed deterministically instead of leaving it to the model — which kept
+// rounding UP to a better bracket (79% -> "81-85%", 70% -> "90% ขึ้นไป"),
+// inflating the quote. Labels seen: "90% ขึ้นไป", "85-89%", "80-84%",
+// "แบตต่ำกว่า 80% (Service)".
+function batteryOptionRange(label) {
+  const s = String(label || "");
+  const nums = (s.match(/\d+/g) || []).map(Number);
+  if (nums.length === 0) return null;
+  if (/ขึ้นไป|มากกว่า|>=|ขึ้น/.test(s)) return { min: nums[0], max: Infinity };
+  if (/ต่ำกว่า|น้อยกว่า|below|under|</i.test(s)) return { min: 0, max: nums[0] - 1 };
+  if (nums.length >= 2) return { min: Math.min(nums[0], nums[1]), max: Math.max(nums[0], nums[1]) };
+  return { min: nums[0], max: nums[0] };
+}
+
+// The option id whose battery range contains pct, or null if none/invalid.
+function pickBatteryOptionId(options, pct) {
+  const p = Number(pct);
+  if (!Number.isFinite(p)) return null;
+  for (const o of options || []) {
+    if (!o || o.id == null) continue;
+    const r = batteryOptionRange(o.label || o.name);
+    if (r && p >= r.min && p <= r.max) return o.id;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // พื้นที่บริการ Pickup + โปรโมชั่น — mirror จาก bkk-frontend-next
 //   - zone pricing: functions/src/deliveryZones.ts (สูตรเดียวกับ validateAndCreateOrder
@@ -636,6 +663,10 @@ const TOOLS = [
           type: "object",
           description: "เฉพาะมือสอง: แผนที่ groupId -> optionId ที่ลูกค้าตอบจริง จากชุดคำถาม get_condition_questions",
         },
+        battery_pct: {
+          type: "number",
+          description: "เฉพาะมือสอง: สุขภาพแบตเตอรี่เป็นตัวเลข % ที่ลูกค้าบอก (เช่น 79) — ส่งเลขนี้มาแทนการเดาช่วงแบตเอง ระบบจะจับช่วงแบตให้ถูกต้องอัตโนมัติ (เช่น 79 = ต่ำกว่า 80%). ถ้าลูกค้าไม่ได้บอก % ไม่ต้องส่ง",
+        },
       },
       required: ["model_id", "variant_name"],
     },
@@ -807,6 +838,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `6.9 เครื่องศูนย์ไทย vs เครื่องนอก: ถามในชุดคำถามแรกตามข้อ 6(4). ลูกค้าตอบ "ศูนย์ไทย/TH" → option TH, "นอก/หิ้ว/US/JP/EU" → option ต่างประเทศ, "จีน/เกาหลี/ฮ่องกง" → option จีน-เกาหลี-ฮ่องกง. ถ้าถามแล้วลูกค้ายังไม่ตอบเรื่องนี้ ห้าม dead-end/escalate เพราะเรื่องนี้เด็ดขาด — ให้ default เป็นศูนย์ไทยแล้วออกการ์ดเลย (ราคาสุดท้ายยืนยันตอนตรวจจริง)`,
     `6.10 เครื่องที่ฟังก์ชันมีปัญหา (จอ/ทัชไม่ติด กล้องเสีย/มีจุดดำ ลำโพงเงียบ ชาร์จไม่เข้า ซิม/Wi-Fi ใช้ไม่ได้ ฯลฯ): จะรับหรือไม่รับ "ตัดสินจาก flag ของตัวเลือกในระบบเท่านั้น ห้ามตัดสินจากชื่ออาการเอง" — ตัวเลือกที่ติดป้าย [ร้านปฏิเสธรับซื้อ]/reject ใน get_condition_questions หรือ create_quote_card ตอบ declined_defect = แจ้งอย่างสุภาพว่าขณะนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติ จึงยังไม่สามารถรับซื้อได้ ห้ามออกการ์ด ห้ามบอกว่า "หักราคาแล้วรับได้" และไม่ต้อง escalate (เว้นแต่ลูกค้ายืนยันขอคุยกับเจ้าหน้าที่) เสนอช่วยประเมินเครื่องอื่นแทน. แต่ถ้าตัวเลือกอาการนั้น "ไม่ติดป้าย reject" (ร้านตั้งเป็นหักเงินตามสภาพ) = รับซื้อปกติ ใส่ option นั้นใน answers แล้วออกการ์ดตามขั้นตอนเดิม. อาการที่เป็นแค่สภาพภายนอก (รอย บุบ แบตเสื่อม) ไม่เข้าข่ายข้อนี้ ประเมินตามปกติเสมอ`,
     `6.4.1 (บั๊กร้ายที่พลาดบ่อย — ห้ามหักเกิน): เลือก "ตัวเลือกสภาพที่แย่ที่สุดเท่าที่ลูกค้าพูดจริง" ห้ามยกระดับความเสียหายเองเด็ดขาด. ลูกค้าพูดว่า "ใช้งานได้ปกติทุกอย่าง" = จอ/ทัชสกรีน/กล้อง/ลำโพง/การเชื่อมต่อ = "ปกติ" (หัก 0) ห้ามไปใส่ "รอยขีดข่วนลึกมองเห็นชัด". ลูกค้าพูด "รอยตกที่มุมนิดหน่อย" = รอยเล็กน้อยที่มุมเท่านั้น ห้ามตีเป็นบุบหนัก. ลูกค้าไม่ได้บอก % แบต ห้ามใส่ "81%-85%" เอง (เว้นว่างให้ระบบถือว่าปกติ). ลูกค้าไม่ได้บอกเรื่องกล่อง/อุปกรณ์ ห้ามใส่ "มีเฉพาะตัวเครื่อง". การใส่สภาพแย่เกินจริงทำให้ราคาต่ำเกิน ลูกค้าไม่ขาย และเสียความเชื่อใจ`,
+    `6.4.2 แบตเตอรี่ (สำคัญ — เคยจับช่วงผิดบ่อย): ถ้าลูกค้าบอก % แบตเป็นตัวเลข (เช่น 79%, 82%, 90%) ให้ส่งตัวเลขนั้นใน field battery_pct ของ create_quote_card ตรงๆ "ห้ามเลือกช่วงแบตใน answers เอง" — ระบบจะจับช่วงให้ถูก (79 = ต่ำกว่า 80%, 82 = 80-84%). ห้ามปัดขึ้นเป็นช่วงที่ดีกว่าที่ลูกค้าบอกเด็ดขาด. ถ้าลูกค้าไม่ได้บอกตัวเลข % ไม่ต้องส่ง battery_pct และไม่ต้องเดาช่วงแบต`,
     `6.5 เครื่องมือ 1: เข้าเส้นมือ 1 เฉพาะเมื่อลูกค้ายืนยันชัดว่า "ยังไม่แกะซีล/เครื่องศูนย์ปิดผนึก/ไม่เคยเปิดเครื่อง/ยังไม่ activate" เท่านั้น เมื่อเข้าเส้นนี้แล้วห้ามถามคำถามสภาพมือสองเด็ดขาด (รอย แบต การใช้งาน ประวัติซ่อม ไม่เกี่ยวกับเครื่องใหม่) ให้เช็คจาก search_models ว่ารุ่นนั้นมี new_price ไหม แล้วถามแค่ 2 อย่าง: ยืนยันว่ายังไม่แกะซีล และมีใบเสร็จ/หลักฐานการซื้อไหม จากนั้นเรียก create_quote_card ด้วย condition_type "new" + has_receipt ทันที — ถ้ารุ่นนั้นไม่มี new_price ให้แจ้งอย่างสุภาพว่าขอให้เจ้าหน้าที่ยืนยันราคามือ 1 หรือเสนอประเมินแบบมือสอง`,
     `6.5.1 ห้าม "เดา" ว่าเป็นมือ 1 จากสัญญาณอ้อมเด็ดขาด: "ประกันเหลือ X เดือน/วัน" หรือ "ประกันศูนย์เหลือ..." = ประกันเดินแล้ว = เครื่องถูก activate/เปิดใช้ไปแล้ว = มือสอง (แม้แบต 100% ประกันเหลือเยอะ หรือสภาพนางฟ้าก็ตาม). แบต % สูง / ประกันเหลือ / "สภาพดีมาก" ไม่ได้แปลว่ามือ 1. ถ้าลูกค้าไม่ได้พูดคำว่า "ยังไม่แกะซีล/ไม่เคยเปิดเครื่อง" ตรงๆ ให้ถือเป็นมือสองและถามสภาพตามข้อ 6 ตามปกติ. ถ้ากำกวมให้ถามก่อนว่า "เครื่องยังไม่แกะซีลเลย หรือแกะใช้งานแล้วครับ" แล้วค่อยตัดสิน — ห้ามเสนอราคามือ 1 ให้เครื่องที่ประกันเดินแล้ว`,
     `6.6 กติกาใบเสร็จของมือ 1 (ห้ามอธิบายผิด): ไม่มีใบเสร็จ = หัก 500 บาทจากราคามือ 1 เท่านั้น ยังเป็นการขายมือ 1 อยู่ ไม่ใช่ตกไปใช้ราคามือสอง`,
@@ -1303,6 +1335,20 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             const adSnap = await db.ref("settings/store/accept_defective_devices").once("value");
             acceptDefective = adSnap.val() === true;
           } catch { /* fail closed */ }
+          // Deterministic battery bucketing: when the customer stated a %,
+          // pick the battery option from the number, overriding whatever the
+          // model guessed (it kept choosing a higher/better bracket).
+          const batteryPct = Number(input.battery_pct);
+          if (Number.isFinite(batteryPct)) {
+            const bg = qGroups.find((g) => /แบต|battery/i.test(g.title || g.name || ""));
+            if (bg) {
+              const bgOptions = (Array.isArray(bg.options) ? bg.options : Object.values(bg.options || {})).filter(
+                (o) => o && o.id != null
+              );
+              const pickedId = pickBatteryOptionId(bgOptions, batteryPct);
+              if (pickedId != null) answers = { ...answers, [bg.id]: pickedId };
+            }
+          }
           for (const group of qGroups) {
             const options = (Array.isArray(group.options) ? group.options : Object.values(group.options || {})).filter(
               (o) => o && o.id != null
@@ -2449,6 +2495,8 @@ module.exports = {
     buildLastSearchBlock,
     buildDeviceCheckBlock,
     shouldOverrideDeclinedReply,
+    batteryOptionRange,
+    pickBatteryOptionId,
     verifyReply,
     callClaude,
     pickModel,
