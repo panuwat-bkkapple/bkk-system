@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ref, onValue, push, update, serverTimestamp, remove, increment } from 'firebase/database';
+import { ref, onValue, push, update, serverTimestamp, remove, increment, query, orderByChild, equalTo, limitToLast, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
@@ -61,6 +61,30 @@ interface Message {
   imageUrl?: string;
   timestamp: number;
   read: boolean;
+}
+
+// Customer-context column (คอลัมน์ที่ 3) — profile mirror of users/{uid}
+// (written by the customer website: checkout address form / order submit /
+// Google sign-in) + the customer's latest jobs. Read-only context for staff.
+interface CustomerProfile {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  id_address?: string;
+}
+
+interface RecentJob {
+  id: string;
+  ref_no?: string;
+  model?: string;
+  status?: string;
+  net_payout?: number;
+  created_at?: number;
+  cust_name?: string;
+  cust_phone?: string;
+  cust_email?: string;
+  cust_address?: string;
 }
 
 type TabType = 'all' | 'customer' | 'rider' | 'team';
@@ -127,6 +151,9 @@ export const InboxPage = () => {
   const [showQuoteComposer, setShowQuoteComposer] = useState(false);
   const [showContactEdit, setShowContactEdit] = useState(false);
   const [showCustomerTimeline, setShowCustomerTimeline] = useState(false);
+  // คอลัมน์ที่ 3 — customer context ของแชทเว็บ (key = uid ลูกค้า)
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +284,62 @@ export const InboxPage = () => {
   }, [conversations, activeTab, statusFilter, searchQuery]);
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
+
+  // ---- Customer context (คอลัมน์ที่ 3): users/{uid} profile + latest jobs ----
+  // เฉพาะแชทจากเว็บ (มี status = key เป็น uid ลูกค้า) — แชท legacy ไม่มี uid
+  const isWebsiteChat = !!selectedConversation?.status;
+  useEffect(() => {
+    setProfile(null);
+    setRecentJobs([]);
+    if (!selectedConvo || !isWebsiteChat) return;
+    const unsub = onValue(
+      ref(db, `users/${selectedConvo}`),
+      (snap) => {
+        const u = snap.val();
+        setProfile(
+          u
+            ? { name: u.name, phone: u.phone, email: u.email, address: u.address, id_address: u.id_address }
+            : null
+        );
+      },
+      () => setProfile(null)
+    );
+    get(query(ref(db, 'jobs'), orderByChild('uid'), equalTo(selectedConvo), limitToLast(3)))
+      .then((snap) => {
+        const arr: RecentJob[] = [];
+        snap.forEach((j) => {
+          const v = j.val() || {};
+          arr.push({
+            id: j.key as string,
+            ref_no: v.ref_no,
+            model: v.model,
+            status: v.status,
+            net_payout: v.net_payout,
+            created_at: v.created_at,
+            cust_name: v.cust_name,
+            cust_phone: v.cust_phone,
+            cust_email: v.cust_email,
+            cust_address: v.cust_address,
+          });
+        });
+        setRecentJobs(arr.reverse());
+      })
+      .catch(() => setRecentJobs([]));
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConvo, isWebsiteChat]);
+
+  // ข้อมูลติดต่อแบบ merged — ลำดับความน่าเชื่อ: ที่แอดมิน/ระบบเขียนไว้บนแชท >
+  // โปรไฟล์บัญชี (ลูกค้ากรอกเองที่ checkout) > ออเดอร์ล่าสุด
+  const latestJob = recentJobs[0];
+  const contact = {
+    name:
+      selectedConversation?.customer_name || profile?.name || latestJob?.cust_name || selectedConversation?.name || '',
+    phone: selectedConversation?.customer_phone || profile?.phone || latestJob?.cust_phone || '',
+    email: selectedConversation?.customer_email || profile?.email || latestJob?.cust_email || '',
+    address:
+      selectedConversation?.customer_address || profile?.address || latestJob?.cust_address || profile?.id_address || '',
+  };
 
   // บทสนทนาอื่นของลูกค้าคนเดียวกัน (join ด้วยเบอร์ normalize 0xxxxxxxx)
   // — inbox ผูกด้วย uid คนละ session/uid จึงเป็นคนละแชท แต่เบอร์เดียวกัน = คนเดียวกัน
@@ -1017,6 +1100,106 @@ export const InboxPage = () => {
         )}
       </div>
 
+      {/* ===== คอลัมน์ที่ 3: Customer Context (จอกว้าง xl ขึ้นไป, เฉพาะแชทเว็บ) ===== */}
+      {selectedConvo && selectedConversation && isWebsiteChat && (
+        <div className="hidden xl:flex w-[300px] shrink-0 flex-col bg-white border-l border-slate-200 overflow-y-auto">
+          {/* ข้อมูลติดต่อ */}
+          <div className="p-4 border-b border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">ข้อมูลลูกค้า</h4>
+              <button
+                onClick={() => setShowContactEdit(true)}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+              >
+                <Pencil size={11} /> แก้ไข
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              <div className="flex items-start gap-2.5">
+                <User size={14} className="text-slate-300 mt-0.5 shrink-0" />
+                <p className="text-sm font-bold text-slate-800 leading-snug">{contact.name || '—'}</p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Phone size={14} className="text-slate-300 mt-0.5 shrink-0" />
+                <p className="text-sm text-slate-600">{contact.phone || <span className="text-slate-300">ยังไม่มีเบอร์</span>}</p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Mail size={14} className="text-slate-300 mt-0.5 shrink-0" />
+                <p className="text-sm text-slate-600 break-all">{contact.email || <span className="text-slate-300">ยังไม่มีอีเมล</span>}</p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <MapPin size={14} className="text-slate-300 mt-0.5 shrink-0" />
+                <p className="text-xs text-slate-500 leading-relaxed">{contact.address || <span className="text-slate-300">ยังไม่มีที่อยู่</span>}</p>
+              </div>
+            </div>
+            {(profile || latestJob) && (
+              <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+                เติมอัตโนมัติจาก{profile ? ' บัญชีลูกค้า (กรอกที่หน้า checkout)' : ''}
+                {profile && latestJob ? ' และ' : ''}
+                {latestJob ? ' ออเดอร์ล่าสุด' : ''}
+              </p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="p-4 border-b border-slate-100 space-y-2">
+            <button
+              onClick={() => setShowQuoteComposer(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              <FileText size={15} /> ออกใบเสนอราคา
+            </button>
+            {contact.phone && (
+              <button
+                onClick={() => setShowCustomerTimeline(true)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors"
+              >
+                <History size={15} /> ประวัติลูกค้า 360
+              </button>
+            )}
+          </div>
+
+          {/* Escalation */}
+          {selectedConversation.escalation?.summary && (
+            <div className="p-4 border-b border-slate-100">
+              <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={12} className="text-amber-500" /> AI ส่งต่อเพราะ
+              </h4>
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
+                {selectedConversation.escalation.summary}
+              </p>
+            </div>
+          )}
+
+          {/* ออเดอร์ล่าสุด */}
+          <div className="p-4">
+            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+              ออเดอร์ล่าสุด{recentJobs.length > 0 ? ` (${recentJobs.length})` : ''}
+            </h4>
+            {recentJobs.length === 0 ? (
+              <p className="text-xs text-slate-300">ยังไม่มีออเดอร์ของบัญชีนี้</p>
+            ) : (
+              <div className="space-y-2">
+                {recentJobs.map((j) => (
+                  <div key={j.id} className="border border-slate-100 rounded-xl px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-black text-slate-700 truncate">{j.ref_no || j.id.slice(-6).toUpperCase()}</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 whitespace-nowrap">
+                        {j.status || '-'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">{j.model || '-'}</p>
+                    {typeof j.net_payout === 'number' && j.net_payout > 0 && (
+                      <p className="text-[11px] font-bold text-emerald-600 mt-0.5">{j.net_payout.toLocaleString('th-TH')} บาท</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ===== New Chat Modal ===== */}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onCreate={handleCreateConvo} />}
 
@@ -1024,11 +1207,13 @@ export const InboxPage = () => {
       {showContactEdit && selectedConvo && selectedConversation && (
         <ContactEditModal
           convoId={selectedConvo}
+          // Prefill จากข้อมูล merged (แชท > โปรไฟล์บัญชีที่ลูกค้ากรอกหน้า checkout >
+          // ออเดอร์ล่าสุด) — แอดมินไม่ต้องกรอกซ้ำจากศูนย์
           initial={{
-            customer_name: selectedConversation.customer_name || selectedConversation.name,
-            customer_phone: selectedConversation.customer_phone,
-            customer_email: selectedConversation.customer_email,
-            customer_address: selectedConversation.customer_address,
+            customer_name: contact.name,
+            customer_phone: contact.phone,
+            customer_email: contact.email,
+            customer_address: contact.address,
           }}
           onClose={() => setShowContactEdit(false)}
         />
