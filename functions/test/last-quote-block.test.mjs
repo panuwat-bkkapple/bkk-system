@@ -13,7 +13,7 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
-const { buildLastQuoteBlock, buildLastSearchBlock, buildDeviceCheckBlock } = __test;
+const { buildLastQuoteBlock, buildLastSearchBlock, buildDeviceCheckBlock, shouldOverrideDeclinedReply } = __test;
 
 let failures = 0;
 const check = (label, cond) => {
@@ -163,6 +163,31 @@ const dcBlock = buildDeviceCheckBlock(true);
 check("device check on -> tool named", dcBlock.includes("check_device_by_serial"));
 check("device check on -> locked means decline, no card", dcBlock.includes("locked=true") && dcBlock.includes("ห้ามออกการ์ด"));
 check("device check on -> forbids invented serials", dcBlock.includes("ห้ามแต่งเลขหรือเดาเลข"));
+
+// Delisted-model decline guard: a reply that defers to staff or never says
+// "งดรับซื้อ" must be overridden; a clean decline must be left alone. Guards
+// the "iPhone 6 / iPhone X → escalate dead-end" bug (data has them as
+// isActive:false, so search_models returns declined_model).
+check(
+  "defer-to-staff about price -> override",
+  shouldOverrideDeclinedReply("ขอให้เจ้าหน้าที่ตรวจสอบราคา iPhone 6 ให้ครับ เพราะรุ่นนี้เก่ามากแล้ว") === true,
+);
+check(
+  "send-to-staff -> override",
+  shouldOverrideDeclinedReply("ผมจะส่งเรื่องต่อเจ้าหน้าที่เพื่อยืนยันว่ารับซื้อหรือไม่ครับ") === true,
+);
+check(
+  "no decline wording -> override",
+  shouldOverrideDeclinedReply("iPhone X เป็นรุ่นเก่านะครับ") === true,
+);
+check(
+  "clean decline -> keep",
+  shouldOverrideDeclinedReply("ต้องขออภัยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น iPhone 6 แล้วครับ มีรุ่นอื่นไหมครับ") === false,
+);
+check(
+  "mixed reply offering an active model's price -> keep (do not clobber the offer)",
+  shouldOverrideDeclinedReply("iPhone 6 เก่าไปครับ แต่ iPhone 15 รับซื้อ ราคาประเมิน 15,000 บาทครับ") === false,
+);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
