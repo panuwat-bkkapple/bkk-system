@@ -785,6 +785,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `6.4 answers ที่ส่งให้ create_quote_card ต้องมาจากสิ่งที่ลูกค้าพูดจริงในแชทเท่านั้น ห้ามเดาหรือแต่งคำตอบแทนลูกค้าเด็ดขาด (เช่น ห้ามใส่ "เครื่องเปล่าไม่มีกล่อง" หรือ "แบต 95%" ทั้งที่ลูกค้าไม่เคยบอก) กลุ่มไหนลูกค้าไม่ได้พูดถึงให้ "ไม่ใส่" ใน answers แล้วปล่อยให้ระบบถือว่าสภาพปกติเอง`,
     `6.8 เครื่องเคยซ่อม/เปลี่ยนอะไหล่ (เฉพาะเมื่อลูกค้าบอกว่าเคยซ่อม): ถ้าลูกค้าบอกว่าเคยซ่อม/เปลี่ยนอะไหล่ ให้ถามต่อ 1 คำถามว่า "เป็นอะไหล่แท้ของ Apple หรืออะไหล่ทั่วไปครับ" (แท้ ~20% / ไม่รู้จัก-ปลอม ~70%) พร้อมวิธีเช็ค iOS ("ชิ้นส่วนที่ไม่รู้จัก" = ไม่แท้). แต่ถ้าลูกค้าบอกว่า "ไม่เคยซ่อม/เดิมๆ" = ข้ามข้อนี้ ออกการ์ดได้เลย. ถ้าถาม 1 ครั้งแล้วลูกค้ายังตอบไม่ชัด/ไม่รู้ ห้าม dead-end เด็ดขาด — ให้ออกการ์ดโดยไม่ใส่รายการซ่อม (ถือว่าปกติ) ราคาสุดท้ายยืนยันตอนตรวจจริง`,
     `6.9 เครื่องศูนย์ไทย vs เครื่องนอก: ถามในชุดคำถามแรกตามข้อ 6(4). ลูกค้าตอบ "ศูนย์ไทย/TH" → option TH, "นอก/หิ้ว/US/JP/EU" → option ต่างประเทศ, "จีน/เกาหลี/ฮ่องกง" → option จีน-เกาหลี-ฮ่องกง. ถ้าถามแล้วลูกค้ายังไม่ตอบเรื่องนี้ ห้าม dead-end/escalate เพราะเรื่องนี้เด็ดขาด — ให้ default เป็นศูนย์ไทยแล้วออกการ์ดเลย (ราคาสุดท้ายยืนยันตอนตรวจจริง)`,
+    `6.10 เครื่องที่ฟังก์ชันมีปัญหา (จอ/ทัชไม่ติด กล้องเสีย/มีจุดดำ ลำโพงเงียบ ชาร์จไม่เข้า ซิม/Wi-Fi ใช้ไม่ได้ ฯลฯ): ตัวเลือกที่ติดป้าย [ร้านปฏิเสธรับซื้อ] หรือ reject ใน get_condition_questions = ร้าน "ไม่รับซื้อ" เครื่องนั้น — ถ้าลูกค้าบอกอาการเหล่านี้ หรือ create_quote_card ตอบ declined_defect กลับมา ให้แจ้งอย่างสุภาพว่าขณะนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติ จึงยังไม่สามารถรับซื้อได้ ห้ามออกการ์ด ห้ามบอกว่า "หักราคาแล้วรับได้" และไม่ต้อง escalate (เว้นแต่ลูกค้ายืนยันขอคุยกับเจ้าหน้าที่) เสนอช่วยประเมินเครื่องอื่นแทน — อาการที่เป็นแค่สภาพภายนอก (รอย บุบ แบตเสื่อม) ไม่เข้าข่ายข้อนี้ ประเมินตามปกติ`,
     `6.4.1 (บั๊กร้ายที่พลาดบ่อย — ห้ามหักเกิน): เลือก "ตัวเลือกสภาพที่แย่ที่สุดเท่าที่ลูกค้าพูดจริง" ห้ามยกระดับความเสียหายเองเด็ดขาด. ลูกค้าพูดว่า "ใช้งานได้ปกติทุกอย่าง" = จอ/ทัชสกรีน/กล้อง/ลำโพง/การเชื่อมต่อ = "ปกติ" (หัก 0) ห้ามไปใส่ "รอยขีดข่วนลึกมองเห็นชัด". ลูกค้าพูด "รอยตกที่มุมนิดหน่อย" = รอยเล็กน้อยที่มุมเท่านั้น ห้ามตีเป็นบุบหนัก. ลูกค้าไม่ได้บอก % แบต ห้ามใส่ "81%-85%" เอง (เว้นว่างให้ระบบถือว่าปกติ). ลูกค้าไม่ได้บอกเรื่องกล่อง/อุปกรณ์ ห้ามใส่ "มีเฉพาะตัวเครื่อง". การใส่สภาพแย่เกินจริงทำให้ราคาต่ำเกิน ลูกค้าไม่ขาย และเสียความเชื่อใจ`,
     `6.5 เครื่องมือ 1: เข้าเส้นมือ 1 เฉพาะเมื่อลูกค้ายืนยันชัดว่า "ยังไม่แกะซีล/เครื่องศูนย์ปิดผนึก/ไม่เคยเปิดเครื่อง/ยังไม่ activate" เท่านั้น เมื่อเข้าเส้นนี้แล้วห้ามถามคำถามสภาพมือสองเด็ดขาด (รอย แบต การใช้งาน ประวัติซ่อม ไม่เกี่ยวกับเครื่องใหม่) ให้เช็คจาก search_models ว่ารุ่นนั้นมี new_price ไหม แล้วถามแค่ 2 อย่าง: ยืนยันว่ายังไม่แกะซีล และมีใบเสร็จ/หลักฐานการซื้อไหม จากนั้นเรียก create_quote_card ด้วย condition_type "new" + has_receipt ทันที — ถ้ารุ่นนั้นไม่มี new_price ให้แจ้งอย่างสุภาพว่าขอให้เจ้าหน้าที่ยืนยันราคามือ 1 หรือเสนอประเมินแบบมือสอง`,
     `6.5.1 ห้าม "เดา" ว่าเป็นมือ 1 จากสัญญาณอ้อมเด็ดขาด: "ประกันเหลือ X เดือน/วัน" หรือ "ประกันศูนย์เหลือ..." = ประกันเดินแล้ว = เครื่องถูก activate/เปิดใช้ไปแล้ว = มือสอง (แม้แบต 100% ประกันเหลือเยอะ หรือสภาพนางฟ้าก็ตาม). แบต % สูง / ประกันเหลือ / "สภาพดีมาก" ไม่ได้แปลว่ามือ 1. ถ้าลูกค้าไม่ได้พูดคำว่า "ยังไม่แกะซีล/ไม่เคยเปิดเครื่อง" ตรงๆ ให้ถือเป็นมือสองและถามสภาพตามข้อ 6 ตามปกติ. ถ้ากำกวมให้ถามก่อนว่า "เครื่องยังไม่แกะซีลเลย หรือแกะใช้งานแล้วครับ" แล้วค่อยตัดสิน — ห้ามเสนอราคามือ 1 ให้เครื่องที่ประกันเดินแล้ว`,
@@ -1055,6 +1056,15 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           const qGroups = (Array.isArray(set.groups) ? set.groups : Object.values(set.groups || {})).filter(
             (g) => g && g.id
           );
+          // Mirror of the website assessment flow (AssessmentFlow.tsx):
+          // failBehavior 'reject' on an answered option ALWAYS blocks the sale;
+          // legacy defect:true blocks unless the shop-wide accept-defective
+          // toggle is on (missing key = off, fail closed — same as the web).
+          let acceptDefective = false;
+          try {
+            const adSnap = await db.ref("settings/store/accept_defective_devices").once("value");
+            acceptDefective = adSnap.val() === true;
+          } catch { /* fail closed */ }
           for (const group of qGroups) {
             const options = (Array.isArray(group.options) ? group.options : Object.values(group.options || {})).filter(
               (o) => o && o.id != null
@@ -1063,9 +1073,26 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             const optId = answers[group.id];
             let opt = optId != null ? options.find((o) => o.id === optId) : null;
             let assumed = false;
+            if (opt && (opt.failBehavior === "reject" || (opt.defect === true && !acceptDefective))) {
+              // The customer's own answer means "we do not buy this device" —
+              // never issue a full-price card for it (the 0-baht tiers on these
+              // options are placeholders, not free passes).
+              return {
+                declined_defect: true,
+                group_title: group.title || group.name || group.id,
+                option_label: opt.label || opt.name || "",
+                note:
+                  "เงื่อนไขนี้ร้านไม่รับซื้อ (เหมือนหน้าเว็บประเมิน) — แจ้งลูกค้าอย่างสุภาพว่า ขณะนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติ จึงยังไม่สามารถรับซื้อเครื่องที่มีปัญหานี้ได้ ห้ามออกการ์ด ห้ามเสนอราคาอื่น และไม่ต้อง escalate (เว้นแต่ลูกค้าขอคุยกับเจ้าหน้าที่) เสนอช่วยประเมินเครื่องอื่นแทนได้",
+              };
+            }
             if (!opt) {
-              // กลุ่มที่ลูกค้าไม่ได้ตอบ = ถือว่าสภาพปกติ (ตัวเลือกที่หักน้อยที่สุด ตัวแรกในลิสต์)
-              opt = options.reduce((best, o) =>
+              // กลุ่มที่ลูกค้าไม่ได้ตอบ = ถือว่าสภาพปกติ (ตัวเลือกที่หักน้อยที่สุด) —
+              // ห้าม default ไปตกตัวเลือกที่เป็น reject/defect เด็ดขาด
+              const pickable = options.filter(
+                (o) => o.failBehavior !== "reject" && o.defect !== true
+              );
+              const pool = pickable.length > 0 ? pickable : options;
+              opt = pool.reduce((best, o) =>
                 resolveOptionDeduction(o, basePrice, model.liquidityFactor) <
                 resolveOptionDeduction(best, basePrice, model.liquidityFactor)
                   ? o
@@ -1507,7 +1534,14 @@ function conditionGroupsOf(set) {
       options: (Array.isArray(g.options) ? g.options : Object.values(g.options || {}))
         .filter((o) => o && (o.label || o.name))
         .slice(0, 12)
-        .map((o) => ({ id: o.id, label: o.label || o.name })),
+        .map((o) => ({
+          id: o.id,
+          label: o.label || o.name,
+          // Explicit per-option "won't buy" flag (Condition Sets Engine sets
+          // failBehavior 'reject' on e.g. "กล้องมีปัญหา") — surfaced so the
+          // model knows this answer means decline, not a 0-baht deduction.
+          ...(o.failBehavior === "reject" ? { reject: true } : {}),
+        })),
     }));
 }
 
@@ -1534,7 +1568,7 @@ function buildLastQuoteBlock(lastQuote, conditionGroups) {
           ...conditionGroups.map(
             (g) =>
               `- ${g.id} "${g.title}": ${(g.options || [])
-                .map((o) => `${o.id}=${o.label}`)
+                .map((o) => `${o.id}=${o.label}${o.reject ? " [ร้านปฏิเสธรับซื้อถ้าเลือกข้อนี้]" : ""}`)
                 .join(" | ")}`,
           ),
         ]

@@ -76,6 +76,33 @@ const withGroups = buildLastQuoteBlock(
   ],
 );
 check("catalog lists group id", withGroups.includes("g_accessory"));
+
+// Options flagged reject (failBehavior 'reject' in the Condition Sets Engine)
+// must be visibly marked — a 0-baht tier on them means "decline", never
+// "quote at full price".
+const withReject = buildLastQuoteBlock(
+  {
+    model_id: "m15pm",
+    model_name: "iPhone 15 Pro Max",
+    variant_name: "256GB",
+    condition_type: "used",
+    answers: {},
+    estimated_price: 18500,
+    at: 1,
+  },
+  [
+    {
+      id: "g_cam",
+      title: "กล้องหน้า / กล้องหลัง",
+      options: [
+        { id: "o_c1", label: "ปกติ / ใช้งานได้" },
+        { id: "o_c2", label: "มีปัญหา / ใช้งานไม่ได้", reject: true },
+      ],
+    },
+  ],
+);
+check("reject option is marked in the catalog", withReject.includes("o_c2=มีปัญหา / ใช้งานไม่ได้ [ร้านปฏิเสธรับซื้อถ้าเลือกข้อนี้]"));
+check("normal option is not marked", withReject.includes("o_c1=ปกติ / ใช้งานได้ |"));
 check("catalog lists the option the customer could switch to", withGroups.includes("o_a1=ครบกล่อง"));
 check(
   "instructs to update the amended group, not resend identical answers",
