@@ -33,6 +33,28 @@ interface ChatWidgetConfig {
   model: string;
 }
 
+// Mirrors functions/chat-ai.js: empty model = hybrid routing (pickModel) —
+// STRONG_MODEL (claude-sonnet-5) for every substantive question, DEFAULT_MODEL
+// (claude-haiku-4-5) only for trivial greetings. A non-empty value here is an
+// admin override applied to EVERY message. Keep the ids in sync with chat-ai.js.
+const AI_MODEL_OPTIONS: { value: string; label: string; hint: string }[] = [
+  {
+    value: '',
+    label: 'อัตโนมัติ (แนะนำ) — Sonnet 5 + Haiku 4.5',
+    hint: 'ระบบเลือกให้: คำถามจริงใช้ Sonnet 5 (แม่นยำ), ทักทายสั้นๆ ใช้ Haiku 4.5 (ประหยัด) และมี Sonnet 5 ตรวจทานคำตอบก่อนส่ง',
+  },
+  {
+    value: 'claude-sonnet-5',
+    label: 'Sonnet 5 ทุกข้อความ',
+    hint: 'บังคับใช้ Sonnet 5 กับทุกข้อความ — แม่นยำสุด ค่าใช้จ่ายสูงกว่าอัตโนมัติเล็กน้อย',
+  },
+  {
+    value: 'claude-haiku-4-5',
+    label: 'Haiku 4.5 ทุกข้อความ',
+    hint: 'บังคับใช้ Haiku 4.5 กับทุกข้อความ — ประหยัดสุด แต่ความแม่นยำต่ำกว่า ไม่แนะนำสำหรับการประเมินราคา',
+  },
+];
+
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
   preview_enabled: false,
@@ -264,15 +286,26 @@ export default function ChatWidgetSettings() {
           </div>
           <div className="flex-1">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
-              โมเดล AI (เว้นว่าง = ค่าเริ่มต้นของระบบ)
+              โมเดล AI
             </label>
-            <input
-              type="text"
+            <select
               value={config.model}
               onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
-              placeholder="claude-haiku-4-5"
-              className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            />
+              className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {AI_MODEL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+              {config.model && !AI_MODEL_OPTIONS.some((o) => o.value === config.model) && (
+                <option value={config.model}>{config.model} (กำหนดเอง)</option>
+              )}
+            </select>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {AI_MODEL_OPTIONS.find((o) => o.value === config.model)?.hint ||
+                'ค่าที่กำหนดเองจะถูกใช้กับทุกข้อความ'}
+            </p>
           </div>
         </div>
       </div>
