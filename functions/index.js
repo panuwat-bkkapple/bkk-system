@@ -5192,4 +5192,7 @@ exports.cleanupDiagnosticSessions = diagnostics.cleanupDiagnosticSessions;
 // dead-token policy as every other admin push.
 // =============================================================================
 const { registerChatAi } = require("./chat-ai");
-exports.chatWidgetAiReply = registerChatAi({ dispatchAdminPush }).chatWidgetAiReply;
+const chatAi = registerChatAi({ dispatchAdminPush });
+exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
+// Read-only audit of the AI's built-in knowledge for the chat-settings page.
+exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
