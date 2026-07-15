@@ -1700,6 +1700,10 @@ function registerChatAi({ dispatchAdminPush }) {
         let lastRoundText = "";
         let totalIn = 0;
         let totalOut = 0;
+        // True only when create_quote_card actually succeeded this turn — used to
+        // catch the model "narrating" a quote (fake price + 'press the button on
+        // the card') without a real card existing.
+        let quoteOk = false;
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const resp = await callClaudeResilient({ apiKey, model, system, messages, tools: TOOLS });
@@ -1741,6 +1745,9 @@ function registerChatAi({ dispatchAdminPush }) {
               }
               if (result && result.error) {
                 console.log(`[${tag}] ${convoId} tool ${tu.name} error=${result.error}`);
+              }
+              if (tu.name === "create_quote_card" && result && result.ok === true) {
+                quoteOk = true;
               }
               results.push({
                 type: "tool_result",
@@ -1797,6 +1804,47 @@ function registerChatAi({ dispatchAdminPush }) {
               reason: "cannot_answer",
               summary: `AI ตอบไม่ได้: "${text.slice(0, 120)}"`,
             });
+          }
+        }
+
+        // Hallucinated-quote guard: the model announced a quote (a "press the
+        // button on the card" line or a "ราคาประเมิน X บาท") but never actually
+        // created one. Force create_quote_card once; if that still fails, hand
+        // to a human — never send a made-up price / a card that does not exist.
+        const announcedQuote =
+          /กดปุ่ม[\s\S]{0,20}(การ์ด|ใบเสนอราคา)|(ราคาประเมิน|ราคารับซื้อ|ประเมินราคา)[\s\S]{0,25}\d[\d,]{2,}\s*บาท/.test(
+            finalText,
+          );
+        if (finalText && !state.escalated && !quoteOk && announcedQuote) {
+          console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing create_quote_card`);
+          try {
+            const forced = await callClaudeResilient({
+              apiKey, model, system, messages, tools: TOOLS,
+              toolChoice: { type: "tool", name: "create_quote_card" },
+            });
+            totalIn += (forced.usage && forced.usage.input_tokens) || 0;
+            totalOut += (forced.usage && forced.usage.output_tokens) || 0;
+            const fu = (forced.content || []).find(
+              (b) => b.type === "tool_use" && b.name === "create_quote_card",
+            );
+            if (fu) {
+              const r = await executeTool("create_quote_card", fu.input || {});
+              if (r && r.ok === true) {
+                quoteOk = true;
+                finalText = "ออกใบเสนอราคาให้แล้วครับ กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลได้เลยครับ";
+              }
+            }
+          } catch (err) {
+            console.error(`[${tag}] forced quote failed:`, err && err.message);
+          }
+          if (!quoteOk) {
+            finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
+            if (!state.escalated) {
+              await executeTool("escalate_to_human", {
+                reason: "quote_card_failed",
+                summary: `AI พูดถึงใบเสนอราคาแต่สร้างการ์ดไม่สำเร็จ — ลูกค้า: "${text.slice(0, 120)}"`,
+              });
+            }
           }
         }
 
