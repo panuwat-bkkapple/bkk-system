@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ref, get, update } from 'firebase/database';
-import { db } from '../../api/firebase';
-import { Bot, Save, MessageCircle, Clock, BookOpen, Gauge } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../../api/firebase';
+import { Bot, Save, MessageCircle, Clock, BookOpen, Gauge, Database } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
 // =============================================================================
@@ -55,6 +56,18 @@ const AI_MODEL_OPTIONS: { value: string; label: string; hint: string }[] = [
   },
 ];
 
+// Shape returned by the getChatAiKnowledge callable (functions/chat-ai.js) —
+// the SAME constants the deployed system prompt is built from, fetched live so
+// this page can never drift from what the AI actually knows.
+interface BuiltinKnowledge {
+  live_sources: string[];
+  service_info: string[];
+  official_faq: string[];
+  deduction_policy: string[];
+  faq: { c: string; q: string; a: string }[];
+  models: { auto_strong: string; auto_trivial: string; verifier: string };
+}
+
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
   preview_enabled: false,
@@ -73,6 +86,8 @@ export default function ChatWidgetSettings() {
   const [config, setConfig] = useState<ChatWidgetConfig>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [builtin, setBuiltin] = useState<BuiltinKnowledge | null>(null);
+  const [builtinError, setBuiltinError] = useState('');
 
   useEffect(() => {
     get(ref(db, 'settings/chat_widget'))
@@ -97,6 +112,18 @@ export default function ChatWidgetSettings() {
       .catch(() => toast.error('โหลดการตั้งค่าไม่สำเร็จ'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Built-in knowledge audit — fetched from the deployed function so the page
+  // always shows exactly what the live AI knows (not a copy that can drift).
+  useEffect(() => {
+    const fn = httpsCallable<Record<string, never>, BuiltinKnowledge>(
+      getFunctions(app, 'asia-southeast1'),
+      'getChatAiKnowledge',
+    );
+    fn({})
+      .then((res) => setBuiltin(res.data))
+      .catch(() => setBuiltinError('โหลดความรู้ในตัวระบบไม่สำเร็จ (function อาจยังไม่ deploy)'));
   }, []);
 
   const handleSave = async () => {
@@ -251,8 +278,10 @@ export default function ChatWidgetSettings() {
           <BookOpen size={16} className="text-emerald-600" /> ความรู้ประกอบคำตอบ (Knowledge)
         </h2>
         <p className="text-xs text-slate-400">
-          นโยบายร้าน ขั้นตอน คำถามพบบ่อย — AI ใช้ข้อความนี้ประกอบการตอบ (สูงสุด 8,000 ตัวอักษร)
-          ส่วนราคาและรุ่นสินค้า AI ดึงจากฐานข้อมูลจริงเสมอ ไม่ต้องใส่ที่นี่
+          ระบบมีความรู้ในตัวอยู่แล้ว (ดูกล่อง "ความรู้ในตัวระบบ" ด้านล่าง) — ช่องนี้มีไว้เติม
+          "ส่วนที่ยังขาด" เท่านั้น เช่น โปรโมชั่นชั่วคราว ประกาศเฉพาะกิจ หรือนโยบายที่เพิ่งเปลี่ยน
+          (สูงสุด 8,000 ตัวอักษร) สิ่งที่พิมพ์ที่นี่จะ "ทับ" FAQ ในตัวระบบเมื่อขัดกัน
+          และถูกส่งให้ AI ทุกข้อความ — ว่างไว้ได้ถ้าไม่มีอะไรพิเศษ อย่าก๊อป FAQ หรือราคามาใส่ซ้ำ
         </p>
         <textarea
           value={config.kb}
@@ -263,6 +292,90 @@ export default function ChatWidgetSettings() {
           className="w-full px-4 py-3 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-y font-mono"
         />
         <p className="text-[10px] text-slate-400 text-right">{config.kb.length.toLocaleString()} / 8,000</p>
+      </div>
+
+      {/* Built-in knowledge audit — read-only, fetched live from the deployed function */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <h2 className="font-black text-sm text-slate-800 flex items-center gap-2">
+          <Database size={16} className="text-emerald-600" /> ความรู้ในตัวระบบ (อ่านอย่างเดียว)
+        </h2>
+        <p className="text-xs text-slate-400">
+          ดึงสดจากระบบ AI ที่ deploy อยู่จริง — ใช้ตรวจสอบว่า AI รู้อะไรแล้วบ้าง อะไรที่ยังขาดค่อยเติมในช่อง
+          Knowledge ด้านบน (แก้เนื้อหาในนี้ = งานฝั่งพัฒนา เพราะบางส่วน mirror มาจาก FAQ หน้าเว็บ)
+        </p>
+        {builtinError && <p className="text-xs text-red-500">{builtinError}</p>}
+        {!builtin && !builtinError && (
+          <p className="text-xs text-slate-400 animate-pulse">กำลังโหลด...</p>
+        )}
+        {builtin && (
+          <div className="space-y-2">
+            <details className="group border border-slate-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                ข้อมูลสดจากฐานข้อมูล (ดึงตอนตอบทุกครั้ง) — {builtin.live_sources.length} แหล่ง
+              </summary>
+              <ul className="px-4 py-3 space-y-1.5">
+                {builtin.live_sources.map((s, i) => (
+                  <li key={i} className="text-xs text-slate-600 leading-relaxed">• {s}</li>
+                ))}
+              </ul>
+            </details>
+            <details className="group border border-slate-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                ข้อมูลบริการ (ฝังใน prompt) — {builtin.service_info.length} ข้อ
+              </summary>
+              <ul className="px-4 py-3 space-y-1.5">
+                {builtin.service_info.map((s, i) => (
+                  <li key={i} className="text-xs text-slate-600 leading-relaxed">{s}</li>
+                ))}
+              </ul>
+            </details>
+            <details className="group border border-slate-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                FAQ ทางการที่ฝังใน prompt (AI ต้องตอบตามนี้) — {builtin.official_faq.length} ข้อ
+              </summary>
+              <ul className="px-4 py-3 space-y-1.5">
+                {builtin.official_faq.map((s, i) => (
+                  <li key={i} className="text-xs text-slate-600 leading-relaxed">{s}</li>
+                ))}
+              </ul>
+            </details>
+            <details className="group border border-slate-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                FAQ ฉบับเต็ม (AI ค้นผ่าน get_faq แล้วสรุปตอบ) — {builtin.faq.length} ข้อ
+              </summary>
+              <div className="px-4 py-3 space-y-3">
+                {[...new Set(builtin.faq.map((f) => f.c))].map((cat) => (
+                  <div key={cat}>
+                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1">{cat}</p>
+                    <ul className="space-y-1.5">
+                      {builtin.faq.filter((f) => f.c === cat).map((f, i) => (
+                        <li key={i} className="text-xs leading-relaxed">
+                          <span className="font-bold text-slate-700">{f.q}</span>
+                          <span className="text-slate-500"> — {f.a}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </details>
+            <details className="group border border-slate-100 rounded-xl overflow-hidden">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                นโยบายการหักราคา + โมเดลที่ใช้จริง
+              </summary>
+              <div className="px-4 py-3 space-y-1.5">
+                {builtin.deduction_policy.map((s, i) => (
+                  <p key={i} className="text-xs text-slate-600 leading-relaxed">{s}</p>
+                ))}
+                <p className="text-xs text-slate-600 leading-relaxed pt-1">
+                  • โหมดอัตโนมัติ: คำถามจริง = <span className="font-mono">{builtin.models.auto_strong}</span>,
+                  ทักทายสั้นๆ = <span className="font-mono">{builtin.models.auto_trivial}</span>,
+                  ตัวตรวจทานคำตอบ = <span className="font-mono">{builtin.models.verifier}</span>
+                </p>
+              </div>
+            </details>
+          </div>
+        )}
       </div>
 
       {/* Limits */}

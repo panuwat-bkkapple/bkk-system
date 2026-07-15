@@ -31,6 +31,7 @@
 // =============================================================================
 
 const { onValueCreated } = require("firebase-functions/v2/database");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 
@@ -723,6 +724,35 @@ const TOOLS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Built-in knowledge blocks. These are module-level constants (not inline in
+// buildSystemPrompt) because getChatAiKnowledge exposes the SAME arrays to the
+// admin settings page — what admins audit there is exactly what the deployed
+// prompt contains, no display mirror to drift.
+// ---------------------------------------------------------------------------
+const SERVICE_INFO_LINES = [
+  `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
+  `- การจ่ายเงิน (ห้ามอธิบายผิดขั้นตอน): ทุกช่องทาง = ตรวจสภาพเสร็จ ยืนยันราคา แล้ว "จ่ายเงินหน้างานทันที" ตอนรับเครื่อง. Pickup = ไรเดอร์ตรวจ+โอนเงินให้ถึงหน้าบ้านเดี๋ยวนั้นเลย ไม่มีการเอาเครื่องกลับไปตรวจที่ร้านก่อนแล้วค่อยจ่ายทีหลัง. Store-in = โอนที่ร้าน. Mail-in = โอนทันทีหลังเครื่องถึงร้านและตรวจเสร็จ. ไม่ต้องรอหลายวัน`,
+  `- ระยะเวลา/SLA อื่นใดที่ไม่ได้เขียนไว้ตรงนี้หรือไม่ได้มาจาก tool (เช่น กี่วันทำการ, กี่ชั่วโมง): ห้ามแต่งตัวเลขเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน`,
+];
+
+// FAQ ทางการ — mirror จาก bkk-frontend-next (app/components/home/FaqSection.tsx +
+// app/components/checkout/CheckoutFAQ.tsx) แก้ FAQ เว็บต้อง sync ที่นี่ด้วย
+const OFFICIAL_FAQ_LINES = [
+  `- ไม่รับซื้อเครื่องที่ยังผ่อนไม่หมด (ผ่อนกับไฟแนนซ์/บัตรเครดิต), ติดล็อก iCloud/FMI (Find My)/Activation Lock, ติดล็อก MDM, หรือติด Blacklist/ล็อกเครือข่าย เด็ดขาด — ถ้าลูกค้าถามว่าเครื่องผ่อนอยู่/ติด iCloud/ติด MDM/ติด Blacklist รับไหม ตอบว่า "ไม่รับซื้อ" และแนะนำว่าถ้าผ่อนครบหรือปลดล็อกเรียบร้อยแล้วค่อยนำมาประเมินได้`,
+  `- *** ย้ำเรื่อง iCloud/Activation Lock (ห้ามพลาดเด็ดขาด) ***: เครื่องที่ยังติดล็อก iCloud/ยัง Sign out Apple ID ไม่ได้/ติด Activation Lock = "ไม่รับซื้อ" ในทุกกรณี ไม่ว่าลูกค้าจะยอมขายถูกแค่ไหน. ห้ามพูดว่า "รับซื้อได้แต่ราคาต่ำ", "รับแล้วเอาไปปลดล็อกเอง", "หักราคาค่าปลดล็อก" หรืออะไรทำนองนี้เด็ดขาด — ข้อมูลนั้นผิด ร้านเราไม่รับความเสี่ยงเรื่องกรรมสิทธิ์/เครื่องหาย. คำตอบที่ถูกต้องคือ "ไม่รับ ต้องปลดล็อก/Sign out iCloud ให้เรียบร้อยก่อนถึงจะประเมินได้"`,
+  `- เครื่องมีตำหนิ/จอแตก/เสียหาย: รับซื้อ ราคาลดตามสภาพจริง ให้เลือกสภาพตามจริงตอนประเมิน (ผ่านขั้นตอนถามสภาพ+ใบเสนอราคา) — ห้ามบอกเปอร์เซ็นต์การหักเอง`,
+  `- ประเมินราคาฟรี 100% ไม่ต้องตกลงขายทันที ไม่มีค่าใช้จ่ายแอบแฝง`,
+  `- จ่ายเงิน: ตรวจเช็คสภาพเสร็จ โอนเข้าบัญชีเต็มจำนวนทันทีหน้างาน ไม่เกิน 5 นาที`,
+  `- ข้อมูลส่วนตัว: Factory Reset + Data Wipe ให้ดูต่อหน้า พร้อมออก Data Wipe Certificate`,
+  `- ถ้าราคาหน้างานไม่ตรงที่ประเมิน: ปฏิเสธได้เสมอ ไม่มีค่าใช้จ่าย. กรณี Pickup/Store-in เครื่องยังอยู่กับลูกค้า/ตรวจต่อหน้า ปฏิเสธแล้วลูกค้าเก็บเครื่องกลับได้เลย (ไรเดอร์ไม่เอาเครื่องไป). กรณี Mail-in (ส่งมาแล้ว) ปฏิเสธได้และร้าน "ส่งเครื่องคืนฟรี" — คำว่าส่งคืนฟรีใช้กับ Mail-in เท่านั้น อย่าเอาไปพูดกับ Pickup`,
+  `- รับซื้อทุกยี่ห้อทุกรุ่น เน้น iPhone/Samsung/iPad/MacBook/Apple Watch`,
+];
+
+const DEDUCTION_POLICY_LINES = [
+  `- ห้ามบอก "เปอร์เซ็นต์" หรือ "จำนวนเงิน" ที่จะหักจากสภาพใดๆ (จอแตก แบตเสื่อม มีรอย ฯลฯ) จากความจำเด็ดขาด — เลข % ที่แต่งเองผิดเกือบทุกครั้ง. การหักตามสภาพมาจากขั้นตอนถามสภาพ (get_condition_questions) แล้วออกใบเสนอราคา (create_quote_card) เท่านั้น ถ้ายังไม่ถึงขั้นนั้นให้บอกว่า "ราคาขึ้นกับตรวจสภาพจริง เดี๋ยวประเมินให้ในใบเสนอราคา" ไม่ใช่เดา 30-50%`,
+];
+
 function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
   const hoursText = `${pub.hours_start || "10:00"}-${pub.hours_end || "19:00"} น.`;
   return [
@@ -778,24 +808,13 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `14. นโยบาย/ขั้นตอน/บริการใดที่ไม่มีใน tool, ข้อมูลบริการด้านล่าง หรือข้อมูลนโยบายร้าน: ห้ามแต่งเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน แล้วเสนอส่งเรื่องต่อเจ้าหน้าที่`,
     ``,
     `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
-    `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
-    `- การจ่ายเงิน (ห้ามอธิบายผิดขั้นตอน): ทุกช่องทาง = ตรวจสภาพเสร็จ ยืนยันราคา แล้ว "จ่ายเงินหน้างานทันที" ตอนรับเครื่อง. Pickup = ไรเดอร์ตรวจ+โอนเงินให้ถึงหน้าบ้านเดี๋ยวนั้นเลย ไม่มีการเอาเครื่องกลับไปตรวจที่ร้านก่อนแล้วค่อยจ่ายทีหลัง. Store-in = โอนที่ร้าน. Mail-in = โอนทันทีหลังเครื่องถึงร้านและตรวจเสร็จ. ไม่ต้องรอหลายวัน`,
-    `- ระยะเวลา/SLA อื่นใดที่ไม่ได้เขียนไว้ตรงนี้หรือไม่ได้มาจาก tool (เช่น กี่วันทำการ, กี่ชั่วโมง): ห้ามแต่งตัวเลขเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน`,
+    ...SERVICE_INFO_LINES,
     ``,
-    // FAQ ทางการ — mirror จาก bkk-frontend-next (app/components/home/FaqSection.tsx +
-    // app/components/checkout/CheckoutFAQ.tsx) แก้ FAQ เว็บต้อง sync ที่นี่ด้วย
     `FAQ ทางการ (ตอบตามนี้เป๊ะ ห้ามขัด):`,
-    `- ไม่รับซื้อเครื่องที่ยังผ่อนไม่หมด (ผ่อนกับไฟแนนซ์/บัตรเครดิต), ติดล็อก iCloud/FMI (Find My)/Activation Lock, ติดล็อก MDM, หรือติด Blacklist/ล็อกเครือข่าย เด็ดขาด — ถ้าลูกค้าถามว่าเครื่องผ่อนอยู่/ติด iCloud/ติด MDM/ติด Blacklist รับไหม ตอบว่า "ไม่รับซื้อ" และแนะนำว่าถ้าผ่อนครบหรือปลดล็อกเรียบร้อยแล้วค่อยนำมาประเมินได้`,
-    `- *** ย้ำเรื่อง iCloud/Activation Lock (ห้ามพลาดเด็ดขาด) ***: เครื่องที่ยังติดล็อก iCloud/ยัง Sign out Apple ID ไม่ได้/ติด Activation Lock = "ไม่รับซื้อ" ในทุกกรณี ไม่ว่าลูกค้าจะยอมขายถูกแค่ไหน. ห้ามพูดว่า "รับซื้อได้แต่ราคาต่ำ", "รับแล้วเอาไปปลดล็อกเอง", "หักราคาค่าปลดล็อก" หรืออะไรทำนองนี้เด็ดขาด — ข้อมูลนั้นผิด ร้านเราไม่รับความเสี่ยงเรื่องกรรมสิทธิ์/เครื่องหาย. คำตอบที่ถูกต้องคือ "ไม่รับ ต้องปลดล็อก/Sign out iCloud ให้เรียบร้อยก่อนถึงจะประเมินได้"`,
-    `- เครื่องมีตำหนิ/จอแตก/เสียหาย: รับซื้อ ราคาลดตามสภาพจริง ให้เลือกสภาพตามจริงตอนประเมิน (ผ่านขั้นตอนถามสภาพ+ใบเสนอราคา) — ห้ามบอกเปอร์เซ็นต์การหักเอง`,
-    `- ประเมินราคาฟรี 100% ไม่ต้องตกลงขายทันที ไม่มีค่าใช้จ่ายแอบแฝง`,
-    `- จ่ายเงิน: ตรวจเช็คสภาพเสร็จ โอนเข้าบัญชีเต็มจำนวนทันทีหน้างาน ไม่เกิน 5 นาที`,
-    `- ข้อมูลส่วนตัว: Factory Reset + Data Wipe ให้ดูต่อหน้า พร้อมออก Data Wipe Certificate`,
-    `- ถ้าราคาหน้างานไม่ตรงที่ประเมิน: ปฏิเสธได้เสมอ ไม่มีค่าใช้จ่าย. กรณี Pickup/Store-in เครื่องยังอยู่กับลูกค้า/ตรวจต่อหน้า ปฏิเสธแล้วลูกค้าเก็บเครื่องกลับได้เลย (ไรเดอร์ไม่เอาเครื่องไป). กรณี Mail-in (ส่งมาแล้ว) ปฏิเสธได้และร้าน "ส่งเครื่องคืนฟรี" — คำว่าส่งคืนฟรีใช้กับ Mail-in เท่านั้น อย่าเอาไปพูดกับ Pickup`,
-    `- รับซื้อทุกยี่ห้อทุกรุ่น เน้น iPhone/Samsung/iPad/MacBook/Apple Watch`,
+    ...OFFICIAL_FAQ_LINES,
     ``,
     `กฎเหล็กเรื่องการหักราคา (สำคัญมาก):`,
-    `- ห้ามบอก "เปอร์เซ็นต์" หรือ "จำนวนเงิน" ที่จะหักจากสภาพใดๆ (จอแตก แบตเสื่อม มีรอย ฯลฯ) จากความจำเด็ดขาด — เลข % ที่แต่งเองผิดเกือบทุกครั้ง. การหักตามสภาพมาจากขั้นตอนถามสภาพ (get_condition_questions) แล้วออกใบเสนอราคา (create_quote_card) เท่านั้น ถ้ายังไม่ถึงขั้นนั้นให้บอกว่า "ราคาขึ้นกับตรวจสภาพจริง เดี๋ยวประเมินให้ในใบเสนอราคา" ไม่ใช่เดา 30-50%`,
+    ...DEDUCTION_POLICY_LINES,
     ``,
     `สถานะตอนนี้: ${inHours ? "อยู่ในเวลาทำการ" : "นอกเวลาทำการ"} (เวลาทำการ ${hoursText})`,
     ``,
@@ -1973,7 +1992,35 @@ function registerChatAi({ dispatchAdminPush }) {
     }
   );
 
-  return { chatWidgetAiReply };
+  // Read-only knowledge audit for the admin chat-settings page. Returns the
+  // SAME constants buildSystemPrompt uses — the page shows exactly what the
+  // deployed AI already knows, so admins can spot what is missing and put
+  // only the gaps into settings/chat_widget/kb. Name is project-unique
+  // ({region}/{name} collision rule in CLAUDE.md).
+  const getChatAiKnowledge = onCall({ region: REGION }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "ต้องล็อกอินก่อน");
+    return {
+      live_sources: [
+        "ราคาและรุ่นสินค้า — ฐานข้อมูล models จริง (tool: search_models / create_quote_card) รวมสถานะงดรับซื้อ (isActive)",
+        "ชุดคำถามประเมินสภาพ + ค่าหักตามสภาพ — settings/condition_sets (tool: get_condition_questions)",
+        "พื้นที่บริการ Pickup + ค่าบริการไรเดอร์ + สาขาที่ใกล้ลูกค้า — settings/store + settings/branches + โปรค่าส่ง (tool: check_pickup_service)",
+        "โปรโมชั่น/คูปองที่เปิดอยู่ — /coupons (tool: get_promotions)",
+        "สาขา ที่อยู่ เวลาเปิด-ปิด — settings/branches (tool: get_branches)",
+        "สถานะออเดอร์ของลูกค้าที่ล็อกอิน — jobs (tool: check_order_status, มีกฎ PDPA คุม)",
+      ],
+      service_info: SERVICE_INFO_LINES,
+      official_faq: OFFICIAL_FAQ_LINES,
+      deduction_policy: DEDUCTION_POLICY_LINES,
+      faq: FAQ,
+      models: {
+        auto_strong: STRONG_MODEL,
+        auto_trivial: DEFAULT_MODEL,
+        verifier: VERIFIER_MODEL,
+      },
+    };
+  });
+
+  return { chatWidgetAiReply, getChatAiKnowledge };
 }
 
 // __test = internal surface for the regression harness (functions/test/).
