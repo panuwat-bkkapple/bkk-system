@@ -13,7 +13,7 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
-const { buildLastQuoteBlock, buildLastSearchBlock } = __test;
+const { buildLastQuoteBlock, buildLastSearchBlock, buildDeviceCheckBlock } = __test;
 
 let failures = 0;
 const check = (label, cond) => {
@@ -154,6 +154,15 @@ check(
   "search block forbids escalating for lack of an id",
   searchBlock.includes("ห้าม escalate ด้วยเหตุ 'ไม่รู้รุ่น/ไม่รู้ id'"),
 );
+
+// Device-check block — appended ONLY when the back-office toggle is on, so a
+// disabled SickW integration never tempts the model to ask for an IMEI.
+check("device check off -> empty", buildDeviceCheckBlock(false) === "");
+check("device check undefined -> empty", buildDeviceCheckBlock(undefined) === "");
+const dcBlock = buildDeviceCheckBlock(true);
+check("device check on -> tool named", dcBlock.includes("check_device_by_serial"));
+check("device check on -> locked means decline, no card", dcBlock.includes("locked=true") && dcBlock.includes("ห้ามออกการ์ด"));
+check("device check on -> forbids invented serials", dcBlock.includes("ห้ามแต่งเลขหรือเดาเลข"));
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

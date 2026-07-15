@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, get, update } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../../api/firebase';
-import { Bot, Save, MessageCircle, Clock, BookOpen, Gauge, Database } from 'lucide-react';
+import { Bot, Save, MessageCircle, Clock, BookOpen, Gauge, Database, ScanLine } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
 // =============================================================================
@@ -80,6 +80,31 @@ const DEFAULTS: ChatWidgetConfig = {
   model: '',
 };
 
+// settings/chat_widget/sickw — read by the chatWidgetAiReply tool
+// check_device_by_serial. enabled=false = tool fully inert (the model is not
+// even told the feature exists). Mirrors functions/chat-ai.js defaults.
+interface ChatSickwConfig {
+  enabled: boolean;
+  service_id: string;
+  require_login: boolean;
+  per_user_daily: number;
+  daily_cap: number;
+}
+
+const SICKW_DEFAULTS: ChatSickwConfig = {
+  enabled: false,
+  service_id: '',
+  require_login: true,
+  per_user_daily: 2,
+  daily_cap: 50,
+};
+
+interface SickwServiceOption {
+  service: string;
+  name: string;
+  price: number;
+}
+
 export default function ChatWidgetSettings() {
   const toast = useToast();
   const [config, setConfig] = useState<ChatWidgetConfig>(DEFAULTS);
@@ -87,6 +112,9 @@ export default function ChatWidgetSettings() {
   const [saving, setSaving] = useState(false);
   const [builtin, setBuiltin] = useState<BuiltinKnowledge | null>(null);
   const [builtinError, setBuiltinError] = useState('');
+  const [sickw, setSickw] = useState<ChatSickwConfig>(SICKW_DEFAULTS);
+  const [sickwServices, setSickwServices] = useState<SickwServiceOption[]>([]);
+  const [sickwServicesError, setSickwServicesError] = useState('');
 
   useEffect(() => {
     get(ref(db, 'settings/chat_widget'))
@@ -105,6 +133,14 @@ export default function ChatWidgetSettings() {
             kb: val.kb || '',
             daily_call_cap: Number(val.daily_call_cap) || DEFAULTS.daily_call_cap,
             model: val.model || '',
+          });
+          const sw = val.sickw || {};
+          setSickw({
+            enabled: sw.enabled === true,
+            service_id: String(sw.service_id || ''),
+            require_login: sw.require_login !== false,
+            per_user_daily: Number(sw.per_user_daily) || SICKW_DEFAULTS.per_user_daily,
+            daily_cap: Number(sw.daily_cap) || SICKW_DEFAULTS.daily_cap,
           });
         }
       })
@@ -125,6 +161,18 @@ export default function ChatWidgetSettings() {
       .catch(() => setBuiltinError('โหลดความรู้ในตัวระบบไม่สำเร็จ (function อาจยังไม่ deploy)'));
   }, []);
 
+  // SickW service catalog for the picker — reuses the same callable as the
+  // inspection tools (1h server cache, cheap).
+  useEffect(() => {
+    const fn = httpsCallable<{ forceRefresh?: boolean }, { services: SickwServiceOption[] }>(
+      getFunctions(app, 'asia-southeast1'),
+      'listSickwServices',
+    );
+    fn({})
+      .then((res) => setSickwServices(res.data.services || []))
+      .catch(() => setSickwServicesError('โหลดรายการ service ไม่สำเร็จ — กรอกรหัส service เองได้'));
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -141,6 +189,13 @@ export default function ChatWidgetSettings() {
         kb: config.kb,
         daily_call_cap: Number(config.daily_call_cap) || DEFAULTS.daily_call_cap,
         model: config.model.trim() || null,
+        sickw: {
+          enabled: sickw.enabled,
+          service_id: sickw.service_id.trim(),
+          require_login: sickw.require_login,
+          per_user_daily: Number(sickw.per_user_daily) || SICKW_DEFAULTS.per_user_daily,
+          daily_cap: Number(sickw.daily_cap) || SICKW_DEFAULTS.daily_cap,
+        },
       });
       toast.success('บันทึกการตั้งค่าแล้ว');
     } catch {
@@ -420,6 +475,108 @@ export default function ChatWidgetSettings() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* SickW device check in chat */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-black text-sm text-slate-800 flex items-center gap-2">
+              <ScanLine size={16} className="text-indigo-600" /> ตรวจเครื่องด้วย IMEI/Serial ในแชท (SickW)
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              เปิดแล้ว AI จะชวนลูกค้าส่ง IMEI (*#06#) เพื่อยืนยันรุ่น/ความจุ/ศูนย์ไทย-นอก และคัดเครื่องติด
+              iCloud/MDM/Blacklist ออกก่อนออกใบเสนอราคา — ผลตรวจแนบไปกับใบเสนอราคาให้เจ้าหน้าที่ด้วย
+              (แชร์ cache 24 ชม. ร่วมกับการตรวจฝั่งแอดมิน/ไรเดอร์ ไม่เสียเครดิตซ้ำ)
+            </p>
+          </div>
+          <button
+            onClick={() => setSickw((s) => ({ ...s, enabled: !s.enabled }))}
+            className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ml-4 ${sickw.enabled ? 'bg-indigo-500' : 'bg-slate-300'}`}
+            aria-label="เปิด/ปิดการตรวจเครื่องในแชท"
+          >
+            <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${sickw.enabled ? 'left-7' : 'left-1'}`} />
+          </button>
+        </div>
+
+        {sickw.enabled && (
+          <div className="space-y-4 pt-1">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
+                Service ที่ใช้ตรวจ
+              </label>
+              {sickwServices.length > 0 ? (
+                <select
+                  value={sickw.service_id}
+                  onChange={(e) => setSickw((s) => ({ ...s, service_id: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">ใช้ค่าเดียวกับการค้นหาหน้าเว็บ (settings/sickw/quote_lookup_service)</option>
+                  {sickwServices.map((s) => (
+                    <option key={s.service} value={s.service}>
+                      #{s.service} — {s.name} (${s.price.toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={sickw.service_id}
+                  onChange={(e) => setSickw((s) => ({ ...s, service_id: e.target.value }))}
+                  placeholder="รหัส service เช่น 30 (เว้นว่าง = ใช้ค่า quote_lookup_service)"
+                  className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              )}
+              {sickwServicesError && <p className="text-[10px] text-amber-600 mt-1">{sickwServicesError}</p>}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-700">เฉพาะลูกค้าที่เข้าสู่ระบบ</p>
+                <p className="text-[11px] text-slate-400">ปิด = ลูกค้า anonymous ก็ตรวจได้ (เปลืองเครดิตง่ายขึ้น ไม่แนะนำ)</p>
+              </div>
+              <button
+                onClick={() => setSickw((s) => ({ ...s, require_login: !s.require_login }))}
+                className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ${sickw.require_login ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                aria-label="จำกัดเฉพาะลูกค้า login"
+              >
+                <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${sickw.require_login ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
+                  โควตาต่อลูกค้าต่อวัน
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={sickw.per_user_daily}
+                  onChange={(e) => setSickw((s) => ({ ...s, per_user_daily: Number(e.target.value) }))}
+                  className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
+                  เพดานตรวจรวมต่อวัน (ครั้งที่เสียเครดิต)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={sickw.daily_cap}
+                  onChange={(e) => setSickw((s) => ({ ...s, daily_cap: Number(e.target.value) }))}
+                  className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">เกินเพดาน = AI ประเมินตามคำตอบลูกค้าตามปกติ (ไม่พัง ไม่แจ้ง error)</p>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-400">
+              ต้นทุนทุกครั้งถูกบันทึกที่หน้า Sickw Usage (source: chat_ai) เหมือนการตรวจของแอดมิน/ไรเดอร์
+            </p>
+          </div>
+        )}
       </div>
 
       <button

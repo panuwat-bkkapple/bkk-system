@@ -32,6 +32,14 @@
 
 const { onValueCreated } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const {
+  SICKW_ENDPOINT,
+  SICKW_CACHE_TTL_MS,
+  SICKW_CATALOG_CACHE_KEY,
+  recordSickwUsage,
+  summarizeSickwFlags,
+  parseSickwResult,
+} = require("./sickw-core");
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 
@@ -710,6 +718,18 @@ const TOOLS = [
     },
   },
   {
+    name: "check_device_by_serial",
+    description:
+      "ตรวจเครื่องจากหมายเลขที่ 'ลูกค้าพิมพ์มาเอง' — IMEI 15 หลัก (กด *#06#) หรือ Serial (ตั้งค่า > ทั่วไป > เกี่ยวกับ) เพื่อยืนยันรุ่น/ความจุ/สี/ประเทศเครื่อง (ศูนย์ไทย-นอก) และเช็คสถานะ iCloud(FMI)/MDM/Blacklist จากฐานข้อมูลจริงก่อนออกใบเสนอราคา ห้ามเรียกซ้ำด้วยเลขเดิมในบทสนทนาเดียว และห้ามแต่งเลขเอง",
+    input_schema: {
+      type: "object",
+      properties: {
+        serial: { type: "string", description: "IMEI 15 หลัก หรือ Serial 8-17 ตัวอักษร ตรงตามที่ลูกค้าพิมพ์" },
+      },
+      required: ["serial"],
+    },
+  },
+  {
     name: "create_ticket",
     description:
       "สร้างเรื่องติดตาม (ticket) ให้เจ้าหน้าที่ติดต่อกลับ ใช้เมื่อนอกเวลาทำการและลูกค้าต้องการฝากเรื่อง หรือเรื่องที่ไม่เร่งด่วน",
@@ -1009,6 +1029,177 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         return { model_id: modelId, groups: conditionGroupsOf(setSnap.val()) };
       }
 
+      case "check_device_by_serial": {
+        // Chat-facing SickW lookup. Fully config-driven from the back office
+        // (settings/chat_widget/sickw): master toggle, service, login gate,
+        // per-user + global daily caps. Every guard fails SOFT with a note
+        // telling the model to continue the normal question flow — a closed
+        // toggle or exhausted quota must never dead-end the conversation.
+        const cfg = (await db.ref("settings/chat_widget/sickw").once("value")).val() || {};
+        if (cfg.enabled !== true) {
+          return {
+            error: "device_check_disabled",
+            note: "ระบบตรวจด้วยหมายเลขเครื่องปิดอยู่ — ประเมินตามคำตอบของลูกค้าตามปกติ ห้ามบอกว่าระบบขัดข้อง และอย่าชวนส่ง IMEI อีก",
+          };
+        }
+        const cleanSerial = String(input.serial || "").trim().toUpperCase().replace(/[\s-]/g, "");
+        if (!/^[A-Z0-9]{8,17}$/.test(cleanSerial)) {
+          return {
+            error: "invalid_serial",
+            note: "รูปแบบหมายเลขไม่ถูกต้อง — ขอลูกค้ากด *#06# แล้วส่ง IMEI 15 หลัก หรือ Serial จาก ตั้งค่า > ทั่วไป > เกี่ยวกับ",
+          };
+        }
+        if (cfg.require_login !== false) {
+          // ลูกค้า login แล้วเท่านั้น (มีโปรไฟล์ users/{uid}) — คุมต้นทุนเครดิต + ได้ lead
+          const uSnap = await db.ref(`users/${convoId}`).once("value");
+          if (!uSnap.exists()) {
+            return {
+              error: "login_required",
+              note: "การตรวจด้วยหมายเลขเครื่องใช้ได้เฉพาะลูกค้าที่เข้าสู่ระบบ — แจ้งอย่างสุภาพให้เข้าสู่ระบบก่อน ระหว่างนี้ประเมินตามคำตอบตามปกติ",
+            };
+          }
+        }
+        const { ymd: sickwYmd } = bangkokNowParts();
+        const perUserCap = Number(cfg.per_user_daily) || 2;
+        const perUserTx = await db
+          .ref(`chat_ai_usage/${sickwYmd}/sickw_by_uid/${convoId}`)
+          .transaction((c) => (Number(c) || 0) + 1);
+        if ((Number(perUserTx.snapshot.val()) || 0) > perUserCap) {
+          return {
+            error: "user_daily_limit",
+            note: "ลูกค้าคนนี้ใช้สิทธิ์ตรวจครบโควตาวันนี้แล้ว — แจ้งสุภาพ แล้วประเมินตามคำตอบตามปกติ",
+          };
+        }
+        let svcId = String(cfg.service_id || "").trim();
+        if (!svcId) {
+          const q = await db.ref("settings/sickw/quote_lookup_service").once("value");
+          svcId = String(q.val() || "").trim();
+        }
+        const sickwKey = process.env.SICKW_API_KEY;
+        if (!svcId || !sickwKey) {
+          return {
+            error: "not_configured",
+            note: "ยังตั้งค่าบริการตรวจไม่ครบ — ประเมินตามคำตอบตามปกติ ห้ามบอกว่าระบบเสีย",
+          };
+        }
+        // Cache path ร่วมกับ checkDeviceWithSickw/lookupDeviceForQuote — เครดิต
+        // เดียวใช้ได้ทั้งแชท เว็บ และแอดมิน ภายใน 24 ชม.
+        const devCacheRef = db.ref(`device_checks/${cleanSerial}/svc_${svcId}`);
+        let devStatus = "unknown";
+        let devParsed = {};
+        let devCacheHit = false;
+        const devCacheSnap = await devCacheRef.once("value");
+        if (devCacheSnap.exists()) {
+          const c = devCacheSnap.val();
+          if (c.checked_at && Date.now() - c.checked_at < SICKW_CACHE_TTL_MS) {
+            devCacheHit = true;
+            devStatus = String(c.status || "unknown");
+            devParsed = parseSickwResult(c.raw || "").parsed;
+          }
+        }
+        if (!devCacheHit) {
+          const dailyCap = Number(cfg.daily_cap) || 50;
+          const totalTx = await db
+            .ref(`chat_ai_usage/${sickwYmd}/sickw_calls`)
+            .transaction((c) => (Number(c) || 0) + 1);
+          if ((Number(totalTx.snapshot.val()) || 0) > dailyCap) {
+            return {
+              error: "daily_cap_reached",
+              note: "โควตาตรวจรวมของวันนี้เต็มแล้ว — ประเมินตามคำตอบตามปกติ ห้ามบอกว่าระบบเสีย",
+            };
+          }
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 25000);
+          try {
+            const url = `${SICKW_ENDPOINT}?format=JSON&key=${encodeURIComponent(sickwKey)}&imei=${encodeURIComponent(cleanSerial)}&service=${encodeURIComponent(svcId)}`;
+            const resp = await fetch(url, { method: "GET", signal: ctrl.signal });
+            const text = await resp.text();
+            const json = JSON.parse(text);
+            devStatus = String(json.status || "unknown").toLowerCase();
+            const rawResult = typeof json.result === "string" ? json.result : JSON.stringify(json.result || json);
+            const reparsed = parseSickwResult(rawResult);
+            devParsed = reparsed.parsed;
+            try {
+              await devCacheRef.set({
+                checked_at: Date.now(),
+                checked_by_uid: convoId,
+                service_id: svcId,
+                imei: cleanSerial,
+                status: devStatus,
+                raw: rawResult,
+                parsed: reparsed.parsed,
+                fields: reparsed.fields,
+              });
+            } catch { /* cache best-effort */ }
+          } catch (err) {
+            console.error(`[chatAi] ${convoId} sickw lookup failed:`, err && err.message);
+            return {
+              error: "lookup_failed",
+              note: "ตรวจไม่สำเร็จชั่วคราว — แจ้งลูกค้าสุภาพว่าให้เจ้าหน้าที่ช่วยเช็คภายหลังได้ แล้วประเมินตามคำตอบไปก่อน",
+            };
+          } finally {
+            clearTimeout(tid);
+          }
+          let creditUsed = 0;
+          if (devStatus === "success") {
+            try {
+              const cat = (await db.ref(SICKW_CATALOG_CACHE_KEY).once("value")).val();
+              const f = ((cat && cat.services) || []).find((s) => String(s.service) === svcId);
+              if (f) creditUsed = Number(f.price || 0);
+            } catch { /* pricing best-effort */ }
+          }
+          await recordSickwUsage(db, {
+            uid: convoId, authToken: null, imei: cleanSerial, serviceIds: [svcId],
+            jobId: null, cached: [false], creditUsed, status: devStatus, source: "chat_ai",
+          });
+        } else {
+          await recordSickwUsage(db, {
+            uid: convoId, authToken: null, imei: cleanSerial, serviceIds: [svcId],
+            jobId: null, cached: [true], creditUsed: 0, status: devStatus, source: "chat_ai",
+          });
+        }
+        if (devStatus !== "success") {
+          return {
+            error: "device_not_found",
+            status: devStatus,
+            note: "ฐานข้อมูลไม่พบเครื่องนี้ — ขอให้ลูกค้าตรวจเลขอีกครั้ง ถ้ายังไม่พบให้ประเมินตามคำตอบตามปกติ",
+          };
+        }
+        const devFlags = summarizeSickwFlags(devParsed);
+        const devLocked =
+          devFlags.fmi === "flagged" || devFlags.mdm === "flagged" || devFlags.blacklist === "flagged";
+        const deviceSummary = {
+          at: Date.now(),
+          imei: cleanSerial,
+          service_id: svcId,
+          model: devParsed.model || "",
+          model_number: devParsed.modelNumber || "",
+          capacity: devParsed.capacity || "",
+          color: devParsed.color || "",
+          country: devParsed.country || "",
+          flags: devFlags,
+          locked: devLocked,
+        };
+        try {
+          await db.ref(`inbox/${convoId}/ai_state/last_device_check`).set(deviceSummary);
+        } catch { /* best-effort */ }
+        return {
+          ok: true,
+          device: {
+            model: deviceSummary.model,
+            model_number: deviceSummary.model_number,
+            capacity: deviceSummary.capacity,
+            color: deviceSummary.color,
+            country: deviceSummary.country,
+          },
+          flags: devFlags,
+          locked: devLocked,
+          note: devLocked
+            ? "ผลตรวจพบเครื่องติดล็อก/สถานะไม่ปกติ (ค่า flagged) = ร้านไม่รับซื้อ — แจ้งลูกค้าอย่างสุภาพว่าติดอะไรและต้องปลดอย่างไร (เช่น Sign out iCloud/ปิด Find My ให้เรียบร้อยก่อนจึงประเมินได้) ห้ามออกการ์ด ห้ามบอกว่า 'หักราคาแล้วรับได้'"
+            : "ยืนยันรุ่นจากเครื่องจริงแล้ว — ใช้ model+capacity นี้เรียก search_models แล้วเดินขั้นตอนออกการ์ดตามปกติ; country/model_number ใช้เลือกตัวเลือกกลุ่มรหัสโมเดล (ศูนย์ไทย/US-EU-JP/CN-KR-HK) ใน answers ได้เลยไม่ต้องถามลูกค้า; บอกลูกค้าเฉพาะ รุ่น ความจุ สี และผลล็อกผ่าน/ไม่ผ่าน — ห้ามเล่ารายละเอียดอื่น (ประกัน/ผู้ให้บริการ/วันซื้อ)",
+        };
+      }
+
       case "create_quote_card": {
         const modelId = String(input.model_id || "");
         const wantVariant = String(input.variant_name || "").trim();
@@ -1185,7 +1376,20 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           created_at: nowQ,
           expires_at: nowQ + 48 * 60 * 60 * 1000,
         };
-        await quoteRef.set({ uid: convoId, status: "offered", ...payload });
+        // แนบผลตรวจ SickW ล่าสุดของแชทนี้ (ถ้ายังสดภายใน 24 ชม.) ไปกับใบเสนอราคา
+        // — เจ้าหน้าที่/ไรเดอร์เห็นผลตรวจตั้งแต่ก่อนรับงาน ไม่ต้องเช็คซ้ำ
+        let deviceCheck = null;
+        try {
+          const dcSnap = await db.ref(`inbox/${convoId}/ai_state/last_device_check`).once("value");
+          const dc = dcSnap.val();
+          if (dc && dc.at && Date.now() - dc.at < 24 * 60 * 60 * 1000) deviceCheck = dc;
+        } catch { /* best-effort */ }
+        await quoteRef.set({
+          uid: convoId,
+          status: "offered",
+          ...payload,
+          ...(deviceCheck ? { device_check: deviceCheck } : {}),
+        });
         // Remember the ids behind this card. Claude history across turns is
         // text-only (buildClaudeHistory), so without this the model has no way
         // to know model_id/variant/answers on a later turn ("ไม่มีกล่องด้วย") —
@@ -1601,6 +1805,23 @@ function conditionGroupsOf(set) {
     }));
 }
 
+// System-prompt block enabling the IMEI/serial device check in chat. Only
+// appended when the back-office toggle (settings/chat_widget/sickw.enabled)
+// is on, so a disabled integration never even tempts the model to offer it.
+function buildDeviceCheckBlock(enabled) {
+  if (enabled !== true) return "";
+  return [
+    "",
+    "ระบบตรวจเครื่องด้วยหมายเลข (เปิดใช้งาน):",
+    "- ระหว่างเดินเรื่องประเมินราคา เชิญชวนลูกค้า 'สั้นๆ ครั้งเดียว ไม่บังคับ': กด *#06# แล้วส่ง IMEI 15 หลักมา ระบบจะยืนยันรุ่น/ความจุและเช็คสถานะเครื่องให้ทันที (แม่นยำกว่าและเร็วกว่า)",
+    "- ได้เลขจากลูกค้าแล้วเรียก check_device_by_serial ทันที — ใช้เฉพาะเลขที่ลูกค้าพิมพ์มาเองเท่านั้น ห้ามแต่งเลขหรือเดาเลขเด็ดขาด",
+    "- ผลตรวจ locked=true = ร้านไม่รับซื้อ แจ้งสุภาพว่าติดอะไร (เช่นต้อง Sign out iCloud ก่อน) ห้ามออกการ์ด",
+    "- ผลตรวจปกติ: ใช้ model/capacity ยืนยันรุ่นแทนคำบอกของลูกค้า และใช้ country/model_number ตอบเรื่องศูนย์ไทย/เครื่องนอกใน answers โดยไม่ต้องถามข้อ (4) อีก",
+    "- ถ้า tool คืน error ใดๆ ให้ทำตาม note ของ error นั้นและเดินเรื่องประเมินตามคำตอบลูกค้าตามปกติ ห้ามค้างรอ",
+    "- ห้ามเล่ารายละเอียดผลตรวจอื่นให้ลูกค้า (ประกัน/ผู้ให้บริการ/วันซื้อ) — บอกได้แค่ รุ่น ความจุ สี และสถานะล็อกผ่าน/ไม่ผ่าน",
+  ].join("\n");
+}
+
 // System-prompt block carrying the ids of the models found earlier in this
 // conversation (ai_state/last_search). Before the first card exists there is
 // no last_quote, and tool results do not survive across turns — without this
@@ -1890,6 +2111,7 @@ function registerChatAi({ dispatchAdminPush }) {
         }
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+          buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled) +
           buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
         const model = pickModel({
@@ -2180,6 +2402,7 @@ module.exports = {
     buildSystemPrompt,
     buildLastQuoteBlock,
     buildLastSearchBlock,
+    buildDeviceCheckBlock,
     verifyReply,
     callClaude,
     pickModel,
