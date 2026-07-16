@@ -465,6 +465,35 @@ function modelLineMismatch(customerText, modelFullName) {
   return null;
 }
 
+// Given the light model list, find the sibling that actually matches the line
+// the customer named (same generation, correct line, still active). Pure so it
+// can be unit-tested. Prefers the shortest name = the most exact match.
+function pickSiblingModel(list, baseFullName, line, category) {
+  const lineLc = String(line || "").toLowerCase();
+  const gen = String(baseFullName || "").toLowerCase().replace(/pro\s*max/g, "pro max").match(/\d+/g) || [];
+  const cands = (list || []).filter((m) => {
+    if (!m || m.is_active === false) return false;
+    const n = `${m.brand || ""} ${m.name || ""}`.toLowerCase().replace(/pro\s*max/g, "pro max");
+    if (!n.includes(lineLc)) return false; // must carry the named line
+    const g = n.match(/\d+/g) || [];
+    if (!gen.every((x) => g.includes(x))) return false; // same generation number(s)
+    if (category && m.category && m.category !== category) return false;
+    return true;
+  });
+  cands.sort((a, b) => String(a.name || "").length - String(b.name || "").length);
+  return cands[0] || null;
+}
+
+async function findSiblingModel(db, baseModel, line) {
+  const list = await loadModelsLight(db);
+  return pickSiblingModel(
+    list,
+    `${baseModel.brand || ""} ${baseModel.name || ""}`,
+    line,
+    baseModel.category || baseModel.type || ""
+  );
+}
+
 async function loadModelsLight(db) {
   if (Date.now() - modelsCache.at < MODELS_CACHE_TTL_MS && modelsCache.list.length) {
     return modelsCache.list;
@@ -1254,21 +1283,32 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "create_quote_card": {
-        const modelId = String(input.model_id || "");
+        let modelId = String(input.model_id || "");
         const wantVariant = String(input.variant_name || "").trim();
         let answers = input.answers && typeof input.answers === "object" ? input.answers : {};
-        const modelSnap = await db.ref(`models/${modelId}`).once("value");
+        let modelSnap = await db.ref(`models/${modelId}`).once("value");
         if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
-        const model = modelSnap.val();
-        // Model-line guard: never quote a cheaper sibling than the customer named
-        // (Pro Max -> Pro under-prices by thousands and loses the deal). Force a
-        // re-resolve with the correct model_id instead of issuing the wrong card.
+        let model = modelSnap.val();
+        // Model-line guard + AUTO-CORRECT: if the customer named a more specific
+        // line (Pro Max / Plus / Ultra / mini) than the resolved model, don't
+        // just reject — the LLM re-picks the same wrong id and dead-ends to a
+        // human (real test: "16 Pro Max" -> quote failed -> escalate). Find the
+        // correct sibling ourselves and quote THAT, so the deal completes.
         const lineMiss = modelLineMismatch(customerText, `${model.brand || ""} ${model.name || ""}`);
         if (lineMiss) {
-          return {
-            error: "model_line_mismatch",
-            note: `ลูกค้าระบุรุ่น "${lineMiss}" แต่ model_id ที่ส่งมาชี้ไปที่ "${model.name}" ซึ่งเป็นคนละรุ่น (ราคาต่างกันหลายพัน) — เรียก search_models ด้วยชื่อรุ่นเต็มตามที่ลูกค้าบอก แล้วใช้ model_id ที่ตรงรุ่น "${lineMiss}" ก่อนออกการ์ด ห้ามออกการ์ดรุ่นที่ต่างจากที่ลูกค้าบอกเด็ดขาด`,
-          };
+          const sibling = await findSiblingModel(db, model, lineMiss);
+          if (sibling && sibling.id !== modelId) {
+            console.warn(`[chatAi] ${convoId} model-line auto-correct: "${model.name}" -> "${sibling.name}" (customer said ${lineMiss})`);
+            modelId = sibling.id;
+            modelSnap = await db.ref(`models/${modelId}`).once("value");
+            if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
+            model = modelSnap.val();
+          } else {
+            return {
+              error: "model_line_mismatch",
+              note: `ลูกค้าระบุรุ่น "${lineMiss}" แต่ model_id ที่ส่งมาชี้ไปที่ "${model.name}" ซึ่งเป็นคนละรุ่น — เรียก search_models ด้วยชื่อรุ่นเต็มตามที่ลูกค้าบอก แล้วใช้ model_id ที่ตรงรุ่น "${lineMiss}" ก่อนออกการ์ด`,
+            };
+          }
         }
         const variantsRaw = Array.isArray(model.variants)
           ? model.variants
@@ -2549,6 +2589,7 @@ module.exports = {
     batteryOptionRange,
     pickBatteryOptionId,
     modelLineMismatch,
+    pickSiblingModel,
     verifyReply,
     callClaude,
     pickModel,
