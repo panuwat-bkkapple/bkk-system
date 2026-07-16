@@ -157,44 +157,49 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   }
 
   // One-click standard functional-check groups per subcategory. Mirrors the old
-  // hardcoded screening questions (now data-driven). Each = one functional group
-  // with ปกติ (pass) / มีปัญหา (reject). Admin can then tweak per model (e.g.
-  // delete "แบตเตอรี่" for a Mac mini) and assign the set via PriceEditor.
-  // Each seeded group carries an `icon` key (see constants/conditionIcons) so the
-  // customer frontend renders the matching topic glyph instead of a generic "?".
-  // `description` = คำอธิบายใต้หัวข้อที่ลูกค้าเห็นตอนประเมิน (mirror จากชุดคัดกรอง
-  // hardcoded เดิมใน bkk-frontend-next AssessmentFlow) — แอดมินแก้ทับได้ทุกช่อง
-  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: { title: string; icon: string; description: string }[] }> = {
+  // hardcoded screening questions (now data-driven). Each group carries its OWN
+  // two options — a "ปกติ" pass and a topic-specific reject (e.g. battery reads
+  // ปกติ / แบตเตอรี่เสื่อม, not a generic "มีปัญหา") so the labels read naturally
+  // to the customer per topic. Admin can still tweak per model and assign the
+  // set via PriceEditor. Each seeded group carries an `icon` key (see
+  // constants/conditionIcons) so the customer frontend renders the matching
+  // topic glyph. `description` = คำอธิบายใต้หัวข้อที่ลูกค้าเห็นตอนประเมิน — แอดมิน
+  // แก้ทับได้ทุกช่อง.
+  const OK = (description = 'ใช้งานได้ตามปกติ ไม่มีปัญหา') =>
+    ({ label: 'ปกติ', description, failBehavior: 'pass' as const });
+  const BAD = (label: string, description: string) =>
+    ({ label, description, failBehavior: 'reject' as const });
+  const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: { title: string; icon: string; description: string; options: { label: string; description: string; failBehavior: 'pass' | 'reject' }[] }[] }> = {
     iphone: { label: 'iPhone', items: [
-      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง' },
-      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว' },
-      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
-      { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity', description: 'โทรได้ รับสายได้ เชื่อมต่อ Wi-Fi ได้ สัญญาณปกติ' },
-      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
-      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่ (Battery Health) อยู่ในเกณฑ์ดี' },
+      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง', options: [OK('เปิดเครื่องได้ ใช้งานได้ตามปกติ'), BAD('เปิดไม่ติด / ค้าง / ดับเอง', 'เปิดไม่ติด หรือค้าง ดับเอง รีสตาร์ทเอง')] },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว', options: [OK('จอชัด ทัชลื่น ไม่มีตำหนิ'), BAD('จอเสีย / ทัชมีปัญหา', 'มีจุดดำ เส้น แสงรั่ว หรือทัชสกรีนไม่ตอบสนอง')] },
+      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์', options: [OK('ถ่ายได้คมชัด เลนส์ปกติ'), BAD('กล้องมีปัญหา', 'ถ่ายไม่ได้ ภาพเบลอ มีฝ้า หรือเลนส์ร้าว')] },
+      { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity', description: 'โทรได้ รับสายได้ เชื่อมต่อ Wi-Fi ได้ สัญญาณปกติ', options: [OK('โทร/เน็ต/Wi-Fi ใช้ได้ปกติ'), BAD('สัญญาณ / การเชื่อมต่อมีปัญหา', 'โทร/รับสายไม่ได้ ต่อ Wi-Fi ไม่ได้ หรือสัญญาณผิดปกติ')] },
+      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้', options: [OK('เสียงดังชัด ไมค์ปกติ'), BAD('เสียง / ไมค์มีปัญหา', 'เสียงแตก ไม่ดัง หรือไมค์รับเสียงไม่ได้')] },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่ (Battery Health) อยู่ในเกณฑ์ดี', options: [OK('แบตชาร์จเข้า อยู่ได้นาน ไม่บวม'), BAD('แบตเตอรี่เสื่อม', 'สุขภาพแบตต่ำ ไฟหมดเร็ว ชาร์จไม่เข้า หรือแบตบวม')] },
     ] },
     ipad: { label: 'iPad', items: [
-      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง' },
-      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว' },
-      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
-      { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity', description: 'เชื่อมต่อ Wi-Fi / Bluetooth ได้ สัญญาณปกติ' },
-      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
-      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี' },
+      { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง', options: [OK('เปิดเครื่องได้ ใช้งานได้ตามปกติ'), BAD('เปิดไม่ติด / ค้าง / ดับเอง', 'เปิดไม่ติด หรือค้าง ดับเอง รีสตาร์ทเอง')] },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว', options: [OK('จอชัด ทัชลื่น ไม่มีตำหนิ'), BAD('จอเสีย / ทัชมีปัญหา', 'มีจุดดำ เส้น แสงรั่ว หรือทัชสกรีนไม่ตอบสนอง')] },
+      { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์', options: [OK('ถ่ายได้คมชัด เลนส์ปกติ'), BAD('กล้องมีปัญหา', 'ถ่ายไม่ได้ ภาพเบลอ มีฝ้า หรือเลนส์ร้าว')] },
+      { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity', description: 'เชื่อมต่อ Wi-Fi / Bluetooth ได้ สัญญาณปกติ', options: [OK('ต่อ Wi-Fi/Bluetooth ได้ปกติ'), BAD('การเชื่อมต่อมีปัญหา', 'ต่อ Wi-Fi หรือ Bluetooth ไม่ได้ หรือสัญญาณผิดปกติ')] },
+      { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้', options: [OK('เสียงดังชัด ไมค์ปกติ'), BAD('เสียง / ไมค์มีปัญหา', 'เสียงแตก ไม่ดัง หรือไมค์รับเสียงไม่ได้')] },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี', options: [OK('แบตชาร์จเข้า อยู่ได้นาน ไม่บวม'), BAD('แบตเตอรี่เสื่อม', 'สุขภาพแบตต่ำ ไฟหมดเร็ว ชาร์จไม่เข้า หรือแบตบวม')] },
     ] },
     mac: { label: 'Mac', items: [
-      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ' },
-      { title: 'หน้าจอแสดงผล', icon: 'screen', description: 'ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว สีสม่ำเสมอ ไม่มีจอเบิร์น' },
-      { title: 'คีย์บอร์ด + แทร็คแพด', icon: 'keyboard', description: 'ปุ่มกดได้ทุกปุ่ม ไม่มีปุ่มค้าง แทร็คแพดคลิกและเลื่อนได้ปกติ' },
-      { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ' },
-      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม ไม่ร้อนผิดปกติ' },
+      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ', options: [OK('เปิดติด ชาร์จเข้า ใช้งานได้ปกติ'), BAD('เปิดไม่ติด / ชาร์จไม่เข้า', 'เปิดไม่ติด ค้าง ดับเอง หรือชาร์จไฟไม่เข้า')] },
+      { title: 'หน้าจอแสดงผล', icon: 'screen', description: 'ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว สีสม่ำเสมอ ไม่มีจอเบิร์น', options: [OK('จอชัด สีปกติ ไม่มีตำหนิ'), BAD('จอเสีย / จอเบิร์น', 'มีจุดดำ เส้น แสงรั่ว หรือจอเบิร์น')] },
+      { title: 'คีย์บอร์ด + แทร็คแพด', icon: 'keyboard', description: 'ปุ่มกดได้ทุกปุ่ม ไม่มีปุ่มค้าง แทร็คแพดคลิกและเลื่อนได้ปกติ', options: [OK('ปุ่ม + แทร็คแพดใช้ได้ครบ'), BAD('คีย์บอร์ด / แทร็คแพดมีปัญหา', 'มีปุ่มค้าง กดไม่ติด หรือแทร็คแพดผิดปกติ')] },
+      { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ', options: [OK('พอร์ต + การเชื่อมต่อใช้ได้ปกติ'), BAD('พอร์ต / การเชื่อมต่อมีปัญหา', 'พอร์ตใช้ไม่ได้ ต่อ Wi-Fi หรือ Bluetooth ไม่ได้')] },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม ไม่ร้อนผิดปกติ', options: [OK('แบตชาร์จเข้า อยู่ได้นาน ไม่บวม'), BAD('แบตเตอรี่เสื่อม', 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ')] },
     ] },
     watch: { label: 'Apple Watch', items: [
-      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ' },
-      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'หน้าจอสัมผัสตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีจอเบิร์น' },
-      { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown', description: 'หมุน Digital Crown ได้ลื่น กดปุ่มด้านข้างได้ปกติ ไม่ค้าง' },
-      { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors', description: 'เซ็นเซอร์วัดชีพจร ตรวจจับการสวมใส่ และเซ็นเซอร์อื่นๆ ทำงานได้ปกติ' },
-      { title: 'Wi-Fi / Bluetooth', icon: 'connectivity', description: 'เชื่อมต่อ Bluetooth กับ iPhone ได้ เชื่อมต่อ Wi-Fi ได้ปกติ' },
-      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี' },
+      { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ', options: [OK('เปิดติด ชาร์จเข้า ใช้งานได้ปกติ'), BAD('เปิดไม่ติด / ชาร์จไม่เข้า', 'เปิดไม่ติด ค้าง ดับเอง หรือชาร์จไฟไม่เข้า')] },
+      { title: 'หน้าจอ + ทัชสกรีน', icon: 'screen', description: 'หน้าจอสัมผัสตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีจอเบิร์น', options: [OK('จอชัด ทัชลื่น ไม่มีตำหนิ'), BAD('จอเสีย / ทัชมีปัญหา', 'มีจุดดำ เส้น จอเบิร์น หรือทัชไม่ตอบสนอง')] },
+      { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown', description: 'หมุน Digital Crown ได้ลื่น กดปุ่มด้านข้างได้ปกติ ไม่ค้าง', options: [OK('Crown + ปุ่มใช้ได้ปกติ'), BAD('Crown / ปุ่มมีปัญหา', 'หมุน Crown ไม่ลื่น หรือกดปุ่มไม่ติด/ค้าง')] },
+      { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors', description: 'เซ็นเซอร์วัดชีพจร ตรวจจับการสวมใส่ และเซ็นเซอร์อื่นๆ ทำงานได้ปกติ', options: [OK('เซ็นเซอร์ทำงานได้ครบปกติ'), BAD('เซ็นเซอร์มีปัญหา', 'เซ็นเซอร์วัดชีพจร/ตรวจจับการสวมใส่ไม่ทำงาน')] },
+      { title: 'Wi-Fi / Bluetooth', icon: 'connectivity', description: 'เชื่อมต่อ Bluetooth กับ iPhone ได้ เชื่อมต่อ Wi-Fi ได้ปกติ', options: [OK('ต่อ Bluetooth/Wi-Fi ได้ปกติ'), BAD('การเชื่อมต่อมีปัญหา', 'ต่อ Bluetooth กับ iPhone หรือ Wi-Fi ไม่ได้')] },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี', options: [OK('แบตชาร์จเข้า อยู่ได้นาน ไม่บวม'), BAD('แบตเตอรี่เสื่อม', 'สุขภาพแบตต่ำ ไฟหมดเร็ว ชาร์จไม่เข้า หรือแบตบวม')] },
     ] },
   };
 
@@ -202,16 +207,13 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     const tpl = FUNCTIONAL_TEMPLATES[cat];
     if (!tpl) return;
     const base = Date.now();
-    const seeded = tpl.items.map(({ title, icon, description }, i) => ({
+    const seeded = tpl.items.map(({ title, icon, description, options }, i) => ({
       id: `g_${base}_${i}`,
       title,
       icon,
       description,
       kind: 'functional',
-      options: [
-        { id: `o_${base}_${i}_0`, label: 'ปกติ / ใช้งานได้', description: 'ฟังก์ชันนี้ทำงานได้ตามปกติ ไม่มีปัญหา', deduct: 0, failBehavior: 'pass' },
-        { id: `o_${base}_${i}_1`, label: 'มีปัญหา / ใช้งานไม่ได้', description: 'ฟังก์ชันนี้ทำงานผิดปกติ หรือใช้งานไม่ได้', deduct: 0, failBehavior: 'reject' },
-      ],
+      options: options.map((o, j) => ({ id: `o_${base}_${i}_${j}`, label: o.label, description: o.description, deduct: 0, failBehavior: o.failBehavior })),
     }));
     // Prepend so the functional screening comes before the cosmetic groups.
     setEditingSet({ ...editingSet, groups: [...seeded, ...(editingSet.groups || [])] });
