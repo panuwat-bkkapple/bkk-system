@@ -2147,6 +2147,19 @@ function registerChatAi({ dispatchAdminPush }) {
         return;
       }
 
+      // Awareness push — notify the chat app on every customer message even
+      // though the AI answers, so staff can watch a live deal and jump in. Both
+      // lost deals died silently while the AI handled them with no admin alert.
+      // buildInboxPushMessage's per-conversation collapseKey keeps one chat to
+      // one notification thread (rapid messages don't stack). Off-switch:
+      // settings/chat_widget/notify_all_messages = false.
+      if (settings.notify_all_messages !== false) {
+        await dispatchAdminPush(
+          buildInboxPushMessage(convoId, `ลูกค้าทักแชท (AI ดูแล): ${customerLabel}`, text),
+          tag
+        );
+      }
+
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
       const state = { escalated: false, savedPhone: "" };
