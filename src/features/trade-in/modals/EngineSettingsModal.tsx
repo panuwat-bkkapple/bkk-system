@@ -171,6 +171,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
       { title: 'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)', icon: 'connectivity', description: 'โทรได้ รับสายได้ เชื่อมต่อ Wi-Fi ได้ สัญญาณปกติ' },
       { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่ (Battery Health) อยู่ในเกณฑ์ดี' },
     ] },
     ipad: { label: 'iPad', items: [
       { title: 'เปิดเครื่อง / ใช้งานทั่วไป', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง' },
@@ -178,6 +179,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       { title: 'กล้องหน้า / กล้องหลัง', icon: 'camera', description: 'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์' },
       { title: 'Wi-Fi / Bluetooth / สัญญาณ', icon: 'connectivity', description: 'เชื่อมต่อ Wi-Fi / Bluetooth ได้ สัญญาณปกติ' },
       { title: 'ลำโพง / ไมโครโฟน', icon: 'audio', description: 'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้' },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี' },
     ] },
     mac: { label: 'Mac', items: [
       { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ' },
@@ -192,6 +194,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       { title: 'Digital Crown + ปุ่มข้าง', icon: 'crown', description: 'หมุน Digital Crown ได้ลื่น กดปุ่มด้านข้างได้ปกติ ไม่ค้าง' },
       { title: 'เซ็นเซอร์ (วัดชีพจร ฯลฯ)', icon: 'sensors', description: 'เซ็นเซอร์วัดชีพจร ตรวจจับการสวมใส่ และเซ็นเซอร์อื่นๆ ทำงานได้ปกติ' },
       { title: 'Wi-Fi / Bluetooth', icon: 'connectivity', description: 'เชื่อมต่อ Bluetooth กับ iPhone ได้ เชื่อมต่อ Wi-Fi ได้ปกติ' },
+      { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี' },
     ] },
   };
 
