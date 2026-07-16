@@ -220,6 +220,84 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     toast.success(`เพิ่มชุดคัดกรองการทำงาน ${tpl.label} (${tpl.items.length} ข้อ) — อย่าลืมกด Save Set`);
   };
 
+  // Standard COSMETIC + QUALIFYING screening (a second seed template beside the
+  // functional one). Splits into:
+  //   • สภาพภายนอก (kind 'cosmetic') — body + screen. The customer picks the
+  //     actual condition; we do NOT ask "which grade" — the A/B/C/D grade is
+  //     summarised at checkout from the WORDING of the chosen options
+  //     (bkk-frontend-next app/utils/conditionGrade.ts). So the labels here are
+  //     worded to hit that grader: ขนแมว→B, ขีดข่วน/บุบ/บิ่น→C, แตก/ร้าว/งอ→D.
+  //     Damage options carry a % default so the grade classifies out of the box
+  //     (grade only looks at options that deduct > 0) — admin tunes the numbers.
+  //   • คุณสมบัติเครื่อง — ประกัน / ประเทศที่ซื้อ / ประวัติการซ่อม. ALL kind
+  //     'cosmetic': the customer answers every group, and the no-buy decision
+  //     (ซ่อมนอกศูนย์/อะไหล่เทียบ, ล็อกเครือข่าย) is surfaced on the end-of-flow
+  //     summary card (Rejected), NOT as a mid-flow dead-end. Those options still
+  //     carry failBehavior:'reject' in the data so the summary can read it; we
+  //     do NOT make the group 'functional' — that would (a) mislabel provenance
+  //     as a working check and (b) let this template alone replace the hardcoded
+  //     working-check screening (any functional group does). ประกัน + ประเทศ are
+  //     excluded from the A/B/C/D grade (see GRADE_EXCLUDE_RE) — grade = สภาพ only.
+  type CondOpt = { label: string; description: string; pct?: number; deduct?: number; failBehavior?: 'pass' | 'reject' | 'deduct' };
+  type CondGroup = { title: string; icon: string; description: string; kind: 'cosmetic' | 'functional'; options: CondOpt[] };
+  const CONDITION_TEMPLATES: Record<string, { label: string; items: CondGroup[] }> = {
+    standard: { label: 'สภาพ + ประกัน + ประเทศ + ประวัติซ่อม', items: [
+      { title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
+        { label: 'ไม่เคยซ่อม', description: 'เครื่องเดิมจากโรงงาน ไม่เคยเปิดซ่อม', failBehavior: 'pass', deduct: 0 },
+        { label: 'เคยซ่อมศูนย์ / อะไหล่แท้', description: 'เคยเข้าศูนย์ Apple เปลี่ยนอะไหล่แท้', failBehavior: 'deduct', deduct: 0 },
+        { label: 'ซ่อมนอกศูนย์ / อะไหล่เทียบ (ไม่แท้)', description: 'เคยซ่อมร้านนอก หรือเปลี่ยนอะไหล่เทียบ/ไม่แท้', failBehavior: 'reject' },
+      ] },
+      { title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
+        { label: 'ศูนย์ไทย (TH)', description: 'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย TH/A', failBehavior: 'pass', deduct: 0 },
+        { label: 'เครื่องนอก (ZP / LL / อื่นๆ)', description: 'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย', failBehavior: 'deduct', deduct: 0 },
+        { label: 'ล็อกเครือข่าย / ใช้ในไทยไม่ได้', description: 'เครื่องติดล็อกเครือข่ายผู้ให้บริการ ใช้ซิมไทยไม่ได้', failBehavior: 'reject' },
+      ] },
+      { title: 'สภาพตัวเครื่อง (บอดี้ / ฝาหลัง)', icon: 'shield', kind: 'cosmetic', description: 'รอย ตำหนิ หรือความเสียหายของตัวเครื่องและฝาหลัง', options: [
+        { label: 'สวยมาก ไม่มีรอย', description: 'ตัวเครื่องสวย ไม่มีรอย ไม่มีตำหนิ', deduct: 0 },
+        { label: 'มีรอยขนแมวบางๆ', description: 'รอยขนแมวเล็กน้อย มองเห็นเมื่อสะท้อนแสง', pct: 3 },
+        { label: 'มีรอยขีดข่วน / ถลอกเห็นชัด', description: 'มีรอยขีดข่วนหรือถลอกที่มองเห็นได้ชัดเจน', pct: 10 },
+        { label: 'บุบ / บิ่น / ตกกระแทก', description: 'ตัวเครื่องบุบ บิ่น หรือมีร่องรอยตกกระแทก', pct: 12 },
+        { label: 'เครื่องงอ / ผิดรูป', description: 'ตัวเครื่องงอ ผิดรูป หรือบิดเบี้ยว', pct: 25 },
+      ] },
+      { title: 'สภาพหน้าจอ', icon: 'screen', kind: 'cosmetic', description: 'รอยหรือความเสียหายของกระจกหน้าจอ', options: [
+        { label: 'สวยมาก ไม่มีรอย', description: 'หน้าจอใส ไม่มีรอย ไม่มีตำหนิ', deduct: 0 },
+        { label: 'มีรอยขนแมวบางๆ', description: 'รอยขนแมวเล็กน้อยบนหน้าจอ', pct: 3 },
+        { label: 'มีรอยขีดข่วนเห็นชัด', description: 'มีรอยขีดข่วนบนหน้าจอที่มองเห็นได้ชัด', pct: 12 },
+        { label: 'จอแตก / ร้าว', description: 'กระจกหน้าจอแตกหรือร้าว', pct: 30 },
+      ] },
+      { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
+        { label: 'เหลือประกันศูนย์ / AppleCare+', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+        { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
+      ] },
+    ] },
+  };
+
+  const handleSeedCondition = (key: string) => {
+    const tpl = CONDITION_TEMPLATES[key];
+    if (!tpl) return;
+    const base = Date.now();
+    const seeded = tpl.items.map((g, i) => ({
+      id: `g_${base}_${i}`,
+      title: g.title,
+      icon: g.icon,
+      description: g.description,
+      kind: g.kind,
+      options: g.options.map((o, j) => {
+        const opt: any = { id: `o_${base}_${i}_${j}`, label: o.label, description: o.description };
+        // pct wins over deduct; a reject option needs no amount.
+        if (o.pct != null) opt.pct = o.pct;
+        else if (o.deduct != null) opt.deduct = o.deduct;
+        // Keep failBehavior when the template sets it (reject / deduct) even on
+        // cosmetic groups — the customer summary reads it to flag Rejected.
+        if (o.failBehavior) opt.failBehavior = o.failBehavior;
+        return opt;
+      }),
+    }));
+    // Append at the end — admin reorders with the group move up/down controls.
+    setEditingSet({ ...editingSet, groups: [...(editingSet.groups || []), ...seeded] });
+    toast.success(`เพิ่มชุดคัดกรองสภาพ / คุณสมบัติ (${tpl.items.length} กลุ่ม) — อย่าลืมกด Save Set`);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -289,6 +367,18 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                     >
                       <option value="">+ ชุดคัดกรองการทำงาน…</option>
                       {Object.entries(FUNCTIONAL_TEMPLATES).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
+                    {/* Seed cosmetic (body/screen) + qualifying (warranty/country/repair) groups */}
+                    <select
+                      value=""
+                      onChange={(e) => { if (e.target.value) { handleSeedCondition(e.target.value); e.currentTarget.value = ''; } }}
+                      title="เพิ่มชุดคัดกรองสภาพภายนอก + คุณสมบัติ (เกรดสรุปที่ checkout / ประกัน / ประเทศ / ประวัติซ่อม)"
+                      className="px-3 py-3 bg-emerald-50 text-emerald-700 font-black rounded-xl text-sm border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer"
+                    >
+                      <option value="">+ ชุดคัดกรองสภาพ / คุณสมบัติ…</option>
+                      {Object.entries(CONDITION_TEMPLATES).map(([k, v]) => (
                         <option key={k} value={k}>{v.label}</option>
                       ))}
                     </select>
