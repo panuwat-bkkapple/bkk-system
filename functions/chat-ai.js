@@ -446,6 +446,25 @@ function rankModels(list, rawQuery) {
     .map((x) => x.m);
 }
 
+// Guard against the LLM quoting a cheaper sibling than the customer named.
+// search_models returns Pro AND Pro Max together; the model sometimes passes the
+// base model_id ("iPhone 16 Pro") to create_quote_card even though the customer
+// said "iPhone 16 Pro Max" — under-pricing by thousands, which the customer
+// catches against the /sell app and walks. Returns the line the customer named
+// that the resolved model lacks (a DOWNGRADE), or null when they agree. Only
+// flags the downgrade direction — the reverse is far rarer and riskier to guess.
+function modelLineMismatch(customerText, modelFullName) {
+  const c = ` ${String(customerText || "").toLowerCase().replace(/pro\s*max/g, "pro max").replace(/\s+/g, " ")} `;
+  const n = ` ${String(modelFullName || "").toLowerCase().replace(/pro\s*max/g, "pro max")} `;
+  // Most specific first: a "pro max" mention must not be satisfied by a plain
+  // "pro" model (which also contains the substring "pro").
+  if (c.includes(" pro max") && !n.includes("pro max")) return "Pro Max";
+  if (c.includes(" plus") && !n.includes("plus")) return "Plus";
+  if (c.includes(" ultra") && !n.includes("ultra")) return "Ultra";
+  if (/\bmini\b/.test(c) && !n.includes("mini")) return "mini";
+  return null;
+}
+
 async function loadModelsLight(db) {
   if (Date.now() - modelsCache.at < MODELS_CACHE_TTL_MS && modelsCache.list.length) {
     return modelsCache.list;
@@ -981,7 +1000,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -1240,6 +1259,16 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const modelSnap = await db.ref(`models/${modelId}`).once("value");
         if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
         const model = modelSnap.val();
+        // Model-line guard: never quote a cheaper sibling than the customer named
+        // (Pro Max -> Pro under-prices by thousands and loses the deal). Force a
+        // re-resolve with the correct model_id instead of issuing the wrong card.
+        const lineMiss = modelLineMismatch(customerText, `${model.brand || ""} ${model.name || ""}`);
+        if (lineMiss) {
+          return {
+            error: "model_line_mismatch",
+            note: `ลูกค้าระบุรุ่น "${lineMiss}" แต่ model_id ที่ส่งมาชี้ไปที่ "${model.name}" ซึ่งเป็นคนละรุ่น (ราคาต่างกันหลายพัน) — เรียก search_models ด้วยชื่อรุ่นเต็มตามที่ลูกค้าบอก แล้วใช้ model_id ที่ตรงรุ่น "${lineMiss}" ก่อนออกการ์ด ห้ามออกการ์ดรุ่นที่ต่างจากที่ลูกค้าบอกเด็ดขาด`,
+          };
+        }
         const variantsRaw = Array.isArray(model.variants)
           ? model.variants
           : Object.values(model.variants || {});
@@ -2181,7 +2210,14 @@ function registerChatAi({ dispatchAdminPush }) {
           text,
         });
         console.log(`[${tag}] ${convoId} model=${model}`);
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName });
+        // All customer utterances this conversation — lets create_quote_card
+        // verify the quoted model line (Pro Max vs Pro) against what was actually
+        // said, since the triggering message alone ("256GB") won't carry it.
+        const customerText = history
+          .filter((m) => m.senderRole === "customer")
+          .map((m) => String(m.text || ""))
+          .join(" \n ");
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
@@ -2498,6 +2534,7 @@ module.exports = {
     shouldOverrideDeclinedReply,
     batteryOptionRange,
     pickBatteryOptionId,
+    modelLineMismatch,
     verifyReply,
     callClaude,
     pickModel,

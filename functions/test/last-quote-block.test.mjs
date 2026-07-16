@@ -20,6 +20,7 @@ const {
   shouldOverrideDeclinedReply,
   batteryOptionRange,
   pickBatteryOptionId,
+  modelLineMismatch,
 } = __test;
 
 let failures = 0;
@@ -228,6 +229,22 @@ check("70% -> o_bt4 (below 80, not rounded up)", pickBatteryOptionId(BAT_OPTS, 7
 check("invalid pct -> null", pickBatteryOptionId(BAT_OPTS, NaN) === null);
 check("undefined pct -> null", pickBatteryOptionId(BAT_OPTS, undefined) === null);
 check("no matching bucket -> null", pickBatteryOptionId([{ id: "x", label: "50-60%" }], 79) === null);
+
+// Model-line guard: the real lost deal — customer said "iPhone 16 Pro Max",
+// the model passed the base "iPhone 16 Pro" model_id, card quoted 23,000 vs the
+// /sell app's 29,000, customer walked. The guard must flag the downgrade so the
+// card is re-resolved to the correct sibling.
+check("Pro Max named, Pro quoted -> flags 'Pro Max'", modelLineMismatch("iphone 16 pro max 256gb สีทะเลทราย", "iPhone 16 Pro") === "Pro Max");
+check("Pro Max named, Pro Max quoted -> null", modelLineMismatch("iphone 16 pro max", "iPhone 16 Pro Max") === null);
+check("promax (no space) still flags", modelLineMismatch("16 promax", "iPhone 16 Pro") === "Pro Max");
+check("plain Pro named, Pro quoted -> null (not a downgrade)", modelLineMismatch("iphone 16 pro 256", "iPhone 16 Pro") === null);
+check("plain Pro named, Pro Max quoted -> null (upgrade not flagged)", modelLineMismatch("iphone 16 pro", "iPhone 16 Pro Max") === null);
+check("Plus named, base quoted -> flags 'Plus'", modelLineMismatch("iphone 15 plus", "iPhone 15") === "Plus");
+check("Plus named, Plus quoted -> null", modelLineMismatch("iphone 15 plus", "iPhone 15 Plus") === null);
+check("mini named, base quoted -> flags 'mini'", modelLineMismatch("iphone 13 mini ครับ", "iPhone 13") === "mini");
+check("base named, base quoted -> null", modelLineMismatch("iphone 16 256gb", "iPhone 16") === null);
+check("brand-qualified name matches (Apple prefix)", modelLineMismatch("iphone 16 pro max", "Apple iPhone 16 Pro Max") === null);
+check("no customer text -> null (no false positive)", modelLineMismatch("", "iPhone 16 Pro") === null);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
