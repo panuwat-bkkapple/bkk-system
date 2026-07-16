@@ -21,6 +21,7 @@ const {
   batteryOptionRange,
   pickBatteryOptionId,
   modelLineMismatch,
+  pickSiblingModel,
 } = __test;
 
 let failures = 0;
@@ -245,6 +246,26 @@ check("mini named, base quoted -> flags 'mini'", modelLineMismatch("iphone 13 mi
 check("base named, base quoted -> null", modelLineMismatch("iphone 16 256gb", "iPhone 16") === null);
 check("brand-qualified name matches (Apple prefix)", modelLineMismatch("iphone 16 pro max", "Apple iPhone 16 Pro Max") === null);
 check("no customer text -> null (no false positive)", modelLineMismatch("", "iPhone 16 Pro") === null);
+
+// Sibling auto-correct: when the guard flags a downgrade, the server finds the
+// correct sibling itself (the LLM can't be trusted to re-pick — real test:
+// "16 Pro Max" quote failed and escalated). Uses the light model list.
+const MODELS = [
+  { id: "p16", name: "iPhone 16", brand: "Apple", category: "iPhone", is_active: true },
+  { id: "p16pro", name: "iPhone 16 Pro", brand: "Apple", category: "iPhone", is_active: true },
+  { id: "p16pm", name: "iPhone 16 Pro Max", brand: "Apple", category: "iPhone", is_active: true },
+  { id: "p15plus", name: "iPhone 15 Plus", brand: "Apple", category: "iPhone", is_active: true },
+  { id: "p15", name: "iPhone 15", brand: "Apple", category: "iPhone", is_active: true },
+  { id: "w11", name: "Apple Watch Series 11", brand: "Apple", category: "Apple Watch", is_active: true },
+];
+check("Pro Max sibling of 'iPhone 16 Pro' -> p16pm", pickSiblingModel(MODELS, "Apple iPhone 16 Pro", "Pro Max", "iPhone")?.id === "p16pm");
+check("Plus sibling of 'iPhone 15' -> p15plus", pickSiblingModel(MODELS, "Apple iPhone 15", "Plus", "iPhone")?.id === "p15plus");
+check("no matching sibling -> null", pickSiblingModel(MODELS, "Apple iPhone 16 Pro", "Ultra", "iPhone") === null);
+check("wrong generation not matched", pickSiblingModel(MODELS, "Apple iPhone 14 Pro", "Pro Max", "iPhone") === null);
+check("inactive sibling excluded", pickSiblingModel(
+  [{ id: "x", name: "iPhone 16 Pro Max", brand: "Apple", category: "iPhone", is_active: false }],
+  "Apple iPhone 16 Pro", "Pro Max", "iPhone") === null);
+check("category mismatch excluded", pickSiblingModel(MODELS, "Apple iPhone 16 Pro", "Pro Max", "iPad") === null);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
