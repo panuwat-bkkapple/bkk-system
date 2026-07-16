@@ -229,21 +229,25 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   //     worded to hit that grader: ขนแมว→B, ขีดข่วน/บุบ/บิ่น→C, แตก/ร้าว/งอ→D.
   //     Damage options carry a % default so the grade classifies out of the box
   //     (grade only looks at options that deduct > 0) — admin tunes the numbers.
-  //   • คุณสมบัติเครื่อง (kind 'functional' where it can refuse a device) —
-  //     ประกัน (deduct only), ประเทศที่ซื้อ + ประวัติการซ่อม (can 'reject').
-  //     reject needs kind 'functional' so it blocks across customer + rider +
-  //     admin + QC. ประกัน stays 'cosmetic'/excluded from grade; ประเทศ is
-  //     excluded from grade too (see GRADE_EXCLUDE_RE) — grade ignores region.
+  //   • คุณสมบัติเครื่อง — ประกัน / ประเทศที่ซื้อ / ประวัติการซ่อม. ALL kind
+  //     'cosmetic': the customer answers every group, and the no-buy decision
+  //     (ซ่อมนอกศูนย์/อะไหล่เทียบ, ล็อกเครือข่าย) is surfaced on the end-of-flow
+  //     summary card (Rejected), NOT as a mid-flow dead-end. Those options still
+  //     carry failBehavior:'reject' in the data so the summary can read it; we
+  //     do NOT make the group 'functional' — that would (a) mislabel provenance
+  //     as a working check and (b) let this template alone replace the hardcoded
+  //     working-check screening (any functional group does). ประกัน + ประเทศ are
+  //     excluded from the A/B/C/D grade (see GRADE_EXCLUDE_RE) — grade = สภาพ only.
   type CondOpt = { label: string; description: string; pct?: number; deduct?: number; failBehavior?: 'pass' | 'reject' | 'deduct' };
   type CondGroup = { title: string; icon: string; description: string; kind: 'cosmetic' | 'functional'; options: CondOpt[] };
   const CONDITION_TEMPLATES: Record<string, { label: string; items: CondGroup[] }> = {
     standard: { label: 'สภาพ + ประกัน + ประเทศ + ประวัติซ่อม', items: [
-      { title: 'ประวัติการซ่อม', icon: 'help', kind: 'functional', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
+      { title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
         { label: 'ไม่เคยซ่อม', description: 'เครื่องเดิมจากโรงงาน ไม่เคยเปิดซ่อม', failBehavior: 'pass', deduct: 0 },
         { label: 'เคยซ่อมศูนย์ / อะไหล่แท้', description: 'เคยเข้าศูนย์ Apple เปลี่ยนอะไหล่แท้', failBehavior: 'deduct', deduct: 0 },
         { label: 'ซ่อมนอกศูนย์ / อะไหล่เทียบ (ไม่แท้)', description: 'เคยซ่อมร้านนอก หรือเปลี่ยนอะไหล่เทียบ/ไม่แท้', failBehavior: 'reject' },
       ] },
-      { title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'functional', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
+      { title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
         { label: 'ศูนย์ไทย (TH)', description: 'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย TH/A', failBehavior: 'pass', deduct: 0 },
         { label: 'เครื่องนอก (ZP / LL / อื่นๆ)', description: 'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย', failBehavior: 'deduct', deduct: 0 },
         { label: 'ล็อกเครือข่าย / ใช้ในไทยไม่ได้', description: 'เครื่องติดล็อกเครือข่ายผู้ให้บริการ ใช้ซิมไทยไม่ได้', failBehavior: 'reject' },
@@ -283,7 +287,9 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
         // pct wins over deduct; a reject option needs no amount.
         if (o.pct != null) opt.pct = o.pct;
         else if (o.deduct != null) opt.deduct = o.deduct;
-        if (g.kind === 'functional') opt.failBehavior = o.failBehavior || 'pass';
+        // Keep failBehavior when the template sets it (reject / deduct) even on
+        // cosmetic groups — the customer summary reads it to flag Rejected.
+        if (o.failBehavior) opt.failBehavior = o.failBehavior;
         return opt;
       }),
     }));
