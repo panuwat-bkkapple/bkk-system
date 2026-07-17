@@ -22,6 +22,7 @@ const {
   pickBatteryOptionId,
   modelLineMismatch,
   pickSiblingModel,
+  priceHaggleIntent,
 } = __test;
 
 let failures = 0;
@@ -266,6 +267,19 @@ check("inactive sibling excluded", pickSiblingModel(
   [{ id: "x", name: "iPhone 16 Pro Max", brand: "Apple", category: "iPhone", is_active: false }],
   "Apple iPhone 16 Pro", "Pro Max", "iPhone") === null);
 check("category mismatch excluded", pickSiblingModel(MODELS, "Apple iPhone 16 Pro", "Pro Max", "iPad") === null);
+
+// --- priceHaggleIntent: haggling-for-more-money detector ------------------
+// Guards the "10,100 -> '12,000 ได้ไหม' -> 12,500 card" lost-deal bug.
+check("haggle: 'เพิ่มราคานะครับ 12,000 ได้ไหม'", priceHaggleIntent("เพิ่มราคานะครับ 12,000 ได้ไหม") === true);
+check("haggle: 'ขอเพิ่มได้ไหมครับ'", priceHaggleIntent("ขอเพิ่มได้ไหมครับ") === true);
+check("haggle: 'ได้มากกว่านี้ไหม'", priceHaggleIntent("ได้มากกว่านี้ไหม") === true);
+check("haggle: 'ราคาน้อยไป'", priceHaggleIntent("ราคาน้อยไป") === true);
+check("haggle: 'ขึ้นราคาหน่อยครับ'", priceHaggleIntent("ขึ้นราคาหน่อยครับ") === true);
+check("haggle: 'ต่อราคาได้ไหม'", priceHaggleIntent("ต่อราคาได้ไหม") === true);
+check("condition correction is NOT haggle: 'จอไม่มีรอยเลยครับ'", priceHaggleIntent("จอไม่มีรอยเลยครับ") === false);
+check("battery info is NOT haggle: 'แบต 95% ครับ'", priceHaggleIntent("แบต 95% ครับ") === false);
+check("plain accept is NOT haggle: 'ตกลงครับ ขายเลย'", priceHaggleIntent("ตกลงครับ ขายเลย") === false);
+check("empty -> not haggle", priceHaggleIntent("") === false);
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

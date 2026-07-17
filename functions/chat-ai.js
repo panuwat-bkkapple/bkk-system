@@ -286,6 +286,69 @@ function quotaFull(item) {
   return !!(item.total_limit && (item.used_count || 0) >= item.total_limit);
 }
 
+// Pick the single best public coupon a device qualifies for, to surface on the
+// quote card BEFORE the customer asks. DISPLAY ONLY — the real money is still
+// applied + revalidated by checkout auto-select and validateAndCreateOrder
+// (bkk-frontend-next). This mirrors the eligibility rules in
+// bkk-frontend-next/app/utils/couponEligibility.ts — keep the two in sync.
+// Fail-closed on anything we can't guarantee for an anonymous chat visitor:
+//   - system masters (REVIEW_REWARD) never advertised
+//   - new_customer_only skipped (we can't verify "new" here → would mismatch
+//     checkout and disappoint), same for type 'service' (no payout bump)
+//   - model-restricted but applicable_models empty → not eligible
+// tradeValue = the card's preliminary estimated_price (single-item subtotal).
+async function pickBestCouponForModel(db, modelId, tradeValue) {
+  if (!modelId || !(Number(tradeValue) > 0)) return null;
+  try {
+    const snap = await db.ref("coupons").once("value");
+    const cs = snap.val() || {};
+    const now = Date.now();
+    let best = null;
+    for (const key of Object.keys(cs)) {
+      const c = cs[key];
+      if (!c || c.system === true) continue;
+      if (c.is_active === false) continue;
+      if (c.new_customer_only === true) continue;
+      if (!promoWindowOpen(c, now)) continue;
+      if (quotaFull(c)) continue;
+      const applicable = Array.isArray(c.applicable_models) ? c.applicable_models : [];
+      const excluded = Array.isArray(c.excluded_models) ? c.excluded_models : [];
+      if (excluded.includes(modelId)) continue; // exclude wins
+      const restricted = c.is_model_restricted === true || applicable.length > 0;
+      if (restricted) {
+        if (applicable.length === 0) continue;          // restricted but empty → fail closed
+        if (!applicable.includes(modelId)) continue;    // not this model
+      }
+      if (Number(tradeValue) < Number(c.min_trade_value || 0)) continue;
+      const type = c.type || "fixed";
+      let val = 0;
+      if (type === "percentage") {
+        val = Math.floor(Number(tradeValue) * (Number(c.value || 0) / 100));
+        const cap = Number(c.max_discount || 0);
+        if (cap > 0) val = Math.min(val, cap);
+      } else if (type === "fixed") {
+        val = Number(c.value || 0);
+      } else {
+        continue; // 'service' or unknown → no payout bump to show on the card
+      }
+      if (!(val > 0)) continue;
+      if (!best || val > best.computed_value) {
+        best = {
+          code: c.code || key,
+          name: c.name || c.title || "",
+          type,
+          value: Number(c.value || 0),
+          computed_value: val,
+          end_date: c.end_date || null,
+        };
+      }
+    }
+    return best;
+  } catch {
+    return null; // best-effort — a card with no coupon still works
+  }
+}
+
 async function geocodeThaiArea(text) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) return { error: "maps_api_key_missing" };
@@ -464,6 +527,27 @@ function modelLineMismatch(customerText, modelFullName) {
   if (c.includes(" ultra") && !n.includes("ultra")) return "Ultra";
   if (/\bmini\b/.test(c) && !n.includes("mini")) return "mini";
   return null;
+}
+
+// Detects a customer HAGGLING for a higher buy price — asking us to pay more,
+// as opposed to disclosing better device condition. Real lost-deal bug: after a
+// 10,100 quote the customer typed "เพิ่มราคานะครับ 12,000 ได้ไหม" and the AI
+// re-issued create_quote_card with improved condition answers it invented,
+// producing a 12,500 card (above the assessed value AND above what they asked).
+// Price must come from condition + market only; a request for more money must
+// never raise it. Used to block an amend that would INCREASE the price when the
+// trigger was a haggle rather than a genuine condition correction. Pure/testable.
+function priceHaggleIntent(text) {
+  const t = String(text || "").toLowerCase().replace(/\s+/g, "");
+  const needles = [
+    "เพิ่มราคา", "ราคาเพิ่ม", "เพิ่มเงิน", "เพิ่มให้", "เพิ่มอีก", "เพิ่มได้", "เพิ่มหน่อย", "เพิ่มนิด",
+    "ขึ้นราคา", "ราคาขึ้น", "บวกเพิ่ม", "บวกอีก", "บวกให้",
+    "มากกว่านี้", "สูงกว่านี้", "แพงกว่านี้", "ดีกว่านี้", "กว่านี้ได้", "ราคาดีกว่า", "ขอราคาดี", "ขอราคาสูง",
+    "ได้มากกว่า", "ให้มากกว่า", "ขอมากกว่า", "ขอสูงกว่า",
+    "ต่อราคา", "ต่อได้ไหม", "ต่อหน่อย", "ต่อรอง",
+    "ราคาน้อย", "น้อยไป", "น้อยจัง", "ราคาต่ำ", "ต่ำไป", "ถูกไป", "ราคาถูก", "ให้ราคาดี",
+  ];
+  return needles.some((n) => t.includes(n));
 }
 
 // Given the light model list, find the sibling that actually matches the line
@@ -876,6 +960,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
+    `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
     `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคา" → บอกขอเจ้าหน้าที่ยืนยันราคา แล้ว escalate_to_human ห้ามถามสภาพ. (ค) มีราคา → บอกราคาประเมิน. ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามลูกค้า "ครั้งเดียว" ข้อความเดียวรวม 5 เรื่อง: (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอกครับ (บอกวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ถ้าลงท้าย TH/A คือศูนย์ไทย) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม. ขั้นที่ 4 พอลูกค้าตอบ เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
@@ -1031,7 +1116,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -1467,6 +1552,35 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           }
         }
         const estimated = Math.max(0, basePrice - totalDeduct);
+        // HAGGLE GUARD: a re-quote for the same device may only go DOWN (the
+        // customer disclosed a defect) or stay — never UP because they asked
+        // for more. The first quote already assumes best-case for every group
+        // the customer didn't answer, so an increase means the AI improved the
+        // conditions without new info. Block it when this turn's message is a
+        // price haggle (not a condition correction), and make the AI hold the
+        // assessed price. Real lost-deal: 10,100 -> "12,000 ได้ไหม" -> 12,500.
+        if (
+          prevQuote &&
+          estimated > (Number(prevQuote.estimated_price) || 0) &&
+          priceHaggleIntent(lastCustomerText)
+        ) {
+          const prevEst = Number(prevQuote.estimated_price) || 0;
+          console.warn(
+            `[chatAi] ${convoId} haggle up-quote blocked: prev=${prevEst} attempted=${estimated} msg="${String(lastCustomerText || "").slice(0, 80)}"`
+          );
+          return {
+            error: "price_increase_by_haggle_blocked",
+            previous_estimate: prevEst,
+            note:
+              `ลูกค้ากำลัง "ต่อขอราคาสูงขึ้น" ไม่ใช่แจ้งว่าสภาพเครื่องดีขึ้นจริง — ห้ามออกใบเสนอราคาที่สูงกว่าเดิม และห้ามพิมพ์ตัวเลขที่ลูกค้าขอ. ` +
+              `ราคารับซื้อคำนวณจากสภาพเครื่อง + ราคาตลาดวันนี้เท่านั้น ปรับขึ้นตามคำขอไม่ได้. อธิบายสุภาพว่าราคาประเมินอยู่ที่ ${prevEst.toLocaleString("th-TH")} บาท (ยอดเดิม) ` +
+              `และถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะถูกปรับขึ้นให้ตอนเจ้าหน้าที่ตรวจเครื่องจริงหน้างาน. ถ้าลูกค้าแจ้ง "สภาพจริง" ที่ดีกว่าเดิม (เช่น จอไม่มีรอย แบตสูงกว่าที่บอก) ให้ออกการ์ดใหม่ตามสภาพนั้นได้ แต่ห้ามปรับขึ้นเพราะการต่อราคาเปล่าๆ`,
+          };
+        }
+        // Proactively surface the best coupon this model qualifies for so the
+        // customer sees the boosted number IN CHAT (checkout auto-applies the
+        // same class of coupon anyway — this is display only, not pricing).
+        const eligibleCoupon = await pickBestCouponForModel(db, modelId, estimated);
         const nowQ = Date.now();
         const quoteRef = db.ref("chat_quotes").push();
         const capacity = String(
@@ -1491,6 +1605,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           max_pickup_distance_km: Number(model.maxPickupDistanceKm) || 0,
           is_new_device: isNewDevice,
           has_receipt: hasReceipt,
+          eligible_coupon: eligibleCoupon || null,
           created_at: nowQ,
           expires_at: nowQ + 48 * 60 * 60 * 1000,
         };
@@ -1555,8 +1670,19 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
                 previous_estimate: Number(prevQuote.estimated_price) || 0,
               }
             : {}),
+          ...(eligibleCoupon
+            ? {
+                eligible_coupon: {
+                  name: eligibleCoupon.name,
+                  value: eligibleCoupon.computed_value,
+                },
+              }
+            : {}),
           note:
             "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ" +
+            (eligibleCoupon
+              ? ` (รุ่นนี้มีโปรโมชั่น "${eligibleCoupon.name}" เพิ่มให้อีก ${Number(eligibleCoupon.computed_value).toLocaleString("th-TH")} บาท แสดงบนการ์ดแล้ว — บอกลูกค้าสั้นๆ อย่างน่าสนใจว่ารุ่นนี้ได้โปรฯ พิเศษเพิ่มด้วย ห้ามแต่งมูลค่า/ชื่อโปรฯ เอง ใช้ตามนี้เท่านั้น)`
+              : "") +
             (prevQuote
               ? ` (ใบนี้อัปเดตจากใบเดิมยอด ${Number(prevQuote.estimated_price || 0).toLocaleString("th-TH")} บาท — บอกทิศทางยอดตามจริง: สูงขึ้น/ลดลง/เท่าเดิม ห้ามบอกสวนทางกับตัวเลข)`
               : "") +
@@ -2283,7 +2409,7 @@ function registerChatAi({ dispatchAdminPush }) {
           .filter((m) => m.senderRole === "customer")
           .map((m) => String(m.text || ""))
           .join(" \n ");
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText });
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
@@ -2602,6 +2728,7 @@ module.exports = {
     pickBatteryOptionId,
     modelLineMismatch,
     pickSiblingModel,
+    priceHaggleIntent,
     normalizePhone,
     verifyReply,
     callClaude,
