@@ -286,6 +286,69 @@ function quotaFull(item) {
   return !!(item.total_limit && (item.used_count || 0) >= item.total_limit);
 }
 
+// Pick the single best public coupon a device qualifies for, to surface on the
+// quote card BEFORE the customer asks. DISPLAY ONLY — the real money is still
+// applied + revalidated by checkout auto-select and validateAndCreateOrder
+// (bkk-frontend-next). This mirrors the eligibility rules in
+// bkk-frontend-next/app/utils/couponEligibility.ts — keep the two in sync.
+// Fail-closed on anything we can't guarantee for an anonymous chat visitor:
+//   - system masters (REVIEW_REWARD) never advertised
+//   - new_customer_only skipped (we can't verify "new" here → would mismatch
+//     checkout and disappoint), same for type 'service' (no payout bump)
+//   - model-restricted but applicable_models empty → not eligible
+// tradeValue = the card's preliminary estimated_price (single-item subtotal).
+async function pickBestCouponForModel(db, modelId, tradeValue) {
+  if (!modelId || !(Number(tradeValue) > 0)) return null;
+  try {
+    const snap = await db.ref("coupons").once("value");
+    const cs = snap.val() || {};
+    const now = Date.now();
+    let best = null;
+    for (const key of Object.keys(cs)) {
+      const c = cs[key];
+      if (!c || c.system === true) continue;
+      if (c.is_active === false) continue;
+      if (c.new_customer_only === true) continue;
+      if (!promoWindowOpen(c, now)) continue;
+      if (quotaFull(c)) continue;
+      const applicable = Array.isArray(c.applicable_models) ? c.applicable_models : [];
+      const excluded = Array.isArray(c.excluded_models) ? c.excluded_models : [];
+      if (excluded.includes(modelId)) continue; // exclude wins
+      const restricted = c.is_model_restricted === true || applicable.length > 0;
+      if (restricted) {
+        if (applicable.length === 0) continue;          // restricted but empty → fail closed
+        if (!applicable.includes(modelId)) continue;    // not this model
+      }
+      if (Number(tradeValue) < Number(c.min_trade_value || 0)) continue;
+      const type = c.type || "fixed";
+      let val = 0;
+      if (type === "percentage") {
+        val = Math.floor(Number(tradeValue) * (Number(c.value || 0) / 100));
+        const cap = Number(c.max_discount || 0);
+        if (cap > 0) val = Math.min(val, cap);
+      } else if (type === "fixed") {
+        val = Number(c.value || 0);
+      } else {
+        continue; // 'service' or unknown → no payout bump to show on the card
+      }
+      if (!(val > 0)) continue;
+      if (!best || val > best.computed_value) {
+        best = {
+          code: c.code || key,
+          name: c.name || c.title || "",
+          type,
+          value: Number(c.value || 0),
+          computed_value: val,
+          end_date: c.end_date || null,
+        };
+      }
+    }
+    return best;
+  } catch {
+    return null; // best-effort — a card with no coupon still works
+  }
+}
+
 async function geocodeThaiArea(text) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) return { error: "maps_api_key_missing" };
@@ -1514,6 +1577,10 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               `และถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะถูกปรับขึ้นให้ตอนเจ้าหน้าที่ตรวจเครื่องจริงหน้างาน. ถ้าลูกค้าแจ้ง "สภาพจริง" ที่ดีกว่าเดิม (เช่น จอไม่มีรอย แบตสูงกว่าที่บอก) ให้ออกการ์ดใหม่ตามสภาพนั้นได้ แต่ห้ามปรับขึ้นเพราะการต่อราคาเปล่าๆ`,
           };
         }
+        // Proactively surface the best coupon this model qualifies for so the
+        // customer sees the boosted number IN CHAT (checkout auto-applies the
+        // same class of coupon anyway — this is display only, not pricing).
+        const eligibleCoupon = await pickBestCouponForModel(db, modelId, estimated);
         const nowQ = Date.now();
         const quoteRef = db.ref("chat_quotes").push();
         const capacity = String(
@@ -1538,6 +1605,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           max_pickup_distance_km: Number(model.maxPickupDistanceKm) || 0,
           is_new_device: isNewDevice,
           has_receipt: hasReceipt,
+          eligible_coupon: eligibleCoupon || null,
           created_at: nowQ,
           expires_at: nowQ + 48 * 60 * 60 * 1000,
         };
@@ -1602,8 +1670,19 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
                 previous_estimate: Number(prevQuote.estimated_price) || 0,
               }
             : {}),
+          ...(eligibleCoupon
+            ? {
+                eligible_coupon: {
+                  name: eligibleCoupon.name,
+                  value: eligibleCoupon.computed_value,
+                },
+              }
+            : {}),
           note:
             "ส่งการ์ดใบเสนอราคาให้ลูกค้าแล้ว ตอบสั้นๆ ชวนให้กดปุ่มบนการ์ดเพื่อยืนยันขายและกรอกข้อมูลด้วยตัวเอง ไม่ต้องพิมพ์รายละเอียดราคาซ้ำ" +
+            (eligibleCoupon
+              ? ` (รุ่นนี้มีโปรโมชั่น "${eligibleCoupon.name}" เพิ่มให้อีก ${Number(eligibleCoupon.computed_value).toLocaleString("th-TH")} บาท แสดงบนการ์ดแล้ว — บอกลูกค้าสั้นๆ อย่างน่าสนใจว่ารุ่นนี้ได้โปรฯ พิเศษเพิ่มด้วย ห้ามแต่งมูลค่า/ชื่อโปรฯ เอง ใช้ตามนี้เท่านั้น)`
+              : "") +
             (prevQuote
               ? ` (ใบนี้อัปเดตจากใบเดิมยอด ${Number(prevQuote.estimated_price || 0).toLocaleString("th-TH")} บาท — บอกทิศทางยอดตามจริง: สูงขึ้น/ลดลง/เท่าเดิม ห้ามบอกสวนทางกับตัวเลข)`
               : "") +
