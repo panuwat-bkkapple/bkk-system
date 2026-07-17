@@ -42,6 +42,7 @@ const {
 } = require("./sickw-core");
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
+const { resolveCustomer } = require("./crm");
 
 const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -1828,6 +1829,17 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         }
         if (Object.keys(updates).length === 0) return { saved: false };
         await db.ref(`inbox/${convoId}`).update(updates);
+        // CRM: link this conversation to a Contact (phone/email — never uid).
+        // Admin-side aggregation only; the AI still won't reveal a matched
+        // record's orders to the customer unless verified (rule 10.2).
+        if (phone) {
+          try {
+            const customerId = await resolveCustomer(db, { phone, name });
+            if (customerId) await db.ref(`inbox/${convoId}/crm_customer_id`).set(customerId);
+          } catch (e) {
+            console.warn(`[chatAi] ${convoId} resolveCustomer failed:`, e && e.message);
+          }
+        }
         let matchedOrders = 0;
         if (phone) {
           const byPhoneSnap = await db

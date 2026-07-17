@@ -4982,8 +4982,40 @@ exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
 // Read-only audit of the AI's built-in knowledge for the chat-settings page.
 exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
 
-// CRM Contact identity layer (Phase 1 — dormant foundation). Required so the
-// module is part of the deploy graph and load-checked; nothing calls
-// resolveCustomer() yet (Phase 2 wires it into save_customer_info + admin order
-// creation + checkout).
-require("./crm");
+// ---------------------------------------------------------------------------
+// CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).
+// One trigger covers BOTH admin-created orders and customer self-checkout,
+// since both write /jobs. Purely additive: stamps jobs/{id}.customer_id and
+// builds the customers index; changes no existing read. (Chat save_customer_info
+// is wired separately in chat-ai.js.) Name is project-unique per the
+// {region}/{name} collision rule. onValueCreated fires only on node creation,
+// so writing the customer_id child does not re-trigger it.
+// ---------------------------------------------------------------------------
+const { resolveCustomer } = require("./crm");
+exports.onJobCreatedLinkContact = onValueCreated(
+  { ref: "/jobs/{jobId}", region: "asia-southeast1" },
+  async (event) => {
+    try {
+      const job = event.data.val();
+      if (!job || job.is_test) return;
+      const jobId = event.params.jobId;
+      // Canonical pointer is `crm_customer_id` — the legacy `customer_id` field
+      // set by the admin ticket modals is a different ad-hoc reference (a
+      // job-derived id), so we neither read nor overwrite it.
+      if (job.crm_customer_id) return; // idempotent
+      const db = getDatabase();
+      const customerId = await resolveCustomer(db, {
+        phone: job.cust_phone,
+        email: job.cust_email,
+        name: job.cust_name,
+        address: job.cust_address,
+      });
+      if (customerId) {
+        await db.ref(`jobs/${jobId}/crm_customer_id`).set(customerId);
+        console.log(`[crm] job ${jobId} -> customer ${customerId}`);
+      }
+    } catch (e) {
+      console.error("[crm] onJobCreatedLinkContact failed:", e && e.message);
+    }
+  }
+);
