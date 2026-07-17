@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",
+    "@xyflow/react": "^12.11.2",
     "ag-grid-community": "^35.3.1",
     "ag-grid-react": "^35.3.1",
     "browser-image-compression": "^2.0.2",

@@ -23,6 +23,7 @@ const {
   modelLineMismatch,
   pickSiblingModel,
   priceHaggleIntent,
+  buildKbGraphBlock,
 } = __test;
 
 let failures = 0;
@@ -280,6 +281,30 @@ check("condition correction is NOT haggle: 'จอไม่มีรอยเล
 check("battery info is NOT haggle: 'แบต 95% ครับ'", priceHaggleIntent("แบต 95% ครับ") === false);
 check("plain accept is NOT haggle: 'ตกลงครับ ขายเลย'", priceHaggleIntent("ตกลงครับ ขายเลย") === false);
 check("empty -> not haggle", priceHaggleIntent("") === false);
+
+// --- buildKbGraphBlock: admin answer-web -> prompt block --------------------
+const KBG = {
+  nodes: {
+    fee:  { label: "ค่าบริการรับเครื่อง", type: "custom", enabled: true,
+            items: { a: { q: "มีค่าบริการไหม", a: "คิดตามระยะทางครับ", order: 1 } } },
+    sub:  { label: "ต่างจังหวัด", type: "custom", enabled: true,
+            items: { a: { q: "ตจว.ส่งยังไง", a: "ส่งพัสดุ ร้านออกค่าส่ง", order: 1 } } },
+    off:  { label: "ปิดอยู่", type: "custom", enabled: false,
+            items: { a: { q: "x", a: "y", order: 1 } } },
+    live: { label: "โปรโมชั่น", type: "live" },
+    empty:{ label: "ว่าง", type: "custom", enabled: true, items: {} },
+  },
+  edges: { e1: { from: "root", to: "fee" }, e2: { from: "fee", to: "sub" } },
+};
+const kbg = buildKbGraphBlock(KBG);
+check("kb graph includes enabled custom Q&A", kbg.includes("มีค่าบริการไหม") && kbg.includes("คิดตามระยะทางครับ"));
+check("kb graph child shows parent path", kbg.includes("ค่าบริการรับเครื่อง › ต่างจังหวัด"));
+check("kb graph skips disabled node", !kbg.includes("ปิดอยู่"));
+check("kb graph skips live node", !kbg.includes("[หมวด: โปรโมชั่น]"));
+check("kb graph skips empty node", !kbg.includes("ว่าง"));
+check("kb graph header pins tool precedence", kbg.includes("ต้องมาจาก tool"));
+check("empty graph -> empty string", buildKbGraphBlock(null) === "" && buildKbGraphBlock({}) === "");
+check("all-disabled graph -> empty string", buildKbGraphBlock({ nodes: { x: { label: "x", type: "custom", enabled: false, items: { a: { q: "q", a: "a" } } } } }) === "");
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

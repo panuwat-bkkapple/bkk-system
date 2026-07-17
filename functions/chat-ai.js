@@ -2078,6 +2078,62 @@ function shouldOverrideDeclinedReply(finalText) {
 // System-prompt block enabling the IMEI/serial device check in chat. Only
 // appended when the back-office toggle (settings/chat_widget/sickw.enabled)
 // is on, so a disabled integration never even tempts the model to offer it.
+// Admin-authored knowledge graph (settings/chat_kb) — the "answer web" the
+// owner edits visually on the bkk-system /chat-kb canvas (React Flow). Nodes
+// are answer categories; each CUSTOM node holds Q&A items that are official
+// store answers (they outrank the built-in FAQ on conflict, same as the free-
+// text kb). LIVE nodes only mirror data the AI already reads via tools
+// (coupons/prices/branches) — no items, skipped here. Node hierarchy comes
+// from the drawn edges: a child category renders as "หมวดแม่ › หมวดลูก".
+// Pure so the offline test harness can cover it without Firebase.
+function buildKbGraphBlock(kbGraph) {
+  if (!kbGraph || typeof kbGraph !== "object") return "";
+  const nodes = kbGraph.nodes && typeof kbGraph.nodes === "object" ? kbGraph.nodes : {};
+  const edges = kbGraph.edges && typeof kbGraph.edges === "object" ? kbGraph.edges : {};
+  const parentOf = {};
+  for (const k of Object.keys(edges)) {
+    const e = edges[k];
+    if (e && e.from && e.to) parentOf[e.to] = e.from;
+  }
+  const pathLabel = (id) => {
+    const parts = [];
+    let cur = id;
+    let hop = 0;
+    while (cur && cur !== "root" && hop < 6) { // hop cap breaks accidental cycles
+      const n = nodes[cur];
+      if (!n || !n.label) break;
+      parts.unshift(String(n.label));
+      cur = parentOf[cur];
+      hop++;
+    }
+    return parts.join(" › ");
+  };
+  const out = [];
+  for (const id of Object.keys(nodes).sort()) {
+    const n = nodes[id];
+    if (!n || n.type !== "custom" || n.enabled === false) continue;
+    const items = n.items && typeof n.items === "object" ? Object.values(n.items) : [];
+    const rows = items
+      .filter((it) => it && String(it.q || "").trim() && String(it.a || "").trim())
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+    if (rows.length === 0) continue;
+    out.push(`[หมวด: ${pathLabel(id) || String(n.label || id)}]`);
+    for (const it of rows) {
+      out.push(`ถาม: ${String(it.q).trim().slice(0, 300)}`);
+      out.push(`ตอบ: ${String(it.a).trim().slice(0, 1500)}`);
+    }
+    out.push("");
+  }
+  if (out.length === 0) return "";
+  let body = out.join("\n").trim();
+  if (body.length > 12000) body = body.slice(0, 12000); // prompt-size backstop
+  return [
+    "",
+    "คลังคำตอบของร้าน (แอดมินตั้งไว้ — คำตอบทางการ ใช้ตอบได้ทันที ถ้าขัดกับ FAQ ในตัวระบบให้ยึดคลังนี้ก่อน แต่ตัวเลขราคา/โปรโมชั่น/สาขา/พื้นที่บริการยังต้องมาจาก tool ตามกฎเดิมเสมอ):",
+    body,
+  ].join("\n");
+}
+
 function buildDeviceCheckBlock(enabled) {
   if (enabled !== true) return "";
   return [
@@ -2372,6 +2428,16 @@ function registerChatAi({ dispatchAdminPush }) {
         ].join("\n");
 
         const kb = String(settings.kb || "").slice(0, 8000);
+        // Answer web (settings/chat_kb) — admin-curated Q&A graph, appended to
+        // the prompt below. Best-effort: an unreadable graph must never stop
+        // the reply.
+        let kbGraphBlock = "";
+        try {
+          const kbgSnap = await db.ref("settings/chat_kb").once("value");
+          if (kbgSnap.exists()) kbGraphBlock = buildKbGraphBlock(kbgSnap.val());
+        } catch (err) {
+          console.warn(`[${tag}] ${convoId} chat_kb load failed:`, err && err.message);
+        }
         // The last-quote block also carries the model's full option-id catalog
         // so a follow-up like "มีกล่องครบนะ" can be re-quoted without the model
         // having to re-discover ids via tools (the step it skipped in the
@@ -2394,6 +2460,7 @@ function registerChatAi({ dispatchAdminPush }) {
         }
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+          kbGraphBlock +
           buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled) +
           buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
@@ -2723,6 +2790,7 @@ module.exports = {
     buildLastQuoteBlock,
     buildLastSearchBlock,
     buildDeviceCheckBlock,
+    buildKbGraphBlock,
     shouldOverrideDeclinedReply,
     batteryOptionRange,
     pickBatteryOptionId,
