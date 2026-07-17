@@ -8,6 +8,7 @@ import {
   Truck, Store, Mail, Clock, Package, RefreshCw, History
 } from 'lucide-react';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
+import { isAwaitingOffer } from '../../utils/offerRequest';
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -241,17 +242,20 @@ const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => voi
               <div className="flex items-center gap-1.5">
                 {isNew && <span className="shrink-0 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
                 {isB2B && <span className="text-[9px] font-black bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full shrink-0">B2B</span>}
+                {isAwaitingOffer(job) && <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full shrink-0">ขอราคา</span>}
                 <span className="text-sm font-black text-slate-800 truncate">{job.model || 'ไม่ระบุรุ่น'}</span>
               </div>
               <p className="text-[10px] text-slate-400 mt-0.5">
                 {job.ref_no || `#${(job.id || '').slice(-6)}`}
               </p>
             </div>
-            {price && (
+            {isAwaitingOffer(job) ? (
+              <span className="text-[11px] font-black text-blue-600 shrink-0">รอเสนอราคา</span>
+            ) : price ? (
               <span className="text-sm font-black text-emerald-600 shrink-0">
                 ฿{Number(price).toLocaleString()}
               </span>
-            )}
+            ) : null}
           </div>
 
           {/* Row 2: Customer — กดเพื่อดูประวัติลูกค้า (ไทม์ไลน์ซื้อ-ขาย) */}
