@@ -550,6 +550,35 @@ function priceHaggleIntent(text) {
   return needles.some((n) => t.includes(n));
 }
 
+// Detects an explicit request to talk to a HUMAN. Used by the post-turn
+// escalation guard: if the customer asked for a person and the model never
+// called escalate_to_human this turn, we force the real escalation — the
+// model sometimes says "เดี๋ยวส่งต่อให้ครับ" without calling the tool, so the
+// status stays 'ai', no admin push fires, and nobody actually comes ("ขอคุย
+// กับแอดมิน/เจ้าหน้าที่/คน" all reproduced this). Pure/testable. A false
+// positive costs one needless handoff (admin can hand back) — the safe side.
+function humanRequestIntent(text) {
+  const t = String(text || "").toLowerCase().replace(/\s+/g, "");
+  const needles = [
+    "คุยกับแอดมิน", "คุยกับเจ้าหน้าที่", "คุยกับพนักงาน", "คุยกับคน", "คุยกับมนุษย์",
+    "ขอแอดมิน", "ขอเจ้าหน้าที่", "ขอพนักงาน", "เรียกแอดมิน", "เรียกเจ้าหน้าที่",
+    "ติดต่อแอดมิน", "ติดต่อเจ้าหน้าที่", "หาแอดมิน", "หาเจ้าหน้าที่", "แอดมินอยู่ไหม",
+    "เจ้าหน้าที่อยู่ไหม", "ขอสายเจ้าหน้าที่", "โอนสาย", "ขอคนจริง", "คนจริงๆ",
+    "ไม่อยากคุยกับบอท", "ไม่คุยกับบอท", "ไม่อยากคุยกับai", "ไม่คุยกับai",
+  ];
+  return needles.some((n) => t.includes(n));
+}
+
+// Detects a reply that CLAIMS the conversation was forwarded to staff.
+// Companion to humanRequestIntent for the same guard: a "ส่งต่อให้แล้วครับ"
+// reply without a real escalate_to_human call leaves the customer waiting for
+// a human who was never notified. Kept deliberately narrow so ordinary quote
+// copy ("ราคายืนยันตอนเจ้าหน้าที่ตรวจเครื่อง") does not match.
+function claimsHumanForwarding(reply) {
+  const r = String(reply || "").replace(/\s+/g, "");
+  return /ส่งเรื่อง(ต่อ)?(ถึง|ให้)|ส่งต่อ(ให้|เรื่อง|เคส)|(แจ้ง|ประสาน)(ทีมงาน|เจ้าหน้าที่|แอดมิน)|(เจ้าหน้าที่|แอดมิน|ทีมงาน)(จะ)?(เข้ามา(ตอบ|ดูแล|คุย)|ติดต่อกลับ|มาดูแล|รับเรื่องต่อ)/.test(r);
+}
+
 // Given the light model list, find the sibling that actually matches the line
 // the customer named (same generation, correct line, still active). Pure so it
 // can be unit-tested. Prefers the shortest name = the most exact match.
@@ -2692,6 +2721,28 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
+        // Escalation-promise guard: the customer explicitly asked for a human,
+        // or the reply claims the chat was forwarded — but escalate_to_human
+        // was never actually called this turn. Real bug: "ขอคุยกับแอดมิน" ->
+        // "เดี๋ยวส่งต่อให้ครับ" -> status stays 'ai', no push, no Inbox queue,
+        // nobody comes. Force the real escalation deterministically; the tool
+        // writes the system confirmation + pushes admins itself.
+        if (finalText && !state.escalated) {
+          const wantsHuman = humanRequestIntent(text);
+          const saidForwarded = claimsHumanForwarding(finalText);
+          if (wantsHuman || saidForwarded) {
+            console.warn(
+              `[${tag}] ${convoId} escalation requested/promised but not executed (wantsHuman=${wantsHuman} saidForwarded=${saidForwarded}) — forcing escalate`
+            );
+            await executeTool("escalate_to_human", {
+              reason: wantsHuman ? "customer_request" : "promised_forwarding",
+              summary: wantsHuman
+                ? `ลูกค้าขอคุยกับเจ้าหน้าที่: "${text.slice(0, 120)}"`
+                : `AI บอกว่าส่งต่อแล้วแต่ยังไม่ได้ส่งจริง — ลูกค้า: "${text.slice(0, 120)}"`,
+            });
+          }
+        }
+
         // Verifier gate — vet a genuine AI reply before it reaches the customer.
         // (Skip canned escalation replies; those are safe fixed strings.)
         if (finalText && !state.escalated) {
@@ -2797,6 +2848,8 @@ module.exports = {
     modelLineMismatch,
     pickSiblingModel,
     priceHaggleIntent,
+    humanRequestIntent,
+    claimsHumanForwarding,
     normalizePhone,
     verifyReply,
     callClaude,
