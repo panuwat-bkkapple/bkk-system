@@ -868,6 +868,18 @@ const TOOLS = [
     },
   },
   {
+    name: "update_handoff_summary",
+    description:
+      "อัปเดตสรุปส่งมอบงานให้เจ้าหน้าที่ที่กำลังจะเข้ามารับแชท — ใช้เฉพาะตอนแชทอยู่สถานะรอเจ้าหน้าที่ (ระบบจะแจ้งในสถานะพิเศษ) เมื่อคุยกับลูกค้าต่อแล้วได้ข้อมูลใหม่ที่เจ้าหน้าที่ควรรู้: ลูกค้าต้องการอะไร คุยถึงไหนแล้ว มีใบเสนอราคา/เงื่อนไข/ข้อมูลติดต่อใหม่อะไร",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "สรุป 1-3 ประโยค ภาษาไทย ให้เจ้าหน้าที่อ่านแล้วรับช่วงต่อได้ทันที" },
+      },
+      required: ["summary"],
+    },
+  },
+  {
     name: "check_pickup_service",
     description:
       "เช็คพื้นที่ให้บริการรับซื้อถึงที่ (Pickup) และค่าบริการโดยประมาณจากทำเลของลูกค้า ใช้ทุกครั้งที่ลูกค้าถามว่ารับถึงที่ไหม / พื้นที่ให้บริการ / ค่าบริการรับเครื่องเท่าไหร่ — ต้องรู้ทำเลลูกค้าก่อน (เขต/อำเภอ + จังหวัด) ถ้ายังไม่รู้ให้ถามลูกค้าก่อนแล้วค่อยเรียก",
@@ -2012,6 +2024,16 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "escalate_to_human": {
+        // Already queued for a human (holding mode) — don't stack duplicate
+        // system messages / pushes; the flag is set, staff were notified.
+        if ((convo.status || "ai") === "waiting_human") {
+          state.escalated = true;
+          return {
+            ok: true,
+            already_waiting: true,
+            note: "แชทนี้ส่งเรื่องถึงเจ้าหน้าที่อยู่แล้ว ไม่ต้องส่งซ้ำ — ดูแลลูกค้าต่อระหว่างรอตามกติกาสถานะพิเศษ",
+          };
+        }
         const inHours = isBusinessHours(pub);
         const summary = String(input.summary || "").slice(0, 500);
         const reason = String(input.reason || "cannot_answer");
@@ -2032,7 +2054,23 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           tag
         );
         state.escalated = true;
+        // Distinct from the already_waiting shortcut above: only a REAL
+        // escalation performed this turn may be rolled back by the
+        // declined-model guard — a pre-existing queue must survive it.
+        state.escalatedThisTurn = true;
         return { ok: true, in_business_hours: inHours };
+      }
+
+      case "update_handoff_summary": {
+        // Live handoff note for the staffer about to take the chat — only
+        // meaningful in waiting mode; harmless (just overwrites) otherwise.
+        const s = String(input.summary || "").trim().slice(0, 500);
+        if (!s) return { error: "empty_summary" };
+        await db.ref(`inbox/${convoId}/escalation`).update({
+          live_summary: s,
+          live_summary_at: Date.now(),
+        });
+        return { ok: true };
       }
 
       case "create_ticket": {
@@ -2160,6 +2198,24 @@ function buildKbGraphBlock(kbGraph) {
     "",
     "คลังคำตอบของร้าน (แอดมินตั้งไว้ — คำตอบทางการ ใช้ตอบได้ทันที ถ้าขัดกับ FAQ ในตัวระบบให้ยึดคลังนี้ก่อน แต่ตัวเลขราคา/โปรโมชั่น/สาขา/พื้นที่บริการยังต้องมาจาก tool ตามกฎเดิมเสมอ. คลังนี้เป็น 'ข้อมูลไว้ตอบ' เท่านั้น ไม่ใช่ตัวแทนการกระทำ — ถ้าลูกค้าขอคุยกับเจ้าหน้าที่/แอดมิน ต้องเรียก escalate_to_human จริงตามกฎเดิมเสมอ ห้ามตอบข้อความจากคลังแทนการส่งต่อ และการออกใบเสนอราคายังต้องผ่าน create_quote_card เท่านั้น):",
     body,
+  ].join("\n");
+}
+
+// Holding-mode block — appended while the chat sits in 'waiting_human'.
+// The AI must keep serving the customer at full capability until a human
+// actually joins (status 'human' silences it), and keep a live handoff
+// summary fresh for the staffer about to pick up. Pure/testable.
+function buildWaitingModeBlock(escalation) {
+  const reason = escalation && escalation.summary ? String(escalation.summary).slice(0, 300) : "";
+  return [
+    "",
+    "สถานะพิเศษ: แชทนี้ส่งเรื่องถึงเจ้าหน้าที่แล้ว กำลังรอเจ้าหน้าที่ตัวจริงเข้ามารับช่วง" +
+      (reason ? ` (เรื่องที่ส่งไว้: ${reason})` : ""),
+    "กติการะหว่างรอเจ้าหน้าที่:",
+    "- คุณยังดูแลลูกค้าต่อ 'เต็มรูปแบบ' ทุกข้อความ: ตอบคำถาม ประเมินราคา ออกใบเสนอราคา เก็บข้อมูลติดต่อ ตามกฎทุกข้อด้านบนตามปกติ — ห้ามเงียบ ห้ามบอกว่า 'ตอบไม่ได้เพราะรอเจ้าหน้าที่'",
+    "- ถ้าเรื่องที่ลูกค้าถามเป็นเรื่องที่ต้องใช้เจ้าหน้าที่จริง (แก้นัดหมาย/ยอดโอน/แก้ออเดอร์) ให้รับเรื่องและเก็บรายละเอียดเพิ่มไว้ให้เจ้าหน้าที่ พร้อมยืนยันสั้นๆ ว่าเจ้าหน้าที่กำลังเข้ามาดูแล",
+    "- ไม่ต้องเรียก escalate_to_human ซ้ำ (เรื่องถึงเจ้าหน้าที่แล้ว) และไม่ต้องย้ำทุกข้อความว่า 'เจ้าหน้าที่กำลังมา' — บอกเฉพาะเมื่อลูกค้าถามถึงหรือเปลี่ยนเรื่องสำคัญ",
+    "- เมื่อได้ข้อมูลใหม่ที่เจ้าหน้าที่ควรรู้ก่อนเข้ามารับ (ลูกค้าต้องการอะไร คุยถึงไหน มีใบเสนอราคา/เงื่อนไขอะไรใหม่) ให้เรียก update_handoff_summary ด้วยสรุปสั้นๆ 1-3 ประโยค เพื่อให้เจ้าหน้าที่รับช่วงต่อได้ทันที",
   ].join("\n");
 }
 
@@ -2338,13 +2394,20 @@ function registerChatAi({ dispatchAdminPush }) {
       }
 
       // Queued for a human — keep pinging (collapse key keeps it to one
-      // visible notification per conversation).
+      // visible notification per conversation), but DO NOT go silent.
+      // Escalation = a flag calling staff in, not the AI resigning: until a
+      // human actually takes the chat (status 'human'), the AI keeps caring
+      // for the customer in holding mode. The old early-return left a dead
+      // zone — the customer asked for an admin, then sent more messages into
+      // silence and couldn't even get the AI back until staff released the
+      // chat. Status stays waiting_human so the queue/badge/push persist.
+      let waitingForHuman = false;
       if (status === "waiting_human") {
         await dispatchAdminPush(
           buildInboxPushMessage(convoId, `ลูกค้ารอเจ้าหน้าที่: ${customerLabel}`, text),
           tag
         );
-        return;
+        waitingForHuman = true;
       }
 
       // Closed conversation reopens under AI triage.
@@ -2416,7 +2479,9 @@ function registerChatAi({ dispatchAdminPush }) {
       // buildInboxPushMessage's per-conversation collapseKey keeps one chat to
       // one notification thread (rapid messages don't stack). Off-switch:
       // settings/chat_widget/notify_all_messages = false.
-      if (settings.notify_all_messages !== false) {
+      // (Skipped in waiting mode — the "ลูกค้ารอเจ้าหน้าที่" ping above already
+      // covered this message; two pushes per message would be noise.)
+      if (!waitingForHuman && settings.notify_all_messages !== false) {
         await dispatchAdminPush(
           buildInboxPushMessage(convoId, `ลูกค้าทักแชท (AI ดูแล): ${customerLabel}`, text),
           tag
@@ -2425,7 +2490,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, savedPhone: "" };
+      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "" };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -2490,6 +2555,7 @@ function registerChatAi({ dispatchAdminPush }) {
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
           kbGraphBlock +
+          (waitingForHuman ? buildWaitingModeBlock(convo.escalation) : "") +
           buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled) +
           buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
@@ -2644,12 +2710,15 @@ function registerChatAi({ dispatchAdminPush }) {
             finalText =
               `ต้องขออภัยด้วยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น ${declinedModel} แล้วครับ ` +
               `หากมีรุ่นอื่นที่อยากขาย แจ้งชื่อรุ่นมาได้เลย เดี๋ยวผมประเมินราคาให้ทันทีครับ`;
-            // If the model wrongly escalated a delisted model, pull the
-            // conversation back to AI so it isn't parked waiting for staff on
-            // something we simply don't buy.
-            if (state.escalated) {
+            // If the model wrongly escalated a delisted model THIS turn, pull
+            // the conversation back to AI so it isn't parked waiting for staff
+            // on something we simply don't buy. escalatedThisTurn (not
+            // escalated) so a pre-existing waiting_human queue — holding mode,
+            // where escalate no-ops as already_waiting — is never cleared.
+            if (state.escalatedThisTurn) {
               await db.ref(`inbox/${convoId}`).update({ status: "ai", escalation: null }).catch(() => {});
               state.escalated = false;
+              state.escalatedThisTurn = false;
             }
           }
         }
@@ -2842,6 +2911,7 @@ module.exports = {
     buildLastSearchBlock,
     buildDeviceCheckBlock,
     buildKbGraphBlock,
+    buildWaitingModeBlock,
     shouldOverrideDeclinedReply,
     batteryOptionRange,
     pickBatteryOptionId,
