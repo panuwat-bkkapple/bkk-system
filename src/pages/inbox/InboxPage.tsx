@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ref, onValue, push, update, serverTimestamp, remove, increment, query, orderByChild, equalTo, limitToLast, get } from 'firebase/database';
+import { ref, onValue, push, update, serverTimestamp, remove, increment, query, orderByChild, equalTo, limitToLast, get, type DataSnapshot } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
@@ -48,6 +48,7 @@ interface Conversation {
   identity_confirmed_by?: string;
   source_url?: string;
   matched_orders_count?: number;
+  crm_customer_id?: string;
   escalation?: { reason?: string; summary?: string; at?: number };
 }
 
@@ -194,6 +195,7 @@ export const InboxPage = () => {
         identity_confirmed_by: val.identity_confirmed_by,
         source_url: val.source_url,
         matched_orders_count: val.matched_orders_count,
+        crm_customer_id: val.crm_customer_id,
         escalation: val.escalation,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -304,30 +306,42 @@ export const InboxPage = () => {
       },
       () => setProfile(null)
     );
-    get(query(ref(db, 'jobs'), orderByChild('uid'), equalTo(selectedConvo), limitToLast(3)))
-      .then((snap) => {
-        const arr: RecentJob[] = [];
-        snap.forEach((j) => {
-          const v = j.val() || {};
-          arr.push({
-            id: j.key as string,
-            ref_no: v.ref_no,
-            model: v.model,
-            status: v.status,
-            net_payout: v.net_payout,
-            created_at: v.created_at,
-            cust_name: v.cust_name,
-            cust_phone: v.cust_phone,
-            cust_email: v.cust_email,
-            cust_address: v.cust_address,
-          });
-        });
-        setRecentJobs(arr.reverse());
-      })
-      .catch(() => setRecentJobs([]));
+    // Orders for this person come from TWO joins, merged: by uid (the account's
+    // own self-checkout orders) AND by crm_customer_id (the CRM contact — this
+    // is what surfaces ADMIN-created orders, which carry no customer uid). The
+    // contact pointer is set on the conversation by save_customer_info / the
+    // admin re-link. Dedup by job id.
+    const crmId = selectedConversation?.crm_customer_id;
+    const byId: Record<string, RecentJob> = {};
+    const collect = (snap: DataSnapshot) => {
+      snap.forEach((j) => {
+        const v = j.val() || {};
+        byId[j.key as string] = {
+          id: j.key as string,
+          ref_no: v.ref_no,
+          model: v.model,
+          status: v.status,
+          net_payout: v.net_payout,
+          created_at: v.created_at,
+          cust_name: v.cust_name,
+          cust_phone: v.cust_phone,
+          cust_email: v.cust_email,
+          cust_address: v.cust_address,
+        };
+      });
+    };
+    Promise.all([
+      get(query(ref(db, 'jobs'), orderByChild('uid'), equalTo(selectedConvo), limitToLast(5))).then(collect).catch(() => {}),
+      crmId
+        ? get(query(ref(db, 'jobs'), orderByChild('crm_customer_id'), equalTo(crmId), limitToLast(5))).then(collect).catch(() => {})
+        : Promise.resolve(),
+    ]).then(() => {
+      const merged = Object.values(byId).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      setRecentJobs(merged.slice(0, 5));
+    });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedConvo, isWebsiteChat]);
+  }, [selectedConvo, isWebsiteChat, selectedConversation?.crm_customer_id]);
 
   // ข้อมูลติดต่อแบบ merged — ลำดับความน่าเชื่อ: ที่แอดมิน/ระบบเขียนไว้บนแชท >
   // โปรไฟล์บัญชี (ลูกค้ากรอกเองที่ checkout) > ออเดอร์ล่าสุด
