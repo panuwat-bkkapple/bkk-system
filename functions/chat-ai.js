@@ -2590,6 +2590,7 @@ module.exports = {
     pickBatteryOptionId,
     modelLineMismatch,
     pickSiblingModel,
+    normalizePhone,
     verifyReply,
     callClaude,
     pickModel,
