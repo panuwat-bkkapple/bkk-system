@@ -4981,3 +4981,9 @@ const chatAi = registerChatAi({
 exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
 // Read-only audit of the AI's built-in knowledge for the chat-settings page.
 exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
+
+// CRM Contact identity layer (Phase 1 — dormant foundation). Required so the
+// module is part of the deploy graph and load-checked; nothing calls
+// resolveCustomer() yet (Phase 2 wires it into save_customer_info + admin order
+// creation + checkout).
+require("./crm");
