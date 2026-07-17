@@ -26,6 +26,7 @@ const {
   humanRequestIntent,
   claimsHumanForwarding,
   buildKbGraphBlock,
+  buildWaitingModeBlock,
 } = __test;
 
 let failures = 0;
@@ -328,6 +329,16 @@ check("claims fwd: 'เจ้าหน้าที่จะติดต่อก
 check("not fwd: quote copy 'ราคายืนยันตอนเจ้าหน้าที่ตรวจเครื่องจริง'", claimsHumanForwarding("ราคาสุดท้ายยืนยันตอนเจ้าหน้าที่ตรวจเครื่องจริงครับ") === false);
 check("not fwd: 'iPhone 15 ราคา 12,000 บาทครับ'", claimsHumanForwarding("iPhone 15 ราคาประเมิน 12,000 บาทครับ") === false);
 check("not fwd: empty", claimsHumanForwarding("") === false);
+
+// --- buildWaitingModeBlock: holding mode while queued for a human -----------
+// Guards the dead-zone bug: after escalation the AI went mute, messages piled
+// up unanswered until staff released the chat.
+const wm = buildWaitingModeBlock({ summary: "ลูกค้าขอคุยเรื่องยอดโอน", at: 1 });
+check("waiting block keeps AI serving at full capability", wm.includes("เต็มรูปแบบ") && wm.includes("ห้ามเงียบ"));
+check("waiting block forbids duplicate escalation", wm.includes("ไม่ต้องเรียก escalate_to_human ซ้ำ"));
+check("waiting block carries the queued reason", wm.includes("ลูกค้าขอคุยเรื่องยอดโอน"));
+check("waiting block instructs handoff summary updates", wm.includes("update_handoff_summary"));
+check("waiting block without escalation record still renders", buildWaitingModeBlock(null).includes("ห้ามเงียบ"));
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

@@ -49,7 +49,7 @@ interface Conversation {
   source_url?: string;
   matched_orders_count?: number;
   crm_customer_id?: string;
-  escalation?: { reason?: string; summary?: string; at?: number };
+  escalation?: { reason?: string; summary?: string; at?: number; live_summary?: string; live_summary_at?: number };
 }
 
 interface Message {
@@ -933,6 +933,11 @@ export const InboxPage = () => {
                   <div className="text-xs text-amber-800">
                     <p className="font-black mb-0.5">AI สรุปเรื่องส่งต่อ</p>
                     <p>{selectedConversation.escalation.summary}</p>
+                    {/* Live handoff note — AI keeps talking while queued (holding
+                        mode) and refreshes this so staff can pick up mid-flow */}
+                    {selectedConversation.escalation.live_summary && (
+                      <p className="mt-1"><span className="font-black">อัปเดตล่าสุดระหว่างรอ:</span> {selectedConversation.escalation.live_summary}</p>
+                    )}
                     {(selectedConversation.matched_orders_count || 0) > 0 && (
                       <p className="mt-1 font-bold">พบ {selectedConversation.matched_orders_count} ออเดอร์จากเบอร์ที่ลูกค้าแจ้ง (ยังไม่ยืนยันตัวตน)</p>
                     )}
@@ -1181,6 +1186,9 @@ export const InboxPage = () => {
               </h4>
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
                 {selectedConversation.escalation.summary}
+                {selectedConversation.escalation.live_summary && (
+                  <><br /><span className="font-black">อัปเดตล่าสุดระหว่างรอ:</span> {selectedConversation.escalation.live_summary}</>
+                )}
               </p>
             </div>
           )}
