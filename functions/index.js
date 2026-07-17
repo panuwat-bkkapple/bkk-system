@@ -5019,3 +5019,63 @@ exports.onJobCreatedLinkContact = onValueCreated(
     }
   }
 );
+
+// CRM Phase 4 — one-time backfill + cleanup, admin-only callable. Stamps
+// crm_customer_id on existing jobs (retroactively linking admin-created orphan
+// orders), removes the orphan legacy `customer_index` node from before the
+// namespace rename, and REPORTS (does not delete) stray records our earlier
+// resolveCustomer wrote into the live `customers` collection for manual review.
+exports.backfillCrmContacts = onCall(
+  { region: "asia-southeast1", timeoutSeconds: 300, memory: "512MiB" },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+    const db = getDatabase();
+    const role = (await db.ref(`admins/${request.auth.uid}/role`).once("value")).val();
+    if (role !== "admin") throw new HttpsError("permission-denied", "เฉพาะแอดมิน");
+
+    // 1) Backfill jobs.crm_customer_id from cust_phone/cust_email.
+    const jobs = (await db.ref("jobs").once("value")).val() || {};
+    let scanned = 0;
+    let linked = 0;
+    for (const [jobId, job] of Object.entries(jobs)) {
+      scanned++;
+      if (!job || job.is_test || job.crm_customer_id) continue;
+      if (!job.cust_phone && !job.cust_email) continue;
+      try {
+        const cid = await resolveCustomer(db, {
+          phone: job.cust_phone,
+          email: job.cust_email,
+          name: job.cust_name,
+          address: job.cust_address,
+        });
+        if (cid) {
+          await db.ref(`jobs/${jobId}/crm_customer_id`).set(cid);
+          linked++;
+        }
+      } catch (e) {
+        console.warn(`[crm backfill] ${jobId}:`, e && e.message);
+      }
+    }
+
+    // 2) Cleanup: drop the orphan legacy index node (nobody reads it now).
+    await db.ref("customer_index").remove().catch(() => {});
+
+    // 3) Report — NOT delete — stray push-id records our old resolveCustomer
+    //    wrote into the live `customers` collection (signature: phones{} map +
+    //    verified flag, no flat phone, not a POS CUS_* key). Admin reviews/deletes.
+    const strayCustomerIdsForReview = [];
+    (await db.ref("customers").once("value")).forEach((c) => {
+      const v = c.val() || {};
+      if (
+        !String(c.key).startsWith("CUS_") &&
+        v && typeof v.phones === "object" &&
+        v.verified !== undefined &&
+        v.phone === undefined
+      ) {
+        strayCustomerIdsForReview.push(c.key);
+      }
+    });
+
+    return { scanned, linked, strayCustomerIdsForReview };
+  }
+);

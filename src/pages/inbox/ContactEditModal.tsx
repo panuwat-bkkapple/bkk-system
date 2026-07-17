@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ref, update } from 'firebase/database';
+import { ref, update, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { X, User } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -19,6 +19,33 @@ interface Props {
     customer_address?: string;
   };
   onClose: () => void;
+}
+
+// Resolve an existing CRM contact id from phone/email via crm_contact_index.
+// Read-only (admin) — never creates; new contacts are minted server-side by the
+// order/chat triggers. Key derivation MUST mirror functions/crm.js.
+async function resolveContactId(rawPhone: string, rawEmail: string): Promise<string | null> {
+  const normPhone = (raw: string) => {
+    let p = (raw || '').replace(/[\s\-().]/g, '');
+    if (p.startsWith('+66')) p = '0' + p.slice(3);
+    else if (p.startsWith('66') && p.length >= 11) p = '0' + p.slice(2);
+    return p;
+  };
+  const p = normPhone(rawPhone);
+  const pk = /^\d{6,}$/.test(p) ? p : '';
+  const e = (rawEmail || '').trim().toLowerCase();
+  const ek = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) ? e.replace(/[.#$[\]/]/g, ',') : '';
+  try {
+    if (pk) {
+      const s = await get(ref(db, `crm_contact_index/phone/${pk}`));
+      if (s.exists()) return s.val() as string;
+    }
+    if (ek) {
+      const s = await get(ref(db, `crm_contact_index/email/${ek}`));
+      if (s.exists()) return s.val() as string;
+    }
+  } catch { /* index not readable / offline — leave unlinked */ }
+  return null;
 }
 
 export default function ContactEditModal({ convoId, initial, onClose }: Props) {
@@ -46,6 +73,12 @@ export default function ContactEditModal({ convoId, initial, onClose }: Props) {
       } else {
         updates.customer_phone = null;
       }
+      // Re-link the CRM contact from the (possibly corrected) phone/email —
+      // read-only lookup against crm_contact_index. Keys MUST match
+      // functions/crm.js (phoneKey/emailKey). A wrong-contact entry is cleared;
+      // if the new phone has no contact yet, the pointer clears and the panel
+      // falls back to the account's own orders until the next order links one.
+      updates.crm_customer_id = (await resolveContactId(phone, email)) as string | null;
       await update(ref(db, `inbox/${convoId}`), updates);
       toast.success('บันทึกข้อมูลติดต่อแล้ว');
       onClose();
