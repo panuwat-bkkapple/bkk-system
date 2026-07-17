@@ -1,13 +1,17 @@
 // src/pages/crm/Customers.tsx
 import { useState, useMemo } from 'react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from '../../api/firebase';
 import { useDatabase } from '../../hooks/useDatabase';
 import {
   Search, Phone, History,
   ArrowUpRight, Smartphone,
-  UserCheck, Star, Clock,
+  UserCheck, Star, Clock, Users,
 } from 'lucide-react';
 import { formatDate } from '../../utils/formatters';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
+
+interface BackfillResult { scanned: number; linked: number; strayCustomerIdsForReview: string[]; }
 
 export const Customers = () => {
   const { data: customersData, loading } = useDatabase('customers');
@@ -17,6 +21,31 @@ export const Customers = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [backfilling, setBackfilling] = useState(false);
+
+  // One-time CRM contact backfill — links existing orders to crm_contacts (by
+  // phone/email), cleans up the orphan legacy index, and reports stray records
+  // that our earlier resolveCustomer wrote into `customers` for manual review.
+  const runBackfill = async () => {
+    if (backfilling) return;
+    if (!confirm('รวมข้อมูลลูกค้าย้อนหลัง (ผูกออเดอร์เก่าเข้ากับ CRM contact) — รันครั้งเดียว ดำเนินการต่อ?')) return;
+    setBackfilling(true);
+    try {
+      const fn = httpsCallable<Record<string, never>, BackfillResult>(
+        getFunctions(app, 'asia-southeast1'), 'backfillCrmContacts');
+      const d = (await fn({})).data;
+      const stray = d.strayCustomerIdsForReview || [];
+      alert(
+        `เสร็จแล้ว\n\nสแกนออเดอร์: ${d.scanned}\nผูก crm_customer_id: ${d.linked}\n` +
+        `records ที่ต้องลบเองใน customers: ${stray.length}` +
+        (stray.length ? `\n\nID ที่ควรลบ:\n${stray.join('\n')}` : '')
+      );
+    } catch (e) {
+      alert('ไม่สำเร็จ: ' + ((e as Error)?.message || String(e)));
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   // 🧠 แปลง Object จาก Firebase เป็น Array และกรองข้อมูล
   const customerList = useMemo(() => {
@@ -50,6 +79,14 @@ export const Customers = () => {
           </h2>
           <p className="text-sm text-slate-500 font-bold mt-1">ฐานข้อมูลสมาชิก 360 องศา (ประวัติการซื้อ-ขายเครื่อง)</p>
         </div>
+        <button
+          onClick={runBackfill}
+          disabled={backfilling}
+          title="ผูกออเดอร์เก่าทั้งหมดเข้ากับ CRM contact ด้วยเบอร์/อีเมล (รันครั้งเดียว)"
+          className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white font-black text-xs uppercase rounded-2xl hover:bg-blue-700 disabled:bg-slate-300 transition-colors shadow-lg"
+        >
+          <Users size={16} /> {backfilling ? 'กำลังรวม...' : 'รวมข้อมูลลูกค้า (Backfill)'}
+        </button>
       </div>
 
       <div className="bg-white p-4 rounded-[2rem] shadow-sm border border-slate-200">
