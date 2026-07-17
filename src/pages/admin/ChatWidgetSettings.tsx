@@ -29,6 +29,8 @@ interface ChatWidgetConfig {
   offline_message: string;
   hours_start: string;
   hours_end: string;
+  teaser_enabled: boolean;
+  teaser_message: string;
   kb: string;
   daily_call_cap: number;
   model: string;
@@ -75,6 +77,8 @@ const DEFAULTS: ChatWidgetConfig = {
   offline_message: '',
   hours_start: '10:00',
   hours_end: '19:00',
+  teaser_enabled: true,
+  teaser_message: '',
   kb: '',
   daily_call_cap: 1500,
   model: '',
@@ -130,6 +134,8 @@ export default function ChatWidgetSettings() {
             offline_message: pub.offline_message || '',
             hours_start: pub.hours_start || DEFAULTS.hours_start,
             hours_end: pub.hours_end || DEFAULTS.hours_end,
+            teaser_enabled: pub.teaser_enabled !== false,
+            teaser_message: pub.teaser_message || '',
             kb: val.kb || '',
             daily_call_cap: Number(val.daily_call_cap) || DEFAULTS.daily_call_cap,
             model: val.model || '',
@@ -185,6 +191,8 @@ export default function ChatWidgetSettings() {
           offline_message: config.offline_message.trim(),
           hours_start: config.hours_start,
           hours_end: config.hours_end,
+          teaser_enabled: config.teaser_enabled,
+          teaser_message: config.teaser_message.trim(),
         },
         kb: config.kb,
         daily_call_cap: Number(config.daily_call_cap) || DEFAULTS.daily_call_cap,
@@ -285,6 +293,36 @@ export default function ChatWidgetSettings() {
             rows={2}
             className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-y"
           />
+        </div>
+
+        {/* Proactive teaser bubble */}
+        <div className="border-t border-slate-100 pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-slate-700">ป็อปอัปชวนแชท (Teaser)</p>
+              <p className="text-[11px] text-slate-400 max-w-md mt-0.5">
+                ฟองข้อความเล็กๆ ข้างปุ่มแชทที่เด้งขึ้นหลังลูกค้าเปิดหน้าเว็บ 5 วินาที เพื่อชวนกดคุย —
+                ปิดเองได้ต่อครั้ง ไม่ตื๊อ (ไม่โชว์ในหน้า /sell และคนที่เคยแชทแล้ว)
+              </p>
+            </div>
+            <button
+              onClick={() => setConfig((c) => ({ ...c, teaser_enabled: !c.teaser_enabled }))}
+              className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ml-4 ${config.teaser_enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              aria-label="เปิด/ปิดป็อปอัปชวนแชท"
+            >
+              <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${config.teaser_enabled ? 'left-7' : 'left-1'}`} />
+            </button>
+          </div>
+          {config.teaser_enabled && (
+            <input
+              type="text"
+              value={config.teaser_message}
+              onChange={(e) => setConfig((c) => ({ ...c, teaser_message: e.target.value }))}
+              maxLength={80}
+              placeholder="สนใจขายเครื่องไหมครับ? ทักมาประเมินราคาให้ฟรีเลย (เว้นว่าง = ข้อความมาตรฐาน)"
+              className="w-full mt-3 px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          )}
         </div>
       </div>
 
