@@ -303,6 +303,7 @@ check("kb graph skips disabled node", !kbg.includes("ปิดอยู่"));
 check("kb graph skips live node", !kbg.includes("[หมวด: โปรโมชั่น]"));
 check("kb graph skips empty node", !kbg.includes("ว่าง"));
 check("kb graph header pins tool precedence", kbg.includes("ต้องมาจาก tool"));
+check("kb graph header pins escalation as an action, not an answer", kbg.includes("escalate_to_human") && kbg.includes("ห้ามตอบข้อความจากคลังแทนการส่งต่อ"));
 check("empty graph -> empty string", buildKbGraphBlock(null) === "" && buildKbGraphBlock({}) === "");
 check("all-disabled graph -> empty string", buildKbGraphBlock({ nodes: { x: { label: "x", type: "custom", enabled: false, items: { a: { q: "q", a: "a" } } } } }) === "");
 
