@@ -46,6 +46,7 @@ const IssuedRiderFeeDiscounts = lazy(() => import('./pages/admin/IssuedRiderFeeD
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
 const AccountingSettings = lazy(() => import('./pages/admin/AccountingSettings'));
 const ChatWidgetSettings = lazy(() => import('./pages/admin/ChatWidgetSettings'));
+const ChatKnowledgeGraph = lazy(() => import('./pages/admin/ChatKnowledgeGraph'));
 const MembershipSettings = lazy(() => import('./pages/admin/MembershipSettings'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
 const FinancialReport = lazy(() => import('./pages/admin/FinancialReport'));
@@ -142,6 +143,7 @@ export default function App() {
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
               <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />
+              <Route path="/chat-kb" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatKnowledgeGraph /> : <Navigate to="/" replace />} />
               <Route path="/appointments" element={<AppointmentCalendar />} />
               <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
             </Route>

@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift
+  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift, Share2
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -159,6 +159,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/crm" icon={<Users size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
                 <NavButton collapsed={isCollapsed} to="" href={CHAT_APP_URL} icon={<Inbox size={18} />} label="Inbox (แชท) ↗" badgeCount={unreadInbox} />
                 <NavButton collapsed={isCollapsed} to="/chat-settings" icon={<MessageSquareQuote size={18} />} label="ตั้งค่า Chat Widget (AI)" />
+                <NavButton collapsed={isCollapsed} to="/chat-kb" icon={<Share2 size={18} />} label="คลังคำตอบ AI (ใยความรู้)" />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
                 <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
                 <NavButton collapsed={isCollapsed} to="/membership-settings" icon={<Gift size={18} />} label="สมาชิก & สิทธิพิเศษ" />
