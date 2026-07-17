@@ -171,9 +171,20 @@ function deviceLines(job) {
     if (!d || typeof d !== "object") return { name: String(d || "อุปกรณ์"), price: null };
     return {
       name: d.model || d.name || d.title || "อุปกรณ์",
-      price: d.finalPrice ?? d.price ?? null,
+      // Offer-request device: price 0 is "not priced yet", not a real ฿0 quote
+      // — blank the cell so the email never quotes ฿0 to the customer.
+      price: d.offer_request === true ? null : (d.finalPrice ?? d.price ?? null),
     };
   });
+}
+
+/** Offer request still awaiting a price — validateAndCreateOrder (bkk-frontend-next)
+ *  flags jobs whose spec is actively bought but has no published price. The order
+ *  emails must not present the ฿0 as a real quote; once admin sets a price
+ *  (final_price > 0) the job reads as a normal order again. */
+function isOfferAwaiting(job) {
+  if (!job || job.offer_request !== true) return false;
+  return !(Number(job.final_price || job.price) > 0);
 }
 
 function pickupScheduleText(job) {
@@ -297,7 +308,10 @@ function orderSummaryCard(job, opts = {}) {
     .join("");
 
   const net = Number(job.net_payout ?? job.price) || 0;
-  const fee = serviceFeeBreakdown(job);
+  // Awaiting offer: no price exists yet — suppress the fee breakdown (it would
+  // reconcile against a meaningless 0) and show "รอเสนอราคา" as the total.
+  const awaitingOffer = isOfferAwaiting(job);
+  const fee = awaitingOffer ? null : serviceFeeBreakdown(job);
   // Gross-before-fee reconciles exactly with the net regardless of coupons,
   // since the fee is the only line we break out: gross − fee = net.
   const grossBeforeFee = fee ? net + fee.feeIncl : net;
@@ -319,7 +333,9 @@ function orderSummaryCard(job, opts = {}) {
         ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}</td></tr>`;
     }
   }
-  totalsRows += totalRow(esc(payoutLabel), esc(formatTHB(net)), { big: true, color: "#059669" });
+  totalsRows += awaitingOffer
+    ? totalRow("ราคารับซื้อ", "รอทีมงานเสนอราคา", { big: true, color: "#2563eb" })
+    : totalRow(esc(payoutLabel), esc(formatTHB(net)), { big: true, color: "#059669" });
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef0f3;border-radius:10px;">
     <tr><td style="padding:16px 18px;">
@@ -357,6 +373,19 @@ function trackingButton(job) {
 /** Customer: "we received your order" — sent on job creation. */
 function buildCustomerReceivedEmail(job) {
   const name = job.cust_name ? `คุณ${esc(job.cust_name)}` : "ลูกค้า";
+  // Offer request — the customer submitted a spec with no published price;
+  // the copy promises a call-back with an offer instead of an order confirm.
+  if (isOfferAwaiting(job)) {
+    return {
+      to: job.cust_email,
+      subject: `ได้รับคำขอใบเสนอราคาของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
+      html: shell({
+        heading: "เราได้รับคำขอใบเสนอราคาของคุณแล้ว",
+        intro: `สวัสดี ${name} ขอบคุณที่เลือกขายอุปกรณ์กับ ${esc(BRAND)} เราได้รับข้อมูลเครื่องของคุณเรียบร้อยแล้ว ทีมผู้เชี่ยวชาญกำลังประเมินราคาเป็นรายเครื่อง และจะติดต่อกลับพร้อมข้อเสนอราคาที่ดีที่สุดโดยเร็วที่สุด ไม่มีข้อผูกมัดใดๆ`,
+        bodyHtml: orderSummaryCard(job) + trackingButton(job),
+      }),
+    };
+  }
   return {
     to: job.cust_email,
     subject: `ได้รับคำสั่งขายของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
@@ -379,14 +408,19 @@ function buildAdminNewOrderEmail(job, to) {
     .join(" &nbsp;|&nbsp; ");
 
   const isB2B = job.status === "New B2B Lead";
+  const awaitingOffer = isOfferAwaiting(job);
   return {
     to,
-    subject: `[ออเดอร์ใหม่${isB2B ? " B2B" : ""}] ${job.ref_no || ""} — ${esc(job.model || "")} ${formatTHB(
-      job.net_payout ?? job.price
-    )}`.trim(),
+    subject: awaitingOffer
+      ? `[ขอใบเสนอราคา] ${job.ref_no || ""} — ${esc(job.model || "")} (ติดต่อลูกค้ากลับ)`.trim()
+      : `[ออเดอร์ใหม่${isB2B ? " B2B" : ""}] ${job.ref_no || ""} — ${esc(job.model || "")} ${formatTHB(
+          job.net_payout ?? job.price
+        )}`.trim(),
     html: shell({
-      heading: `มีคำสั่งขายใหม่เข้ามา${isB2B ? " (B2B)" : ""}`,
-      intro: `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong>`,
+      heading: awaitingOffer ? "ลูกค้าขอใบเสนอราคา (สเปกยังไม่มีราคากลาง)" : `มีคำสั่งขายใหม่เข้ามา${isB2B ? " (B2B)" : ""}`,
+      intro: awaitingOffer
+        ? `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong> — สเปกนี้ยังไม่มีราคากลางในระบบ ต้องติดต่อลูกค้ากลับเพื่อเสนอราคา`
+        : `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong>`,
       bodyHtml:
         (contact
           ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>`

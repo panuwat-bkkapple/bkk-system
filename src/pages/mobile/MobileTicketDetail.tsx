@@ -31,6 +31,7 @@ import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-stat
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
+import { isAwaitingOffer } from '../../utils/offerRequest';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 
 // ---------------------------------------------------------------------------
@@ -659,6 +660,17 @@ export const MobileTicketDetail = () => {
               <DollarSign size={16} className="text-emerald-500" />
               <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">ราคา</h3>
             </div>
+            {/* ลูกค้าส่งคำขอใบเสนอราคา (สเปกยังไม่มีราคากลาง — ราคาเข้ามาเป็น 0)
+                ทีมงานต้องติดต่อกลับแล้วตั้งราคาผ่าน "แก้ไขข้อมูลงาน" — พอมี
+                final_price แล้วแบนเนอร์นี้หายเอง (isAwaitingOffer) */}
+            {isAwaitingOffer(job) && (
+              <div className="mb-3 p-3 rounded-xl bg-blue-50 border border-blue-200">
+                <p className="text-xs font-black text-blue-700 mb-0.5">ลูกค้าขอใบเสนอราคา</p>
+                <p className="text-[11px] text-blue-600 leading-relaxed">
+                  สเปกนี้ยังไม่มีราคากลางในระบบ — โทรติดต่อลูกค้าเพื่อเสนอราคา แล้วบันทึกราคาที่ตกลงผ่านเมนู &ldquo;แก้ไขข้อมูลงาน&rdquo;
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">ราคาเครื่อง</span>
