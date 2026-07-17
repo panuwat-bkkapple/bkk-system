@@ -340,5 +340,13 @@ check("waiting block carries the queued reason", wm.includes("ลูกค้า
 check("waiting block instructs handoff summary updates", wm.includes("update_handoff_summary"));
 check("waiting block without escalation record still renders", buildWaitingModeBlock(null).includes("ห้ามเงียบ"));
 
+// --- contact-before-price flow (owner's call) --------------------------------
+// Guards the "card issued, panel still shows ยังไม่มีเบอร์" lost-lead bug.
+const sys = __test.buildSystemPrompt({ assistantName: "มาติน", pub: {}, kb: "", customerBlock: "", inHours: true });
+check("system prompt: contact ask bundled into the condition questions", sys.includes("(0) ขอชื่อและเบอร์โทรติดต่อ"));
+check("system prompt: no price number before the card", sys.includes("โดยยังไม่ประกาศตัวเลขราคา"));
+check("system prompt: one contact ask only, never forced", sys.includes("ห้ามขอซ้ำเป็นครั้งที่สอง"));
+check("system prompt: short sales-first greeting", sys.includes("ทักทายครั้งแรกให้สั้นและพุ่งเข้าเรื่องขายทันที"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
