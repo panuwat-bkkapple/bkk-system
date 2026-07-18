@@ -27,6 +27,7 @@ import { sumAppliedAdjustments } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
+import DiagnosStartPanel from '../../components/DiagnosStartPanel';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
@@ -996,6 +997,11 @@ export const MobileTicketDetail = () => {
                       })}
                     </div>
                   </div>
+                )}
+
+                {/* BKK Diagnos — start a session (Store-in / Mail-in staff mode) */}
+                {!['Cancelled', 'Completed', 'Paid', 'Returned'].includes(job.status) && (
+                  <DiagnosStartPanel job={job} deviceIndex={idx} />
                 )}
 
                 {/* BKK Diagnos on-device test report */}
