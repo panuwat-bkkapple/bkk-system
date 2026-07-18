@@ -224,6 +224,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Settings</p>}
               <div className="space-y-1">
                 <NavButton collapsed={isCollapsed} to="/pricing" icon={<Settings size={18} />} label="Price Editor" />
+                <NavButton collapsed={isCollapsed} to="/store-settings" icon={<Store size={18} />} label="ข้อมูลร้าน (ค่ากลาง)" />
                 <NavButton collapsed={isCollapsed} to="/admin/branches" icon={<Store size={18} />} label="จัดการสาขา" />
                 {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/global-settings" icon={<Settings size={18} />} label="ตั้งค่าระบบส่วนกลาง" />}
                 {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/staff" icon={<Users size={18} />} label="จัดการพนักงาน (Staff)" />}

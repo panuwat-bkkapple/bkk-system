@@ -362,5 +362,16 @@ check("iPad mini 5 still matches its own query", __test.rankModels(CATALOG, "iPa
 check("iPhone query unaffected", __test.rankModels(CATALOG, "iPhone 15")[0]?.id === "ip15");
 check("system prompt: store-contact request means the STORE's number", sys.includes("13.1.1"));
 
+// --- buildStoreProfileBlock: central store standard values -------------------
+// Guards the "08:00-20:00 vs 10:00-20:00" contradiction: standard contact/hours
+// now come from ONE owner-edited profile, not scattered copies.
+const spb = __test.buildStoreProfileBlock({
+  phone: "083-495-6556", line_id: "@bkkapple", hours_start: "10:00", hours_end: "20:00",
+});
+check("store profile block carries the central phone", spb.includes("083-495-6556"));
+check("store profile block carries standard hours", spb.includes("10:00-20:00 น."));
+check("store profile block tells AI to answer from it first", spb.includes("ให้ตอบจากตรงนี้ก่อนเสมอ"));
+check("empty store profile renders nothing", __test.buildStoreProfileBlock({}) === "" && __test.buildStoreProfileBlock(null) === "");
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

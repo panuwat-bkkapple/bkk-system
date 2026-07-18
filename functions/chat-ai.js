@@ -1887,6 +1887,22 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "get_branches": {
+        // Central profile rides along so the model never has to stitch a
+        // "main number / standard hours" out of per-branch rows (the source
+        // of the 08:00 vs 10:00 contradiction).
+        let central = null;
+        try {
+          const spSnap = await db.ref("settings/store_profile").once("value");
+          const sp = spSnap.exists() ? spSnap.val() || {} : {};
+          if (sp.phone || sp.line_id || sp.hours_start) {
+            central = {
+              phone: sp.phone || null,
+              line_id: sp.line_id || null,
+              email: sp.email || null,
+              standard_hours: sp.hours_start && sp.hours_end ? `${sp.hours_start}-${sp.hours_end} น.` : null,
+            };
+          }
+        } catch { /* best-effort */ }
         const snap = await db.ref("settings/branches").once("value");
         const list = [];
         const all = snap.val() || {};
@@ -1912,12 +1928,18 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         }
         return list.length > 0
           ? {
+              ...(central ? { central } : {}),
               branches: list,
-              note: "ตอบเฉพาะข้อมูลนี้ ถ้าลูกค้าจะเดินทางมา แนบ map_link ให้ด้วย (พิมพ์ลิงก์ตรงๆ ได้ ไม่ต้องใช้ markdown)",
+              note:
+                "ตอบเฉพาะข้อมูลนี้ ถ้าลูกค้าจะเดินทางมา แนบ map_link ให้ด้วย (พิมพ์ลิงก์ตรงๆ ได้ ไม่ต้องใช้ markdown)" +
+                (central ? " — เบอร์กลาง/เวลามาตรฐานใช้จาก central; ข้อมูลรายสาขาใช้เฉพาะตอนพูดถึงสาขานั้น" : ""),
             }
           : {
+              ...(central ? { central } : {}),
               branches: [],
-              note: "ยังไม่มีข้อมูลสาขาในระบบ ให้บอกลูกค้าว่าขอให้เจ้าหน้าที่ยืนยันที่ตั้งร้าน แล้วเสนอ escalate",
+              note: central
+                ? "ยังไม่มีข้อมูลรายสาขา แต่ตอบช่องทางติดต่อกลางจาก central ได้เลย"
+                : "ยังไม่มีข้อมูลสาขาในระบบ ให้บอกลูกค้าว่าขอให้เจ้าหน้าที่ยืนยันที่ตั้งร้าน แล้วเสนอ escalate",
             };
       }
 
@@ -2273,6 +2295,27 @@ function buildWaitingModeBlock(escalation) {
   ].join("\n");
 }
 
+// Central store profile block — the owner's standard values from
+// settings/store_profile (/store-settings page). These are THE answers for
+// "เบอร์ร้าน/ติดต่อยังไง/เปิดกี่โมง" — branch rows are per-location detail
+// only. Pure/testable; empty profile renders nothing.
+function buildStoreProfileBlock(profile) {
+  if (!profile || typeof profile !== "object") return "";
+  const lines = [];
+  if (profile.phone) lines.push(`- เบอร์กลางของร้าน: ${profile.phone}`);
+  if (profile.line_id) lines.push(`- LINE: ${profile.line_id}`);
+  if (profile.email) lines.push(`- อีเมล: ${profile.email}`);
+  if (profile.hours_start && profile.hours_end)
+    lines.push(`- เวลาทำการมาตรฐาน: ${profile.hours_start}-${profile.hours_end} น. ทุกวัน`);
+  if (profile.website) lines.push(`- เว็บไซต์: ${profile.website}`);
+  if (lines.length === 0) return "";
+  return [
+    "",
+    "ข้อมูลติดต่อกลางของร้าน (ค่ามาตรฐานที่เจ้าของร้านตั้งไว้ — ยืนยันแล้ว ใช้ตอบได้ทันที): ลูกค้าขอเบอร์/ช่องทางติดต่อ/เวลาทำการ ให้ตอบจากตรงนี้ก่อนเสมอ สั้นๆ 1-2 บรรทัด ไม่ต้องเรียก get_branches. ข้อมูลรายสาขา (ที่อยู่/แผนที่/เวลาเฉพาะสาขา) ค่อยใช้ get_branches เมื่อลูกค้าถามหาสาขา/ที่ตั้ง. ถ้าเวลาเฉพาะสาขาต่างจากเวลามาตรฐาน ให้ระบุว่าเป็นเวลาของสาขานั้น:",
+    ...lines,
+  ].join("\n");
+}
+
 function buildDeviceCheckBlock(enabled) {
   if (enabled !== true) return "";
   return [
@@ -2391,6 +2434,21 @@ function registerChatAi({ dispatchAdminPush }) {
       const settings = settingsSnap.val() || {};
       const pub = settings.public || {};
       if (pub.enabled !== true && pub.preview_enabled !== true) return;
+
+      // Central store profile (settings/store_profile — "ค่ากลางของร้าน",
+      // edited at /store-settings). The STANDARD hours + contact channels live
+      // here; scattered copies (chat-widget hours field, per-branch rows) are
+      // fallbacks/details only. Real bug this fixes: the escalation message
+      // quoted 08:00-20:00 (chat-widget setting) while branch data said
+      // 10:00-20:00 — two sources of truth contradicting each other in one
+      // conversation. Best-effort: a missing profile falls back cleanly.
+      let storeProfile = {};
+      try {
+        const spSnap = await db.ref("settings/store_profile").once("value");
+        if (spSnap.exists()) storeProfile = spSnap.val() || {};
+      } catch { /* fall back to chat-widget hours */ }
+      if (storeProfile.hours_start) pub.hours_start = storeProfile.hours_start;
+      if (storeProfile.hours_end) pub.hours_end = storeProfile.hours_end;
 
       // Idempotency — RTDB triggers can retry; only the first claim proceeds.
       const guard = await db
@@ -2608,6 +2666,7 @@ function registerChatAi({ dispatchAdminPush }) {
         }
         const system =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+          buildStoreProfileBlock(storeProfile) +
           kbGraphBlock +
           (waitingForHuman ? buildWaitingModeBlock(convo.escalation) : "") +
           buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled) +
@@ -2985,6 +3044,7 @@ module.exports = {
     buildDeviceCheckBlock,
     buildKbGraphBlock,
     buildWaitingModeBlock,
+    buildStoreProfileBlock,
     shouldOverrideDeclinedReply,
     batteryOptionRange,
     pickBatteryOptionId,
