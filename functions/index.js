@@ -971,12 +971,20 @@ exports.onNewTicketCreated = onValueCreated(
       // first decouples delivery from the Routes API entirely.
       if (newStatuses.includes(job.status)) {
         const model = job.model || "ไม่ระบุรุ่น";
-        const price = job.price ? `฿${Number(job.price).toLocaleString()}` : "";
+        // Offer request — ลูกค้าส่งออเดอร์ทั้งที่สเปกยังไม่มีราคากลาง (price 0,
+        // ธงจาก validateAndCreateOrder ฝั่ง bkk-frontend-next) ต้องติดต่อกลับ
+        // เพื่อเสนอราคา — หัวข้อ push แยกให้แอดมินรู้ว่างานนี้รอเสนอราคา
+        const isOfferRequest = job.offer_request === true && !(Number(job.price) > 0);
+        const price = job.price
+          ? `฿${Number(job.price).toLocaleString()}`
+          : (isOfferRequest ? "(รอเสนอราคา)" : "");
         const method = job.receive_method || "";
         const custName = job.cust_name || "";
         const isB2B = job.status === "New B2B Lead";
 
-        const title = isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!";
+        const title = isOfferRequest
+          ? "💬 ลูกค้าขอใบเสนอราคา!"
+          : (isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!");
         const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
 
         console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
@@ -1037,6 +1045,7 @@ exports.onNewTicketCreated = onValueCreated(
         // closed). Richer than the FCM body since Telegram has room. No-ops
         // until Telegram is configured.
         const tgLines = [`<b>${tgEscape(title)}</b>`, "", `📱 <b>${tgEscape(model)}</b>`];
+        if (isOfferRequest) tgLines.push(`💬 สเปกยังไม่มีราคากลาง — ติดต่อลูกค้ากลับเพื่อเสนอราคา`);
         const offer = tgBaht(job.price);
         if (offer) tgLines.push(`💰 ราคาเสนอ: ${offer}`);
         const net = tgBaht(job.net_payout);

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays, History } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { isAwaitingOffer } from '@/utils/offerRequest';
 
 export const MethodBadge = ({ method }: { method: string }) => {
   const getStyle = () => {
@@ -161,6 +162,7 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
                 {job.ref_no}
                 {job.status === 'New Lead' && !job.is_read && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded text-[8px] tracking-widest animate-pulse shadow-sm">NEW</span>}
                 {job.source === 'instant-sell' && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 flex items-center gap-0.5"><Zap size={8} />INSTANT</span>}
+                {isAwaitingOffer(job) && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-blue-200">ขอราคา</span>}
               </div>
               <div className="text-[10px] font-bold text-slate-400">{formatDate(job.created_at)}</div>
             </td>
@@ -193,7 +195,9 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
               <div className="flex flex-col gap-1.5">
                 {/* แถวที่ 1: ราคา & วิธีส่งมอบ */}
                 <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{formatCurrency(job.final_price || job.price)}</span>
+                  {isAwaitingOffer(job)
+                    ? <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">รอเสนอราคา</span>
+                    : <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{formatCurrency(job.final_price || job.price)}</span>}
                   <MethodBadge method={job.receive_method} />
                 </div>
 

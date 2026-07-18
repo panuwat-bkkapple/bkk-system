@@ -11,6 +11,7 @@ import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
+import { isAwaitingOffer } from '@/utils/offerRequest';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 import type { JobAdjustment } from '@/utils/adjustments';
 
@@ -233,6 +234,16 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl rounded-full -mr-10 -mt-10 ${isCancelled ? 'bg-red-600/20' : isNegotiation ? 'bg-orange-600/20' : 'bg-blue-600/20'}`}></div>
 
         <div className="relative z-10">
+          {/* ลูกค้าส่งคำขอใบเสนอราคา (สเปกยังไม่มีราคากลาง — ราคาเข้ามาเป็น 0)
+              ติดต่อลูกค้าแล้วตั้งราคาที่ตกลง — พอมี final_price แบนเนอร์หายเอง */}
+          {isAwaitingOffer(job) && (
+            <div className="mb-4 p-3 rounded-xl bg-blue-500/15 border border-blue-400/30">
+              <p className="text-xs font-black text-blue-300 mb-0.5">ลูกค้าขอใบเสนอราคา (Offer Request)</p>
+              <p className="text-[11px] text-blue-200/90 leading-relaxed">
+                สเปกนี้ยังไม่มีราคากลางในระบบ — โทรติดต่อลูกค้าเพื่อเสนอราคา แล้วบันทึกราคาที่ตกลงลงในงานนี้
+              </p>
+            </div>
+          )}
           <div className="space-y-3 mb-6 pb-6 border-b border-white/10">
             {job.initial_customer_price && job.initial_customer_price !== basePrice && (
               <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 mb-3 pb-3 border-b border-white/5">
