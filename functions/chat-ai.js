@@ -465,6 +465,34 @@ const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Pure model matcher (extracted so it can be unit-tested offline).
 // list items only need { brand, name, category }.
+// Product families — a match must stay inside the family the customer named.
+// Real lost-trust bug: "MacBook Pro M5 Max" tokenized to "m 5"; the bare "m"
+// substring-hit "mini" and "5" hit the generation, so the top match became
+// "iPad mini 5 (2019)" (delisted) and the reply declared the WRONG model
+// งดรับซื้อ — twice, ignoring the customer's correction. Thai spellings included.
+const FAMILY_PATTERNS = [
+  ["iphone", /iphone|ไอโฟน/],
+  ["ipad", /ipad|ไอแพด/],
+  ["macbook", /macbook|แมคบุ|แม็คบุ/],
+  ["imac", /imac/],
+  ["watch", /watch|วอทช|วอช/],
+  ["airpods", /airpods|แอร์พอด/],
+  ["galaxy", /galaxy|กาแลคซี|กาแล็กซี/],
+];
+function familiesOf(text) {
+  const t = String(text || "").toLowerCase();
+  return FAMILY_PATTERNS.filter(([, re]) => re.test(t)).map(([k]) => k);
+}
+// True when both sides clearly name a family and they don't overlap —
+// "MacBook ..." must never resolve to an iPad, whatever the token overlap.
+function familyMismatch(query, modelName) {
+  const qf = familiesOf(query);
+  if (qf.length === 0) return false;
+  const nf = familiesOf(modelName);
+  if (nf.length === 0) return false;
+  return !qf.some((f) => nf.includes(f));
+}
+
 function rankModels(list, rawQuery) {
   const q = String(rawQuery || "")
     .toLowerCase()
@@ -473,7 +501,11 @@ function rankModels(list, rawQuery) {
     .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
     .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
   if (!q) return [];
-  const tokens = q.split(/\s+/).filter((t) => t && t !== "gb" && t !== "tb");
+  // Single latin letters (the "m" left over from splitting chip names like
+  // M5) carry no signal and substring-match everything — drop them.
+  const tokens = q
+    .split(/\s+/)
+    .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
   // Model-generation numbers live in 3..20 (iPhone 13, Watch Series 10, iPad 9).
   // Storage sizes (32..1024) are >20 and 1TB/2TB map to 1/2 (<3), so this cleanly
   // separates generation from storage. A candidate must contain EVERY version
@@ -502,9 +534,10 @@ function rankModels(list, rawQuery) {
       const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
       const meaningfulOk =
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
-      return { m, hits, versionOk, meaningfulOk };
+      const familyOk = !familyMismatch(q, hay);
+      return { m, hits, versionOk, meaningfulOk, familyOk };
     })
-    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk)
+    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk)
     .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
     .slice(0, 5)
     .map((x) => x.m);
@@ -1034,7 +1067,8 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `12. คำถามพื้นที่บริการ/รับถึงที่/ค่าบริการรับเครื่อง: ห้ามตอบจากความจำ ให้ถามก่อนว่าลูกค้าอยู่แถวไหน (เขต/อำเภอ + จังหวัด) แล้วเรียก check_pickup_service เพื่อตอบจากข้อมูลจริง แจ้งเป็นค่าประมาณเสมอ ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout`,
     `12.1 ถ้าลูกค้าถามเจาะจงเรื่อง "รับถึงที่/รับถึงบ้าน" (Pickup) ให้ตอบตรงประเด็นก่อน: "มีครับ เรามีไรเดอร์ไปรับถึงบ้านเลย" แล้วถามทำเลต่อทันทีเพื่อเช็คพื้นที่/ค่าบริการ — ห้ามเปิดด้วยเมนูลิสต์ 3 แบบ (Pickup/Store-in/Mail-in) เพราะลูกค้าถามแค่ Pickup อยากได้คำตอบตรงๆ ไม่ใช่โบรชัวร์. จะพ่วงทางเลือกอื่นได้แค่ "หรือถ้าสะดวกมาที่ร้าน/ส่งพัสดุก็ได้ครับ" สั้นๆ 1 บรรทัดตอนท้ายเท่านั้น. เอาลิสต์ครบ 3 แบบมาตอบเฉพาะตอนลูกค้าถามกว้างๆ ว่า "มีวิธีส่ง/ขายยังไงบ้าง"`,
     `13. คำถามโปรโมชั่น/คูปอง/ส่วนลด: เรียก get_promotions ทุกครั้ง ตอบเฉพาะรายการที่เปิดอยู่จริงพร้อมเงื่อนไขและวันหมดเขต ถ้าไม่มีให้บอกตรงๆ อย่างสุภาพว่าช่วงนี้ยังไม่มี ห้ามแต่งโปรโมชั่นเอง`,
-    `13.1 คำถามเรื่องสาขา/ที่ตั้งร้าน/เวลาเปิด-ปิด/จะมาที่ร้าน: เรียก get_branches ทุกครั้ง ตอบชื่อ ที่อยู่ เบอร์โทร เวลาเปิด พร้อมลิงก์แผนที่ ห้ามตอบข้อมูลสาขาจากความจำ`,
+    `13.1 คำถามเรื่องสาขา/ที่ตั้งร้าน/เวลาเปิด-ปิด/จะมาที่ร้าน: เรียก get_branches ทุกครั้ง ห้ามตอบข้อมูลสาขาจากความจำ. ตอบ "เท่าที่ถาม": ถามหาสาขา/ที่ตั้ง → ตอบสาขาที่เกี่ยวข้องพร้อมลิงก์แผนที่, ถามกว้างๆ ว่ามีสาขาไหนบ้าง → ลิสต์ชื่อสาขาสั้นๆ ไม่ต้องแปะลิงก์แผนที่ทุกอัน`,
+    `13.1.1 ลูกค้าพิมพ์ "ขอเบอร์ติดต่อ/ขอเบอร์ร้าน/ติดต่อร้านยังไง/ขอช่องทางติดต่อ" = ขอช่องทางติดต่อ "ของร้าน" เสมอ (บั๊กจริง: AI เคยสวนกลับไปขอเบอร์ลูกค้าแทน) → เรียก get_branches แล้วตอบสั้นๆ แค่ เบอร์กลาง + เวลาทำการ 1-2 บรรทัด ห้ามเทรายชื่อสาขา+ลิงก์แผนที่ทั้งหมด (ให้เฉพาะเมื่อลูกค้าถามหาสาขา/ที่ตั้ง). การขอชื่อ/เบอร์ของลูกค้า (ข้อ 6 ขั้นที่ 3) ทำเฉพาะตอนกำลังจะออกใบเสนอราคาเท่านั้น`,
     `13.2 คำถามเรื่องนโยบาย/ขั้นตอน/เงื่อนไข/การยกเลิก/ความปลอดภัยข้อมูล (PDPA) เช่น เครื่องผ่อนอยู่รับไหม ยกเลิกได้ไหม ต้องเตรียมเอกสารอะไร ต้องลบข้อมูลก่อนขายไหม ประเมินฟรีไหม ได้เงินเร็วแค่ไหน: เรียก get_faq ก่อนแล้ว "สรุปตอบเป็นภาษาคนของคุณเอง" สั้นๆ ตรงคำถาม — ห้ามแปะรายการ FAQ ทั้งชุดให้ลูกค้าอ่าน และห้ามบอกให้ลูกค้าไปเปิดหน้า FAQ เอง (ลูกค้าถามมาในแชทเพราะอยากได้คำตอบเลย). ถ้า get_faq ไม่มีคำตอบที่ตรง ห้ามเดา ให้บอกว่าขอเจ้าหน้าที่ยืนยันแล้วเสนอ escalate`,
     `14. นโยบาย/ขั้นตอน/บริการใดที่ไม่มีใน tool, ข้อมูลบริการด้านล่าง หรือข้อมูลนโยบายร้าน: ห้ามแต่งเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน แล้วเสนอส่งเรื่องต่อเจ้าหน้าที่`,
     ``,
@@ -2725,7 +2759,26 @@ function registerChatAi({ dispatchAdminPush }) {
         // memory as "sellable", some of which are ALSO งดรับซื้อ. The only
         // reply kept as-is is one already offering another model's price.
         if (declinedModel && finalText) {
-          if (shouldOverrideDeclinedReply(finalText)) {
+          // Never send the SAME canned decline twice in a row. Real bug: the
+          // fuzzy match declined the WRONG model ("MacBook Pro M5 Max" ->
+          // "iPad mini 5"), the customer corrected it, and the guard replied
+          // with the identical canned line again — a wall. If the previous AI
+          // message already declined this exact model, the customer is
+          // disputing it: hand to a human instead of repeating.
+          const lastAi = [...history].reverse().find((m) => m.senderRole === "ai");
+          const repeatedDecline =
+            !!lastAi && String(lastAi.text || "").includes(`งดรับซื้อรุ่น ${declinedModel}`);
+          if (repeatedDecline) {
+            console.warn(`[${tag}] ${convoId} declined ${declinedModel} twice — customer disputing, escalating instead of repeating`);
+            if (!state.escalated) {
+              await executeTool("escalate_to_human", {
+                reason: "cannot_answer",
+                summary: `ระบบระบุว่างดรับซื้อ "${declinedModel}" แต่ลูกค้าแย้งว่าไม่ใช่รุ่นที่ต้องการขาย — ตรวจสอบรุ่นที่ลูกค้าหมายถึง: "${text.slice(0, 120)}"`,
+              });
+            }
+            finalText =
+              "ขออภัยในความสับสนครับ ผมส่งเรื่องให้เจ้าหน้าที่ช่วยตรวจสอบรุ่นของคุณโดยตรงแล้ว เดี๋ยวรีบแจ้งผลกลับครับ";
+          } else if (shouldOverrideDeclinedReply(finalText)) {
             console.warn(`[${tag}] ${convoId} declined model ${declinedModel} — normalising to a deterministic decline`);
             finalText =
               `ต้องขออภัยด้วยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น ${declinedModel} แล้วครับ ` +
