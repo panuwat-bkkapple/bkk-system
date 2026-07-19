@@ -2,6 +2,45 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../../api/firebase';
 
 /**
+ * One condition option within an assessment group.
+ * `label`/`description` (Thai) are CANONICAL — used for matching/payloads
+ * everywhere. `label_en`/`description_en` are OPTIONAL display-only English
+ * labels read by the customer site (bkk-frontend-next) on /en; when there is
+ * no translation the field is ABSENT (never an empty string).
+ */
+export interface ConditionSetOption {
+  id: string;
+  label: string;
+  label_en?: string;
+  description?: string;
+  description_en?: string;
+  deduct?: number;
+  pct?: number;
+  /** LEGACY tier buckets — read-only fallback, stripped on save once deduct/pct exists. */
+  t1?: number;
+  t2?: number;
+  t3?: number;
+  failBehavior?: 'pass' | 'reject' | 'deduct';
+  [key: string]: unknown;
+}
+
+/**
+ * One assessment group (topic) within a condition set. Same bilingual rule as
+ * options: Thai `title`/`description` canonical, `*_en` optional display-only.
+ */
+export interface ConditionSetGroup {
+  id: string;
+  title: string;
+  title_en?: string;
+  description?: string;
+  description_en?: string;
+  icon?: string;
+  kind?: 'cosmetic' | 'functional';
+  options?: ConditionSetOption[];
+  [key: string]: unknown;
+}
+
+/**
  * Single source of truth for persisting a condition set to RTDB.
  *
  * BOTH the card view (EngineSettingsModal grouped editor, via its "Save Set"
@@ -20,17 +59,39 @@ export async function writeConditionSet(set: any): Promise<void> {
 }
 
 /**
+ * Drop optional English display keys (`title_en`/`description_en`/`label_en`)
+ * that are empty/whitespace, so "no translation" is stored as ABSENT — never
+ * `label_en: ''`. Non-empty values pass through untouched (returns the same
+ * object when nothing needs stripping).
+ */
+function stripEmptyEn<T extends Record<string, unknown>>(obj: T, keys: string[]): T {
+  let next = obj;
+  for (const k of keys) {
+    const v = next?.[k];
+    if (typeof v === 'string' && v.trim() === '') {
+      if (next === obj) next = { ...obj };
+      delete (next as Record<string, unknown>)[k];
+    }
+  }
+  return next;
+}
+
+/**
  * Once an option carries a new-mode value (`deduct` or `pct`), drop its LEGACY
  * t1/t2/t3 keys — data migrates off tiers as it is edited, from BOTH the card
  * and the table view. Options with neither keep their tiers (read fallback in
  * pricingResolver).
+ *
+ * Optional English display fields (`title_en`/`description_en`/`label_en`) are
+ * PRESERVED as-is; only empty-string values are dropped (absent = no translation).
  */
 export function sanitizeGroups(groups: any[]): any[] {
   return (groups || []).map((g: any) => ({
-    ...g,
+    ...stripEmptyEn(g, ['title_en', 'description_en']),
     options: (g?.options || []).map((o: any) => {
-      if (o?.deduct == null && o?.pct == null) return o;
-      const next = { ...o };
+      const clean = stripEmptyEn(o, ['label_en', 'description_en']);
+      if (o?.deduct == null && o?.pct == null) return clean;
+      const next = { ...clean };
       delete next.t1;
       delete next.t2;
       delete next.t3;

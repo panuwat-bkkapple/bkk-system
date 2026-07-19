@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   flattenSetToRows,
   applyRowsToSet,
+  sanitizeGroups,
   validatePercent,
   validateDeduction,
   legacyTierLabel,
@@ -93,6 +94,56 @@ describe('applyRowsToSet — deduct/pct write/clear + legacy tier migration', ()
     const next = applyRowsToSet(set, rows);
     expect(next.groups[0].options[0].label).toBe('สมบูรณ์ (แก้)');
     expect(next.groups[0].options[1].label).toBe('จอแตก');
+  });
+});
+
+describe('sanitizeGroups — optional English display fields (*_en)', () => {
+  it('preserves title_en/description_en/label_en on save (with and without deduct/pct)', () => {
+    const groups = [
+      {
+        id: 'g1',
+        title: 'จอ',
+        title_en: 'Screen',
+        description_en: 'Scratches or damage on the screen glass',
+        options: [
+          { id: 'o1', label: 'สมบูรณ์', label_en: 'Flawless', description_en: 'No scratches', deduct: 0 },
+          { id: 'o2', label: 'จอแตก', label_en: 'Cracked screen', t1: 20000, t2: 15000, t3: 10000 },
+        ],
+      },
+    ];
+    const out = sanitizeGroups(groups);
+    expect(out[0].title_en).toBe('Screen');
+    expect(out[0].description_en).toBe('Scratches or damage on the screen glass');
+    expect(out[0].options[0].label_en).toBe('Flawless');
+    expect(out[0].options[0].description_en).toBe('No scratches');
+    // legacy-tier option (no deduct/pct) keeps both its tiers AND its label_en
+    expect(out[0].options[1].label_en).toBe('Cracked screen');
+    expect(out[0].options[1].t1).toBe(20000);
+  });
+
+  it('still drops legacy tiers once deduct/pct is set, without touching *_en', () => {
+    const out = sanitizeGroups([
+      { id: 'g1', title: 'จอ', options: [{ id: 'o1', label: 'จอแตก', label_en: 'Cracked screen', deduct: 4000, t1: 20000, t2: 15000, t3: 10000 }] },
+    ]);
+    expect('t1' in out[0].options[0]).toBe(false);
+    expect(out[0].options[0].deduct).toBe(4000);
+    expect(out[0].options[0].label_en).toBe('Cracked screen');
+  });
+
+  it('drops empty-string *_en so "no translation" is stored as ABSENT', () => {
+    const out = sanitizeGroups([
+      {
+        id: 'g1',
+        title: 'จอ',
+        title_en: '',
+        description_en: '  ',
+        options: [{ id: 'o1', label: 'สมบูรณ์', label_en: '', description_en: '', deduct: 0 }],
+      },
+    ]);
+    expect('title_en' in out[0]).toBe(false);
+    expect('description_en' in out[0]).toBe(false);
+    expect('label_en' in out[0].options[0]).toBe(false);
+    expect('description_en' in out[0].options[0]).toBe(false);
   });
 });
 
