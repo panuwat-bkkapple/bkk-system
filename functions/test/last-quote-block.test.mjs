@@ -360,6 +360,15 @@ const rmQuery = __test.rankModels(CATALOG, "MacBook Pro M5 Max");
 check("MacBook M5 Max never matches iPad mini 5", !rmQuery.some((m) => m.id === "ipm5"));
 check("iPad mini 5 still matches its own query", __test.rankModels(CATALOG, "iPad mini 5")[0]?.id === "ipm5");
 check("iPhone query unaffected", __test.rankModels(CATALOG, "iPhone 15")[0]?.id === "ip15");
+// Chip-name tokenization: query splits "m3" into "m 3" — the name side must
+// split the same way or M-chip MacBooks can never satisfy versionOk (real
+// test: 'macbook pro 14" m3 max' -> "ยังไม่มีข้อมูลรุ่นนี้" while it existed).
+const MAC_CATALOG = [
+  ...CATALOG,
+  { id: "mbp14m3max", brand: "Apple", name: 'MacBook Pro 14" M3 Max', category: "Mac" },
+];
+check("chip query matches the M3 Max MacBook", __test.rankModels(MAC_CATALOG, 'macbook pro 14" m3 max')[0]?.id === "mbp14m3max");
+check("chip query without inch mark still matches", __test.rankModels(MAC_CATALOG, "macbook pro 14 m3 max")[0]?.id === "mbp14m3max");
 check("system prompt: store-contact request means the STORE's number", sys.includes("13.1.1"));
 
 // --- buildStoreProfileBlock: central store standard values -------------------
