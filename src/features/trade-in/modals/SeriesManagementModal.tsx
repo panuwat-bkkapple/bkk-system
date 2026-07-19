@@ -58,8 +58,14 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
       const matchedSubcategory = subcategories.find(sc => sc.name === editingSeries.subcategory);
       const subcategoryImageUrl = matchedSubcategory?.imageUrl || '';
 
+      // ชื่อภาษาอังกฤษ (ไม่บังคับ) — display-only สำหรับหน้า /en ของเว็บลูกค้า.
+      // ชื่อไทย (`name`) ยังเป็น canonical เสมอ. ค่าว่าง = เขียน null ให้ Firebase
+      // ลบฟิลด์ทิ้ง (ห้ามเก็บ '' ค้างไว้)
+      const labelEn = typeof editingSeries.label_en === 'string' ? editingSeries.label_en.trim() : '';
+
       await update(ref(db, `series/${editingSeries.id}`), {
         name: editingSeries.name,
+        label_en: labelEn || null,
         brand: editingSeries.brand || defaultBrand,
         category: editingSeries.category || defaultCategory,
         imageUrl: editingSeries.imageUrl || '',
@@ -161,6 +167,23 @@ export const SeriesManagementModal: React.FC<SeriesManagementModalProps> = ({ av
                       <div>
                         <label className="text-xs font-bold text-slate-500 block mb-1">ชื่อ Series (เช่น iPad Pro, iPhone 15)</label>
                         <input type="text" value={editingSeries.name} onChange={e => setEditingSeries({ ...editingSeries, name: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
+                        {/* ชื่อภาษาอังกฤษ (ไม่บังคับ) — เว็บลูกค้าใช้แสดงบน /en, ชื่อไทยยังเป็นค่าหลัก */}
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ชื่อภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                          <input
+                            type="text"
+                            placeholder="English name (optional)"
+                            title="ชื่อภาษาอังกฤษ (ไม่บังคับ)"
+                            value={editingSeries.label_en || ''}
+                            onChange={e => {
+                              const v = e.target.value;
+                              const next = { ...editingSeries };
+                              if (v) next.label_en = v; else delete next.label_en;
+                              setEditingSeries(next);
+                            }}
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-white text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 outline-none placeholder:text-slate-300"
+                          />
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
