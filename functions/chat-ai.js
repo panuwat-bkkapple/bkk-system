@@ -525,9 +525,15 @@ function rankModels(list, rawQuery) {
       const hay = `${m.brand} ${m.name} ${m.category}`.toLowerCase();
       // Strip punctuation so 13" / (Intel, / 2017) tokenize to bare words —
       // else a version match on "13" would miss 'MacBook Air 13"'.
+      // Same letter-digit boundary split as the query — without it a query
+      // token "3" (from splitting the chip name "m3") can never satisfy
+      // versionOk against a name that keeps "m3" glued, so every M-chip
+      // MacBook was unfindable ("macbook pro 14 m3 max" -> no results).
       const nameTokens = `${m.brand} ${m.name}`
         .toLowerCase()
         .replace(/[^a-z0-9฀-๿]+/g, " ")
+        .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+        .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
         .split(/\s+/)
         .filter(Boolean);
       const hits = tokens.filter((t) => hay.includes(t)).length;
@@ -1518,15 +1524,23 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // the next call ALWAYS passes, so a customer who declines still gets
         // their quote. Amends (prevQuote) are never gated.
         if (!prevQuote && !convo.customer_phone && !state.savedPhone) {
+          // Holds for the WHOLE turn: the first version only errored once and
+          // set the flag, so an eager model just re-called in the same agentic
+          // loop and the card shipped without the ask ever reaching the
+          // customer (real test: "iPhone 15 รับซื้อเท่าไหร่" -> instant card,
+          // no contact, no condition questions). Now every retry this turn is
+          // refused; the NEXT customer turn passes unconditionally.
+          const gateNote =
+            "ยังออกการ์ดตอนนี้ไม่ได้ — ต้องถามลูกค้าก่อน 1 ข้อความ (ห้ามเรียก create_quote_card ซ้ำในเทิร์นนี้ จะถูกปฏิเสธทุกครั้ง): ตอบเป็นข้อความถามชุดเดียวตามกฎข้อ 6 ขั้นที่ 3 = ขอชื่อ+เบอร์ติดต่อ (ไม่บังคับ) พร้อมคำถามสภาพ 5 เรื่อง. เทิร์นถัดไปพอลูกค้าตอบ (ให้เบอร์ → save_customer_info ก่อน) เรียก create_quote_card ได้เลย ระบบจะให้ผ่านแม้ลูกค้าไม่ให้เบอร์";
+          if (state.contactGatePromptedThisTurn) {
+            return { error: "contact_required_first", note: gateNote };
+          }
           const askedRef = db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`);
           const askedSnap = await askedRef.once("value");
           if (!askedSnap.exists()) {
             await askedRef.set(Date.now());
-            return {
-              error: "contact_required_first",
-              note:
-                "ยังไม่มีชื่อ/เบอร์ติดต่อของลูกค้า และยังไม่เคยขอ — ก่อนออกใบเสนอราคาใบแรก ให้ตอบลูกค้าเป็นข้อความ (ไม่ต้องเรียก tool ซ้ำในเทิร์นนี้): ขอชื่อและเบอร์โทรสั้นๆ สุภาพ 1 ครั้ง บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ ไม่บังคับ. เทิร์นถัดไป: ลูกค้าให้ → save_customer_info แล้ว create_quote_card; ลูกค้าปฏิเสธ/ไม่ตอบเรื่องเบอร์ → create_quote_card ได้เลย ระบบจะให้ผ่าน ห้ามขอซ้ำเป็นครั้งที่สอง",
-            };
+            state.contactGatePromptedThisTurn = true;
+            return { error: "contact_required_first", note: gateNote };
           }
         }
         const basePrice = isNewDevice
@@ -2602,7 +2616,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "" };
+      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false };
       try {
         const inHours = isBusinessHours(pub);
 
