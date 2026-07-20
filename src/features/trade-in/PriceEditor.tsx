@@ -267,11 +267,17 @@ export const PriceEditor = () => {
         });
       }
 
+      // ชื่อภาษาอังกฤษ (ไม่บังคับ) — display-only สำหรับหน้า /en ของเว็บลูกค้า.
+      // ค่าไทย (`name`) ยังเป็น canonical เสมอ (slug/matching/payload).
+      // ค่าว่าง = เขียน null ให้ Firebase ลบฟิลด์ทิ้ง (ห้ามเก็บ '' ค้างไว้)
+      const labelEn = typeof editingItem.label_en === 'string' ? editingItem.label_en.trim() : '';
+
       const payload: any = {
         brand: editingItem.brand,
         category: editingItem.category,
         series: editingItem.series || '',
         name: editingItem.name,
+        label_en: labelEn || null,
         imageUrl: editingItem.imageUrl || '',
         isActive: editingItem.isActive ?? true,
         isFeatured: editingItem.isFeatured ?? false,

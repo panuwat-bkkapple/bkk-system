@@ -141,6 +141,23 @@ export const MobilePriceEditPage: React.FC<MobilePriceEditPageProps> = ({
                 value={editingItem.name || ''}
                 onChange={(e) => onEditingItemChange({ ...editingItem, name: e.target.value })}
               />
+              {/* ชื่อภาษาอังกฤษ (ไม่บังคับ) — เว็บลูกค้าใช้แสดงบน /en, ชื่อไทยยังเป็นค่าหลัก */}
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ชื่อภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                <input
+                  type="text"
+                  placeholder="English name (optional)"
+                  title="ชื่อภาษาอังกฤษ (ไม่บังคับ)"
+                  value={editingItem.label_en || ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const next = { ...editingItem };
+                    if (v) next.label_en = v; else delete next.label_en;
+                    onEditingItemChange(next);
+                  }}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 outline-none placeholder:text-slate-300"
+                />
+              </div>
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1 block">รูปสินค้า</label>

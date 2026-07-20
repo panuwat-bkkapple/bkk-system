@@ -316,6 +316,23 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                 <div>
                   <label className="text-xs font-bold text-slate-500 mb-1.5 block">Model Name (ชื่อรุ่น)</label>
                   <input type="text" placeholder="เช่น MacBook Pro 14 นิ้ว..." className="w-full p-3 bg-white rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500" value={editingItem.name} onChange={(e) => onEditingItemChange({ ...editingItem, name: e.target.value })} />
+                  {/* ชื่อภาษาอังกฤษ (ไม่บังคับ) — เว็บลูกค้าใช้แสดงบน /en, ชื่อไทยยังเป็นค่าหลัก */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ชื่อภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                    <input
+                      type="text"
+                      placeholder="English name (optional)"
+                      title="ชื่อภาษาอังกฤษ (ไม่บังคับ)"
+                      value={editingItem.label_en || ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const next = { ...editingItem };
+                        if (v) next.label_en = v; else delete next.label_en;
+                        onEditingItemChange(next);
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 outline-none placeholder:text-slate-300"
+                    />
+                  </div>
                 </div>
 
                 {/* Image */}

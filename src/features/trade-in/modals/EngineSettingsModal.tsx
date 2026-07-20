@@ -468,14 +468,36 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           </button>
                         </div>
                       </div>
+                      {/* ป้ายภาษาอังกฤษของหัวข้อ (ไม่บังคับ) — เว็บลูกค้าใช้แสดงบน /en, ค่าไทยยังเป็นค่าหลัก */}
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ป้ายภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                        <input
+                          type="text"
+                          placeholder="English title (optional)"
+                          value={g.title_en || ''}
+                          onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].title_en = v; else delete n[gi].title_en; setEditingSet({ ...editingSet, groups: n }); }}
+                          className="w-full text-sm font-bold text-slate-500 bg-transparent border-none outline-none focus:text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
+                        />
+                      </div>
                       {/* Group description — shown to customers under the topic heading */}
                       <input
                         type="text"
                         placeholder="คำอธิบายใต้หัวข้อ (ลูกค้าเห็นตอนประเมิน เช่น ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว) — ไม่บังคับ"
                         value={g.description || ''}
                         onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].description = v; else delete n[gi].description; setEditingSet({ ...editingSet, groups: n }); }}
-                        className="w-full text-sm font-bold text-slate-500 bg-transparent border-none outline-none mb-3 focus:text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
+                        className="w-full text-sm font-bold text-slate-500 bg-transparent border-none outline-none mb-1 focus:text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
                       />
+                      {/* คำอธิบายหัวข้อภาษาอังกฤษ (ไม่บังคับ) */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ป้ายภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                        <input
+                          type="text"
+                          placeholder="English description (optional)"
+                          value={g.description_en || ''}
+                          onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].description_en = v; else delete n[gi].description_en; setEditingSet({ ...editingSet, groups: n }); }}
+                          className="w-full text-xs font-medium text-slate-400 bg-transparent border-none outline-none focus:text-slate-600 placeholder:text-slate-300"
+                        />
+                      </div>
                       {/* Group kind: cosmetic (deduct only) vs functional (can reject) */}
                       <div className="flex items-center gap-1.5 mb-5">
                         {(['cosmetic', 'functional'] as const).map((k) => {
@@ -504,6 +526,17 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           <div key={o.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50 p-2 rounded-xl border border-slate-100 group/option hover:border-indigo-200 transition-colors">
                             <div className="col-span-5">
                               <input type="text" placeholder="เช่น สวยสมบูรณ์" value={o.label} onChange={(e) => { const n = [...editingSet.groups]; n[gi].options[oi].label = e.target.value; setEditingSet({ ...editingSet, groups: n }); }} className="w-full px-4 py-2.5 rounded-lg border-none bg-white shadow-sm text-sm font-bold focus:ring-2 focus:ring-indigo-500" />
+                              {/* ป้ายภาษาอังกฤษของตัวเลือก (ไม่บังคับ) — แสดงบนเว็บลูกค้า /en */}
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ป้ายภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                                <input
+                                  type="text"
+                                  placeholder="English label (optional)"
+                                  value={o.label_en || ''}
+                                  onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].options[oi].label_en = v; else delete n[gi].options[oi].label_en; setEditingSet({ ...editingSet, groups: n }); }}
+                                  className="w-full px-3 py-1.5 rounded-lg border-none bg-white/70 shadow-sm text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 placeholder:text-slate-300"
+                                />
+                              </div>
                               <input
                                 type="text"
                                 placeholder="คำอธิบายตัวเลือก (ลูกค้าเห็นใต้ชื่อตัวเลือก) — ไม่บังคับ"
@@ -511,6 +544,17 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                                 onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].options[oi].description = v; else delete n[gi].options[oi].description; setEditingSet({ ...editingSet, groups: n }); }}
                                 className="w-full px-4 py-1.5 mt-1.5 rounded-lg border-none bg-white/70 shadow-sm text-xs font-medium text-slate-500 focus:ring-2 focus:ring-indigo-300 placeholder:text-slate-300"
                               />
+                              {/* คำอธิบายตัวเลือกภาษาอังกฤษ (ไม่บังคับ) */}
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <span className="text-[9px] font-black text-sky-600 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5 shrink-0" title="ป้ายภาษาอังกฤษ (ไม่บังคับ)">EN</span>
+                                <input
+                                  type="text"
+                                  placeholder="English description (optional)"
+                                  value={o.description_en || ''}
+                                  onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].options[oi].description_en = v; else delete n[gi].options[oi].description_en; setEditingSet({ ...editingSet, groups: n }); }}
+                                  className="w-full px-3 py-1.5 rounded-lg border-none bg-white/70 shadow-sm text-xs font-medium text-slate-500 focus:ring-2 focus:ring-sky-300 placeholder:text-slate-300"
+                                />
+                              </div>
                               {g.kind === 'functional' && (
                                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                                   <span className="text-[9px] font-black uppercase text-slate-400 mr-0.5">ถ้าลูกค้าเลือกข้อนี้:</span>
