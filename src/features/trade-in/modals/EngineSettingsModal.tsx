@@ -10,6 +10,7 @@ import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
 import { writeConditionSet } from '../utils/conditionSets';
 import { fillEnFields } from '../utils/assessmentEnSeed';
+import { ASSESSMENT_PRESETS } from '../utils/assessmentPresets';
 import { CONDITION_ICONS, CONDITION_ICON_LABELS, CONDITION_ICON_KEYS, getConditionIcon } from '../constants/conditionIcons';
 
 // AG Grid (~1MB) is only pulled in when the user opens Table view.
@@ -312,6 +313,60 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     toast.success(`เพิ่มชุดคัดกรองสภาพ / คุณสมบัติ (${tpl.items.length} กลุ่ม) — อย่าลืมกด Save Set`);
   };
 
+  // ---- Bilingual preset picker (ชุดมาตรฐาน) -------------------------------
+  // Applies a curated TH+EN pair to the FOUR TEXT FIELDS ONLY (title/label +
+  // descriptions). Pricing fields (deduct / pct / failBehavior / tiers) are
+  // never touched — the admin keeps full control and can still edit freely.
+  const applyGroupPreset = (gi: number, key: string) => {
+    const [cat, idx] = key.split('::');
+    const entry = ASSESSMENT_PRESETS[cat]?.topics[Number(idx)];
+    if (!entry) return;
+    const n = [...editingSet.groups];
+    const g = { ...n[gi], title: entry.th, title_en: entry.en };
+    if (entry.desc_th) g.description = entry.desc_th;
+    if (entry.desc_en) g.description_en = entry.desc_en;
+    n[gi] = g;
+    setEditingSet({ ...editingSet, groups: n });
+  };
+
+  const applyOptionPreset = (gi: number, oi: number, key: string) => {
+    const [cat, idx] = key.split('::');
+    const entry = ASSESSMENT_PRESETS[cat]?.options[Number(idx)];
+    if (!entry) return;
+    const n = [...editingSet.groups];
+    const options = [...n[gi].options];
+    const o = { ...options[oi], label: entry.th, label_en: entry.en };
+    if (entry.desc_th) o.description = entry.desc_th;
+    if (entry.desc_en) o.description_en = entry.desc_en;
+    options[oi] = o;
+    n[gi] = { ...n[gi], options };
+    setEditingSet({ ...editingSet, groups: n });
+  };
+
+  // Reusable grouped <select> over the preset catalog. `source` picks whether
+  // the choices come from each category's topics (group titles) or options.
+  // Plain render helper (not a nested component) so the <select> DOM node is
+  // not remounted on every parent re-render.
+  const renderPresetPicker = (source: 'topics' | 'options', onPick: (key: string) => void, title: string) => (
+    <select
+      value=""
+      onChange={(e) => { if (e.target.value) { onPick(e.target.value); e.currentTarget.value = ''; } }}
+      title={title}
+      className="shrink-0 max-w-[190px] text-[10px] font-bold text-sky-600 bg-sky-50 border border-sky-100 rounded-lg px-2 py-1 cursor-pointer hover:bg-sky-100 transition outline-none"
+    >
+      <option value="">เลือกจากชุดมาตรฐาน…</option>
+      {Object.entries(ASSESSMENT_PRESETS).map(([k, cat]) => (
+        cat[source].length > 0 && (
+          <optgroup key={k} label={cat.label}>
+            {cat[source].map((entry, i) => (
+              <option key={i} value={`${k}::${i}`}>{entry.th}</option>
+            ))}
+          </optgroup>
+        )
+      ))}
+    </select>
+  );
+
   if (!isOpen) return null;
 
   return (
@@ -500,6 +555,8 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                           onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].title_en = v; else delete n[gi].title_en; setEditingSet({ ...editingSet, groups: n }); }}
                           className="w-full text-sm font-bold text-slate-500 bg-transparent border-none outline-none focus:text-slate-700 placeholder:text-slate-300 placeholder:font-medium"
                         />
+                        {/* เลือกหัวข้อจากชุดมาตรฐาน — เติมไทย+อังกฤษ (และคำอธิบายถ้ามี) ไม่แตะราคา */}
+                        {renderPresetPicker('topics', (key) => applyGroupPreset(gi, key), 'เลือกหัวข้อจากชุดมาตรฐาน — เติมชื่อไทย + อังกฤษให้อัตโนมัติ (ไม่แตะค่าหักเงิน) แก้ไขต่อได้')}
                       </div>
                       {/* Group description — shown to customers under the topic heading */}
                       <input
@@ -558,6 +615,8 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                                   onChange={(e) => { const n = [...editingSet.groups]; const v = e.target.value; if (v) n[gi].options[oi].label_en = v; else delete n[gi].options[oi].label_en; setEditingSet({ ...editingSet, groups: n }); }}
                                   className="w-full px-3 py-1.5 rounded-lg border-none bg-white/70 shadow-sm text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 placeholder:text-slate-300"
                                 />
+                                {/* เลือกตัวเลือกจากชุดมาตรฐาน — เติมไทย+อังกฤษ (และคำอธิบายถ้ามี) ไม่แตะค่าหักเงิน */}
+                                {renderPresetPicker('options', (key) => applyOptionPreset(gi, oi, key), 'เลือกตัวเลือกจากชุดมาตรฐาน — เติมป้ายไทย + อังกฤษให้อัตโนมัติ (ไม่แตะค่าหักเงิน) แก้ไขต่อได้')}
                               </div>
                               <input
                                 type="text"
