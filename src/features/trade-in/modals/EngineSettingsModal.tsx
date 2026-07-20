@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
-  Copy, ChevronUp, ChevronDown
+  Copy, ChevronUp, ChevronDown, Languages
 } from 'lucide-react';
 import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
 import { writeConditionSet } from '../utils/conditionSets';
+import { fillEnFields } from '../utils/assessmentEnSeed';
 import { CONDITION_ICONS, CONDITION_ICON_LABELS, CONDITION_ICON_KEYS, getConditionIcon } from '../constants/conditionIcons';
 
 // AG Grid (~1MB) is only pulled in when the user opens Table view.
@@ -65,6 +66,19 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       groups: [{ id: 'g_' + Date.now(), title: 'หัวข้อประเมินใหม่', options: [{ id: 'o_' + Date.now(), label: 'ตัวเลือก 1', deduct: 0 }] }]
     });
     setActiveSetId(newRef.key);
+  };
+
+  // Pre-fill empty *_en fields from the bundled Thai->EN seed table. Local
+  // editing state only — the admin reviews then saves through Save Set as usual.
+  const handleFillEnTranslations = () => {
+    if (!editingSet) return;
+    const { groups, filled } = fillEnFields(editingSet.groups || []);
+    if (filled === 0) {
+      toast('ไม่พบคำที่แปลได้เพิ่ม');
+      return;
+    }
+    setEditingSet({ ...editingSet, groups });
+    toast.success(`เติมคำแปลแล้ว ${filled} ช่อง — ตรวจสอบแล้วกดบันทึก`);
   };
 
   const handleSaveSet = async () => {
@@ -382,6 +396,14 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                         <option key={k} value={k}>{v.label}</option>
                       ))}
                     </select>
+                    {/* Pre-fill empty *_en labels from the central seed table (review, then Save Set) */}
+                    <button
+                      onClick={handleFillEnTranslations}
+                      title="เติมป้ายภาษาอังกฤษจากตารางคำแปลกลาง เฉพาะช่องที่ยังว่าง"
+                      className="px-3 py-3 bg-sky-50 text-sky-700 font-black rounded-xl text-sm border border-sky-200 hover:bg-sky-100 transition flex items-center gap-1.5"
+                    >
+                      <Languages size={16} /> เติมคำแปลอัตโนมัติ
+                    </button>
                     <button onClick={handleSaveSet} className="px-8 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700 transition flex items-center gap-2 shadow-lg hover:shadow-indigo-500/30">
                       <Save size={18} /> Save Set
                     </button>
