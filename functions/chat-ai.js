@@ -544,6 +544,26 @@ function singleResultVariantNote(model) {
   return `ผลค้นหามีรุ่นเดียว: ${model.name} — รุ่นนี้ไม่มีรุ่นย่อย/ขนาดจอให้เลือกนอกเหนือจากนี้${options} — ห้ามเสนอขนาดจอหรือตัวเลือกอื่นจากความจำ (กฎข้อ 2.2) ถามลูกค้าเฉพาะสิ่งที่ต้องใช้เลือกจากรายการนี้`;
 }
 
+// Which model ids should rider-fee promos be checked against? The LLM is
+// SUPPOSED to pass model_id into check_pickup_service (rule 12) but forgot in
+// a real test — the customer was quoted ~86 baht for an iPhone 16 Pro Max in
+// Bangkok while the FREERIDE waive promo made it free at checkout. Server-side
+// fallback, in priority order: explicit input → models found by search THIS
+// turn → the last issued card → the last search saved in ai_state. Pure.
+function resolvePromoModelIds(inputModelId, state, aiState) {
+  if (inputModelId) return [String(inputModelId)];
+  if (state && Array.isArray(state.lastSearchModelIds) && state.lastSearchModelIds.length) {
+    return state.lastSearchModelIds.map(String);
+  }
+  const st = aiState || {};
+  if (st.last_quote && st.last_quote.model_id) return [String(st.last_quote.model_id)];
+  if (st.last_search && Array.isArray(st.last_search.results)) {
+    const ids = st.last_search.results.map((r) => r && r.model_id).filter(Boolean).map(String);
+    if (ids.length) return ids;
+  }
+  return [];
+}
+
 function ipadAirGenAliasNote(query) {
   const q = String(query || "").toLowerCase();
   const m = q.match(/(?:ipad|ไอแพด)\s*(?:air|แอร์)\s*(?:gen\s*|รุ่น(?:ที่)?\s*)?([678])\b/);
@@ -1285,8 +1305,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.11";
+const LOGIC_VERSION = "2026-07-22.12";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "เช็คโปรค่าไรเดอร์ของรุ่นก่อนแจ้งค่าบริการเสมอ — ระบบหา model_id เองจากบริบทแม้ AI ลืมส่ง (เคส iPhone 16 Pro Max โดนแจ้ง 86 บาททั้งที่เข้าโปรฟรี)" },
   { at: "2026-07-22", text: "ห้ามอ้างว่ามีหน้าร้าน/สาขานอกเหนือจากข้อมูลสาขาจริง (เคสเซ็นทรัลลาดพร้าว) และทำเลใหม่ทุกจุดต้องเช็คพื้นที่/ค่าบริการใหม่จากระบบเสมอ" },
   { at: "2026-07-22", text: "ขอชื่อ/เบอร์แบบธรรมชาติ ไม่พูดว่า 'ข้ามได้/ไม่บังคับ' — ลูกค้าเงียบก็คุยต่อ และขอซ้ำได้ครั้งเดียวตอนใกล้ออกใบเสนอราคา" },
   { at: "2026-07-22", text: "ลูกค้าบอกทำเลเป็นชื่อสถานที่/ห้าง (เช่น เมเจอร์รัชโยธิน) ส่งเข้าระบบหาพิกัดทันที ไม่ถามกลับเหมือนไม่รู้จัก + ส่งรุ่นไปเช็คโปรฟรีค่าบริการทุกครั้ง" },
@@ -1441,6 +1462,10 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           };
         }
         const buyable = scored.filter((m) => m.is_active !== false);
+        // Same-turn memory for check_pickup_service's promo fallback — the
+        // DB copy (ai_state/last_search) is written async below and the turn-
+        // start convo snapshot is stale, so promos need this in-memory list.
+        state.lastSearchModelIds = buyable.slice(0, 3).map((m) => m.id);
         // Remember the ids of what was just found. Cross-turn history is
         // text-only, so BEFORE the first card exists (no last_quote yet) a
         // later "ออกการ์ดสิ" turn has no model_id in context — the exact gap
@@ -2071,7 +2096,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
 
         // โปรส่วนลดค่าไรเดอร์ (mirror riderFeePromoEligible/riderFeePromoDiscount)
         const nowP = Date.now();
-        const modelIds = input.model_id ? [String(input.model_id)] : [];
+        const modelIds = resolvePromoModelIds(input.model_id, state, convo.ai_state);
         let promo = null;
         const promos = promosSnap.val() || {};
         for (const pid of Object.keys(promos)) {
@@ -2844,7 +2869,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false };
+      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [] };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -3381,6 +3406,7 @@ module.exports = {
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
+    resolvePromoModelIds,
     singleResultVariantNote,
     extractChoices,
     priceLeakBeforeCard,
