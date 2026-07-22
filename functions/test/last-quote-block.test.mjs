@@ -629,5 +629,22 @@ check("connector allowed at most once per conversation", sysNoCust.includes('ซ
 check("openers must vary between consecutive messages", sysNoCust.includes("อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้า"));
 check("condition sequence reminds no per-message announcement", sysNoCust.includes('ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ'));
 
+// --- bare single-price leak + empty quote promise (iPad mini 7 case) ---------
+// Real conversation: "เรารับซื้อมือสองในราคา 8,500 บาทครับ" shipped pre-card
+// (old regex only caught ranges and ประมาณ-numbers), then "ผมจะสร้างใบเสนอ
+// ราคาให้ทันทีครับ" went out with no card ever following — dead-end escalate.
+check("bare 'ในราคา 8,500 บาท' is a price leak", __test.priceLeakBeforeCard("iPad mini รุ่นที่ 7 Wi-Fi 128GB เรารับซื้อมือสองในราคา 8,500 บาทครับ"));
+check("bare 'ราคา 12000 บาท' (no comma) is a price leak", __test.priceLeakBeforeCard("รุ่นนี้ราคา 12000 บาทครับ"));
+check("2-digit pickup fee is NOT a price leak", !__test.priceLeakBeforeCard("ปกติค่าบริการประมาณ 86 บาท แต่ตอนนี้ฟรีครับ"));
+check("3-digit fee is NOT a price leak", !__test.priceLeakBeforeCard("ค่าบริการรับเครื่องอยู่ที่ 120 บาทครับ"));
+check("battery percent is NOT a price leak", !__test.priceLeakBeforeCard("แบต 100% สภาพดีมากครับ"));
+check("immediate card promise triggers quote recovery", __test.announcedQuoteIntent("ขอโทษครับ ผมจะสร้างใบเสนอราคาให้ทันทีครับ"));
+check("'กำลังจัดทำใบเสนอราคา' triggers quote recovery", __test.announcedQuoteIntent("ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ครับ"));
+check("'ในราคา X บาท' narration triggers quote recovery", __test.announcedQuoteIntent("เรารับซื้อมือสองในราคา 8,500 บาทครับ"));
+check("mid-assessment future plan does NOT force a card", !__test.announcedQuoteIntent("พอทราบสภาพครบ เดี๋ยวผมออกใบเสนอราคาให้หลังจากนี้ครับ"));
+check("contact-first ask does NOT force a card", !__test.announcedQuoteIntent("ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ"));
+check("rule 8 no longer bundles 4 questions into one message", !sysNoCust.includes("รวมเป็นข้อความเดียว 4 เรื่อง"));
+check("rule 8 forbids numbered-list condition questions", sysNoCust.includes("ห้ามรวมหลายเรื่องเป็นลิสต์เลขข้อ"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

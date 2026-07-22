@@ -1215,7 +1215,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `6.7.1 ห้าม dead-end เด็ดขาด (บั๊กร้ายแรง ลูกค้าหนี): ถ้า search_models "เจอราคาแล้ว" และลูกค้าตอบสภาพรอบแรกแล้ว → ต้องเรียก create_quote_card เท่านั้น. ห้ามโยนให้เจ้าหน้าที่/escalate ด้วยเหตุ "ข้อมูลไม่ครบถ้วน" หรือ "ต้องให้เจ้าหน้าที่ยืนยันราคา" ทั้งที่มีราคาอยู่แล้วเด็ดขาด — นั่นคือ dead-end ที่ทำให้ลูกค้าปิดหนี. ข้อมูลที่ยังขาด (ศูนย์/นอก, แท้/ปลอม) ไม่ใช่เหตุให้ escalate ให้ใช้ default แล้วออกการ์ด (ข้อ 6.8/6.9). escalate ตอนที่มีราคาแล้วได้เฉพาะกรณีเดียว: เรียก create_quote_card จริงแล้วได้ error และ retry ตาม note ไม่ผ่าน`,
     `7. ตอบภาษาไทย สุภาพ ลงท้าย "ครับ" กระชับแต่ไม่ห้วน (ปกติ 2-5 ประโยค) ตามบุคลิกด้านบน ไม่ใช้อีโมจิ ไม่ใช้ markdown`,
     `7.1 ห้ามพูดศัพท์เทคนิคหรือชื่อฟิลด์ภายในระบบกับลูกค้าเด็ดขาด (เช่น new_price, model_id, tool, ระบบ error) — แปลเป็นภาษาคนเสมอ เช่น "ราคารับซื้อมือ 1" แทน new_price`,
-    `8. คำถามสภาพเครื่องให้รวมเป็นข้อความเดียว 4 เรื่องตามข้อ 6 สั้นกระชับ อย่าไล่ถามทีละกลุ่มจากชุดคำถามทั้งหมด`,
+    `8. คำถามสภาพเครื่องให้ถาม "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือก ตามข้อ 6 ขั้นที่ 3 เท่านั้น — ห้ามรวมหลายเรื่องเป็นลิสต์เลขข้อในข้อความเดียว (เช่น "1. แบตกี่% 2. มีกล่องไหม 3. ศูนย์ไทยไหม 4. เคยซ่อมไหม" — บั๊กจริง: ลูกค้าต้องพิมพ์ตอบยาวเองแทนที่จะกดปุ่มทีละข้อ) เว้นแต่ลูกค้าขอให้ถามรวดเดียวเอง`,
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
     `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
     `10.1 PDPA — ห้ามบอกยอดเงินของออเดอร์ในแชทเด็ดขาด (ยอดสุทธิ/ราคารับซื้อ/ยอดโอน ของออเดอร์ที่สั่งไปแล้ว) แม้เป็นออเดอร์ของบัญชีที่ล็อกอินอยู่ก็ตาม — ถ้าลูกค้าถามเรื่องเงินของออเดอร์เก่า ให้ชี้ไปที่หน้าติดตามสถานะ (track) หรือ escalate ให้เจ้าหน้าที่ (ราคา "ประเมินรับซื้อ" ของเครื่องที่กำลังจะขายบอกได้ปกติ — คนละเรื่องกับยอดของออเดอร์ที่สั่งไปแล้ว)`,
@@ -1365,8 +1365,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.17";
+const LOGIC_VERSION = "2026-07-22.18";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "อุดราคาหลุดแบบตัวเลขเดี่ยว ('รับซื้อในราคา 8,500 บาท' ก่อนมีการ์ด), สัญญา 'จะสร้างใบเสนอราคาให้ทันที' ต้องมีการ์ดจริงตามมาเสมอ (ระบบบังคับออกการ์ด), และลบกฎเก่าที่สั่งรวมคำถามสภาพ 4 เรื่องเป็นข้อความเดียว (ขัดกับ flow ถามทีละเรื่องพร้อมปุ่ม)" },
   { at: "2026-07-22", text: "เลิกสูตรพูดซ้ำ 'ดีครับ ... ขอถามต่อนะครับ' ทุกข้อความ — รับทราบสั้นๆ หลากคำ แล้วถามคำถามถัดไปตรงๆ เหมือนคนคุยกันจริง (ประโยคเชื่อม 'ขอถามต่อ' ใช้ได้ไม่เกิน 1 ครั้งต่อบทสนทนา)" },
   { at: "2026-07-22", text: "ชื่อรุ่นกำกวมที่มีรุ่นงดรับซื้อปน (เช่น 'iPad 6' = Gen 6 งดรับ / mini 6 / Air 6) ระบบบังคับถามยืนยันรุ่นด้วยปุ่มก่อนเสมอ — ห้ามปฏิเสธหรือเริ่มประเมินจนกว่าลูกค้าคอนเฟิร์มรุ่น" },
   { at: "2026-07-22", text: "เปิด Prompt caching กับ Anthropic API — แคชกฎระบบ+ข้อมูลร้าน (ส่วนที่เหมือนกันทุกบทสนทนา) ลดค่า input token ลงมาก โดยคำตอบ/พฤติกรรม AI เหมือนเดิมทุกอย่าง" },
@@ -1452,7 +1453,30 @@ function priceLeakBeforeCard(text) {
   if (/\b\d{4,6}\s*(?:-|–|ถึง)\s*\d{4,6}\s*บาท/.test(t)) return true;
   if (/(?:ประมาณ|ราวๆ?|คร่าวๆ)\s*\d{1,3}(?:,\d{3})+/.test(t)) return true;
   if (/(?:ประมาณ|ราวๆ?|คร่าวๆ)\s*\d{4,6}\s*บาท/.test(t)) return true;
+  // Bare single price after ราคา/รับซื้อ — the exact leak that shipped:
+  // "เรารับซื้อมือสองในราคา 8,500 บาทครับ" (no range, no ประมาณ). Device
+  // prices are 4+ digits / comma-formatted; the 2-3 digit pickup fee notes
+  // ("ประมาณ 86 บาท") stay untouched.
+  if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{1,3}(?:,\d{3})+\s*บาท/.test(t)) return true;
+  if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{4,6}\s*บาท/.test(t)) return true;
   return false;
+}
+
+// The draft narrates a quote (price talk / points at a card / promises to
+// build one NOW) — used by the quote-recovery guard: if no card actually
+// exists this turn, force create_quote_card instead of shipping an empty
+// promise. Real bug: "ผมจะสร้างใบเสนอราคาให้ทันทีครับ" went out, no card ever
+// followed, and the chat dead-ended into "ขอเจ้าหน้าที่ยืนยัน". Future-tense
+// promises WITHOUT immediacy ("เดี๋ยวออกใบเสนอราคาให้หลังถามสภาพ") stay
+// untouched — mid-assessment plans are legitimate.
+function announcedQuoteIntent(text) {
+  const t = String(text || "");
+  return (
+    /กดปุ่ม[\s\S]{0,20}(การ์ด|ใบเสนอราคา)/.test(t) ||
+    /(ราคาประเมิน|ราคารับซื้อ|ประเมินราคา|ในราคา)[\s\S]{0,25}\d[\d,]{2,}\s*บาท/.test(t) ||
+    /กำลัง(?:จัดทำ|สร้าง|ออก)[\s\S]{0,12}ใบเสนอราคา/.test(t) ||
+    /จะ(?:สร้าง|จัดทำ|ออก)[\s\S]{0,12}ใบเสนอราคา[\s\S]{0,15}ทันที/.test(t)
+  );
 }
 
 async function writeAiMessage(db, convoId, assistantName, rawText) {
@@ -3285,10 +3309,7 @@ function registerChatAi({ dispatchAdminPush }) {
             await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
           } catch { /* next turn just asks again — safe */ }
         };
-        const announcedQuote =
-          /กดปุ่ม[\s\S]{0,20}(การ์ด|ใบเสนอราคา)|(ราคาประเมิน|ราคารับซื้อ|ประเมินราคา)[\s\S]{0,25}\d[\d,]{2,}\s*บาท/.test(
-            finalText,
-          );
+        const announcedQuote = announcedQuoteIntent(finalText);
         // The recovery loop and the contact gate must never fight: on the
         // very first card (no phone, contact never asked) the gate refuses
         // create_quote_card for the WHOLE turn — forcing the card here spins
@@ -3586,6 +3607,7 @@ module.exports = {
     singleResultVariantNote,
     extractChoices,
     priceLeakBeforeCard,
+    announcedQuoteIntent,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
