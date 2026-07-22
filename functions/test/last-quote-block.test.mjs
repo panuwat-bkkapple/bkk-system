@@ -414,5 +414,21 @@ check("MacBook Air query excludes MacBook Pro", !__test.rankModels(MAC_CATALOG, 
 check("alias note names the M2 mapping", String(__test.ipadAirGenAliasNote("ขาย ipad air 6 ได้เท่าไหร่")).includes("M2, 2024"));
 check("alias note silent for literal generations", __test.ipadAirGenAliasNote("ipad air 5") === null && __test.ipadAirGenAliasNote("iphone 16") === null);
 
+// --- invented model options guard (iPad Air 5 "2 ขนาด" hallucination) --------
+// Real bug (2026-07-22): search returned exactly ONE model (iPad Air 5 — one
+// screen size; variants only Wi-Fi/Cellular x storage) and the reply offered
+// "มีให้เลือก 2 ขนาด คือ 10.9 นิ้วหรือ 12.9 นิ้ว" from model memory — 12.9" is
+// an iPad Pro size. Spec/options must come from the tool result only.
+check("system prompt: rule 2.2 forbids invented specs", sys.includes("2.2 สเปกและตัวเลือกของรุ่น"));
+check("system prompt: rule 2.2 names the real bug", sys.includes("iPad Air 5 มีจอ 10.9 กับ 12.9"));
+const srn = __test.singleResultVariantNote({
+  name: "iPad Air 5 (ชิป M1, 2022)",
+  variants: [{ name: "Wi-Fi | 64GB" }, { name: "Wi-Fi + Cellular | 256GB" }],
+});
+check("single-result note names the model", srn.includes("iPad Air 5 (ชิป M1, 2022)"));
+check("single-result note lists the real variants", srn.includes("Wi-Fi | 64GB") && srn.includes("Wi-Fi + Cellular | 256GB"));
+check("single-result note forbids memory options", srn.includes("ห้ามเสนอขนาดจอหรือตัวเลือกอื่นจากความจำ"));
+check("single-result note handles missing variants", __test.singleResultVariantNote({ name: "X" }).includes("X") && __test.singleResultVariantNote(null) === null);
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
