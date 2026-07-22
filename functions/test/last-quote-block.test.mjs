@@ -619,5 +619,15 @@ const sysNoCust = __test.buildSystemPrompt({
 check("empty customerBlock leaves no customer header in static prefix", !sysNoCust.includes("ข้อมูลลูกค้าคนนี้"));
 check("static prefix still carries the iron rules", sysNoCust.includes("กฎเหล็ก"));
 
+// --- anti-boilerplate acknowledgements (the "ดีครับ ขอถามต่อนะครับ" case) -----
+// Owner's feedback: every assessment message opened with the same
+// "ดีครับ ... ขอถามต่อนะครับ" formula — real people do not announce every
+// follow-up question. The personality rules must forbid the repeated
+// connector and force varied, direct follow-ups.
+check("rule bans repeating the 'ขอถามต่อนะครับ' connector", sysNoCust.includes("ห้ามให้การรับทราบกลายเป็นสูตรซ้ำ"));
+check("connector allowed at most once per conversation", sysNoCust.includes('ซ้ำเกิน 1 ครั้งต่อบทสนทนา'));
+check("openers must vary between consecutive messages", sysNoCust.includes("อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้า"));
+check("condition sequence reminds no per-message announcement", sysNoCust.includes('ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ'));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
