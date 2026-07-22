@@ -271,6 +271,13 @@ export const PriceEditor = () => {
       // ค่าไทย (`name`) ยังเป็น canonical เสมอ (slug/matching/payload).
       // ค่าว่าง = เขียน null ให้ Firebase ลบฟิลด์ทิ้ง (ห้ามเก็บ '' ค้างไว้)
       const labelEn = typeof editingItem.label_en === 'string' ? editingItem.label_en.trim() : '';
+      // ชื่อเรียกทั่วไป (alias) — ทุกรุ่นมีได้ 3 ชื่อ: `name` = ชื่อทางการที่ Apple
+      // ประกาศ, `alias_th` = ชื่อที่คนทั่วไปเรียกภาษาไทย (เช่น "ไอแพดแอร์ 8"),
+      // `alias_en` = ชื่อเรียกอังกฤษแบบบ้านๆ (เช่น "iPad Air 8"). ตัวค้นหาของ
+      // AI แชท (chat-ai.js rankModels) ใช้ทั้ง 3 ชื่อ matching — ลูกค้าพิมพ์ชื่อ
+      // ไหนก็เจอรุ่นเดียวกัน. ค่าว่าง = null ให้ Firebase ลบฟิลด์ทิ้ง
+      const aliasTh = typeof editingItem.alias_th === 'string' ? editingItem.alias_th.trim() : '';
+      const aliasEn = typeof editingItem.alias_en === 'string' ? editingItem.alias_en.trim() : '';
 
       const payload: any = {
         brand: editingItem.brand,
@@ -278,6 +285,8 @@ export const PriceEditor = () => {
         series: editingItem.series || '',
         name: editingItem.name,
         label_en: labelEn || null,
+        alias_th: aliasTh || null,
+        alias_en: aliasEn || null,
         imageUrl: editingItem.imageUrl || '',
         isActive: editingItem.isActive ?? true,
         isFeatured: editingItem.isFeatured ?? false,

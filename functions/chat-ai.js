@@ -581,14 +581,16 @@ function rankModels(list, rawQuery) {
   const meaningfulTokens = tokens.filter((t) => !GENERIC.has(t) && !versionTokens.includes(t));
   return list
     .map((m) => {
-      const hay = `${m.brand} ${m.name} ${m.category}`.toLowerCase();
+      // ทั้ง 3 ชื่อของรุ่นเข้าตัวจับคู่: ชื่อทางการ + ชื่อเรียกไทย + ชื่อเรียกอังกฤษ
+      // (aliases ตั้งจากหน้าแก้ไขสินค้า) — ลูกค้าพิมพ์ชื่อไหนก็เจอ รวมภาษาไทยล้วน
+      const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
       // Strip punctuation so 13" / (Intel, / 2017) tokenize to bare words —
       // else a version match on "13" would miss 'MacBook Air 13"'.
       // Same letter-digit boundary split as the query — without it a query
       // token "3" (from splitting the chip name "m3") can never satisfy
       // versionOk against a name that keeps "m3" glued, so every M-chip
       // MacBook was unfindable ("macbook pro 14 m3 max" -> no results).
-      const nameLower = `${m.brand} ${m.name}`.toLowerCase();
+      const nameLower = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""}`.toLowerCase();
       const nameTokens = nameLower
         .replace(/[^a-z0-9฀-๿]+/g, " ")
         .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
@@ -730,6 +732,10 @@ async function loadModelsLight(db) {
         id,
         name: String(m.name),
         brand: m.brand || "",
+        // ชื่อเรียกทั่วไป (ตั้งได้ที่หน้าแก้ไขสินค้า) — 1 รุ่น 3 ชื่อ: ชื่อทางการ
+        // Apple (name) + ชื่อที่คนทั่วไปเรียกไทย/อังกฤษ. rankModels จับคู่ทุกชื่อ
+        alias_th: m.alias_th ? String(m.alias_th) : "",
+        alias_en: m.alias_en ? String(m.alias_en) : "",
         category: m.category || m.type || "",
         // isActive === false = ร้านงดรับซื้อรุ่นนี้ (โชว์ badge "งดรับซื้อ" หน้าเว็บ).
         // เก็บไว้ให้ search แยก "งดรับซื้อ" ออกจาก "ไม่มีในระบบ/ยังไม่ตั้งราคา".
@@ -1277,8 +1283,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.8";
+const LOGIC_VERSION = "2026-07-22.9";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "ทุกรุ่นตั้งชื่อเรียกได้ 3 ชื่อ (ทางการ Apple / เรียกทั่วไปไทย / อังกฤษ) ที่หน้าแก้ไขสินค้า — ลูกค้าพิมพ์ชื่อไหน AI ก็หารุ่นเจอ รวมภาษาไทยล้วน" },
   { at: "2026-07-22", text: "แสดงสมองพฤติกรรมเป็นโหนดบนผังใยความรู้ (6 ขั้นของ flow การขาย พร้อมกติกาที่บังคับใช้จริง)" },
   { at: "2026-07-22", text: "แก้ deadlock กลไกภายใน: คำถามราคาข้อความแรก (เช่น iPhone 15) ไม่จบด้วยส่งต่อเจ้าหน้าที่อีกแล้ว — เดินหน้าขอชื่อ/เบอร์ + ถามสภาพต่อ" },
   { at: "2026-07-22", text: "ทุก fallback ของระบบกันพลาดต้องถามคำถามต่อเสมอ ห้ามจบห้วน (เคส 'ขอสอบถามข้อมูลเพิ่ม' แล้วเงียบ)" },
@@ -1407,7 +1414,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           const familyWord = words[0];
           const family = familyWord
             ? list
-                .filter((m) => `${m.brand} ${m.name}`.toLowerCase().includes(familyWord))
+                .filter((m) => `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""}`.toLowerCase().includes(familyWord))
                 .slice(0, 40)
                 .map((m) => m.name)
             : [];
