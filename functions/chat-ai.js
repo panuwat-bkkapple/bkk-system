@@ -493,6 +493,53 @@ function familyMismatch(query, modelName) {
   return !qf.some((f) => nf.includes(f));
 }
 
+// Sub-lines within a family — Air / mini / SE are different PRODUCTS, not
+// variants. Real lost-lead bug: "iPad Air 6" (catalog name carries the chip,
+// not the number) version-matched "iPad mini (รุ่นที่ 6)" instead, and the
+// reply declared iPad Air 6 not in the system — while the /sell page quoted
+// it at 8,000. When the customer names a sub-line the candidate must carry
+// the SAME sub-line. Word-boundary regexes: "airpods" must not read as "air"
+// (Thai spelling แอร์พอด excluded explicitly), "series" must not read as "se".
+const SUBLINE_PATTERNS = [
+  ["air", /\bair\b|แอร์(?!พอด)/],
+  ["mini", /\bmini\b|มินิ/],
+  ["se", /\bse\b|เอสอี/],
+];
+function sublineMismatch(query, modelName) {
+  const q = String(query || "").toLowerCase();
+  const n = String(modelName || "").toLowerCase();
+  return SUBLINE_PATTERNS.some(([, re]) => re.test(q) && !re.test(n));
+}
+
+// Customers name recent iPads by GENERATION ("iPad Air 6") but the catalog
+// names them by screen size + chip ('iPad Air 11" (ชิป M2, 2024)') — the
+// generation number is nowhere in the name, so the strict version-token match
+// can never find them. Static Apple facts: Air 6th gen = M2 (2024),
+// 7th = M3 (2025), 8th = M4 (2026). Returns the extra generation token a
+// model's name has earned, or null.
+const IPAD_AIR_GEN_BY_CHIP = [
+  ["6", /m\s?2\b/],
+  ["7", /m\s?3\b/],
+  ["8", /m\s?4\b/],
+];
+function ipadAirGenToken(nameLower) {
+  if (!/ipad/.test(nameLower) || !/\bair\b/.test(nameLower)) return null;
+  const hit = IPAD_AIR_GEN_BY_CHIP.find(([, re]) => re.test(nameLower));
+  return hit ? hit[0] : null;
+}
+
+// When the customer used a generation name that only resolves via the chip
+// alias, tell the LLM the mapping explicitly — otherwise it sees 'iPad Air
+// 11" (ชิป M2, 2024)' come back for "iPad Air 6" and hedges ("ไม่พบรุ่นนี้")
+// instead of explaining they are the same device.
+function ipadAirGenAliasNote(query) {
+  const q = String(query || "").toLowerCase();
+  const m = q.match(/(?:ipad|ไอแพด)\s*(?:air|แอร์)\s*(?:gen\s*|รุ่น(?:ที่)?\s*)?([678])\b/);
+  if (!m) return null;
+  const chip = { 6: "M2, 2024", 7: "M3, 2025", 8: "M4, 2026" }[m[1]];
+  return `ลูกค้าเรียก "iPad Air ${m[1]}" = ชื่อในระบบคือ iPad Air 11"/13" (ชิป ${chip}) — เป็นรุ่นเดียวกัน อย่าบอกว่าไม่พบรุ่น ให้เดินขั้นตอนตามปกติ และถามลูกค้าว่าเป็นจอ 11 นิ้วหรือ 13 นิ้ว`;
+}
+
 function rankModels(list, rawQuery) {
   const q = String(rawQuery || "")
     .toLowerCase()
@@ -529,21 +576,26 @@ function rankModels(list, rawQuery) {
       // token "3" (from splitting the chip name "m3") can never satisfy
       // versionOk against a name that keeps "m3" glued, so every M-chip
       // MacBook was unfindable ("macbook pro 14 m3 max" -> no results).
-      const nameTokens = `${m.brand} ${m.name}`
-        .toLowerCase()
+      const nameLower = `${m.brand} ${m.name}`.toLowerCase();
+      const nameTokens = nameLower
         .replace(/[^a-z0-9฀-๿]+/g, " ")
         .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
         .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
         .split(/\s+/)
         .filter(Boolean);
+      // Chip-named iPad Airs earn their generation number as a synthetic
+      // token so "iPad Air 6" can satisfy the strict version match.
+      const genAlias = ipadAirGenToken(nameLower);
+      if (genAlias && !nameTokens.includes(genAlias)) nameTokens.push(genAlias);
       const hits = tokens.filter((t) => hay.includes(t)).length;
       const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
       const meaningfulOk =
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
       const familyOk = !familyMismatch(q, hay);
-      return { m, hits, versionOk, meaningfulOk, familyOk };
+      const sublineOk = !sublineMismatch(q, hay);
+      return { m, hits, versionOk, meaningfulOk, familyOk, sublineOk };
     })
-    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk)
+    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk && x.sublineOk)
     .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
     .slice(0, 5)
     .map((x) => x.m);
@@ -1267,13 +1319,15 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           !(buyable[0].variants || []).some(
             (v) => Number(v.used_price) > 0 || Number(v.usedPrice) > 0 || Number(v.new_price) > 0 || Number(v.newPrice) > 0
           );
+        const aliasNote = ipadAirGenAliasNote(input.query);
+        const baseNote = topUnpriced
+          ? "รุ่นนี้มีในระบบแต่ 'ตั้งใจไม่ตั้งราคา' (กลุ่มรับ Offer — ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → เข้าโหมดรับ Offer ตามกฎข้อ 6 ขั้นที่ 2(ข): ตอบเชิงบวก ขอชื่อ+เบอร์+รายละเอียดเครื่อง (save_customer_info เมื่อได้เบอร์) แล้ว escalate_to_human พร้อมข้อมูลครบ — ห้ามบอกว่าไม่รับซื้อ ห้าม escalate มือเปล่า ห้ามออกการ์ด"
+          : "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ";
         return {
           // Never surface a delisted model as buyable alongside active ones.
           results: buyable,
           ...(topUnpriced ? { offer_mode: true } : {}),
-          note: topUnpriced
-            ? "รุ่นนี้มีในระบบแต่ 'ตั้งใจไม่ตั้งราคา' (กลุ่มรับ Offer — ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → เข้าโหมดรับ Offer ตามกฎข้อ 6 ขั้นที่ 2(ข): ตอบเชิงบวก ขอชื่อ+เบอร์+รายละเอียดเครื่อง (save_customer_info เมื่อได้เบอร์) แล้ว escalate_to_human พร้อมข้อมูลครบ — ห้ามบอกว่าไม่รับซื้อ ห้าม escalate มือเปล่า ห้ามออกการ์ด"
-            : "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ",
+          note: aliasNote ? `${aliasNote} | ${baseNote}` : baseNote,
         };
       }
 
@@ -3089,6 +3143,9 @@ module.exports = {
     callClaude,
     pickModel,
     rankModels,
+    sublineMismatch,
+    ipadAirGenToken,
+    ipadAirGenAliasNote,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
