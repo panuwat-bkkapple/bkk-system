@@ -134,6 +134,14 @@ export default function ChatKnowledgeGraph() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // สมองส่วน "พฤติกรรม" ของมาติน (กฎ/การ์ดในโค้ด cloud function) — stamp ลง
+  // settings/chat_ai_meta ทุกครั้งที่ deploy แล้วมีแชทแรกเข้ามา เพื่อให้เจ้าของ
+  // เห็นในหน้านี้ว่าตอนนี้ AI รันกติกาเวอร์ชันไหน เปลี่ยนอะไรไปบ้าง
+  const [logicMeta, setLogicMeta] = useState<{
+    version?: string; stamped_at?: number;
+    changelog?: { at: string; text: string }[];
+  } | null>(null);
+  const [logicOpen, setLogicOpen] = useState(false);
   const dirtyRef = useRef(false);
   const markDirty = () => { dirtyRef.current = true; setDirty(true); };
 
@@ -147,6 +155,9 @@ export default function ChatKnowledgeGraph() {
       })
       .catch(() => { toast.error('โหลดคลังคำตอบไม่สำเร็จ'); hydrate(seedGraph()); })
       .finally(() => setLoading(false));
+    get(ref(db, 'settings/chat_ai_meta'))
+      .then((snap) => { if (snap.exists()) setLogicMeta(snap.val()); })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -305,7 +316,46 @@ export default function ChatKnowledgeGraph() {
 
       {/* Canvas + Panel */}
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 relative">
+          {/* สมองส่วนพฤติกรรม (โค้ด) — โชว์ว่า AI รันกติกาเวอร์ชันไหนอยู่ ให้เห็น
+              ว่าการเทรน/แก้บั๊กแต่ละรอบไปลงตรงไหน (คนละส่วนกับคลังคำตอบในผังนี้
+              ที่แก้ได้เอง) */}
+          <div className="absolute bottom-4 left-4 z-10 w-[340px] max-w-[85vw]">
+            <div className="bg-white/95 backdrop-blur rounded-2xl border border-indigo-200 shadow-lg overflow-hidden">
+              <button onClick={() => setLogicOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-3 text-left">
+                <span className="p-1.5 bg-indigo-100 rounded-lg"><Brain size={14} className="text-indigo-600" /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-black text-slate-800">สมองส่วนพฤติกรรม (กติกาในระบบ)</span>
+                  <span className="block text-[10px] font-bold text-slate-400 truncate">
+                    {logicMeta?.version
+                      ? `เวอร์ชัน ${logicMeta.version} · อัปเดต ${logicMeta.stamped_at ? new Date(logicMeta.stamped_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'}`
+                      : 'รอแชทข้อความแรกหลัง deploy เพื่อรายงานเวอร์ชัน'}
+                  </span>
+                </span>
+                <span className="text-[10px] font-black text-indigo-500">{logicOpen ? 'ซ่อน' : 'ดูรายการ'}</span>
+              </button>
+              {logicOpen && (
+                <div className="px-4 pb-3 border-t border-slate-100 max-h-[300px] overflow-y-auto">
+                  <p className="text-[10px] text-slate-500 leading-relaxed py-2">
+                    มาตินมี 2 สมอง: <b>คลังคำตอบ</b> (ผังนี้ + ค่ากลางร้าน + คูปอง/ราคา — คุณแก้เองได้ มีผลทันที)
+                    กับ <b>กติกาพฤติกรรม</b> (กฎการขาย/ระบบกันพลาดในโค้ด — อัปเดตผ่านการ deploy โดยทีมพัฒนา)
+                    รายการล่าสุดของฝั่งกติกา:
+                  </p>
+                  <ul className="space-y-1.5 pb-1">
+                    {(logicMeta?.changelog || []).map((c, i) => (
+                      <li key={i} className="flex gap-2 text-[11px] leading-snug text-slate-700">
+                        <span className="shrink-0 text-[9px] font-black text-indigo-400 mt-0.5">{c.at.slice(5)}</span>
+                        <span>{c.text}</span>
+                      </li>
+                    ))}
+                    {!logicMeta?.changelog?.length && (
+                      <li className="text-[11px] text-slate-400">ยังไม่มีรายงานจากระบบ — จะขึ้นอัตโนมัติเมื่อมีแชทแรกหลัง deploy ล่าสุด</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
           <ReactFlow
             nodes={nodes}
             edges={edges}
