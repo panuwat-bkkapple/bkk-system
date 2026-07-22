@@ -892,7 +892,8 @@ async function verifyReply({ apiKey, userText, reply }) {
     const resp = await callClaude({
       apiKey,
       model: VERIFIER_MODEL,
-      system: VERIFIER_SYSTEM,
+      // Static system → cacheable across every verifier call.
+      system: [{ type: "text", text: VERIFIER_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [
         {
           role: "user",
@@ -1322,8 +1323,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.14";
+const LOGIC_VERSION = "2026-07-22.15";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "เปิด Prompt caching กับ Anthropic API — แคชกฎระบบ+ข้อมูลร้าน (ส่วนที่เหมือนกันทุกบทสนทนา) ลดค่า input token ลงมาก โดยคำตอบ/พฤติกรรม AI เหมือนเดิมทุกอย่าง" },
   { at: "2026-07-22", text: "แก้บั๊กระบบล่มกลางบทสนทนา ('ระบบขัดข้องชั่วคราว' เคส ipad 6) — ตัวแปรภายในถูกย้ายไปประกาศหลังจุดใช้งาน + ข้อความสำรองไม่เคลม 'รับซื้อแน่นอน' กับรุ่นที่ยังกำกวม" },
   { at: "2026-07-22", text: "วิธีแจ้งค่าบริการแบบธรรมชาติ: บอกราคาปกติก่อนแล้วตามด้วยโปร (ห้ามพูด 'ประมาณ 0 บาท') เช่น ปกติ 86 บาท ตอนนี้ฟรีค่าบริการเขต กทม-ปริมณฑล" },
   { at: "2026-07-22", text: "เช็คโปรค่าไรเดอร์ของรุ่นก่อนแจ้งค่าบริการเสมอ — ระบบหา model_id เองจากบริบทแม้ AI ลืมส่ง (เคส iPhone 16 Pro Max โดนแจ้ง 86 บาททั้งที่เข้าโปรฟรี)" },
@@ -2953,14 +2955,28 @@ function registerChatAi({ dispatchAdminPush }) {
             console.warn(`[${tag}] ${convoId} last_quote groups fetch failed:`, err && err.message);
           }
         }
-        const system =
-          buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) +
+        // Prompt caching: the system prompt is split into two text blocks so
+        // the Anthropic API can cache the expensive prefix. Block 1 = store-
+        // level content that is byte-identical for EVERY conversation (rules,
+        // FAQ, kb, store profile, answer web, device-check) → cached across
+        // all chats. Block 2 = per-conversation context (customer, waiting
+        // mode, last search/quote) → cached across rounds within this turn.
+        // Anything volatile must stay in block 2 or the shared cache dies —
+        // a single changed byte in block 1 invalidates the prefix for everyone.
+        const systemStatic =
+          buildSystemPrompt({ assistantName, pub, kb, customerBlock: "", inHours }) +
           buildStoreProfileBlock(storeProfile) +
           kbGraphBlock +
+          buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled);
+        const systemDynamic =
+          customerBlock +
           (waitingForHuman ? buildWaitingModeBlock(convo.escalation) : "") +
-          buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled) +
           buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
+        const system = [
+          { type: "text", text: systemStatic, cache_control: { type: "ephemeral" } },
+          { type: "text", text: systemDynamic, cache_control: { type: "ephemeral" } },
+        ];
         const model = pickModel({
           settingsModel: settings.model || process.env.CHAT_AI_MODEL,
           text,
@@ -2985,6 +3001,11 @@ function registerChatAi({ dispatchAdminPush }) {
         let lastRoundText = "";
         let totalIn = 0;
         let totalOut = 0;
+        // Prompt-cache accounting — cache_read = tokens billed at 10%,
+        // cache_write = tokens billed at 125% (first request per 5-min window).
+        // Logged so the admin can verify caching actually engages.
+        let totalCacheRead = 0;
+        let totalCacheWrite = 0;
         // True only when create_quote_card actually succeeded this turn — used to
         // catch the model "narrating" a quote (fake price + 'press the button on
         // the card') without a real card existing.
@@ -2999,6 +3020,8 @@ function registerChatAi({ dispatchAdminPush }) {
           const resp = await callClaudeResilient({ apiKey, model, system, messages, tools: TOOLS });
           totalIn += (resp.usage && resp.usage.input_tokens) || 0;
           totalOut += (resp.usage && resp.usage.output_tokens) || 0;
+          totalCacheRead += (resp.usage && resp.usage.cache_read_input_tokens) || 0;
+          totalCacheWrite += (resp.usage && resp.usage.cache_creation_input_tokens) || 0;
 
           const toolUses = (resp.content || []).filter((b) => b.type === "tool_use");
           const textBlocks = (resp.content || []).filter((b) => b.type === "text");
@@ -3072,6 +3095,8 @@ function registerChatAi({ dispatchAdminPush }) {
             });
             totalIn += (finalResp.usage && finalResp.usage.input_tokens) || 0;
             totalOut += (finalResp.usage && finalResp.usage.output_tokens) || 0;
+            totalCacheRead += (finalResp.usage && finalResp.usage.cache_read_input_tokens) || 0;
+            totalCacheWrite += (finalResp.usage && finalResp.usage.cache_creation_input_tokens) || 0;
             finalText = (finalResp.content || [])
               .filter((b) => b.type === "text")
               .map((b) => b.text)
@@ -3086,7 +3111,12 @@ function registerChatAi({ dispatchAdminPush }) {
         db.ref(`chat_ai_usage/${ymd}`).update({
           input_tokens: ServerValue.increment(totalIn),
           output_tokens: ServerValue.increment(totalOut),
+          cache_read_tokens: ServerValue.increment(totalCacheRead),
+          cache_write_tokens: ServerValue.increment(totalCacheWrite),
         }).catch(() => {});
+        console.log(
+          `[${tag}] ${convoId} tokens in=${totalIn} out=${totalOut} cache_read=${totalCacheRead} cache_write=${totalCacheWrite}`
+        );
 
         if (!finalText) {
           finalText = state.escalated
@@ -3204,6 +3234,8 @@ function registerChatAi({ dispatchAdminPush }) {
               });
               totalIn += (forced.usage && forced.usage.input_tokens) || 0;
               totalOut += (forced.usage && forced.usage.output_tokens) || 0;
+              totalCacheRead += (forced.usage && forced.usage.cache_read_input_tokens) || 0;
+              totalCacheWrite += (forced.usage && forced.usage.cache_creation_input_tokens) || 0;
               const uses = (forced.content || []).filter((b) => b.type === "tool_use");
               if (uses.length === 0) break;
               recovery.push({ role: "assistant", content: forced.content });
@@ -3288,8 +3320,11 @@ function registerChatAi({ dispatchAdminPush }) {
             const resp = await callClaude({
               apiKey,
               model: VERIFIER_MODEL,
-              system:
-                "แก้ร่างข้อความของผู้ช่วยร้านรับซื้อมือถือ: ลบตัวเลขราคา/ช่วงราคา/ยอดเงินทุกตัวออก (นโยบายร้าน: ตัวเลขราคาแสดงบนใบเสนอราคาเท่านั้น) ปรับประโยคให้ลื่น คงคำถามและเนื้อหาอื่นไว้ครบถ้วน รวมบรรทัด [ตัวเลือก: ...] ท้ายข้อความถ้ามี ตอบกลับเป็นข้อความที่แก้แล้วเท่านั้น ห้ามอธิบาย",
+              system: [{
+                type: "text",
+                text: "แก้ร่างข้อความของผู้ช่วยร้านรับซื้อมือถือ: ลบตัวเลขราคา/ช่วงราคา/ยอดเงินทุกตัวออก (นโยบายร้าน: ตัวเลขราคาแสดงบนใบเสนอราคาเท่านั้น) ปรับประโยคให้ลื่น คงคำถามและเนื้อหาอื่นไว้ครบถ้วน รวมบรรทัด [ตัวเลือก: ...] ท้ายข้อความถ้ามี ตอบกลับเป็นข้อความที่แก้แล้วเท่านั้น ห้ามอธิบาย",
+                cache_control: { type: "ephemeral" },
+              }],
               messages: [{ role: "user", content: finalText }],
               tools: [],
             });
@@ -3323,6 +3358,8 @@ function registerChatAi({ dispatchAdminPush }) {
             db.ref(`chat_ai_usage/${ymd}`).update({
               input_tokens: ServerValue.increment(verdict.usage.input_tokens || 0),
               output_tokens: ServerValue.increment(verdict.usage.output_tokens || 0),
+              cache_read_tokens: ServerValue.increment(verdict.usage.cache_read_input_tokens || 0),
+              cache_write_tokens: ServerValue.increment(verdict.usage.cache_creation_input_tokens || 0),
             }).catch(() => {});
           }
           if (verdict.ok === false) {
