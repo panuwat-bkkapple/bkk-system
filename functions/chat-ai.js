@@ -532,6 +532,18 @@ function ipadAirGenToken(nameLower) {
 // alias, tell the LLM the mapping explicitly — otherwise it sees 'iPad Air
 // 11" (ชิป M2, 2024)' come back for "iPad Air 6" and hedges ("ไม่พบรุ่นนี้")
 // instead of explaining they are the same device.
+// Single-result guard note. Real bug: search returned exactly ONE model
+// (iPad Air 5 — one screen size, variants only Wi-Fi/Cellular x storage) and
+// the LLM still offered "มีให้เลือก 2 ขนาด 10.9 กับ 12.9 นิ้ว" from its own
+// memory — 12.9" is an iPad Pro size. When there is one match, enumerate the
+// REAL choice axes so the model has nothing to invent.
+function singleResultVariantNote(model) {
+  if (!model) return null;
+  const variantNames = (model.variants || []).map((v) => String(v.name || "")).filter(Boolean);
+  const options = variantNames.length ? ` ตัวเลือกที่มีจริงทั้งหมดคือ: ${variantNames.join(", ")}` : "";
+  return `ผลค้นหามีรุ่นเดียว: ${model.name} — รุ่นนี้ไม่มีรุ่นย่อย/ขนาดจอให้เลือกนอกเหนือจากนี้${options} — ห้ามเสนอขนาดจอหรือตัวเลือกอื่นจากความจำ (กฎข้อ 2.2) ถามลูกค้าเฉพาะสิ่งที่ต้องใช้เลือกจากรายการนี้`;
+}
+
 function ipadAirGenAliasNote(query) {
   const q = String(query || "").toLowerCase();
   const m = q.match(/(?:ipad|ไอแพด)\s*(?:air|แอร์)\s*(?:gen\s*|รุ่น(?:ที่)?\s*)?([678])\b/);
@@ -1092,6 +1104,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `1.1 ห้ามพูดตัวเลขราคา ช่วงราคา (เช่น "6,000-8,000") หรือจำนวนเงินที่หัก "ก่อน" ได้ผลจาก search_models เด็ดขาด — ถ้ายังไม่เรียก tool ห้ามมีตัวเลขใดๆ ในคำตอบ. และห้ามประกาศ "ประเมินไว้ประมาณ X บาท" เป็นตัวเลขลอยๆ ที่ไม่ใช่ยอดจากการ์ด create_quote_card — เพราะถ้าพูด 6,500 แล้วการ์ดออก 2,600 ลูกค้าจะรู้สึกโดนหลอกทันที. ให้ปล่อยราคาสุดท้ายเป็นหน้าที่ของการ์ด อย่าเดาตัวเลขระหว่างทาง`,
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
+    `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
@@ -1320,6 +1333,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             (v) => Number(v.used_price) > 0 || Number(v.usedPrice) > 0 || Number(v.new_price) > 0 || Number(v.newPrice) > 0
           );
         const aliasNote = ipadAirGenAliasNote(input.query);
+        const singleNote = buyable.length === 1 ? singleResultVariantNote(buyable[0]) : null;
         const baseNote = topUnpriced
           ? "รุ่นนี้มีในระบบแต่ 'ตั้งใจไม่ตั้งราคา' (กลุ่มรับ Offer — ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → เข้าโหมดรับ Offer ตามกฎข้อ 6 ขั้นที่ 2(ข): ตอบเชิงบวก ขอชื่อ+เบอร์+รายละเอียดเครื่อง (save_customer_info เมื่อได้เบอร์) แล้ว escalate_to_human พร้อมข้อมูลครบ — ห้ามบอกว่าไม่รับซื้อ ห้าม escalate มือเปล่า ห้ามออกการ์ด"
           : "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ";
@@ -1327,7 +1341,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           // Never surface a delisted model as buyable alongside active ones.
           results: buyable,
           ...(topUnpriced ? { offer_mode: true } : {}),
-          note: aliasNote ? `${aliasNote} | ${baseNote}` : baseNote,
+          note: [aliasNote, singleNote, baseNote].filter(Boolean).join(" | "),
         };
       }
 
@@ -3146,6 +3160,7 @@ module.exports = {
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
+    singleResultVariantNote,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
