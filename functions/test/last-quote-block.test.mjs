@@ -518,6 +518,26 @@ check("Thai mini alias works and stays in its sub-line", __test.rankModels(ALIAS
 check("Thai air alias never matches the mini", !__test.rankModels(ALIAS_CATALOG, "ไอแพดแอร์ 8").some((m) => m.id === "mini6"));
 check("models without aliases still match by official name", __test.rankModels(ALIAS_CATALOG, "ipad mini 6")[0]?.id === "mini6");
 
+// --- ambiguous nickname vs delisted model (the "ipad 6" owner rule) ----------
+// "ipad 6" usually MEANS iPad Gen 6 (delisted, งดรับซื้อ) but can mean
+// mini 6 / Air 6 which we still buy — the AI must CONFIRM the model before
+// declining OR assessing. declinedAmbiguity flags a top-score TIE between a
+// delisted and a buyable model; a pinned query is not ambiguous.
+const IPAD6_CATALOG = [
+  { id: "gen6", brand: "Apple", name: "iPad Gen 6", category: "Tablets", is_active: false },
+  { id: "mini6", brand: "Apple", name: "iPad mini (รุ่นที่ 6)", alias_th: "ไอแพดมินิ 6", alias_en: "iPad mini 6", category: "Tablets" },
+  { id: "air11m2", brand: "Apple", name: 'iPad Air 11" (ชิป M2, 2024)', alias_th: "ไอแพดแอร์ 6", alias_en: "iPad Air 6", category: "Tablets" },
+];
+const amb6 = __test.declinedAmbiguity(__test.rankModelsScored(IPAD6_CATALOG, "ipad 6"));
+check("'ipad 6' ties delisted Gen 6 with buyable siblings -> ambiguous", !!amb6);
+check("ambiguity carries the delisted candidate", !!amb6 && amb6.declined.some((m) => m.id === "gen6"));
+check("ambiguity carries buyable alternatives", !!amb6 && amb6.buyable.length >= 1);
+check("pinned 'ipad gen 6' is NOT ambiguous (outscores siblings)", __test.declinedAmbiguity(__test.rankModelsScored(IPAD6_CATALOG, "ipad gen 6")) === null);
+check("pinned 'ipad mini 6' is NOT ambiguous", __test.declinedAmbiguity(__test.rankModelsScored(IPAD6_CATALOG, "ipad mini 6")) === null);
+const NO_DELIST_CATALOG = IPAD6_CATALOG.map((m) => ({ ...m, is_active: true }));
+check("no delisted model in the tie -> not ambiguous", __test.declinedAmbiguity(__test.rankModelsScored(NO_DELIST_CATALOG, "ipad 6")) === null);
+check("empty search -> not ambiguous", __test.declinedAmbiguity([]) === null);
+
 // --- branch hallucination guard (เซ็นทรัลลาดพร้าว case) ----------------------
 // Real bug: customer asked the pickup fee AT Central Ladprao; the AI replied
 // it was a Store-in "นำเครื่องมาที่หน้าร้านเลย" — inventing a storefront we do

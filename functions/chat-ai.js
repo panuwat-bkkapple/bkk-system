@@ -652,6 +652,45 @@ function rankModels(list, rawQuery) {
     .map((x) => x.m);
 }
 
+// Like rankModels but keeps the hit count per result — needed to tell a
+// PINNED match ("ipad gen 6" → Gen 6 outscores siblings) apart from an
+// AMBIGUOUS nickname ("ipad 6" → Gen 6 / mini 6 / Air 6 all tie).
+function rankModelsScored(list, rawQuery) {
+  const names = rankModels(list, rawQuery);
+  if (names.length === 0) return [];
+  const q = String(rawQuery || "")
+    .toLowerCase()
+    .trim()
+    .replace(/promax/g, "pro max")
+    .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
+  const tokens = q
+    .split(/\s+/)
+    .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
+  return names.map((m) => {
+    const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
+    return { m, hits: tokens.filter((t) => hay.includes(t)).length };
+  });
+}
+
+// Owner's rule for delisted models behind an ambiguous nickname: "iPad 6"
+// usually MEANS iPad Gen 6 (which we stopped buying), but the AI must CONFIRM
+// the model before declining — the customer may mean mini 6 / Air 6, which we
+// still buy. Ambiguity = the top-scoring matches TIE between at least one
+// delisted and one buyable model; both directions are dangerous when skipped
+// (top=declined → wrongful hard decline; top=buyable → the delisted model is
+// silently dropped and the customer gets assessed on the wrong device).
+// A pinned query ("ipad gen 6" outscores the siblings) is NOT ambiguous.
+function declinedAmbiguity(scoredDetailed) {
+  if (!scoredDetailed.length) return null;
+  const topHits = scoredDetailed[0].hits;
+  const tied = scoredDetailed.filter((x) => x.hits === topHits);
+  const declined = tied.filter((x) => x.m.is_active === false).map((x) => x.m);
+  const buyable = tied.filter((x) => x.m.is_active !== false).map((x) => x.m);
+  if (declined.length === 0 || buyable.length === 0) return null;
+  return { declined, buyable };
+}
+
 // Guard against the LLM quoting a cheaper sibling than the customer named.
 // search_models returns Pro AND Pro Max together; the model sometimes passes the
 // base model_id ("iPhone 16 Pro") to create_quote_card even though the customer
@@ -1148,6 +1187,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `1.1 ห้ามพูดตัวเลขราคา ช่วงราคา (เช่น "6,000-8,000") หรือจำนวนเงินที่หัก "ก่อน" ได้ผลจาก search_models เด็ดขาด — ถ้ายังไม่เรียก tool ห้ามมีตัวเลขใดๆ ในคำตอบ. และห้ามประกาศ "ประเมินไว้ประมาณ X บาท" เป็นตัวเลขลอยๆ ที่ไม่ใช่ยอดจากการ์ด create_quote_card — เพราะถ้าพูด 6,500 แล้วการ์ดออก 2,600 ลูกค้าจะรู้สึกโดนหลอกทันที. ให้ปล่อยราคาสุดท้ายเป็นหน้าที่ของการ์ด อย่าเดาตัวเลขระหว่างทาง`,
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
+    `2.1.1 ชื่อรุ่นกำกวม (เช่น "iPad 6" อาจหมายถึง iPad Gen 6 / iPad mini 6 / iPad Air รุ่นที่ 6): ถ้า search_models ตอบ ambiguous_model กลับมา = ชื่อนั้นตรงกับหลายรุ่น และมีรุ่นงดรับซื้อปนอยู่ — "ห้ามแจ้งงดรับซื้อ ห้ามเริ่มถามสภาพ ห้ามขอชื่อ/เบอร์" จนกว่าลูกค้ายืนยันรุ่น ให้ถามสั้นๆ ว่าหมายถึงรุ่นไหนพร้อมปุ่ม [ตัวเลือก] จากรายชื่อ candidates แล้วพอลูกค้าเลือก ค่อยเรียก search_models ใหม่ด้วยชื่อเต็มรุ่นนั้นแล้วเดินตามผล (งดรับซื้อ → ปฏิเสธสุภาพตามข้อ 2.1, มีราคา → เข้าขั้นตอนข้อ 6)`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
     `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
@@ -1323,8 +1363,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.15";
+const LOGIC_VERSION = "2026-07-22.16";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "ชื่อรุ่นกำกวมที่มีรุ่นงดรับซื้อปน (เช่น 'iPad 6' = Gen 6 งดรับ / mini 6 / Air 6) ระบบบังคับถามยืนยันรุ่นด้วยปุ่มก่อนเสมอ — ห้ามปฏิเสธหรือเริ่มประเมินจนกว่าลูกค้าคอนเฟิร์มรุ่น" },
   { at: "2026-07-22", text: "เปิด Prompt caching กับ Anthropic API — แคชกฎระบบ+ข้อมูลร้าน (ส่วนที่เหมือนกันทุกบทสนทนา) ลดค่า input token ลงมาก โดยคำตอบ/พฤติกรรม AI เหมือนเดิมทุกอย่าง" },
   { at: "2026-07-22", text: "แก้บั๊กระบบล่มกลางบทสนทนา ('ระบบขัดข้องชั่วคราว' เคส ipad 6) — ตัวแปรภายในถูกย้ายไปประกาศหลังจุดใช้งาน + ข้อความสำรองไม่เคลม 'รับซื้อแน่นอน' กับรุ่นที่ยังกำกวม" },
   { at: "2026-07-22", text: "วิธีแจ้งค่าบริการแบบธรรมชาติ: บอกราคาปกติก่อนแล้วตามด้วยโปร (ห้ามพูด 'ประมาณ 0 บาท') เช่น ปกติ 86 บาท ตอนนี้ฟรีค่าบริการเขต กทม-ปริมณฑล" },
@@ -1361,6 +1402,7 @@ const LOGIC_BEHAVIORS = [
     "เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024)",
     "กันจับผิดตระกูล: Air / mini / SE แยกขาดจากกัน",
     "รุ่นงดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนเจ้าหน้าที่",
+    "ชื่อกำกวมที่มีรุ่นงดรับซื้อปน (เช่น 'iPad 6' = Gen 6 งดรับ / mini 6 / Air 6) ต้องถามยืนยันรุ่นด้วยปุ่มก่อน — ห้ามปฏิเสธหรือประเมินจนกว่าลูกค้าคอนเฟิร์ม",
   ] },
   { key: "contact", label: "เก็บ Contact ก่อนเผยราคา", emoji: "📇", rules: [
     "ขอชื่อ+เบอร์แบบธรรมชาติ ห้ามพูดว่า 'ข้ามได้/ไม่บังคับ' — ลูกค้าเงียบก็คุยต่อ และขอซ้ำได้อีกครั้งเดียวตอนกำลังจะออกใบเสนอราคา",
@@ -1450,7 +1492,8 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
     switch (name) {
       case "search_models": {
         const list = await loadModelsLight(db);
-        const scored = rankModels(list, input.query);
+        const scoredDetailed = rankModelsScored(list, input.query);
+        const scored = scoredDetailed.map((x) => x.m);
         if (scored.length === 0) {
           // Never let the model conclude "we don't buy this" from an empty
           // search — hand it the nearby catalogue names to retry with, or
@@ -1478,6 +1521,22 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // (isActive === false, shown as "งดรับซื้อ" on the website), decline
         // politely — do NOT promise a staff quote or escalate. This is a known,
         // announced policy, not a config gap.
+        // BUT (owner's rule): an ambiguous nickname like "ipad 6" must be
+        // CONFIRMED before declining — it usually means iPad Gen 6 (งดรับซื้อ)
+        // yet may mean mini 6 / Air 6, which we still buy. When delisted and
+        // buyable models tie on the query, ask which model first — regardless
+        // of which one happened to rank top.
+        const amb = declinedAmbiguity(scoredDetailed);
+        if (amb) {
+          const candidateNames = [...amb.declined, ...amb.buyable].map((m) => m.name);
+          return {
+            results: [],
+            ambiguous_model: true,
+            candidates: candidateNames,
+            declined_candidate: amb.declined[0].name,
+            note: `ชื่อรุ่นที่ลูกค้าพิมพ์กำกวม — ตรงกับหลายรุ่นพอๆ กัน และหนึ่งในนั้นคือรุ่นที่ร้านงดรับซื้อ (${amb.declined[0].name}). "ห้ามแจ้งงดรับซื้อ และห้ามเริ่มถามสภาพ/ขอชื่อเบอร์" จนกว่าลูกค้ายืนยันรุ่น: ถามสั้นๆ ว่าหมายถึงรุ่นไหน แล้วปิดท้ายด้วยปุ่ม [ตัวเลือก: ${candidateNames.join(" | ")}]. พอลูกค้าเลือกแล้ว เรียก search_models ใหม่ด้วยชื่อเต็มของรุ่นนั้น — ถ้าเลือกรุ่นที่งดรับซื้อ ค่อยแจ้งงดรับซื้ออย่างสุภาพตามกฎ 2.1`,
+          };
+        }
         if (scored[0].is_active === false) {
           return {
             results: [],
@@ -3466,6 +3525,8 @@ module.exports = {
     callClaude,
     pickModel,
     rankModels,
+    rankModelsScored,
+    declinedAmbiguity,
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
