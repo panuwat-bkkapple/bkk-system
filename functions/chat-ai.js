@@ -1269,6 +1269,35 @@ function extractChoices(rawText) {
 // contact gate blocking the quote-recovery loop). It must always continue
 // the sales flow — real stall: the old fallback said "ขอสอบถามข้อมูลเพิ่ม
 // อีกนิดนะครับ" and then asked nothing, dead air on a hot lead.
+// ---------------------------------------------------------------------------
+// Owner-visible logic changelog — bridges code deploys and the back office.
+// The AI has TWO brains: (1) the BEHAVIOR brain — rules/guards in this file,
+// changed only via deploy — and (2) the KNOWLEDGE brain the admin edits live
+// (/chat-kb, /store-settings, /coupons, prices). The /chat-kb page shows this
+// block so the owner can SEE what the behavior brain is running. Update the
+// version + prepend an entry with EVERY behavior change shipped.
+// ---------------------------------------------------------------------------
+const LOGIC_VERSION = "2026-07-22.7";
+const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "แก้ deadlock กลไกภายใน: คำถามราคาข้อความแรก (เช่น iPhone 15) ไม่จบด้วยส่งต่อเจ้าหน้าที่อีกแล้ว — เดินหน้าขอชื่อ/เบอร์ + ถามสภาพต่อ" },
+  { at: "2026-07-22", text: "ทุก fallback ของระบบกันพลาดต้องถามคำถามต่อเสมอ ห้ามจบห้วน (เคส 'ขอสอบถามข้อมูลเพิ่ม' แล้วเงียบ)" },
+  { at: "2026-07-22", text: "ปุ่มตัวเลือก (chips) ต้องเป็นคำตอบจริงเท่านั้น — ปุ่มแสดงเจตนาแบบ 'ให้ชื่อและเบอร์' ถูกกรองทิ้งอัตโนมัติ" },
+  { at: "2026-07-22", text: "กันหลุดตัวเลขราคา/ช่วงราคาก่อนออกการ์ด (ขูดออกอัตโนมัติ) ตามนโยบายเก็บ contact ก่อนเผยราคา" },
+  { at: "2026-07-22", text: "ถามสภาพเครื่องทีละเรื่องพร้อมปุ่มตัวเลือกจากชุดประเมินจริง แทนข้อความยาวรวม 5 เรื่อง" },
+  { at: "2026-07-22", text: "ข้อมูลสเปก/ตัวเลือกรุ่นต้องมาจากฐานข้อมูลเท่านั้น — ห้ามใช้ความจำ (เคส iPad Air 5 ถูกบอกว่ามี 2 ขนาดจอ) และห้ามพูดตามข้อความเก่าตัวเองที่ผิด" },
+  { at: "2026-07-22", text: "iPad Air เรียกด้วยเลขรุ่นได้ (Air 6=M2, 7=M3, 8=M4) + กันข้ามตระกูล Air/mini/SE (เคส Air 6 กลายเป็น mini 6)" },
+  { at: "2026-07-21", text: "โหมดรับ Offer สำหรับรุ่นที่ตั้งใจไม่ตั้งราคา (MacBook) — เก็บชื่อ เบอร์ รายละเอียดเครื่อง ให้ทีมโทรกลับ ห้ามส่งต่อมือเปล่า" },
+  { at: "2026-07-21", text: "เก็บช่องทางติดต่อก่อนออกใบเสนอราคา (contact gate) + โหมดรอเจ้าหน้าที่ AI ยังดูแลต่อพร้อมสรุปงานสด" },
+];
+let logicMetaStamped = false;
+function stampLogicMeta(db) {
+  if (logicMetaStamped) return;
+  logicMetaStamped = true;
+  db.ref("settings/chat_ai_meta")
+    .set({ version: LOGIC_VERSION, stamped_at: Date.now(), changelog: LOGIC_CHANGELOG })
+    .catch(() => { logicMetaStamped = false; });
+}
+
 const CONTACT_FIRST_ASK =
   "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ก่อนออกใบเสนอราคา ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณ (ไม่สะดวกให้ก็เดินหน้าต่อได้ครับ) และขอถามสภาพเครื่องหน่อยครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
 
@@ -2584,6 +2613,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       const { convoId, msgId } = event.params;
       const db = getDatabase();
+      stampLogicMeta(db);
 
       // Master gate — widget disabled means this whole system is inert.
       // preview_enabled = test mode: the widget is only visible to admins
