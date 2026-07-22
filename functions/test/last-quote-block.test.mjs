@@ -573,5 +573,31 @@ check("markContactAsked declared before first use", markDeclAt > 0 && markUseAt 
 check("no canned line overclaims รับซื้อแน่นอน", !src.includes('"รุ่นนี้เรารับซื้อแน่นอนครับ'));
 check("no canned line still advertises skipping", !src.includes("ไม่สะดวกให้ก็เดินหน้าต่อได้"));
 
+// --- prompt caching (cost control) -------------------------------------------
+// The system prompt must be split into a byte-stable store-level block
+// (cached across ALL conversations) and a per-conversation block. Customer
+// data leaking into the static block would both poison the shared cache and
+// waste the discount, so assert the split in the source.
+check("static system block carries cache_control", src.includes('{ type: "text", text: systemStatic, cache_control: { type: "ephemeral" } }'));
+check("dynamic system block carries its own breakpoint", src.includes('{ type: "text", text: systemDynamic, cache_control: { type: "ephemeral" } }'));
+check("static block is built WITHOUT the customer block", src.includes('buildSystemPrompt({ assistantName, pub, kb, customerBlock: "", inHours })'));
+check("customer block leads the dynamic (uncached-prefix) tail", /const systemDynamic =\s*\n\s*customerBlock \+/.test(src));
+check("per-conversation last_search stays out of the static block", src.indexOf("buildLastSearchBlock(convo.ai_state") > src.indexOf("const systemDynamic"));
+check("verifier system is cache-marked too", src.includes("text: VERIFIER_SYSTEM, cache_control"));
+check("cache reads are accounted", src.includes("cache_read_input_tokens"));
+check("cache writes are accounted", src.includes("cache_creation_input_tokens"));
+check("cache counters land in the daily ledger", src.includes("cache_read_tokens: ServerValue.increment"));
+// buildSystemPrompt with an empty customerBlock must not smuggle any
+// customer-context header into the shared static prefix.
+const sysNoCust = __test.buildSystemPrompt({
+  assistantName: "มาติน",
+  pub: {},
+  kb: "",
+  customerBlock: "",
+  inHours: true,
+});
+check("empty customerBlock leaves no customer header in static prefix", !sysNoCust.includes("ข้อมูลลูกค้าคนนี้"));
+check("static prefix still carries the iron rules", sysNoCust.includes("กฎเหล็ก"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
