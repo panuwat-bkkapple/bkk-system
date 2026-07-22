@@ -528,5 +528,17 @@ check("rule 12.1: every new location re-checks via the tool", sys.includes("12.1
 check("rule 12.2: branches exist only per data", sys.includes("ห้ามอ้างหรือใบ้ว่ามีหน้าร้านที่อื่นเด็ดขาด"));
 check("rule 12.2: customer location means rider pickup point", sys.includes('สถานที่ที่ลูกค้าเอ่ยคือ "จุดให้ไรเดอร์ไปรับ" เสมอ'));
 
+// --- rider-fee promo model fallback (86-baht-vs-free bug) --------------------
+// Real bug: the LLM called check_pickup_service without model_id, so the
+// FREERIDE waive promo (model-bound) was skipped and an iPhone 16 Pro Max
+// customer in Bangkok was quoted ~86 baht — checkout showed ฟรี. Promo model
+// ids now resolve server-side from context, in priority order.
+const rp = __test.resolvePromoModelIds;
+check("explicit model_id wins", JSON.stringify(rp("m1", { lastSearchModelIds: ["s1"] }, { last_quote: { model_id: "q1" } })) === JSON.stringify(["m1"]));
+check("same-turn search results are the first fallback", JSON.stringify(rp("", { lastSearchModelIds: ["s1", "s2"] }, { last_quote: { model_id: "q1" } })) === JSON.stringify(["s1", "s2"]));
+check("last issued card beats stale last_search", JSON.stringify(rp("", {}, { last_quote: { model_id: "q1" }, last_search: { results: [{ model_id: "old" }] } })) === JSON.stringify(["q1"]));
+check("ai_state last_search is the final fallback", JSON.stringify(rp("", {}, { last_search: { results: [{ model_id: "a" }, { model_id: "b" }] } })) === JSON.stringify(["a", "b"]));
+check("no context at all yields empty", JSON.stringify(rp("", {}, {})) === JSON.stringify([]));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
