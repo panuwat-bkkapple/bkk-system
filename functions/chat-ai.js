@@ -152,6 +152,18 @@ function pickBatteryOptionId(options, pct) {
     const r = batteryOptionRange(o.label || o.name);
     if (r && p >= r.min && p <= r.max) return o.id;
   }
+  // Binary condition sets carry NO numeric ranges ("ปกติ" / "แบตเตอรี่เสื่อม")
+  // so the range scan finds nothing and the quote silently treats the battery
+  // as fine — live leak: customer said 70%, the iPhone 11 card deducted 0 and
+  // the AI even claimed the battery was priced in. Apple's own service
+  // threshold is below 80% = degraded, so map semantically when no range
+  // matched. At 80%+ returning null (= ปกติ, no deduction) is correct.
+  if (p < 80) {
+    for (const o of options || []) {
+      if (!o || o.id == null) continue;
+      if (/เสื่อม|เปลี่ยนแบต|แบตต่ำ|แบตแย่|service/i.test(String(o.label || o.name || ""))) return o.id;
+    }
+  }
   return null;
 }
 
@@ -1407,8 +1419,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.1";
+const LOGIC_VERSION = "2026-07-23.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "แก้บั๊กแบตหลุดจากการ์ด (เคส iPhone 11 แจ้ง 70% แต่การ์ดคิดแบตปกติ): ชุดประเมินที่มีตัวเลือกแค่ 'ปกติ/แบตเตอรี่เสื่อม' (ไม่มีช่วง %) ระบบจับคู่ไม่ได้ — ตอนนี้ต่ำกว่า 80% = เลือกตัวเลือกเสื่อมอัตโนมัติตามเกณฑ์ Apple" },
   { at: "2026-07-23", text: "แก้ FAQ เก่า 3 ข้อที่ขัดกับระบบจริง (เคยบอกว่า Rider รับถึงบ้าน 'ไม่มีค่าจัดส่ง/ไม่คิดค่าบริการใดๆ') — ตอนนี้ตอบตรงระบบ: Pickup มีค่าบริการตามระยะทาง แจ้งก่อนยืนยัน + โปรฟรีบางรุ่น/พื้นที่, Store-in/Mail-in ฟรี" },
   { at: "2026-07-22", text: "Sonnet 5 กลับมาทำงานแล้ว — พารามิเตอร์เก่า (temperature) ทำให้ทุกคำขอ Sonnet ถูก API ปฏิเสธและระบบถอยเป็น Haiku เงียบๆ มาตลอด ตอนนี้ส่งเฉพาะโมเดลที่รับ + มีตัวลองซ้ำอัตโนมัติกันเคสเดียวกันในโมเดลรุ่นหน้า" },
   { at: "2026-07-22", text: "คำตอบ 'เตรียมเครื่องก่อนขาย' นิ่งเป็นเสียงเดียว: ลูกค้าไม่ต้อง Factory Reset มาเอง (ร้าน reset ให้ดูต่อหน้า + ออก Data Wipe Certificate) เตรียมแค่ Sign out iCloud — ห้ามแนะนำให้ล้างเครื่องเองก่อนมา (เสี่ยงลืม sign out แล้วเครื่องติด Activation Lock)" },
