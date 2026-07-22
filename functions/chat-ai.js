@@ -955,9 +955,10 @@ async function verifyReply({ apiKey, userText, reply }) {
         issue: String(parsed.issue || "policy_violation").slice(0, 200),
         corrected: String(parsed.corrected || "").slice(0, 2000),
         usage: resp.usage,
+        model: resp.model,
       };
     }
-    return { ok: true, usage: resp.usage };
+    return { ok: true, usage: resp.usage, model: resp.model };
   } catch (err) {
     console.error("[verifier] failed (fail-open):", err && err.message);
     return { ok: true, error: true };
@@ -3068,6 +3069,22 @@ function registerChatAi({ dispatchAdminPush }) {
         // Logged so the admin can verify caching actually engages.
         let totalCacheRead = 0;
         let totalCacheWrite = 0;
+        // Per-model accounting keyed by the model the API ACTUALLY served
+        // (resp.model) — not the one we asked for. This is the only signal
+        // that exposes callClaudeResilient's silent fallback to DEFAULT_MODEL
+        // (e.g. the key losing access to the strong model): the ledger would
+        // show haiku rows where sonnet rows were expected.
+        const usageByModel = {};
+        const addModelUsage = (resp) => {
+          if (!resp || !resp.usage) return;
+          const key = String(resp.model || "unknown").replace(/[.#$/\[\]]/g, "_");
+          const u = (usageByModel[key] = usageByModel[key] || { calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 });
+          u.calls += 1;
+          u.input_tokens += resp.usage.input_tokens || 0;
+          u.output_tokens += resp.usage.output_tokens || 0;
+          u.cache_read_tokens += resp.usage.cache_read_input_tokens || 0;
+          u.cache_write_tokens += resp.usage.cache_creation_input_tokens || 0;
+        };
         // True only when create_quote_card actually succeeded this turn — used to
         // catch the model "narrating" a quote (fake price + 'press the button on
         // the card') without a real card existing.
@@ -3084,6 +3101,7 @@ function registerChatAi({ dispatchAdminPush }) {
           totalOut += (resp.usage && resp.usage.output_tokens) || 0;
           totalCacheRead += (resp.usage && resp.usage.cache_read_input_tokens) || 0;
           totalCacheWrite += (resp.usage && resp.usage.cache_creation_input_tokens) || 0;
+          addModelUsage(resp);
 
           const toolUses = (resp.content || []).filter((b) => b.type === "tool_use");
           const textBlocks = (resp.content || []).filter((b) => b.type === "text");
@@ -3159,6 +3177,7 @@ function registerChatAi({ dispatchAdminPush }) {
             totalOut += (finalResp.usage && finalResp.usage.output_tokens) || 0;
             totalCacheRead += (finalResp.usage && finalResp.usage.cache_read_input_tokens) || 0;
             totalCacheWrite += (finalResp.usage && finalResp.usage.cache_creation_input_tokens) || 0;
+            addModelUsage(finalResp);
             finalText = (finalResp.content || [])
               .filter((b) => b.type === "text")
               .map((b) => b.text)
@@ -3176,8 +3195,17 @@ function registerChatAi({ dispatchAdminPush }) {
           cache_read_tokens: ServerValue.increment(totalCacheRead),
           cache_write_tokens: ServerValue.increment(totalCacheWrite),
         }).catch(() => {});
+        for (const [mk, u] of Object.entries(usageByModel)) {
+          db.ref(`chat_ai_usage/${ymd}/by_model/${mk}`).update({
+            calls: ServerValue.increment(u.calls),
+            input_tokens: ServerValue.increment(u.input_tokens),
+            output_tokens: ServerValue.increment(u.output_tokens),
+            cache_read_tokens: ServerValue.increment(u.cache_read_tokens),
+            cache_write_tokens: ServerValue.increment(u.cache_write_tokens),
+          }).catch(() => {});
+        }
         console.log(
-          `[${tag}] ${convoId} tokens in=${totalIn} out=${totalOut} cache_read=${totalCacheRead} cache_write=${totalCacheWrite}`
+          `[${tag}] ${convoId} tokens in=${totalIn} out=${totalOut} cache_read=${totalCacheRead} cache_write=${totalCacheWrite} models=${Object.keys(usageByModel).join(",")}`
         );
 
         if (!finalText) {
@@ -3298,6 +3326,7 @@ function registerChatAi({ dispatchAdminPush }) {
               totalOut += (forced.usage && forced.usage.output_tokens) || 0;
               totalCacheRead += (forced.usage && forced.usage.cache_read_input_tokens) || 0;
               totalCacheWrite += (forced.usage && forced.usage.cache_creation_input_tokens) || 0;
+              addModelUsage(forced);
               const uses = (forced.content || []).filter((b) => b.type === "tool_use");
               if (uses.length === 0) break;
               recovery.push({ role: "assistant", content: forced.content });
@@ -3423,6 +3452,14 @@ function registerChatAi({ dispatchAdminPush }) {
               cache_read_tokens: ServerValue.increment(verdict.usage.cache_read_input_tokens || 0),
               cache_write_tokens: ServerValue.increment(verdict.usage.cache_creation_input_tokens || 0),
             }).catch(() => {});
+            const vk = String(verdict.model || "unknown").replace(/[.#$/\[\]]/g, "_");
+            db.ref(`chat_ai_usage/${ymd}/by_model/${vk}`).update({
+              calls: ServerValue.increment(1),
+              input_tokens: ServerValue.increment(verdict.usage.input_tokens || 0),
+              output_tokens: ServerValue.increment(verdict.usage.output_tokens || 0),
+              cache_read_tokens: ServerValue.increment(verdict.usage.cache_read_input_tokens || 0),
+              cache_write_tokens: ServerValue.increment(verdict.usage.cache_creation_input_tokens || 0),
+            }).catch(() => {});
           }
           if (verdict.ok === false) {
             console.warn(`[${tag}] ${convoId} verifier blocked: ${verdict.issue}`);
@@ -3479,7 +3516,18 @@ function registerChatAi({ dispatchAdminPush }) {
   // ({region}/{name} collision rule in CLAUDE.md).
   const getChatAiKnowledge = onCall({ region: REGION }, async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "ต้องล็อกอินก่อน");
+    // Today's usage ledger (Bangkok day) — surfaces cache hit/miss and the
+    // per-model breakdown so admins can verify prompt caching works and spot
+    // a silent strong-model fallback without opening the Anthropic Console.
+    let usageToday = null;
+    try {
+      const { ymd } = bangkokNowParts();
+      const uSnap = await getDatabase().ref(`chat_ai_usage/${ymd}`).once("value");
+      usageToday = { ymd, ...(uSnap.exists() ? uSnap.val() : {}) };
+      delete usageToday.sickw_by_uid; // per-conversation noise, not for display
+    } catch { /* best-effort — the audit panel works without it */ }
     return {
+      usage_today: usageToday,
       live_sources: [
         "ราคาและรุ่นสินค้า — ฐานข้อมูล models จริง (tool: search_models / create_quote_card) รวมสถานะงดรับซื้อ (isActive)",
         "ชุดคำถามประเมินสภาพ + ค่าหักตามสภาพ — settings/condition_sets (tool: get_condition_questions)",

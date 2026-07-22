@@ -68,6 +68,18 @@ interface BuiltinKnowledge {
   deduction_policy: string[];
   faq: { c: string; q: string; a: string }[];
   models: { auto_strong: string; auto_trivial: string; verifier: string };
+  // Today's usage ledger (chat_ai_usage/{ymd}, Bangkok day) read server-side —
+  // verifies prompt caching engages and exposes which model ACTUALLY served
+  // (a haiku-only breakdown while auto mode is on = strong model failing).
+  usage_today?: {
+    ymd: string;
+    calls?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    by_model?: Record<string, { calls?: number; input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }>;
+  } | null;
 }
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
@@ -466,6 +478,51 @@ export default function ChatWidgetSettings() {
                 </p>
               </div>
             </details>
+            {builtin.usage_today && (
+              <details className="group border border-slate-100 rounded-xl overflow-hidden" open>
+                <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100">
+                  การใช้งานวันนี้ ({builtin.usage_today.ymd}) — เช็ค Prompt caching + โมเดลที่ให้บริการจริง
+                </summary>
+                <div className="px-4 py-3 space-y-2">
+                  <p className="text-xs text-slate-600">
+                    เรียก AI {builtin.usage_today.calls || 0} ครั้ง · input{' '}
+                    {(builtin.usage_today.input_tokens || 0).toLocaleString()} · output{' '}
+                    {(builtin.usage_today.output_tokens || 0).toLocaleString()} tokens
+                  </p>
+                  <p className="text-xs">
+                    <span className="font-bold text-emerald-700">
+                      cache อ่านซ้ำ (จ่าย 10%): {(builtin.usage_today.cache_read_tokens || 0).toLocaleString()}
+                    </span>
+                    <span className="text-slate-400"> · </span>
+                    <span className="text-slate-600">
+                      cache เขียนใหม่ (จ่าย 125%): {(builtin.usage_today.cache_write_tokens || 0).toLocaleString()}
+                    </span>
+                  </p>
+                  {(builtin.usage_today.cache_read_tokens || 0) === 0 && (builtin.usage_today.calls || 0) > 2 && (
+                    <p className="text-[11px] text-amber-600 font-bold">
+                      ยังไม่เห็นการอ่าน cache ทั้งที่มีการเรียกหลายครั้ง — ตัวเลขนับเฉพาะข้อความหลัง deploy เวอร์ชัน caching ลองคุยกับ AI เพิ่มแล้วรีเฟรชหน้านี้
+                    </p>
+                  )}
+                  {builtin.usage_today.by_model && (
+                    <div className="pt-1">
+                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1">แยกตามโมเดลที่ให้บริการจริง</p>
+                      {Object.entries(builtin.usage_today.by_model).map(([m, u]) => (
+                        <p key={m} className="text-xs text-slate-600">
+                          <span className="font-mono">{m}</span>: {u.calls || 0} ครั้ง · in {(u.input_tokens || 0).toLocaleString()} · cache read{' '}
+                          {(u.cache_read_tokens || 0).toLocaleString()}
+                        </p>
+                      ))}
+                      {!config.model &&
+                        !Object.keys(builtin.usage_today.by_model).some((m) => m.includes('sonnet')) && (
+                          <p className="text-[11px] text-red-600 font-bold mt-1">
+                            โหมดอัตโนมัติเปิดอยู่แต่ไม่พบ sonnet ในรายการ — โมเดลแรงอาจถูกใช้ไม่ได้ (API key ไม่มีสิทธิ์?) ระบบกำลัง fallback เป็น haiku เงียบๆ ควรตรวจสอบ
+                          </p>
+                        )}
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>
