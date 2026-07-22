@@ -345,7 +345,18 @@ check("waiting block without escalation record still renders", buildWaitingModeB
 const sys = __test.buildSystemPrompt({ assistantName: "มาติน", pub: {}, kb: "", customerBlock: "", inHours: true });
 check("system prompt: contact ask bundled into the condition questions", sys.includes("(0) ขอชื่อและเบอร์โทรติดต่อ"));
 check("system prompt: no price number before the card", sys.includes("โดยยังไม่ประกาศตัวเลขราคา"));
-check("system prompt: one contact ask only, never forced", sys.includes("ห้ามขอซ้ำเป็นครั้งที่สอง"));
+// Owner's revision (22 Jul): never advertise skipping ("ข้ามได้/ไม่บังคับ" opens
+// the door to refuse — real test: first ask skipped, natural pre-card re-ask
+// got both name and phone). Silent customer = keep selling; one re-ask max,
+// right before the card.
+check("system prompt: contact ask never advertises skipping", sys.includes('"ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้"'));
+check("system prompt: one natural re-ask right before the card", sys.includes('ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา'));
+check("canned contact ask has no skip copy", !__test.buildSystemPrompt({ assistantName: "x", pub: {}, kb: "", customerBlock: "", inHours: true }).includes("ไม่สะดวกให้ก็เดินหน้าต่อได้"));
+// Landmark rule: a famous place name goes straight to the geocoder with the
+// model_id attached (promos are model-bound) — never "เมเจอร์รัชโยธินอยู่ที่ไหนครับ".
+check("system prompt: landmarks go straight to geocoding", sys.includes('ห้ามถามกลับว่า "อยู่ที่ไหน" เหมือนไม่รู้จัก'));
+check("system prompt: always pass model_id for fee promos", sys.includes("ต้องส่ง model_id ของรุ่นที่คุยกันอยู่ไปด้วยทุกครั้ง"));
+check("system prompt: free pickup is a selling point", sys.includes("free_pickup/promo_applied ให้บอกลูกค้าเป็นจุดขายทันที"));
 check("system prompt: short sales-first greeting", sys.includes("ทักทายครั้งแรกให้สั้นและพุ่งเข้าเรื่องขายทันที"));
 
 // --- wrong-family match guard (MacBook M5 Max -> iPad mini 5 bug) -----------
