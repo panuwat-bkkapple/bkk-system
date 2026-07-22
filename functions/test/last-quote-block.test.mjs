@@ -721,5 +721,17 @@ const RANGE_BATTERY = [
 ];
 check("range-labeled sets still bucket exactly", __test.pickBatteryOptionId(RANGE_BATTERY, 84) === "r_mid" && __test.pickBatteryOptionId(RANGE_BATTERY, 70) === "r_low");
 
+// --- wait-promise dead air (the "รอสักครู่ครับ" case) ------------------------
+// Live: after picking iPad Generation 11 the reply was "ขอเช็คราคารับซื้อ ...
+// ให้ก่อนนะครับ รอสักครู่ครับ" and the turn ended — nothing ever came back.
+// waitPromiseIntent triggers the forced same-turn check; bare "เดี๋ยวผมเช็คให้"
+// after ASKING for info must stay untouched (nothing to check yet).
+check("'รอสักครู่ครับ' is a wait promise", __test.waitPromiseIntent("ขอเช็คราคารับซื้อ iPad Generation 11 ให้ก่อนนะครับ รอสักครู่ครับ"));
+check("'กำลังเช็คให้ครับ' is a wait promise", __test.waitPromiseIntent("กำลังเช็คราคาให้ครับ"));
+check("'ขอเช็ค...ให้ก่อนนะครับ' is a wait promise", __test.waitPromiseIntent("ขอเช็คพื้นที่บริการให้ก่อนนะครับ"));
+check("asking for info with 'เดี๋ยวผมเช็คให้' is NOT a wait promise", !__test.waitPromiseIntent("รุ่นไหนครับ แจ้งมาได้เลย เดี๋ยวผมเช็คราคามือหนึ่งให้ครับ"));
+check("normal condition question is NOT a wait promise", !__test.waitPromiseIntent("จอหรือตัวเครื่องมีรอยไหมครับ"));
+check("prompt rule forbids ending on a wait", sysNoCust.includes('ห้ามจบข้อความด้วยการให้ลูกค้า "รอ"'));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

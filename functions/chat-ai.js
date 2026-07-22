@@ -1244,6 +1244,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
     `2.1.1 ชื่อรุ่นกำกวม (เช่น "iPad 6" อาจหมายถึง iPad Gen 6 / iPad mini 6 / iPad Air รุ่นที่ 6): ถ้า search_models ตอบ ambiguous_model กลับมา = ชื่อนั้นตรงกับหลายรุ่น และมีรุ่นงดรับซื้อปนอยู่ — "ห้ามแจ้งงดรับซื้อ ห้ามเริ่มถามสภาพ ห้ามขอชื่อ/เบอร์" จนกว่าลูกค้ายืนยันรุ่น ให้ถามสั้นๆ ว่าหมายถึงรุ่นไหนพร้อมปุ่ม [ตัวเลือก] จากรายชื่อ candidates แล้วพอลูกค้าเลือก ค่อยเรียก search_models ใหม่ด้วยชื่อเต็มรุ่นนั้นแล้วเดินตามผล (งดรับซื้อ → ปฏิเสธสุภาพตามข้อ 2.1, มีราคา → เข้าขั้นตอนข้อ 6)`,
+    `2.1.2 ห้ามจบข้อความด้วยการให้ลูกค้า "รอ" ระหว่างคุณไปเช็คอะไรก็ตามเด็ดขาด ("รอสักครู่ครับ", "กำลังเช็คให้ครับ", "ขอเช็คให้ก่อนนะครับ") — คุณตอบได้ครั้งเดียวต่อข้อความ ไม่มี "เดี๋ยวกลับมาบอก" การเช็คทุกอย่าง (ราคา รุ่น พื้นที่ โปร สภาพ) เสร็จได้ทันทีด้วย tool ในข้อความเดียวกัน: เรียก tool เดี๋ยวนั้นแล้วตอบผลลัพธ์จริงเลย. คำตอบจากคลังความรู้ที่มีสำนวน "เดี๋ยวผมเช็คให้" หมายถึงเช็คทันทีในข้อความเดียวกันนี้เท่านั้น ไม่ใช่จบข้อความแล้วให้ลูกค้ารอ`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
     `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
@@ -1419,8 +1420,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.2";
+const LOGIC_VERSION = "2026-07-23.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "ห้ามทิ้งลูกค้าไว้กับ 'รอสักครู่ครับ' — ถ้าคำตอบสัญญาว่าจะไปเช็คอะไร ระบบบังคับเช็คให้เสร็จและตอบผลจริงในข้อความเดียวกันทันที (เคส iPad Generation 11 ที่บอกให้รอแล้วเงียบ)" },
   { at: "2026-07-23", text: "แก้บั๊กแบตหลุดจากการ์ด (เคส iPhone 11 แจ้ง 70% แต่การ์ดคิดแบตปกติ): ชุดประเมินที่มีตัวเลือกแค่ 'ปกติ/แบตเตอรี่เสื่อม' (ไม่มีช่วง %) ระบบจับคู่ไม่ได้ — ตอนนี้ต่ำกว่า 80% = เลือกตัวเลือกเสื่อมอัตโนมัติตามเกณฑ์ Apple" },
   { at: "2026-07-23", text: "แก้ FAQ เก่า 3 ข้อที่ขัดกับระบบจริง (เคยบอกว่า Rider รับถึงบ้าน 'ไม่มีค่าจัดส่ง/ไม่คิดค่าบริการใดๆ') — ตอนนี้ตอบตรงระบบ: Pickup มีค่าบริการตามระยะทาง แจ้งก่อนยืนยัน + โปรฟรีบางรุ่น/พื้นที่, Store-in/Mail-in ฟรี" },
   { at: "2026-07-22", text: "Sonnet 5 กลับมาทำงานแล้ว — พารามิเตอร์เก่า (temperature) ทำให้ทุกคำขอ Sonnet ถูก API ปฏิเสธและระบบถอยเป็น Haiku เงียบๆ มาตลอด ตอนนี้ส่งเฉพาะโมเดลที่รับ + มีตัวลองซ้ำอัตโนมัติกันเคสเดียวกันในโมเดลรุ่นหน้า" },
@@ -1467,6 +1469,7 @@ const LOGIC_BEHAVIORS = [
     "ราคา สเปก และตัวเลือกรุ่น มาจากฐานข้อมูลเท่านั้น — ความจำ AI และข้อความเก่าของตัวเองใช้ไม่ได้",
     "เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024)",
     "กันจับผิดตระกูล: Air / mini / SE แยกขาดจากกัน",
+    "ห้ามให้ลูกค้า 'รอ' ระหว่างเช็ค — ระบบเช็คเสร็จและตอบผลจริงในข้อความเดียวเสมอ",
     "รุ่นงดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนเจ้าหน้าที่",
     "ชื่อกำกวมที่มีรุ่นงดรับซื้อปน (เช่น 'iPad 6' = Gen 6 งดรับ / mini 6 / Air 6) ต้องถามยืนยันรุ่นด้วยปุ่มก่อน — ห้ามปฏิเสธหรือประเมินจนกว่าลูกค้าคอนเฟิร์ม",
   ] },
@@ -1522,6 +1525,23 @@ function priceLeakBeforeCard(text) {
   if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{1,3}(?:,\d{3})+\s*บาท/.test(t)) return true;
   if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{4,6}\s*บาท/.test(t)) return true;
   return false;
+}
+
+// The reply tells the customer to WAIT while "someone" goes to check — a
+// dead-air promise Martin cannot keep (one turn = one reply, nothing comes
+// back later). Live case: "ขอเช็คราคารับซื้อ iPad Generation 11 ให้ก่อนนะครับ
+// รอสักครู่ครับ" then silence — imported KB answers taught the phrasing and
+// the salvage path can also ship mid-loop narration. Deliberately NOT
+// matching bare "เดี๋ยวผมเช็คให้" — that usually follows a question the
+// customer still has to answer (nothing to check yet).
+function waitPromiseIntent(text) {
+  const t = String(text || "");
+  return (
+    /รอสักครู่|รอแป๊บ|รอเดี๋ยว|สักครู่นะ/.test(t) ||
+    /กำลัง(?:เช็ค|ตรวจสอบ|ประเมิน)/.test(t) ||
+    /ขอ(?:เช็ค|ตรวจสอบ)[\s\S]{0,35}ให้ก่อนนะ/.test(t) ||
+    /ขอเวลา(?:เช็ค|ตรวจสอบ|ประเมิน)/.test(t)
+  );
 }
 
 // The draft narrates a quote (price talk / points at a card / promises to
@@ -3459,6 +3479,59 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
+        // Wait-promise guard — the reply tells the customer to WAIT while the
+        // check happens "in the background", then the turn ends and nothing
+        // ever comes back (live: "ขอเช็คราคา iPad Generation 11 ให้ก่อนนะครับ
+        // รอสักครู่ครับ" -> silence). Force the check to finish NOW: run the
+        // needed tools in this same turn and answer with the real result.
+        if (finalText && !state.escalated && waitPromiseIntent(finalText)) {
+          console.warn(`[${tag}] ${convoId} wait-promise reply — forcing the check to finish this turn`);
+          try {
+            const followup = [
+              ...messages,
+              {
+                role: "user",
+                content:
+                  "[คำสั่งระบบ ไม่ใช่ลูกค้า] ข้อความล่าสุดของคุณบอกให้ลูกค้า 'รอ' ระหว่างไปเช็คข้อมูล — ห้ามจบแบบนั้นเด็ดขาด ระบบเช็คได้ทันทีในเทิร์นนี้: เรียก tool ที่จำเป็นตอนนี้เลย (เช่น search_models / get_condition_questions / check_pickup_service) แล้วตอบผลลัพธ์จริงให้ลูกค้าในข้อความเดียว ห้ามบอกให้รออีก ห้ามพูดตัวเลขราคาลอยๆ นอกการ์ดตามกฎเดิม",
+              },
+            ];
+            for (let r = 0; r < 3; r++) {
+              const cont = await callClaudeResilient({ apiKey, model, system, messages: followup, tools: TOOLS });
+              totalIn += (cont.usage && cont.usage.input_tokens) || 0;
+              totalOut += (cont.usage && cont.usage.output_tokens) || 0;
+              totalCacheRead += (cont.usage && cont.usage.cache_read_input_tokens) || 0;
+              totalCacheWrite += (cont.usage && cont.usage.cache_creation_input_tokens) || 0;
+              addModelUsage(cont);
+              const uses = (cont.content || []).filter((b) => b.type === "tool_use");
+              const txt = (cont.content || [])
+                .filter((b) => b.type === "text")
+                .map((b) => b.text)
+                .join("\n")
+                .trim();
+              if (uses.length === 0) {
+                if (txt && !waitPromiseIntent(txt)) finalText = txt;
+                break;
+              }
+              followup.push({ role: "assistant", content: cont.content });
+              const results = [];
+              for (const tu of uses) {
+                const result = await executeTool(tu.name, tu.input || {});
+                if (tu.name === "create_quote_card" && result && !result.error) quoteOk = true;
+                if (tu.name === "search_models" && result && result.declined_model) declinedModel = result.declined_model;
+                results.push({
+                  type: "tool_result",
+                  tool_use_id: tu.id,
+                  content: JSON.stringify(result).slice(0, 6000),
+                });
+              }
+              followup.push({ role: "user", content: results });
+              if (txt && !waitPromiseIntent(txt)) finalText = txt;
+            }
+          } catch (err) {
+            console.error(`[${tag}] wait-promise recovery failed:`, err && err.message);
+          }
+        }
+
         // Escalation-promise guard: the customer explicitly asked for a human,
         // or the reply claims the chat was forwarded — but escalate_to_human
         // was never actually called this turn. Real bug: "ขอคุยกับแอดมิน" ->
@@ -3670,6 +3743,7 @@ module.exports = {
     extractChoices,
     priceLeakBeforeCard,
     announcedQuoteIntent,
+    waitPromiseIntent,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
