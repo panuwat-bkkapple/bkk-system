@@ -676,5 +676,13 @@ check("verifier call is resilient (downgrades, not fail-open)", /during the Sonn
 const scrubAt = src.indexOf("แก้ร่างข้อความของผู้ช่วยร้านรับซื้อมือถือ");
 check("price-scrub call is resilient too", scrubAt > 0 && src.lastIndexOf("callClaudeResilient", scrubAt) > src.lastIndexOf("await callClaude(", scrubAt));
 
+// --- prep-before-selling answer must be ONE consistent voice -----------------
+// Live wobble: "ไม่ต้องล้างเครื่องก่อน" then, re-asked, "ต้องครับ ให้ Factory
+// Reset ก่อนนำมา" — the latter is risky (customer wipes but forgets iCloud
+// sign-out -> Activation Lock at handover, we cannot buy the device at all).
+check("prep answer: shop does the reset in front of the customer", sysNoCust.includes('ไม่จำเป็นต้อง Factory Reset มาเอง'));
+check("prep answer: never tell customers to self-wipe beforehand", sysNoCust.includes('อย่าแนะนำให้ลูกค้าล้างเครื่องเองก่อนมา'));
+check("prep answer: the one required step is iCloud sign-out", sysNoCust.includes("Sign out iCloud/ปิด Find My ให้ได้"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
