@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 import { Link } from 'react-router-dom';
 import {
   Brain, Plus, Save, X, Trash2, ExternalLink, Tag, Coins, MapPin,
-  MessageSquareText, Power, GripVertical,
+  MessageSquareText, Power, GripVertical, LayoutGrid,
 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -321,6 +321,29 @@ export default function ChatKnowledgeGraph() {
     markDirty();
   };
 
+  // จัดเรียงอัตโนมัติ (ปุ่ม "จัดเรียงใหม่"): มาตินกลาง · ข้อมูลสดซ้าย · หมวดคำตอบ
+  // ขวา · สายพฤติกรรมไหลลงตามลำดับการขายจริง พร้อมใบกติกาห้อยขวาของขั้นตัวเอง —
+  // เลย์เอาต์ที่เจ้าของจัดเองยังอยู่จนกว่าจะกดปุ่มนี้ (แล้วต้องกดบันทึกถึงคงถาวร)
+  const STAGE_ORDER = ['opening', 'model', 'contact', 'condition', 'quote', 'escalate'];
+  const rearrange = () => {
+    const ids = Object.keys(recs);
+    const map: Record<string, { x: number; y: number }> = { root: { x: 0, y: 0 } };
+    ids.filter((id) => recs[id].type === 'live').sort()
+      .forEach((id, i) => { map[id] = { x: -660, y: -170 + i * 190 }; });
+    ids.filter((id) => recs[id].type === 'custom').sort()
+      .forEach((id, i) => { map[id] = { x: 560, y: -190 + i * 190 }; });
+    STAGE_ORDER.filter((k) => recs[`bh_${k}`]).forEach((k, i) => {
+      const sx = -60;
+      const sy = 280 + i * 340;
+      map[`bh_${k}`] = { x: sx, y: sy };
+      ids.filter((id) => id.startsWith(`bh_${k}_r`)).sort()
+        .forEach((rid, ri) => { map[rid] = { x: sx + 310, y: sy - 70 + ri * 85 }; });
+    });
+    setNodes((ns) => ns.map((n) => (map[n.id] ? { ...n, position: map[n.id] } : n)));
+    markDirty();
+    toast.success('จัดเรียงผังใหม่แล้ว — กดบันทึกเพื่อเก็บเลย์เอาต์นี้');
+  };
+
   const saveAll = async () => {
     if (saving) return;
     setSaving(true);
@@ -399,6 +422,9 @@ export default function ChatKnowledgeGraph() {
           <p className="text-[11px] text-slate-400 font-bold">ลากจัดผัง · ต่อเส้นหมวดแม่-ลูก · คลิกหมวดเพื่อตั้งคำตอบ — AI ใช้ตอบลูกค้าทันทีหลังบันทึก</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={rearrange} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 text-xs font-black transition-colors">
+            <LayoutGrid size={14} /> จัดเรียงใหม่
+          </button>
           <button onClick={addCategory} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-xs font-black transition-colors">
             <Plus size={14} /> เพิ่มหมวด
           </button>
