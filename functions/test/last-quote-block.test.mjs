@@ -518,5 +518,15 @@ check("Thai mini alias works and stays in its sub-line", __test.rankModels(ALIAS
 check("Thai air alias never matches the mini", !__test.rankModels(ALIAS_CATALOG, "ไอแพดแอร์ 8").some((m) => m.id === "mini6"));
 check("models without aliases still match by official name", __test.rankModels(ALIAS_CATALOG, "ipad mini 6")[0]?.id === "mini6");
 
+// --- branch hallucination guard (เซ็นทรัลลาดพร้าว case) ----------------------
+// Real bug: customer asked the pickup fee AT Central Ladprao; the AI replied
+// it was a Store-in "นำเครื่องมาที่หน้าร้านเลย" — inventing a storefront we do
+// not have (the HQ address contains the WORD ลาดพร้าว). Rules: a new location
+// always re-runs check_pickup_service, and our branches exist ONLY per
+// get_branches data.
+check("rule 12.1: every new location re-checks via the tool", sys.includes("12.1 ลูกค้าเปลี่ยน/เพิ่มทำเลใหม่"));
+check("rule 12.2: branches exist only per data", sys.includes("ห้ามอ้างหรือใบ้ว่ามีหน้าร้านที่อื่นเด็ดขาด"));
+check("rule 12.2: customer location means rider pickup point", sys.includes('สถานที่ที่ลูกค้าเอ่ยคือ "จุดให้ไรเดอร์ไปรับ" เสมอ'));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
