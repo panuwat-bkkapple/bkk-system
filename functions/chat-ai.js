@@ -1277,8 +1277,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.7";
+const LOGIC_VERSION = "2026-07-22.8";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "แสดงสมองพฤติกรรมเป็นโหนดบนผังใยความรู้ (6 ขั้นของ flow การขาย พร้อมกติกาที่บังคับใช้จริง)" },
   { at: "2026-07-22", text: "แก้ deadlock กลไกภายใน: คำถามราคาข้อความแรก (เช่น iPhone 15) ไม่จบด้วยส่งต่อเจ้าหน้าที่อีกแล้ว — เดินหน้าขอชื่อ/เบอร์ + ถามสภาพต่อ" },
   { at: "2026-07-22", text: "ทุก fallback ของระบบกันพลาดต้องถามคำถามต่อเสมอ ห้ามจบห้วน (เคส 'ขอสอบถามข้อมูลเพิ่ม' แล้วเงียบ)" },
   { at: "2026-07-22", text: "ปุ่มตัวเลือก (chips) ต้องเป็นคำตอบจริงเท่านั้น — ปุ่มแสดงเจตนาแบบ 'ให้ชื่อและเบอร์' ถูกกรองทิ้งอัตโนมัติ" },
@@ -1289,12 +1290,53 @@ const LOGIC_CHANGELOG = [
   { at: "2026-07-21", text: "โหมดรับ Offer สำหรับรุ่นที่ตั้งใจไม่ตั้งราคา (MacBook) — เก็บชื่อ เบอร์ รายละเอียดเครื่อง ให้ทีมโทรกลับ ห้ามส่งต่อมือเปล่า" },
   { at: "2026-07-21", text: "เก็บช่องทางติดต่อก่อนออกใบเสนอราคา (contact gate) + โหมดรอเจ้าหน้าที่ AI ยังดูแลต่อพร้อมสรุปงานสด" },
 ];
+// The behavior brain rendered as CANVAS NODES on /chat-kb — the owner plans
+// training by drawing lines between these and the knowledge categories, so
+// each node is one stage of the sales flow with its enforced rules, in
+// owner-readable Thai. Mirrored as BEHAVIOR_FALLBACK in
+// src/pages/admin/ChatKnowledgeGraph.tsx (used until the first stamp) —
+// update BOTH when a stage's rules change.
+const LOGIC_BEHAVIORS = [
+  { key: "opening", label: "เปิดการขาย", emoji: "🎯", rules: [
+    "ทักทายสั้น พุ่งเข้าเรื่องขายทันที",
+    "ลูกค้าเอ่ยชื่อรุ่นเมื่อไหร่ ค้นฐานข้อมูลทันที ห้ามตอบรับ/ปฏิเสธจากความจำ",
+    "ห้ามใช้ศัพท์เทคนิคภายในระบบกับลูกค้า",
+  ] },
+  { key: "model", label: "ตรวจรุ่นจากฐานข้อมูล", emoji: "🔍", rules: [
+    "ราคา สเปก และตัวเลือกรุ่น มาจากฐานข้อมูลเท่านั้น — ความจำ AI และข้อความเก่าของตัวเองใช้ไม่ได้",
+    "เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024)",
+    "กันจับผิดตระกูล: Air / mini / SE แยกขาดจากกัน",
+    "รุ่นงดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนเจ้าหน้าที่",
+  ] },
+  { key: "contact", label: "เก็บ Contact ก่อนเผยราคา", emoji: "📇", rules: [
+    "ขอชื่อ+เบอร์ 1 ครั้งก่อนออกใบเสนอราคา (ไม่บังคับ และห้ามขอซ้ำ)",
+    "ห้ามพูดตัวเลขราคา/ช่วงราคาก่อนการ์ด — ระบบขูดตัวเลขที่หลุดออกอัตโนมัติ",
+    "ได้เบอร์แล้วบันทึกเข้าระบบลูกค้าทันที",
+  ] },
+  { key: "condition", label: "ถามสภาพทีละเรื่อง", emoji: "🧾", rules: [
+    "ถามทีละคำถาม พร้อมปุ่มตัวเลือกจากชุดประเมินจริงของรุ่นนั้น",
+    "ปุ่ม = คำตอบสำเร็จรูปเท่านั้น (ไม่มีปุ่มกับคำถามปลายเปิด เช่น ขอชื่อ/เบอร์)",
+    "เรื่องที่ลูกค้าตอบแล้วห้ามถามซ้ำ",
+    "ข้อมูลพอเมื่อไหร่ออกการ์ดทันที ห้ามจบห้วนกลางทาง",
+  ] },
+  { key: "quote", label: "ใบเสนอราคา", emoji: "💳", rules: [
+    "ตัวเลขบนการ์ดคำนวณด้วยสูตรเดียวกับหน้าเว็บ /sell",
+    "คูปองที่รุ่นเข้าเกณฑ์แนบให้อัตโนมัติ ไม่ต้องให้ลูกค้าร้องขอ",
+    "ลูกค้าต่อรองขอเพิ่มราคา = ราคาไม่ขึ้น (ขึ้นได้เฉพาะแจ้งสภาพดีขึ้นจริง)",
+  ] },
+  { key: "escalate", label: "ส่งต่อเจ้าหน้าที่", emoji: "🤝", rules: [
+    "ลูกค้าขอคุยกับคน = ส่งต่อจริงทุกครั้ง (ระบบบังคับ ไม่ใช่แค่รับปาก)",
+    "ระหว่างรอเจ้าหน้าที่ AI ยังดูแลต่อ + อัปเดตสรุปงานสดให้ทีม",
+    "รุ่นไม่ตั้งราคา (โหมด Offer เช่น MacBook) เก็บชื่อ เบอร์ รายละเอียดก่อนส่ง — ห้ามส่งมือเปล่า",
+    "ยังไม่มีเบอร์ลูกค้า = ชวนฝากเบอร์ไว้ให้ติดต่อกลับ",
+  ] },
+];
 let logicMetaStamped = false;
 function stampLogicMeta(db) {
   if (logicMetaStamped) return;
   logicMetaStamped = true;
   db.ref("settings/chat_ai_meta")
-    .set({ version: LOGIC_VERSION, stamped_at: Date.now(), changelog: LOGIC_CHANGELOG })
+    .set({ version: LOGIC_VERSION, stamped_at: Date.now(), changelog: LOGIC_CHANGELOG, behaviors: LOGIC_BEHAVIORS })
     .catch(() => { logicMetaStamped = false; });
 }
 

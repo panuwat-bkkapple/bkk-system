@@ -29,9 +29,44 @@ import { useToast } from '../../components/ui/ToastProvider';
 
 interface KbItem { q: string; a: string; order: number }
 interface KbNodeRec {
-  label: string; emoji?: string; type: 'root' | 'custom' | 'live';
+  label: string; emoji?: string; type: 'root' | 'custom' | 'live' | 'behavior';
   live_key?: string; x: number; y: number; enabled?: boolean;
   items?: Record<string, KbItem>;
+  // behavior nodes only — enforced rules of that sales-flow stage, synced
+  // from the deployed cloud function (settings/chat_ai_meta.behaviors)
+  rules?: string[];
+}
+
+// สมองพฤติกรรมของมาติน = 6 ขั้นของ flow การขายที่บังคับใช้ในโค้ด cloud function
+// แสดงเป็นโหนดบนผังเพื่อให้เจ้าของลากเส้น/วางแผนเทรนถูกจุด. ค่านี้เป็น fallback
+// ก่อน stamp แรก — ตัวจริง sync จาก settings/chat_ai_meta.behaviors ซึ่ง
+// function ที่ deploy อยู่เขียนเอง (mirror ของ LOGIC_BEHAVIORS ใน chat-ai.js)
+const BEHAVIOR_FALLBACK: { key: string; label: string; emoji: string; rules: string[] }[] = [
+  { key: 'opening', label: 'เปิดการขาย', emoji: '🎯', rules: ['ทักทายสั้น พุ่งเข้าเรื่องขายทันที', 'ลูกค้าเอ่ยชื่อรุ่นเมื่อไหร่ ค้นฐานข้อมูลทันที ห้ามตอบรับ/ปฏิเสธจากความจำ', 'ห้ามใช้ศัพท์เทคนิคภายในระบบกับลูกค้า'] },
+  { key: 'model', label: 'ตรวจรุ่นจากฐานข้อมูล', emoji: '🔍', rules: ['ราคา สเปก และตัวเลือกรุ่น มาจากฐานข้อมูลเท่านั้น — ความจำ AI และข้อความเก่าของตัวเองใช้ไม่ได้', 'เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024)', 'กันจับผิดตระกูล: Air / mini / SE แยกขาดจากกัน', 'รุ่นงดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนเจ้าหน้าที่'] },
+  { key: 'contact', label: 'เก็บ Contact ก่อนเผยราคา', emoji: '📇', rules: ['ขอชื่อ+เบอร์ 1 ครั้งก่อนออกใบเสนอราคา (ไม่บังคับ และห้ามขอซ้ำ)', 'ห้ามพูดตัวเลขราคา/ช่วงราคาก่อนการ์ด — ระบบขูดตัวเลขที่หลุดออกอัตโนมัติ', 'ได้เบอร์แล้วบันทึกเข้าระบบลูกค้าทันที'] },
+  { key: 'condition', label: 'ถามสภาพทีละเรื่อง', emoji: '🧾', rules: ['ถามทีละคำถาม พร้อมปุ่มตัวเลือกจากชุดประเมินจริงของรุ่นนั้น', 'ปุ่ม = คำตอบสำเร็จรูปเท่านั้น (ไม่มีปุ่มกับคำถามปลายเปิด เช่น ขอชื่อ/เบอร์)', 'เรื่องที่ลูกค้าตอบแล้วห้ามถามซ้ำ', 'ข้อมูลพอเมื่อไหร่ออกการ์ดทันที ห้ามจบห้วนกลางทาง'] },
+  { key: 'quote', label: 'ใบเสนอราคา', emoji: '💳', rules: ['ตัวเลขบนการ์ดคำนวณด้วยสูตรเดียวกับหน้าเว็บ /sell', 'คูปองที่รุ่นเข้าเกณฑ์แนบให้อัตโนมัติ ไม่ต้องให้ลูกค้าร้องขอ', 'ลูกค้าต่อรองขอเพิ่มราคา = ราคาไม่ขึ้น (ขึ้นได้เฉพาะแจ้งสภาพดีขึ้นจริง)'] },
+  { key: 'escalate', label: 'ส่งต่อเจ้าหน้าที่', emoji: '🤝', rules: ['ลูกค้าขอคุยกับคน = ส่งต่อจริงทุกครั้ง (ระบบบังคับ ไม่ใช่แค่รับปาก)', 'ระหว่างรอเจ้าหน้าที่ AI ยังดูแลต่อ + อัปเดตสรุปงานสดให้ทีม', 'รุ่นไม่ตั้งราคา (โหมด Offer เช่น MacBook) เก็บชื่อ เบอร์ รายละเอียดก่อนส่ง — ห้ามส่งมือเปล่า', 'ยังไม่มีเบอร์ลูกค้า = ชวนฝากเบอร์ไว้ให้ติดต่อกลับ'] },
+];
+
+// รวมโหนดพฤติกรรมเข้ากราฟ (id คงที่ bh_*) — ตำแหน่ง/เส้นที่ลากไว้คงเดิม แต่
+// ป้ายและกติกา sync จากระบบทุกครั้ง (แก้ไม่ได้จากหน้านี้ — แก้ผ่านการเทรน)
+function mergeBehaviorNodes(g: KbGraphRec, behaviors: typeof BEHAVIOR_FALLBACK) {
+  g.nodes = g.nodes || {};
+  g.edges = g.edges || {};
+  behaviors.forEach((b, i) => {
+    const id = `bh_${b.key}`;
+    const prev = g.nodes![id];
+    g.nodes![id] = {
+      label: b.label, emoji: b.emoji, type: 'behavior', rules: b.rules,
+      x: prev ? prev.x : -560 + i * 230,
+      y: prev ? prev.y : 430 + (i % 2) * 90,
+    };
+    if (!Object.values(g.edges!).some((e) => e.to === id)) {
+      g.edges![`eb_${b.key}`] = { from: 'root', to: id };
+    }
+  });
 }
 interface KbGraphRec {
   nodes?: Record<string, KbNodeRec>;
@@ -120,7 +155,25 @@ function LiveNode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { root: RootNode, kbcat: CategoryNode, kblive: LiveNode };
+function BehaviorNode({ data, selected }: NodeProps) {
+  const d = data as { label: string; emoji?: string; ruleCount: number };
+  return (
+    <div className={`min-w-[168px] max-w-[210px] bg-white rounded-2xl border-2 px-4 py-3 shadow-md ${selected ? 'border-blue-500' : 'border-indigo-300'}`}>
+      <Handle type="target" position={Position.Top} className="!bg-indigo-400 !w-3 !h-3" />
+      <Handle type="source" position={Position.Bottom} className="!bg-indigo-400 !w-3 !h-3" />
+      <div className="flex items-center gap-2">
+        <span className="text-lg leading-none">{d.emoji || '⚙️'}</span>
+        <span className="font-black text-[13px] text-slate-800 leading-tight">{d.label}</span>
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600">กติการะบบ</span>
+        <span className="text-[10px] font-bold text-slate-400">{d.ruleCount} กติกา</span>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { root: RootNode, kbcat: CategoryNode, kblive: LiveNode, kbbehavior: BehaviorNode };
 
 // ---------- Page ----------
 
@@ -147,17 +200,19 @@ export default function ChatKnowledgeGraph() {
 
   // ---- load / seed ----
   useEffect(() => {
-    get(ref(db, 'settings/chat_kb'))
-      .then((snap) => {
-        const g: KbGraphRec = snap.exists() ? (snap.val() as KbGraphRec) : seedGraph();
+    Promise.all([
+      get(ref(db, 'settings/chat_kb')).catch(() => null),
+      get(ref(db, 'settings/chat_ai_meta')).catch(() => null),
+    ])
+      .then(([kbSnap, metaSnap]) => {
+        const g: KbGraphRec = kbSnap && kbSnap.exists() ? (kbSnap.val() as KbGraphRec) : seedGraph();
         if (!g.nodes || !g.nodes.root) g.nodes = { ...seedGraph().nodes, ...(g.nodes || {}) };
+        const meta = metaSnap && metaSnap.exists() ? metaSnap.val() : null;
+        if (meta) setLogicMeta(meta);
+        mergeBehaviorNodes(g, Array.isArray(meta?.behaviors) && meta.behaviors.length ? meta.behaviors : BEHAVIOR_FALLBACK);
         hydrate(g);
       })
-      .catch(() => { toast.error('โหลดคลังคำตอบไม่สำเร็จ'); hydrate(seedGraph()); })
       .finally(() => setLoading(false));
-    get(ref(db, 'settings/chat_ai_meta'))
-      .then((snap) => { if (snap.exists()) setLogicMeta(snap.val()); })
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -166,12 +221,13 @@ export default function ChatKnowledgeGraph() {
     setRecs(nrecs);
     setNodes(Object.entries(nrecs).map(([id, n]) => ({
       id,
-      type: n.type === 'root' ? 'root' : n.type === 'live' ? 'kblive' : 'kbcat',
+      type: n.type === 'root' ? 'root' : n.type === 'live' ? 'kblive' : n.type === 'behavior' ? 'kbbehavior' : 'kbcat',
       position: { x: Number(n.x) || 0, y: Number(n.y) || 0 },
       deletable: n.type === 'custom',
       data: {
         label: n.label, emoji: n.emoji, enabled: n.enabled !== false,
         live_key: n.live_key, count: Object.keys(n.items || {}).length,
+        ruleCount: (n.rules || []).length,
       },
     })));
     setEdges(Object.entries(g.edges || {}).map(([id, e]) => ({
@@ -383,7 +439,7 @@ export default function ChatKnowledgeGraph() {
               <span className="text-xl">{sel.type === 'live' ? '🔗' : sel.emoji || '💬'}</span>
               <div className="flex-1 min-w-0">
                 <p className="font-black text-sm text-slate-800 truncate">{sel.label}</p>
-                <p className="text-[10px] font-bold text-slate-400">{sel.type === 'live' ? 'ดึงสดจากระบบ — แก้ที่หน้าจัดการจริง' : 'หมวดคำตอบที่คุณเขียนเอง'}</p>
+                <p className="text-[10px] font-bold text-slate-400">{sel.type === 'live' ? 'ดึงสดจากระบบ — แก้ที่หน้าจัดการจริง' : sel.type === 'behavior' ? 'กติกาพฤติกรรมจากระบบ — แก้ผ่านการเทรน' : 'หมวดคำตอบที่คุณเขียนเอง'}</p>
               </div>
               <button onClick={() => setSelectedId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"><X size={16} /></button>
             </div>
@@ -396,6 +452,28 @@ export default function ChatKnowledgeGraph() {
                     className="mt-3 inline-flex items-center gap-1.5 text-xs font-black text-amber-700 hover:text-amber-900">
                     ไปหน้าจัดการจริง <ExternalLink size={12} />
                   </Link>
+                </div>
+              ) : sel.type === 'behavior' ? (
+                <div className="space-y-3">
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+                    <p className="text-[11px] font-black text-indigo-700 uppercase tracking-wide mb-2">กติกาที่ระบบบังคับใช้จริงในขั้นนี้</p>
+                    <ul className="space-y-2">
+                      {(sel.rules || []).map((r, i) => (
+                        <li key={i} className="flex gap-2 text-xs text-slate-700 leading-relaxed">
+                          <span className="shrink-0 w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-black flex items-center justify-center mt-0.5">{i + 1}</span>
+                          <span>{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      โหนดนี้คือ <b>สมองพฤติกรรม</b> — แก้ไม่ได้จากหน้านี้ เพราะเป็นกติกาในโค้ดระบบ
+                      (อัปเดตผ่านการเทรน: ส่งเคสแชทที่หลุด + คำตอบที่ควรเป็น ให้ทีมพัฒนาแปลงเป็นกติกา+เทสต์กันถอยหลัง).
+                      ใช้โหนดนี้วางแผนเทรนได้เลย: <b>ลากเส้น</b>จากขั้นที่มีปัญหาไปยังหมวดความรู้ที่ต้องเติม
+                      หรือเพิ่มหมวดใหม่เชื่อมกับขั้นนั้นเพื่อกำหนดคำตอบที่ AI ควรใช้ในจังหวะนั้น
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <>
