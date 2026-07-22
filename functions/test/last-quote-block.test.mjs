@@ -551,5 +551,27 @@ const pfPartial = __test.pickupFeeNote(200, { name: "โปรลด", discount:
 check("partial-discount note shows before and after", pfPartial.includes("200") && pfPartial.includes("100"));
 check("no-promo note unchanged in spirit", __test.pickupFeeNote(86, null, 86).includes("ค่าประมาณจากทำเล"));
 
+// --- handler declaration-order guard (the "ipad 6 ระบบขัดข้อง" crash) --------
+// A refactor moved `const contactGateWillBlock` BELOW the announcedQuote
+// guard that reads it — every turn whose draft narrated a quote crashed on
+// the TDZ ReferenceError and a real customer got "ระบบขัดข้องชั่วคราว"
+// mid-assessment. The handler body never runs in this offline suite, so we
+// assert the ORDER in the source itself.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+const srcPath = join(dirname(fileURLToPath(import.meta.url)), "..", "chat-ai.js");
+const src = readFileSync(srcPath, "utf8");
+const declAt = src.indexOf("const contactGateWillBlock");
+const useAt = src.indexOf("announcedQuote && contactGateWillBlock");
+check("contactGateWillBlock declared before the recovery guard uses it", declAt > 0 && useAt > 0 && declAt < useAt);
+const markDeclAt = src.indexOf("const markContactAsked");
+const markUseAt = src.indexOf("await markContactAsked()");
+check("markContactAsked declared before first use", markDeclAt > 0 && markUseAt > 0 && markDeclAt < markUseAt);
+// Canned pre-card asks must stay neutral — they can fire while the model
+// match is ambiguous ("ipad 6" = Air 6 / mini 6 / Gen 6).
+check("no canned line overclaims รับซื้อแน่นอน", !src.includes('"รุ่นนี้เรารับซื้อแน่นอนครับ'));
+check("no canned line still advertises skipping", !src.includes("ไม่สะดวกให้ก็เดินหน้าต่อได้"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
