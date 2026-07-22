@@ -10,9 +10,10 @@ import '@xyflow/react/dist/style.css';
 import { Link } from 'react-router-dom';
 import {
   Brain, Plus, Save, X, Trash2, ExternalLink, Tag, Coins, MapPin,
-  MessageSquareText, Power, GripVertical, LayoutGrid,
+  MessageSquareText, Power, GripVertical, LayoutGrid, Sparkles,
 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
+import { TRAINING_PACK } from '../../data/martinTrainingPack';
 
 // =============================================================================
 // คลังคำตอบ AI แบบใยแมงมุม — settings/chat_kb
@@ -321,6 +322,65 @@ export default function ChatKnowledgeGraph() {
     markDirty();
   };
 
+  // นำเข้าชุดเทรนเริ่มต้น (TRAINING_PACK): เพิ่มเฉพาะหมวด/คำตอบที่ยังไม่มี —
+  // จับคู่หมวดด้วยชื่อ (ตัดช่องว่าง) และกันคำตอบซ้ำด้วยตัวคำถาม จึงกดซ้ำได้
+  // ปลอดภัย ไม่ทับของที่แอดมินแก้เองแล้ว. ยังต้องกด "บันทึก" เพื่อคงถาวร
+  const importTrainingPack = () => {
+    if (!confirm('นำเข้าชุดเทรนเริ่มต้น (8 หมวด 41 คำตอบ)? เพิ่มเฉพาะหมวด/คำตอบที่ยังไม่มี ไม่ทับของเดิม')) return;
+    const norm = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase();
+    let addedCats = 0;
+    let addedItems = 0;
+    const nextRecs = { ...recs };
+    const newFlowNodes: typeof nodes = [];
+    const newFlowEdges: typeof edges = [];
+    let customCount = Object.values(nextRecs).filter((r) => r.type === 'custom').length;
+    for (const cat of TRAINING_PACK) {
+      let id = Object.keys(nextRecs).find(
+        (k) => nextRecs[k].type === 'custom' && norm(nextRecs[k].label) === norm(cat.label)
+      );
+      if (!id) {
+        id = uid();
+        nextRecs[id] = {
+          label: cat.label, emoji: cat.emoji, type: 'custom', enabled: true,
+          x: 560, y: -190 + customCount * 190, items: {},
+        };
+        customCount += 1;
+        addedCats += 1;
+        newFlowNodes.push({
+          id, type: 'kbcat', position: { x: nextRecs[id].x, y: nextRecs[id].y }, deletable: true,
+          data: { label: cat.label, emoji: cat.emoji, enabled: true, count: 0 },
+        });
+        newFlowEdges.push({ id: uid(), source: 'root', target: id, style: { strokeWidth: 2 } });
+      }
+      const rec = nextRecs[id];
+      const items = { ...(rec.items || {}) };
+      const existingQs = new Set(Object.values(items).map((it) => norm(it.q)));
+      let order = Object.values(items).reduce((m, it) => Math.max(m, Number(it.order) || 0), 0);
+      for (const it of cat.items) {
+        if (existingQs.has(norm(it.q))) continue;
+        order += 1;
+        items[uid()] = { q: it.q, a: it.a, order };
+        addedItems += 1;
+      }
+      nextRecs[id] = { ...rec, items };
+    }
+    if (addedCats === 0 && addedItems === 0) {
+      toast.info('มีครบทุกข้อแล้ว — ไม่มีอะไรให้เพิ่ม');
+      return;
+    }
+    setRecs(nextRecs);
+    if (newFlowNodes.length) setNodes((ns) => [...ns, ...newFlowNodes]);
+    if (newFlowEdges.length) setEdges((es) => [...es, ...newFlowEdges]);
+    // refresh answer counts on categories that already existed
+    setNodes((ns) => ns.map((n) =>
+      nextRecs[n.id] && nextRecs[n.id].type === 'custom'
+        ? { ...n, data: { ...n.data, count: Object.keys(nextRecs[n.id].items || {}).length } }
+        : n
+    ));
+    markDirty();
+    toast.success(`นำเข้าแล้ว: หมวดใหม่ ${addedCats} · คำตอบใหม่ ${addedItems} — กด "บันทึก" เพื่อให้มาตินใช้งานจริง`);
+  };
+
   // จัดเรียงอัตโนมัติ (ปุ่ม "จัดเรียงใหม่"): มาตินกลาง · ข้อมูลสดซ้าย · หมวดคำตอบ
   // ขวา · สายพฤติกรรมไหลลงตามลำดับการขายจริง พร้อมใบกติกาห้อยขวาของขั้นตัวเอง —
   // เลย์เอาต์ที่เจ้าของจัดเองยังอยู่จนกว่าจะกดปุ่มนี้ (แล้วต้องกดบันทึกถึงคงถาวร)
@@ -422,6 +482,9 @@ export default function ChatKnowledgeGraph() {
           <p className="text-[11px] text-slate-400 font-bold">ลากจัดผัง · ต่อเส้นหมวดแม่-ลูก · คลิกหมวดเพื่อตั้งคำตอบ — AI ใช้ตอบลูกค้าทันทีหลังบันทึก</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={importTrainingPack} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-xs font-black transition-colors">
+            <Sparkles size={14} /> นำเข้าชุดเทรน
+          </button>
           <button onClick={rearrange} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 text-xs font-black transition-colors">
             <LayoutGrid size={14} /> จัดเรียงใหม่
           </button>

@@ -702,5 +702,24 @@ check("FAQ no longer claims rider pickup is free of delivery fee", !src.includes
 check("FAQ no longer claims zero service fees outright", !src.includes('a: "ไม่คิดค่าบริการใดๆ'));
 check("FAQ fee answers point to the promo + pre-confirm quote", src.includes("บางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ"));
 
+// --- binary battery sets (iPhone 11 "แจ้ง 70% แต่การ์ดคิดปกติ" leak) ----------
+// Live condition set has only "ปกติ" / "แบตเตอรี่เสื่อม" — no numeric ranges,
+// so the range scan returned null and the quote deducted nothing. Below 80%
+// (Apple's service threshold) must map to the degraded option; 80%+ correctly
+// stays null (= ปกติ). Range-labeled sets keep exact bucketing.
+const BIN_BATTERY = [
+  { id: "b_ok", label: "ปกติ" },
+  { id: "b_bad", label: "แบตเตอรี่เสื่อม" },
+];
+check("70% on a binary set picks the degraded option", __test.pickBatteryOptionId(BIN_BATTERY, 70) === "b_bad");
+check("79% on a binary set picks the degraded option", __test.pickBatteryOptionId(BIN_BATTERY, 79) === "b_bad");
+check("85% on a binary set stays null (= ปกติ)", __test.pickBatteryOptionId(BIN_BATTERY, 85) === null);
+const RANGE_BATTERY = [
+  { id: "r_hi", label: "90% ขึ้นไป" },
+  { id: "r_mid", label: "80-89%" },
+  { id: "r_low", label: "แบตต่ำกว่า 80% (Service)" },
+];
+check("range-labeled sets still bucket exactly", __test.pickBatteryOptionId(RANGE_BATTERY, 84) === "r_mid" && __test.pickBatteryOptionId(RANGE_BATTERY, 70) === "r_low");
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
