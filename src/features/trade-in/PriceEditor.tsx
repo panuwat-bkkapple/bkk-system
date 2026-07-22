@@ -3,7 +3,7 @@
 import { getAuth } from 'firebase/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive
+  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive, Tag
 } from 'lucide-react';
 import { ref, push, update, remove, onValue, get } from 'firebase/database';
 import { db, app } from '../../api/firebase';
@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 
 import { CATEGORY_SCHEMAS, resolveCategorySchema } from './constants/categorySchemas';
 import { getCategoryIcon } from './constants/categoryIcons';
+import { generateModelAliases } from '../../utils/modelAliases';
 import { EngineSettingsModal } from './modals/EngineSettingsModal';
 import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
@@ -368,6 +369,41 @@ export const PriceEditor = () => {
   // One-tap import of the discontinued ("งดรับซื้อ", isActive:false) catalogue.
   // Runs from the admin session (works on iPhone), idempotent: skips any model
   // whose name already exists.
+  // เติมชื่อเรียก (alias ไทย/อังกฤษ) อัตโนมัติทุกรุ่นด้วย generator กติกาคงที่
+  // (src/utils/modelAliases.ts) — เติมเฉพาะช่องที่ยังว่าง ไม่ทับที่แอดมินกรอกเอง
+  // กดซ้ำได้เสมอ (รุ่นที่เพิ่มใหม่ภายหลังจะถูกเติมในรอบถัดไป)
+  const [fillingAliases, setFillingAliases] = useState(false);
+  const handleFillAliases = async () => {
+    if (fillingAliases) return;
+    if (!confirm('เติมชื่อเรียกทั่วไป (ไทย/อังกฤษ) อัตโนมัติให้ทุกรุ่นที่ยังไม่มี?\nช่องที่กรอกไว้แล้วจะไม่ถูกทับ')) return;
+    setFillingAliases(true);
+    try {
+      const updates: Record<string, string> = {};
+      let filled = 0;
+      let models = 0;
+      modelsData.forEach((m: any) => {
+        if (!m?.id || !m?.name) return;
+        const gen = generateModelAliases(m.name);
+        const needTh = !(typeof m.alias_th === 'string' && m.alias_th.trim());
+        const needEn = !(typeof m.alias_en === 'string' && m.alias_en.trim());
+        if (!needTh && !needEn) return;
+        models++;
+        if (needTh && gen.alias_th) { updates[`models/${m.id}/alias_th`] = gen.alias_th; filled++; }
+        if (needEn && gen.alias_en) { updates[`models/${m.id}/alias_en`] = gen.alias_en; filled++; }
+      });
+      if (!Object.keys(updates).length) {
+        toast.success('ทุกรุ่นมีชื่อเรียกครบแล้ว');
+        return;
+      }
+      await update(ref(db), updates);
+      toast.success(`เติมชื่อเรียกให้ ${models} รุ่น (${filled} ช่อง) แล้ว — AI และช่องค้นหาใช้ได้ทันที`);
+    } catch {
+      toast.error('เติมชื่อเรียกไม่สำเร็จ');
+    } finally {
+      setFillingAliases(false);
+    }
+  };
+
   const [importingDiscontinued, setImportingDiscontinued] = useState(false);
   const handleImportDiscontinued = async () => {
     if (importingDiscontinued) return;
@@ -516,6 +552,7 @@ export const PriceEditor = () => {
           <button onClick={() => setIsCategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><LayoutGrid size={18} className="text-emerald-500" /> Manage Categories</button>
           <button onClick={() => setIsSubcategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Layers size={18} className="text-violet-500" /> Subcategories</button>
           <button onClick={() => setIsSeriesModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><FolderTree size={18} className="text-blue-500" /> Manage Series</button>
+          <button onClick={handleFillAliases} disabled={fillingAliases} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm disabled:opacity-50"><Tag size={18} className="text-amber-500" /> {fillingAliases ? 'กำลังเติมชื่อเรียก...' : 'เติมชื่อเรียกอัตโนมัติ'}</button>
           <button onClick={handleImportDiscontinued} disabled={importingDiscontinued} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm disabled:opacity-50"><Archive size={18} className="text-slate-400" /> นำเข้ารุ่นงดรับซื้อ</button>
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
         </div>
