@@ -550,6 +550,23 @@ function singleResultVariantNote(model) {
 // Bangkok while the FREERIDE waive promo made it free at checkout. Server-side
 // fallback, in priority order: explicit input → models found by search THIS
 // turn → the last issued card → the last search saved in ai_state. Pure.
+// How to SAY the pickup fee like a human (owner's copy direction). Real miss:
+// with the waive promo applied the reply said "ค่าบริการรับถึงที่ประมาณ 0 บาท
+// (ฟรี)" — nobody talks like that. Correct shape: normal fee first, then the
+// promo as good news. Pure; returned as the tool note so the phrasing rides
+// the data it describes.
+function pickupFeeNote(fee, promo, effective) {
+  const base =
+    "ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout — แจ้งลูกค้าด้วยคำว่า 'ประมาณ' เสมอ ห้ามการันตีตัวเลข";
+  if (promo && effective === 0) {
+    return `วิธีแจ้งลูกค้า (ห้ามพูดว่า "ประมาณ 0 บาท" เด็ดขาด): บอกราคาปกติก่อนแล้วตามด้วยข่าวดี เช่น "ปกติค่าบริการรับถึงที่ประมาณ ${Number(fee).toLocaleString("th-TH")} บาทครับ แต่ตอนนี้มีโปรโมชั่นฟรีค่าบริการ${promo.name ? ` (${promo.name})` : ""} — เคสของคุณรับฟรีเลยครับ". ${base}`;
+  }
+  if (promo && effective > 0) {
+    return `วิธีแจ้งลูกค้า: บอกราคาปกติก่อนแล้วตามด้วยส่วนลด เช่น "ปกติประมาณ ${Number(fee).toLocaleString("th-TH")} บาท ตอนนี้มีส่วนลด${promo.name ? ` (${promo.name})` : ""} เหลือประมาณ ${Number(effective).toLocaleString("th-TH")} บาทครับ". ${base}`;
+  }
+  return `ค่าบริการเป็นค่าประมาณจากทำเลที่ลูกค้าบอก ${base}`;
+}
+
 function resolvePromoModelIds(inputModelId, state, aiState) {
   if (inputModelId) return [String(inputModelId)];
   if (state && Array.isArray(state.lastSearchModelIds) && state.lastSearchModelIds.length) {
@@ -1305,8 +1322,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.12";
+const LOGIC_VERSION = "2026-07-22.13";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "วิธีแจ้งค่าบริการแบบธรรมชาติ: บอกราคาปกติก่อนแล้วตามด้วยโปร (ห้ามพูด 'ประมาณ 0 บาท') เช่น ปกติ 86 บาท ตอนนี้ฟรีค่าบริการเขต กทม-ปริมณฑล" },
   { at: "2026-07-22", text: "เช็คโปรค่าไรเดอร์ของรุ่นก่อนแจ้งค่าบริการเสมอ — ระบบหา model_id เองจากบริบทแม้ AI ลืมส่ง (เคส iPhone 16 Pro Max โดนแจ้ง 86 บาททั้งที่เข้าโปรฟรี)" },
   { at: "2026-07-22", text: "ห้ามอ้างว่ามีหน้าร้าน/สาขานอกเหนือจากข้อมูลสาขาจริง (เคสเซ็นทรัลลาดพร้าว) และทำเลใหม่ทุกจุดต้องเช็คพื้นที่/ค่าบริการใหม่จากระบบเสมอ" },
   { at: "2026-07-22", text: "ขอชื่อ/เบอร์แบบธรรมชาติ ไม่พูดว่า 'ข้ามได้/ไม่บังคับ' — ลูกค้าเงียบก็คุยต่อ และขอซ้ำได้ครั้งเดียวตอนใกล้ออกใบเสนอราคา" },
@@ -2139,7 +2157,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           free_pickup: effective === 0,
           eta: zone.etaText || null,
           nearest_branch: branchName,
-          note: "ค่าบริการเป็นค่าประมาณจากทำเลที่ลูกค้าบอก ยอดจริงระบบคำนวณตอนลูกค้าปักหมุดที่หน้า Checkout — แจ้งลูกค้าด้วยคำว่า 'ประมาณ' เสมอ ห้ามการันตีตัวเลข",
+          note: pickupFeeNote(fee, promo, effective),
         };
       }
 
@@ -3407,6 +3425,7 @@ module.exports = {
     ipadAirGenToken,
     ipadAirGenAliasNote,
     resolvePromoModelIds,
+    pickupFeeNote,
     singleResultVariantNote,
     extractChoices,
     priceLeakBeforeCard,

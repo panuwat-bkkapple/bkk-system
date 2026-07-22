@@ -540,5 +540,16 @@ check("last issued card beats stale last_search", JSON.stringify(rp("", {}, { la
 check("ai_state last_search is the final fallback", JSON.stringify(rp("", {}, { last_search: { results: [{ model_id: "a" }, { model_id: "b" }] } })) === JSON.stringify(["a", "b"]));
 check("no context at all yields empty", JSON.stringify(rp("", {}, {})) === JSON.stringify([]));
 
+// --- natural fee phrasing (the "ประมาณ 0 บาท" case) --------------------------
+// Owner: say the normal fee first, THEN the promo as good news — never
+// "ค่าบริการประมาณ 0 บาท (ฟรี)".
+const pfFree = __test.pickupFeeNote(86, { name: "ส่วนลดค่าไรเดอร์ [Bangkok]", discount: 86 }, 0);
+check("free-promo note forbids saying 0 baht", pfFree.includes('ห้ามพูดว่า "ประมาณ 0 บาท"'));
+check("free-promo note carries the normal fee", pfFree.includes("ประมาณ 86 บาท"));
+check("free-promo note names the promo", pfFree.includes("ส่วนลดค่าไรเดอร์ [Bangkok]"));
+const pfPartial = __test.pickupFeeNote(200, { name: "โปรลด", discount: 100 }, 100);
+check("partial-discount note shows before and after", pfPartial.includes("200") && pfPartial.includes("100"));
+check("no-promo note unchanged in spirit", __test.pickupFeeNote(86, null, 86).includes("ค่าประมาณจากทำเล"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
