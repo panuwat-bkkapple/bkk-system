@@ -1105,6 +1105,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ)`,
+    `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และห้ามใช้กับข้อความที่ถามหลายเรื่องพร้อมกัน (ชุดคำถามสภาพ+ขอเบอร์ของข้อ 6 ขั้นที่ 3 ให้ถามแบบข้อความปกติ)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
@@ -1228,8 +1229,30 @@ function stripMarkdown(text) {
     .replace(/^#{1,4}\s+/gm, "");
 }
 
+// Quick-reply chips (owner's UX call): when the AI asks a closed question it
+// ends the message with a trailing "[ตัวเลือก: A | B | C]" line (prompt rule
+// 2.3). The marker is stripped from the customer-visible text and stored as
+// message.choices — the widget renders tappable buttons, typing stays open.
+// Options come from tool data by rule, so a tapped answer is always spelled
+// exactly like the catalog. Malformed markers (fewer than 2 options) are
+// stripped silently — never show raw syntax to a customer.
+function extractChoices(rawText) {
+  const raw = String(rawText || "");
+  const m = raw.match(/\[ตัวเลือก\s*:\s*([^\]]*)\]\s*$/);
+  if (!m) return { text: raw, choices: null };
+  const text = raw.slice(0, m.index).trim();
+  const choices = m[1]
+    .split("|")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((c, i, arr) => arr.indexOf(c) === i && c.length <= 48)
+    .slice(0, 8);
+  if (choices.length < 2) return { text: text || raw.trim(), choices: null };
+  return { text: text || "เลือกได้เลยครับ", choices };
+}
+
 async function writeAiMessage(db, convoId, assistantName, rawText) {
-  const text = stripMarkdown(rawText);
+  const { text, choices } = extractChoices(stripMarkdown(rawText));
   const now = Date.now();
   await db.ref(`inbox/${convoId}/messages`).push({
     sender: "ai",
@@ -1237,6 +1260,7 @@ async function writeAiMessage(db, convoId, assistantName, rawText) {
     senderRole: "ai",
     kind: "text",
     text,
+    ...(choices ? { choices } : {}),
     timestamp: now,
     read: false,
   });
@@ -3161,6 +3185,7 @@ module.exports = {
     ipadAirGenToken,
     ipadAirGenAliasNote,
     singleResultVariantNote,
+    extractChoices,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
