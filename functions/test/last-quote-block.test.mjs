@@ -684,5 +684,15 @@ check("prep answer: shop does the reset in front of the customer", sysNoCust.inc
 check("prep answer: never tell customers to self-wipe beforehand", sysNoCust.includes('อย่าแนะนำให้ลูกค้าล้างเครื่องเองก่อนมา'));
 check("prep answer: the one required step is iCloud sign-out", sysNoCust.includes("Sign out iCloud/ปิด Find My ให้ได้"));
 
+// --- the temperature-deprecation outage (the WHOLE haiku-only mystery) -------
+// Live 400 from Sonnet 5: "`temperature` is deprecated for this model" —
+// one legacy param made every Sonnet-5 request fail and silently fall back
+// to haiku (27/27 then 46/46 calls). Known rejectors skip the param up
+// front; unknown future rejectors get one same-model retry without it.
+check("sonnet-5 never gets the temperature param", src.includes("NO_TEMPERATURE_MODEL_RE") && /NO_TEMPERATURE_MODEL_RE = \/claude-\(sonnet-5/.test(src));
+check("temperature-deprecated 400 retries on the SAME model", src.includes("delete body.temperature"));
+check("retry guard matches the live error text", /temperature\[\\s\\S\]\{0,40\}deprecated/.test(src));
+check("haiku still gets the low-temperature guard", src.includes("body.temperature = 0.2"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
