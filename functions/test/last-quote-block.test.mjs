@@ -694,5 +694,13 @@ check("temperature-deprecated 400 retries on the SAME model", src.includes("dele
 check("retry guard matches the live error text", /temperature\[\\s\\S\]\{0,40\}deprecated/.test(src));
 check("haiku still gets the low-temperature guard", src.includes("body.temperature = 0.2"));
 
+// --- stale FAQ vs live fee system --------------------------------------------
+// Three FAQ entries predated the distance-based rider fee and told customers
+// pickup was free ("ไม่มีค่าจัดส่ง", "ไม่คิดค่าบริการใดๆ") — contradicting the
+// checkout total the customer then sees. FAQ must match the fee system.
+check("FAQ no longer claims rider pickup is free of delivery fee", !src.includes("Rider รับถึงบ้าน (กทม.+ปริมณฑล) ไม่มีค่าจัดส่ง"));
+check("FAQ no longer claims zero service fees outright", !src.includes('a: "ไม่คิดค่าบริการใดๆ'));
+check("FAQ fee answers point to the promo + pre-confirm quote", src.includes("บางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
