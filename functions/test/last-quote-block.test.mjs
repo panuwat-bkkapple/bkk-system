@@ -447,5 +447,19 @@ check("single-option marker stripped silently", ecBad.choices === null && ecBad.
 check("duplicate and empty options dropped", JSON.stringify(__test.extractChoices("x\n[ตัวเลือก: A | A | | B]").choices) === JSON.stringify(["A", "B"]));
 check("marker-only message still renders text", __test.extractChoices("[ตัวเลือก: 64GB | 256GB]").text.length > 0);
 
+// --- history-poisoning guard (Air 5 sizes repeated to stay consistent) ------
+// After rule 2.2 shipped the AI STILL asked "10.9 หรือ 12.9 นิ้ว" on the next
+// turn — its own earlier wrong message sat in chat history and consistency
+// beat the new rule. The last_search block (re-injected every turn) now says
+// data beats history, and rule 2.2 says old self-messages are not a spec
+// source.
+const lsGuard = buildLastSearchBlock({
+  at: 1,
+  results: [{ model_id: "air5", name: "iPad Air 5 (ชิป M1, 2022)", variants: [{ name: "Wi-Fi | 64GB", used_price: 8000 }] }],
+});
+check("last_search block: no size axis = one size, never ask", lsGuard.includes("ห้ามถาม 'จอกี่นิ้ว'"));
+check("last_search block: own old message loses to data", lsGuard.includes("ข้อความเก่านั้นผิด"));
+check("rule 2.2: old self-messages are not a spec source", sys.includes("ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
