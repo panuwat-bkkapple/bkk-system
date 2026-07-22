@@ -835,6 +835,12 @@ async function loadModelsLight(db) {
 // Claude API
 // ---------------------------------------------------------------------------
 
+// Newer models reject the temperature param outright (live 400 from Sonnet 5:
+// "`temperature` is deprecated for this model") — that single param made EVERY
+// Sonnet-5 request fail and silently fall back to haiku. Known rejectors are
+// skipped up front; unknown future ones are caught by the 400-retry below.
+const NO_TEMPERATURE_MODEL_RE = /claude-(sonnet-5|opus-4-[789]|fable|mythos)/;
+
 async function callClaude({ apiKey, model, system, messages, tools, toolChoice }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
@@ -842,25 +848,40 @@ async function callClaude({ apiKey, model, system, messages, tools, toolChoice }
     const body = {
       model,
       max_tokens: 2048,
-      // ต่ำเข้าไว้: บอตนี้ต้องตอบจากข้อเท็จจริง (tool/FAQ) ไม่ใช่แต่งเอง —
-      // default ของ API คือ 1.0 (สุ่มสูง) ซึ่งทำให้ "เดา/หลุดโฟกัส"
-      temperature: 0.2,
       system,
       messages,
       tools,
     };
+    // ต่ำเข้าไว้: บอตนี้ต้องตอบจากข้อเท็จจริง (tool/FAQ) ไม่ใช่แต่งเอง —
+    // default ของ API คือสุ่มสูงกว่า ซึ่งทำให้ "เดา/หลุดโฟกัส". ส่งเฉพาะ
+    // โมเดลที่ยังรับพารามิเตอร์นี้เท่านั้น (ดู NO_TEMPERATURE_MODEL_RE)
+    if (!NO_TEMPERATURE_MODEL_RE.test(String(model))) body.temperature = 0.2;
     if (toolChoice) body.tool_choice = toolChoice;
-    const res = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const bodyText = await res.text();
+    const post = async (b) => {
+      const res = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify(b),
+        signal: controller.signal,
+      });
+      return { res, bodyText: await res.text() };
+    };
+    let { res, bodyText } = await post(body);
+    if (
+      !res.ok &&
+      res.status === 400 &&
+      "temperature" in body &&
+      /temperature[\s\S]{0,40}deprecated/i.test(bodyText)
+    ) {
+      // Future model dropped temperature support too — retry once without it
+      // on the SAME model instead of degrading to the fallback model.
+      delete body.temperature;
+      ({ res, bodyText } = await post(body));
+    }
     if (!res.ok) {
       throw new Error(`Claude API HTTP ${res.status}: ${bodyText.slice(0, 300)}`);
     }
@@ -1386,8 +1407,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.21";
+const LOGIC_VERSION = "2026-07-22.22";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "Sonnet 5 กลับมาทำงานแล้ว — พารามิเตอร์เก่า (temperature) ทำให้ทุกคำขอ Sonnet ถูก API ปฏิเสธและระบบถอยเป็น Haiku เงียบๆ มาตลอด ตอนนี้ส่งเฉพาะโมเดลที่รับ + มีตัวลองซ้ำอัตโนมัติกันเคสเดียวกันในโมเดลรุ่นหน้า" },
   { at: "2026-07-22", text: "คำตอบ 'เตรียมเครื่องก่อนขาย' นิ่งเป็นเสียงเดียว: ลูกค้าไม่ต้อง Factory Reset มาเอง (ร้าน reset ให้ดูต่อหน้า + ออก Data Wipe Certificate) เตรียมแค่ Sign out iCloud — ห้ามแนะนำให้ล้างเครื่องเองก่อนมา (เสี่ยงลืม sign out แล้วเครื่องติด Activation Lock)" },
   { at: "2026-07-22", text: "ปลดล็อกความฉลาดนอกโซนข้อมูลร้าน: ความรู้ทั่วไป/how-to (เช็คแบต, ปิด Find My, สำรองข้อมูล, เตรียมเครื่องก่อนขาย ฯลฯ) ตอบเองได้เต็มที่เหมือนผู้เชี่ยวชาญ ห้ามโยนเจ้าหน้าที่ — เฉพาะราคา/ค่าบริการ/โปร/สาขา/นโยบายร้าน เท่านั้นที่ยังยึดจากระบบเท่านั้น" },
   { at: "2026-07-22", text: "โหมดคุยเหมือนคนจริง: ประโยคสั้นยาวสลับจังหวะ ภาษาพูดสุภาพ ห้าม bullet/เลขข้อกับลูกค้า ห้ามเอ่ยความเป็น AI เองโดยไม่ถูกถาม — ถ้าลูกค้าถามตรงๆ ตอบตามจริงสั้นๆ แล้วพากลับเข้าเรื่อง (ห้ามโกหกว่าเป็นคน)" },
