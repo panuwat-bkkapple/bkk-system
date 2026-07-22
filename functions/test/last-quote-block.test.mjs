@@ -461,5 +461,15 @@ check("last_search block: no size axis = one size, never ask", lsGuard.includes(
 check("last_search block: own old message loses to data", lsGuard.includes("ข้อความเก่านั้นผิด"));
 check("rule 2.2: old self-messages are not a spec source", sys.includes("ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก"));
 
+// --- chip-driven condition assessment (owner: "ประเมินสภาพ ไม่เป็น chips") --
+// The 5-topic condition bundle asked everything in one long text message —
+// chips could not apply (one question = one chip set). Step 3 is now
+// sequential: contact ask + first condition question with chips, then one
+// topic per message, options summarized from the REAL condition-set labels.
+check("step 3 asks one topic per message with chips", sys.includes('ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3'));
+check("step 3 chips come from real option labels", sys.includes("label ของ option จริงใน get_condition_questions"));
+check("step 3 never re-asks an answered topic", sys.includes("ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ"));
+check("rule 2.3: one message = one question + its chip set", sys.includes("หนึ่งข้อความ = หนึ่งคำถาม"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
