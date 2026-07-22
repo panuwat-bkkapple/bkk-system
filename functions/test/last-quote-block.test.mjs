@@ -471,5 +471,25 @@ check("step 3 chips come from real option labels", sys.includes("label ของ
 check("step 3 never re-asks an answered topic", sys.includes("ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ"));
 check("rule 2.3: one message = one question + its chip set", sys.includes("หนึ่งข้อความ = หนึ่งคำถาม"));
 
+// --- intent chips + pre-card price leak (both from the 10:39 retest) --------
+// (1) The AI attached a "ให้ชื่อและเบอร์" chip to the contact ask; tapping it
+// sent that meaningless phrase and the AI looped back asking again. Chips must
+// be ready-made ANSWERS; intent/acknowledgement chips are dropped in code.
+const ecIntent = __test.extractChoices("ขอชื่อและเบอร์หน่อยครับ\n[ตัวเลือก: ให้ชื่อและเบอร์ | ไม่สะดวก]");
+check("intent chip dropped, too few remain -> no chips", ecIntent.choices === null);
+check("intent chip: text keeps the question", ecIntent.text === "ขอชื่อและเบอร์หน่อยครับ");
+check("real answers unaffected by intent filter", JSON.stringify(__test.extractChoices("x\n[ตัวเลือก: 64GB | 256GB | ตกลง]").choices) === JSON.stringify(["64GB", "256GB"]));
+check("rule 2.3: chips are ready-made answers only", sys.includes('ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น'));
+check("rule 2.3: contact ask never gets its own chips", sys.includes("คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ"));
+// (2) The same reply leaked "รับซื้อประมาณ 8,000-10,000 บาท" before any card —
+// the LLM verifier is probabilistic; this deterministic check backs it up.
+const leak = __test.priceLeakBeforeCard;
+check("price range with commas leaks", leak("ขนาดนี้รับซื้อประมาณ 8,000-10,000 บาท ขึ้นกับสภาพ") === true);
+check("bare price range leaks", leak("ได้ราวๆ 8000 - 10000 บาทครับ") === true);
+check("approx single price leaks", leak("ประเมินไว้ประมาณ 8,500 ครับ") === true);
+check("battery percent range does not leak", leak("แบตอยู่ช่วง 90-100% ไหมครับ") === false);
+check("storage options do not leak", leak("ความจุ 64GB หรือ 256GB ครับ") === false);
+check("plain question does not leak", leak("มีรอยไหมครับ") === false);
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
