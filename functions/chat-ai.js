@@ -1105,7 +1105,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2. ความรู้ในตัวคุณเก่ากว่าปัจจุบัน ร้านรับซื้อรุ่นที่ใหม่กว่าที่คุณรู้จัก — ลูกค้าเอ่ยชื่อรุ่นใดก็ตาม (แม้คุณคิดว่ายังไม่วางขายหรือไม่มีจริง) ต้องเรียก search_models ก่อนเสมอ และเชื่อผลลัพธ์ของ tool เท่านั้น ห้ามสรุปว่ารุ่นใด "ยังไม่มีในระบบ/ยังไม่วางขาย" จากความจำเด็ดขาด`,
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
-    `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด)`,
+    `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
@@ -1236,6 +1236,14 @@ function stripMarkdown(text) {
 // Options come from tool data by rule, so a tapped answer is always spelled
 // exactly like the catalog. Malformed markers (fewer than 2 options) are
 // stripped silently — never show raw syntax to a customer.
+// A chip must BE a ready-made answer ("64GB", "ไม่มีรอย") — tapping it sends
+// that text as the customer's message. Real bug: the AI attached a
+// "ให้ชื่อและเบอร์" chip to the contact ask; tapping sent that meaningless
+// phrase and the AI replied "ขอโทษครับ ลืมถามไป คุณชื่ออะไร..." — a loop.
+// Intent/acknowledgement chips and open-question chips (name, phone) are
+// dropped deterministically; if fewer than 2 real answers remain, no chips.
+const INTENT_CHIP_RE =
+  /ชื่อ.*เบอร์|เบอร์.*ชื่อ|ให้ชื่อ|ให้เบอร์|ให้ข้อมูล|กรอกข้อมูล|^(?:ตกลง|โอเค|ได้เลย|ได้ครับ|รับทราบ|สนใจ|ยืนยัน)$/;
 function extractChoices(rawText) {
   const raw = String(rawText || "");
   const m = raw.match(/\[ตัวเลือก\s*:\s*([^\]]*)\]\s*$/);
@@ -1246,9 +1254,23 @@ function extractChoices(rawText) {
     .map((s) => s.trim())
     .filter(Boolean)
     .filter((c, i, arr) => arr.indexOf(c) === i && c.length <= 48)
+    .filter((c) => !INTENT_CHIP_RE.test(c))
     .slice(0, 8);
   if (choices.length < 2) return { text: text || raw.trim(), choices: null };
   return { text: text || "เลือกได้เลยครับ", choices };
+}
+
+// Deterministic backstop for the contact-before-price policy. The LLM
+// verifier (rule 3 in VERIFIER_SYSTEM) is probabilistic and fail-open — a
+// real reply leaked "รับซื้อประมาณ 8,000-10,000 บาท" before any card. Pure
+// pattern check, used only when no quote card was issued this turn.
+function priceLeakBeforeCard(text) {
+  const t = String(text || "");
+  if (/\d{1,3}(?:,\d{3})+\s*(?:-|–|ถึง)\s*\d{1,3}(?:,\d{3})+/.test(t)) return true;
+  if (/\b\d{4,6}\s*(?:-|–|ถึง)\s*\d{4,6}\s*บาท/.test(t)) return true;
+  if (/(?:ประมาณ|ราวๆ?|คร่าวๆ)\s*\d{1,3}(?:,\d{3})+/.test(t)) return true;
+  if (/(?:ประมาณ|ราวๆ?|คร่าวๆ)\s*\d{4,6}\s*บาท/.test(t)) return true;
+  return false;
 }
 
 async function writeAiMessage(db, convoId, assistantName, rawText) {
@@ -3072,6 +3094,41 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
+        // Deterministic price-leak scrub — contact-before-price is an owner
+        // directive, and the LLM verifier below is probabilistic + fail-open
+        // (a real reply leaked "รับซื้อประมาณ 8,000-10,000 บาท" pre-card).
+        // When no card was issued this turn, any price range / "ประมาณ X บาท"
+        // in the draft gets rewritten out; if the scrub fails, fall back to a
+        // safe continuation line rather than sending numbers.
+        if (finalText && !state.escalated && !quoteOk && priceLeakBeforeCard(finalText)) {
+          console.warn(`[${tag}] ${convoId} price leak before card — scrubbing numbers`);
+          let scrubbed = "";
+          try {
+            const resp = await callClaude({
+              apiKey,
+              model: VERIFIER_MODEL,
+              system:
+                "แก้ร่างข้อความของผู้ช่วยร้านรับซื้อมือถือ: ลบตัวเลขราคา/ช่วงราคา/ยอดเงินทุกตัวออก (นโยบายร้าน: ตัวเลขราคาแสดงบนใบเสนอราคาเท่านั้น) ปรับประโยคให้ลื่น คงคำถามและเนื้อหาอื่นไว้ครบถ้วน รวมบรรทัด [ตัวเลือก: ...] ท้ายข้อความถ้ามี ตอบกลับเป็นข้อความที่แก้แล้วเท่านั้น ห้ามอธิบาย",
+              messages: [{ role: "user", content: finalText }],
+              tools: [],
+            });
+            scrubbed = (resp.content || [])
+              .filter((b) => b.type === "text")
+              .map((b) => b.text)
+              .join("")
+              .trim();
+          } catch (err) {
+            console.warn(`[${tag}] ${convoId} price scrub failed:`, err && err.message);
+          }
+          db.ref(`inbox/${convoId}/ai_state/last_price_leak`)
+            .set({ at: Date.now(), draft: finalText.slice(0, 300) })
+            .catch(() => {});
+          finalText =
+            scrubbed && !priceLeakBeforeCard(scrubbed)
+              ? scrubbed
+              : "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนเดี๋ยวสรุปให้บนใบเสนอราคาเลยครับ ขอสอบถามข้อมูลเพิ่มอีกนิดนะครับ";
+        }
+
         // Verifier gate — vet a genuine AI reply before it reaches the customer.
         // (Skip canned escalation replies; those are safe fixed strings.)
         if (finalText && !state.escalated) {
@@ -3191,6 +3248,7 @@ module.exports = {
     ipadAirGenAliasNote,
     singleResultVariantNote,
     extractChoices,
+    priceLeakBeforeCard,
     searchFaq,
     TOOLS,
     STRONG_MODEL,
