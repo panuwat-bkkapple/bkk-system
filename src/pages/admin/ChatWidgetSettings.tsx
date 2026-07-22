@@ -79,6 +79,9 @@ interface BuiltinKnowledge {
     cache_read_tokens?: number;
     cache_write_tokens?: number;
     by_model?: Record<string, { calls?: number; input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number }>;
+    // Written by callClaudeResilient when the requested model is refused and
+    // the call falls back to the default model — carries the actual API error.
+    last_model_fallback?: { at?: number; requested_model?: string; error?: string };
   } | null;
 }
 const DEFAULTS: ChatWidgetConfig = {
@@ -512,12 +515,26 @@ export default function ChatWidgetSettings() {
                           {(u.cache_read_tokens || 0).toLocaleString()}
                         </p>
                       ))}
-                      {!config.model &&
+                      {(!config.model || config.model.includes('sonnet')) &&
                         !Object.keys(builtin.usage_today.by_model).some((m) => m.includes('sonnet')) && (
                           <p className="text-[11px] text-red-600 font-bold mt-1">
-                            โหมดอัตโนมัติเปิดอยู่แต่ไม่พบ sonnet ในรายการ — โมเดลแรงอาจถูกใช้ไม่ได้ (API key ไม่มีสิทธิ์?) ระบบกำลัง fallback เป็น haiku เงียบๆ ควรตรวจสอบ
+                            ตั้งค่าให้ใช้ Sonnet แต่ไม่พบ sonnet ในรายการที่ให้บริการจริง — ทุกคำขอถูกปฏิเสธแล้วระบบถอยเป็น haiku เงียบๆ ดู error ล่าสุดด้านล่าง
                           </p>
                         )}
+                    </div>
+                  )}
+                  {builtin.usage_today.last_model_fallback && (
+                    <div className="mt-1 p-2 bg-red-50 border border-red-100 rounded-lg">
+                      <p className="text-[11px] text-red-700 font-bold">
+                        คำขอโมเดลถูกปฏิเสธล่าสุด{' '}
+                        {builtin.usage_today.last_model_fallback.at
+                          ? new Date(builtin.usage_today.last_model_fallback.at).toLocaleTimeString('th-TH')
+                          : ''}{' '}
+                        — ขอ <span className="font-mono">{builtin.usage_today.last_model_fallback.requested_model}</span> แล้วระบบถอยไปใช้โมเดลสำรอง
+                      </p>
+                      <p className="text-[11px] text-red-600 font-mono break-all mt-0.5">
+                        {builtin.usage_today.last_model_fallback.error}
+                      </p>
                     </div>
                   )}
                 </div>

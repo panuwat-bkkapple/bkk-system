@@ -881,6 +881,21 @@ async function callClaudeResilient(args) {
       console.warn(
         `[chat-ai] model ${args.model} failed (${err && err.message}); retrying with ${DEFAULT_MODEL}`
       );
+      // Record WHY the strong model was refused — the settings usage panel
+      // surfaces this, since no one can read GCP logs from the admin app.
+      // Live finding: the Sonnet-5 override served 27/27 calls on haiku with
+      // zero visibility into the underlying API error until this existed.
+      try {
+        const { ymd } = bangkokNowParts();
+        getDatabase()
+          .ref(`chat_ai_usage/${ymd}/last_model_fallback`)
+          .set({
+            at: Date.now(),
+            requested_model: String(args.model),
+            error: String((err && err.message) || err).slice(0, 300),
+          })
+          .catch(() => {});
+      } catch { /* diagnostics must never break the reply */ }
       return await callClaude({ ...args, model: DEFAULT_MODEL });
     }
     throw err;
@@ -928,7 +943,10 @@ const VERIFIER_SYSTEM = [
 
 async function verifyReply({ apiKey, userText, reply }) {
   try {
-    const resp = await callClaude({
+    // Resilient: a refused verifier model must DOWNGRADE (haiku still catches
+    // most violations), not silently fail-open — during the Sonnet-5 outage
+    // every reply shipped unverified and a bare price leaked.
+    const resp = await callClaudeResilient({
       apiKey,
       model: VERIFIER_MODEL,
       // Static system → cacheable across every verifier call.
@@ -3436,7 +3454,7 @@ function registerChatAi({ dispatchAdminPush }) {
           console.warn(`[${tag}] ${convoId} price leak before card — scrubbing numbers`);
           let scrubbed = "";
           try {
-            const resp = await callClaude({
+            const resp = await callClaudeResilient({
               apiKey,
               model: VERIFIER_MODEL,
               system: [{
