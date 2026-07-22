@@ -1322,8 +1322,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-22.13";
+const LOGIC_VERSION = "2026-07-22.14";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-22", text: "แก้บั๊กระบบล่มกลางบทสนทนา ('ระบบขัดข้องชั่วคราว' เคส ipad 6) — ตัวแปรภายในถูกย้ายไปประกาศหลังจุดใช้งาน + ข้อความสำรองไม่เคลม 'รับซื้อแน่นอน' กับรุ่นที่ยังกำกวม" },
   { at: "2026-07-22", text: "วิธีแจ้งค่าบริการแบบธรรมชาติ: บอกราคาปกติก่อนแล้วตามด้วยโปร (ห้ามพูด 'ประมาณ 0 บาท') เช่น ปกติ 86 บาท ตอนนี้ฟรีค่าบริการเขต กทม-ปริมณฑล" },
   { at: "2026-07-22", text: "เช็คโปรค่าไรเดอร์ของรุ่นก่อนแจ้งค่าบริการเสมอ — ระบบหา model_id เองจากบริบทแม้ AI ลืมส่ง (เคส iPhone 16 Pro Max โดนแจ้ง 86 บาททั้งที่เข้าโปรฟรี)" },
   { at: "2026-07-22", text: "ห้ามอ้างว่ามีหน้าร้าน/สาขานอกเหนือจากข้อมูลสาขาจริง (เคสเซ็นทรัลลาดพร้าว) และทำเลใหม่ทุกจุดต้องเช็คพื้นที่/ค่าบริการใหม่จากระบบเสมอ" },
@@ -1391,8 +1392,11 @@ function stampLogicMeta(db) {
     .catch(() => { logicMetaStamped = false; });
 }
 
+// Neutral on purpose: this canned line can fire when the model match is
+// still ambiguous ("ipad 6" = Air 6 / mini 6 / Gen 6) — it must not claim
+// "รุ่นนี้เรารับซื้อแน่นอน" for a device we have not pinned down yet.
 const CONTACT_FIRST_ASK =
-  "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+  "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
 
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
@@ -3144,6 +3148,23 @@ function registerChatAi({ dispatchAdminPush }) {
         // button on the card" line or a "ราคาประเมิน X บาท") but never actually
         // created one. Force create_quote_card once; if that still fails, hand
         // to a human — never send a made-up price / a card that does not exist.
+        // Shared by the quote-recovery pre-check below AND the price-scrub
+        // fallback further down: true when create_quote_card would be refused
+        // this turn by the contact-first gate (first card, no phone, contact
+        // never asked). MUST be declared before BOTH users — a refactor once
+        // moved it below the recovery guard and every announcedQuote turn
+        // crashed on the TDZ ReferenceError ("ระบบขัดข้องชั่วคราว" to a real
+        // customer, mid-assessment).
+        const contactGateWillBlock =
+          !(convo.ai_state && convo.ai_state.last_quote) &&
+          !convo.customer_phone &&
+          !state.savedPhone &&
+          (state.contactGatePromptedThisTurn || !(convo.ai_state && convo.ai_state.contact_prompted_at));
+        const markContactAsked = async () => {
+          try {
+            await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
+          } catch { /* next turn just asks again — safe */ }
+        };
         const announcedQuote =
           /กดปุ่ม[\s\S]{0,20}(การ์ด|ใบเสนอราคา)|(ราคาประเมิน|ราคารับซื้อ|ประเมินราคา)[\s\S]{0,25}\d[\d,]{2,}\s*บาท/.test(
             finalText,
@@ -3220,7 +3241,7 @@ function registerChatAi({ dispatchAdminPush }) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
             finalText =
-              "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ก่อนออกใบเสนอราคา ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณ (ไม่สะดวกให้ก็เดินหน้าต่อได้ครับ) และขอถามสภาพเครื่องหน่อยครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+              CONTACT_FIRST_ASK;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
             if (!state.escalated) {
@@ -3260,19 +3281,6 @@ function registerChatAi({ dispatchAdminPush }) {
         // When no card was issued this turn, any price range / "ประมาณ X บาท"
         // in the draft gets rewritten out; if the scrub fails, fall back to a
         // safe continuation line rather than sending numbers.
-        // Shared with the scrub fallback and the quote-recovery pre-check
-        // below: true when create_quote_card would be refused this turn by
-        // the contact-first gate (first card, no phone, contact never asked).
-        const contactGateWillBlock =
-          !(convo.ai_state && convo.ai_state.last_quote) &&
-          !convo.customer_phone &&
-          !state.savedPhone &&
-          (state.contactGatePromptedThisTurn || !(convo.ai_state && convo.ai_state.contact_prompted_at));
-        const markContactAsked = async () => {
-          try {
-            await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
-          } catch { /* next turn just asks again — safe */ }
-        };
         if (finalText && !state.escalated && !quoteOk && priceLeakBeforeCard(finalText)) {
           console.warn(`[${tag}] ${convoId} price leak before card — scrubbing numbers`);
           let scrubbed = "";
@@ -3303,7 +3311,7 @@ function registerChatAi({ dispatchAdminPush }) {
             await markContactAsked();
           } else {
             finalText =
-              "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+              "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
           }
         }
 
