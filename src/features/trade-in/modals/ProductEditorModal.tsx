@@ -333,6 +333,43 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                       className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-xs font-medium text-slate-600 focus:ring-2 focus:ring-sky-300 outline-none placeholder:text-slate-300"
                     />
                   </div>
+                  {/* ชื่อเรียกทั่วไป (alias สำหรับค้นหา) — 1 รุ่นมี 3 ชื่อ:
+                      ชื่อทางการ Apple (ช่องบน) + ชื่อที่คนทั่วไปเรียกไทย/อังกฤษ
+                      (2 ช่องนี้). AI แชทและระบบค้นหาจับคู่จากทุกชื่อ — ลูกค้า
+                      พิมพ์ "ไอแพดแอร์ 8" หรือ "iPad Air 8" ก็เจอรุ่นนี้ */}
+                  <p className="text-[10px] font-bold text-slate-400 mt-2 mb-1">ชื่อเรียกทั่วไป (ให้ AI/ระบบค้นหาจับคู่ได้ — ไม่แสดงหน้าเว็บ)</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 shrink-0" title="ชื่อเรียกภาษาไทย (ไม่บังคับ)">ไทย</span>
+                    <input
+                      type="text"
+                      placeholder='เช่น "ไอแพดแอร์ 8" (ไม่บังคับ)'
+                      title="ชื่อที่คนทั่วไปเรียกภาษาไทย"
+                      value={editingItem.alias_th || ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const next = { ...editingItem };
+                        if (v) next.alias_th = v; else delete next.alias_th;
+                        onEditingItemChange(next);
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-xs font-medium text-slate-600 focus:ring-2 focus:ring-amber-300 outline-none placeholder:text-slate-300"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 shrink-0" title="ชื่อเรียกภาษาอังกฤษ (ไม่บังคับ)">Alias</span>
+                    <input
+                      type="text"
+                      placeholder='เช่น "iPad Air 8" (ไม่บังคับ)'
+                      title="ชื่อที่คนทั่วไปเรียกภาษาอังกฤษ"
+                      value={editingItem.alias_en || ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const next = { ...editingItem };
+                        if (v) next.alias_en = v; else delete next.alias_en;
+                        onEditingItemChange(next);
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-xs font-medium text-slate-600 focus:ring-2 focus:ring-amber-300 outline-none placeholder:text-slate-300"
+                    />
+                  </div>
                 </div>
 
                 {/* Image */}
