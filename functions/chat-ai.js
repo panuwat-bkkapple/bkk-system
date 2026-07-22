@@ -1264,6 +1264,14 @@ function extractChoices(rawText) {
 // verifier (rule 3 in VERIFIER_SYSTEM) is probabilistic and fail-open — a
 // real reply leaked "รับซื้อประมาณ 8,000-10,000 บาท" before any card. Pure
 // pattern check, used only when no quote card was issued this turn.
+// Canned continuation used whenever a deterministic guard has to replace a
+// draft BEFORE the first card (price leak it could not scrub, or the
+// contact gate blocking the quote-recovery loop). It must always continue
+// the sales flow — real stall: the old fallback said "ขอสอบถามข้อมูลเพิ่ม
+// อีกนิดนะครับ" and then asked nothing, dead air on a hot lead.
+const CONTACT_FIRST_ASK =
+  "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ก่อนออกใบเสนอราคา ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณ (ไม่สะดวกให้ก็เดินหน้าต่อได้ครับ) และขอถามสภาพเครื่องหน่อยครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
   if (/\d{1,3}(?:,\d{3})+\s*(?:-|–|ถึง)\s*\d{1,3}(?:,\d{3})+/.test(t)) return true;
@@ -3021,18 +3029,10 @@ function registerChatAi({ dispatchAdminPush }) {
         // ช่วยยืนยัน" on a priced model. When the gate would block, the right
         // move IS the gate's own instruction: ask contact + start the
         // condition questions, no card this turn.
-        const contactGateWillBlock =
-          !(convo.ai_state && convo.ai_state.last_quote) &&
-          !convo.customer_phone &&
-          !state.savedPhone &&
-          (state.contactGatePromptedThisTurn || !(convo.ai_state && convo.ai_state.contact_prompted_at));
         if (finalText && !state.escalated && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
-          finalText =
-            "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ก่อนออกใบเสนอราคา ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณ (ไม่สะดวกให้ก็เดินหน้าต่อได้ครับ) และขอถามสภาพเครื่องหน่อยครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
-          try {
-            await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
-          } catch { /* next turn just asks again — safe */ }
+          finalText = CONTACT_FIRST_ASK;
+          await markContactAsked();
         } else if (finalText && !state.escalated && !quoteOk && announcedQuote) {
           console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing quote recovery`);
           let gateBlockedInRecovery = false;
@@ -3133,6 +3133,19 @@ function registerChatAi({ dispatchAdminPush }) {
         // When no card was issued this turn, any price range / "ประมาณ X บาท"
         // in the draft gets rewritten out; if the scrub fails, fall back to a
         // safe continuation line rather than sending numbers.
+        // Shared with the scrub fallback and the quote-recovery pre-check
+        // below: true when create_quote_card would be refused this turn by
+        // the contact-first gate (first card, no phone, contact never asked).
+        const contactGateWillBlock =
+          !(convo.ai_state && convo.ai_state.last_quote) &&
+          !convo.customer_phone &&
+          !state.savedPhone &&
+          (state.contactGatePromptedThisTurn || !(convo.ai_state && convo.ai_state.contact_prompted_at));
+        const markContactAsked = async () => {
+          try {
+            await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
+          } catch { /* next turn just asks again — safe */ }
+        };
         if (finalText && !state.escalated && !quoteOk && priceLeakBeforeCard(finalText)) {
           console.warn(`[${tag}] ${convoId} price leak before card — scrubbing numbers`);
           let scrubbed = "";
@@ -3156,10 +3169,15 @@ function registerChatAi({ dispatchAdminPush }) {
           db.ref(`inbox/${convoId}/ai_state/last_price_leak`)
             .set({ at: Date.now(), draft: finalText.slice(0, 300) })
             .catch(() => {});
-          finalText =
-            scrubbed && !priceLeakBeforeCard(scrubbed)
-              ? scrubbed
-              : "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนเดี๋ยวสรุปให้บนใบเสนอราคาเลยครับ ขอสอบถามข้อมูลเพิ่มอีกนิดนะครับ";
+          if (scrubbed && !priceLeakBeforeCard(scrubbed)) {
+            finalText = scrubbed;
+          } else if (contactGateWillBlock) {
+            finalText = CONTACT_FIRST_ASK;
+            await markContactAsked();
+          } else {
+            finalText =
+              "รุ่นนี้เรารับซื้อแน่นอนครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+          }
         }
 
         // Verifier gate — vet a genuine AI reply before it reaches the customer.
