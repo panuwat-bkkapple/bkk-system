@@ -60,6 +60,9 @@ interface Message {
   kind?: 'text' | 'system';
   text: string;
   imageUrl?: string;
+  // Quick-reply chips the AI offered with a closed question (chat-ai.js
+  // extractChoices). Shown read-only so staff see what the customer saw.
+  choices?: string[];
   timestamp: number;
   read: boolean;
 }
@@ -228,6 +231,7 @@ export const InboxPage = () => {
           kind: val.kind || 'text',
           text: val.text || '',
           imageUrl: val.imageUrl,
+          choices: Array.isArray(val.choices) ? val.choices.filter((c: unknown) => typeof c === 'string' && c) : undefined,
           timestamp: val.timestamp || 0,
           read: val.read || false,
         }))
@@ -1041,6 +1045,15 @@ export const InboxPage = () => {
                         </p>
                       )}
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                      {Array.isArray(msg.choices) && msg.choices.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {msg.choices.map((c) => (
+                            <span key={c} className="text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {msg.imageUrl && (
                         <img
                           src={msg.imageUrl}

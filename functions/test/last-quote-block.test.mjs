@@ -430,5 +430,22 @@ check("single-result note lists the real variants", srn.includes("Wi-Fi | 64GB")
 check("single-result note forbids memory options", srn.includes("ห้ามเสนอขนาดจอหรือตัวเลือกอื่นจากความจำ"));
 check("single-result note handles missing variants", __test.singleResultVariantNote({ name: "X" }).includes("X") && __test.singleResultVariantNote(null) === null);
 
+// --- quick-reply chips (closed questions become tappable options) -----------
+// Owner's UX call: options the customer can tap = no typos, and by rule 2.3
+// the options must come from tool data. The AI ends its message with a
+// trailing "[ตัวเลือก: A | B]" marker; extractChoices strips it into
+// message.choices. Malformed markers vanish silently — customers must never
+// see raw syntax.
+check("system prompt: rule 2.3 quick-reply chips", sys.includes("2.3 คำถามเลือกตอบ"));
+const ec = __test.extractChoices("รับซื้อครับ เครื่องของคุณเป็นแบบไหนครับ\n[ตัวเลือก: Wi-Fi | Wi-Fi + Cellular]");
+check("extractChoices strips the marker from the text", ec.text === "รับซื้อครับ เครื่องของคุณเป็นแบบไหนครับ");
+check("extractChoices returns the options", JSON.stringify(ec.choices) === JSON.stringify(["Wi-Fi", "Wi-Fi + Cellular"]));
+check("no marker = no choices", __test.extractChoices("สวัสดีครับ").choices === null && __test.extractChoices("สวัสดีครับ").text === "สวัสดีครับ");
+check("marker mid-text is not parsed", __test.extractChoices("ก [ตัวเลือก: A | B] ข").choices === null);
+const ecBad = __test.extractChoices("ถามครับ\n[ตัวเลือก: อย่างเดียว]");
+check("single-option marker stripped silently", ecBad.choices === null && ecBad.text === "ถามครับ");
+check("duplicate and empty options dropped", JSON.stringify(__test.extractChoices("x\n[ตัวเลือก: A | A | | B]").choices) === JSON.stringify(["A", "B"]));
+check("marker-only message still renders text", __test.extractChoices("[ตัวเลือก: 64GB | 256GB]").text.length > 0);
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
