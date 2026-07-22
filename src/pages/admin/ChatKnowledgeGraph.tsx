@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 import { Link } from 'react-router-dom';
 import {
   Brain, Plus, Save, X, Trash2, ExternalLink, Tag, Coins, MapPin,
-  MessageSquareText, Power, GripVertical,
+  MessageSquareText, Power, GripVertical, LayoutGrid,
 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -29,7 +29,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 
 interface KbItem { q: string; a: string; order: number }
 interface KbNodeRec {
-  label: string; emoji?: string; type: 'root' | 'custom' | 'live' | 'behavior';
+  label: string; emoji?: string; type: 'root' | 'custom' | 'live' | 'behavior' | 'behavior_rule';
   live_key?: string; x: number; y: number; enabled?: boolean;
   items?: Record<string, KbItem>;
   // behavior nodes only — enforced rules of that sales-flow stage, synced
@@ -55,18 +55,46 @@ const BEHAVIOR_FALLBACK: { key: string; label: string; emoji: string; rules: str
 function mergeBehaviorNodes(g: KbGraphRec, behaviors: typeof BEHAVIOR_FALLBACK) {
   g.nodes = g.nodes || {};
   g.edges = g.edges || {};
+  const validIds = new Set<string>();
   behaviors.forEach((b, i) => {
     const id = `bh_${b.key}`;
+    validIds.add(id);
     const prev = g.nodes![id];
+    const bx = prev ? prev.x : -560 + i * 260;
+    const by = prev ? prev.y : 430;
     g.nodes![id] = {
       label: b.label, emoji: b.emoji, type: 'behavior', rules: b.rules,
-      x: prev ? prev.x : -560 + i * 230,
-      y: prev ? prev.y : 430 + (i % 2) * 90,
+      x: bx, y: by,
     };
     if (!Object.values(g.edges!).some((e) => e.to === id)) {
       g.edges![`eb_${b.key}`] = { from: 'root', to: id };
     }
+    // ขยายกติกาออกมาเป็นใบย่อยบนผัง (คำขอเจ้าของ: เห็นกติกาโดยไม่ต้องคลิก) —
+    // ใบย่อยห้อยใต้ขั้นของมัน ตำแหน่งที่ลากจัดแล้วคงเดิม ข้อความ sync จากระบบ
+    b.rules.forEach((rule, ri) => {
+      const rid = `bh_${b.key}_r${ri}`;
+      validIds.add(rid);
+      const prevRule = g.nodes![rid];
+      g.nodes![rid] = {
+        label: rule, type: 'behavior_rule',
+        x: prevRule ? prevRule.x : bx + (ri % 2 === 0 ? -30 : 150),
+        y: prevRule ? prevRule.y : by + 130 + Math.floor(ri / 2) * 150,
+      };
+      if (!Object.values(g.edges!).some((e) => e.to === rid)) {
+        g.edges![`ebr_${b.key}_${ri}`] = { from: id, to: rid };
+      }
+    });
   });
+  // กติกาที่ถูกถอดออกจากระบบแล้ว (จำนวนข้อเปลี่ยนหลัง deploy) ต้องหายจากผังด้วย
+  for (const nid of Object.keys(g.nodes)) {
+    if (/^bh_/.test(nid) && !validIds.has(nid)) {
+      delete g.nodes[nid];
+      for (const eid of Object.keys(g.edges)) {
+        const e = g.edges[eid];
+        if (e.from === nid || e.to === nid) delete g.edges[eid];
+      }
+    }
+  }
 }
 interface KbGraphRec {
   nodes?: Record<string, KbNodeRec>;
@@ -173,7 +201,18 @@ function BehaviorNode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { root: RootNode, kbcat: CategoryNode, kblive: LiveNode, kbbehavior: BehaviorNode };
+function RuleNode({ data, selected }: NodeProps) {
+  const d = data as { label: string };
+  return (
+    <div className={`max-w-[240px] bg-indigo-50/90 rounded-xl border px-3 py-2 shadow-sm ${selected ? 'border-blue-500' : 'border-indigo-200 border-dashed'}`}>
+      <Handle type="target" position={Position.Top} className="!bg-indigo-300 !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className="!bg-indigo-300 !w-2 !h-2" />
+      <p className="text-[10.5px] leading-snug text-indigo-900">{d.label}</p>
+    </div>
+  );
+}
+
+const nodeTypes = { root: RootNode, kbcat: CategoryNode, kblive: LiveNode, kbbehavior: BehaviorNode, kbrule: RuleNode };
 
 // ---------- Page ----------
 
@@ -221,7 +260,7 @@ export default function ChatKnowledgeGraph() {
     setRecs(nrecs);
     setNodes(Object.entries(nrecs).map(([id, n]) => ({
       id,
-      type: n.type === 'root' ? 'root' : n.type === 'live' ? 'kblive' : n.type === 'behavior' ? 'kbbehavior' : 'kbcat',
+      type: n.type === 'root' ? 'root' : n.type === 'live' ? 'kblive' : n.type === 'behavior' ? 'kbbehavior' : n.type === 'behavior_rule' ? 'kbrule' : 'kbcat',
       position: { x: Number(n.x) || 0, y: Number(n.y) || 0 },
       deletable: n.type === 'custom',
       data: {
@@ -280,6 +319,29 @@ export default function ChatKnowledgeGraph() {
     setEdges((es) => [...es, { id: uid(), source: 'root', target: id, style: { strokeWidth: 2 } }]);
     setSelectedId(id);
     markDirty();
+  };
+
+  // จัดเรียงอัตโนมัติ (ปุ่ม "จัดเรียงใหม่"): มาตินกลาง · ข้อมูลสดซ้าย · หมวดคำตอบ
+  // ขวา · สายพฤติกรรมไหลลงตามลำดับการขายจริง พร้อมใบกติกาห้อยขวาของขั้นตัวเอง —
+  // เลย์เอาต์ที่เจ้าของจัดเองยังอยู่จนกว่าจะกดปุ่มนี้ (แล้วต้องกดบันทึกถึงคงถาวร)
+  const STAGE_ORDER = ['opening', 'model', 'contact', 'condition', 'quote', 'escalate'];
+  const rearrange = () => {
+    const ids = Object.keys(recs);
+    const map: Record<string, { x: number; y: number }> = { root: { x: 0, y: 0 } };
+    ids.filter((id) => recs[id].type === 'live').sort()
+      .forEach((id, i) => { map[id] = { x: -660, y: -170 + i * 190 }; });
+    ids.filter((id) => recs[id].type === 'custom').sort()
+      .forEach((id, i) => { map[id] = { x: 560, y: -190 + i * 190 }; });
+    STAGE_ORDER.filter((k) => recs[`bh_${k}`]).forEach((k, i) => {
+      const sx = -60;
+      const sy = 280 + i * 340;
+      map[`bh_${k}`] = { x: sx, y: sy };
+      ids.filter((id) => id.startsWith(`bh_${k}_r`)).sort()
+        .forEach((rid, ri) => { map[rid] = { x: sx + 310, y: sy - 70 + ri * 85 }; });
+    });
+    setNodes((ns) => ns.map((n) => (map[n.id] ? { ...n, position: map[n.id] } : n)));
+    markDirty();
+    toast.success('จัดเรียงผังใหม่แล้ว — กดบันทึกเพื่อเก็บเลย์เอาต์นี้');
   };
 
   const saveAll = async () => {
@@ -360,6 +422,9 @@ export default function ChatKnowledgeGraph() {
           <p className="text-[11px] text-slate-400 font-bold">ลากจัดผัง · ต่อเส้นหมวดแม่-ลูก · คลิกหมวดเพื่อตั้งคำตอบ — AI ใช้ตอบลูกค้าทันทีหลังบันทึก</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={rearrange} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 text-xs font-black transition-colors">
+            <LayoutGrid size={14} /> จัดเรียงใหม่
+          </button>
           <button onClick={addCategory} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-xs font-black transition-colors">
             <Plus size={14} /> เพิ่มหมวด
           </button>
@@ -439,7 +504,7 @@ export default function ChatKnowledgeGraph() {
               <span className="text-xl">{sel.type === 'live' ? '🔗' : sel.emoji || '💬'}</span>
               <div className="flex-1 min-w-0">
                 <p className="font-black text-sm text-slate-800 truncate">{sel.label}</p>
-                <p className="text-[10px] font-bold text-slate-400">{sel.type === 'live' ? 'ดึงสดจากระบบ — แก้ที่หน้าจัดการจริง' : sel.type === 'behavior' ? 'กติกาพฤติกรรมจากระบบ — แก้ผ่านการเทรน' : 'หมวดคำตอบที่คุณเขียนเอง'}</p>
+                <p className="text-[10px] font-bold text-slate-400">{sel.type === 'live' ? 'ดึงสดจากระบบ — แก้ที่หน้าจัดการจริง' : sel.type === 'behavior' || sel.type === 'behavior_rule' ? 'กติกาพฤติกรรมจากระบบ — แก้ผ่านการเทรน' : 'หมวดคำตอบที่คุณเขียนเอง'}</p>
               </div>
               <button onClick={() => setSelectedId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"><X size={16} /></button>
             </div>
@@ -453,12 +518,12 @@ export default function ChatKnowledgeGraph() {
                     ไปหน้าจัดการจริง <ExternalLink size={12} />
                   </Link>
                 </div>
-              ) : sel.type === 'behavior' ? (
+              ) : sel.type === 'behavior' || sel.type === 'behavior_rule' ? (
                 <div className="space-y-3">
                   <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
-                    <p className="text-[11px] font-black text-indigo-700 uppercase tracking-wide mb-2">กติกาที่ระบบบังคับใช้จริงในขั้นนี้</p>
+                    <p className="text-[11px] font-black text-indigo-700 uppercase tracking-wide mb-2">กติกาที่ระบบบังคับใช้จริง{sel.type === 'behavior' ? 'ในขั้นนี้' : ''}</p>
                     <ul className="space-y-2">
-                      {(sel.rules || []).map((r, i) => (
+                      {(sel.rules || [sel.label]).map((r, i) => (
                         <li key={i} className="flex gap-2 text-xs text-slate-700 leading-relaxed">
                           <span className="shrink-0 w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[9px] font-black flex items-center justify-center mt-0.5">{i + 1}</span>
                           <span>{r}</span>
