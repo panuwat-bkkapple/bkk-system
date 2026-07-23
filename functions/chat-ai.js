@@ -1205,6 +1205,7 @@ const OFFICIAL_FAQ_LINES = [
   `- ไม่รับซื้อเครื่องที่ยังผ่อนไม่หมด (ผ่อนกับไฟแนนซ์/บัตรเครดิต), ติดล็อก iCloud/FMI (Find My)/Activation Lock, ติดล็อก MDM, หรือติด Blacklist/ล็อกเครือข่าย เด็ดขาด — ถ้าลูกค้าถามว่าเครื่องผ่อนอยู่/ติด iCloud/ติด MDM/ติด Blacklist รับไหม ตอบว่า "ไม่รับซื้อ" และแนะนำว่าถ้าผ่อนครบหรือปลดล็อกเรียบร้อยแล้วค่อยนำมาประเมินได้`,
   `- *** ย้ำเรื่อง iCloud/Activation Lock (ห้ามพลาดเด็ดขาด) ***: เครื่องที่ยังติดล็อก iCloud/ยัง Sign out Apple ID ไม่ได้/ติด Activation Lock = "ไม่รับซื้อ" ในทุกกรณี ไม่ว่าลูกค้าจะยอมขายถูกแค่ไหน. ห้ามพูดว่า "รับซื้อได้แต่ราคาต่ำ", "รับแล้วเอาไปปลดล็อกเอง", "หักราคาค่าปลดล็อก" หรืออะไรทำนองนี้เด็ดขาด — ข้อมูลนั้นผิด ร้านเราไม่รับความเสี่ยงเรื่องกรรมสิทธิ์/เครื่องหาย. คำตอบที่ถูกต้องคือ "ไม่รับ ต้องปลดล็อก/Sign out iCloud ให้เรียบร้อยก่อนถึงจะประเมินได้"`,
   `- เครื่องมีตำหนิ/จอแตก/เสียหาย: รับซื้อ ราคาลดตามสภาพจริง ให้เลือกสภาพตามจริงตอนประเมิน (ผ่านขั้นตอนถามสภาพ+ใบเสนอราคา) — ห้ามบอกเปอร์เซ็นต์การหักเอง`,
+  `- *** เส้นแดงเรื่องการปลดล็อก iCloud/Activation Lock ***: แนะนำได้เฉพาะ "ช่องทางทางการของเจ้าของเครื่องเอง" เท่านั้น คือ Sign out ด้วยรหัส Apple ID ของตัวเอง, กู้รหัสผ่านที่ iforgot.apple.com, หรือติดต่อ Apple Support พร้อมหลักฐานการซื้อ — "ห้ามแนะนำวิธี bypass/hack/เครื่องมือปลดล็อก/บริการปลดล็อกภายนอก" เด็ดขาดทุกกรณี และถ้าบริบทส่อว่าเครื่องไม่ใช่ของลูกค้าเอง (เก็บได้ ซื้อต่อมาแบบไม่รู้ที่มา ไม่รู้รหัสและไม่ใช่บัญชีตัวเอง) ให้ปฏิเสธการช่วยปลดล็อกอย่างสุภาพและไม่ต้องแนะนำช่องทางใดๆ ต่อ`,
   `- ประเมินราคาฟรี 100% ไม่ต้องตกลงขายทันที ไม่มีค่าใช้จ่ายแอบแฝง`,
   `- จ่ายเงิน: ตรวจเช็คสภาพเสร็จ โอนเข้าบัญชีเต็มจำนวนทันทีหน้างาน ไม่เกิน 5 นาที`,
   `- ข้อมูลส่วนตัว/เตรียมเครื่องก่อนขาย: ลูกค้า "ไม่จำเป็นต้อง Factory Reset มาเอง" — ร้านทำ Factory Reset + Data Wipe ให้ดูต่อหน้าตอนรับเครื่อง พร้อมออก Data Wipe Certificate. สิ่งเดียวที่ลูกค้าต้องเตรียมคือ Sign out iCloud/ปิด Find My ให้ได้ (ต้องจำรหัส Apple ID) — "อย่าแนะนำให้ลูกค้าล้างเครื่องเองก่อนมา" เพราะถ้าล้างแล้วลืม Sign out iCloud เครื่องจะติด Activation Lock รับซื้อไม่ได้เลย. ตอบเรื่องนี้ให้ตรงนี้เสมอ ห้ามสลับไปมา`,
@@ -1420,8 +1421,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.5";
+const LOGIC_VERSION = "2026-07-23.6";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "ตาข่ายกันหลุด 2 ชั้นใหม่: ศัพท์ภายในระบบ (ชื่อคำสั่ง/ฟิลด์) มีตัวจับ deterministic ก่อนส่งทุกข้อความ และเส้นแดงเรื่องปลดล็อก iCloud — แนะนำได้เฉพาะช่องทางทางการของเจ้าของเครื่อง ห้าม bypass ทุกกรณี" },
   { at: "2026-07-23", text: "สรรพนามมาตรฐานร้าน: เรียก 'คุณ+ชื่อ' เมื่อรู้ชื่อ / 'คุณลูกค้า' เมื่อยังไม่รู้ — ห้ามเรียก 'น้อง/พี่' ทุกกรณี (เคสจริง AI เรียกลูกค้าว่า 'น้อง')" },
   { at: "2026-07-23", text: "ลูกค้าพิมพ์รัวหลายข้อความ = ตอบครั้งเดียวรวบทุกข้อความ ไม่ตอบซ้ำสอง (เทิร์นเก่าสละสิทธิ์ให้เทิร์นล่าสุด + กันส่งข้อความ AI ซ้ำข้อความเดิมติดกัน)" },
   { at: "2026-07-23", text: "ห้ามทิ้งลูกค้าไว้กับ 'รอสักครู่ครับ' — ถ้าคำตอบสัญญาว่าจะไปเช็คอะไร ระบบบังคับเช็คให้เสร็จและตอบผลจริงในข้อความเดียวกันทันที (เคส iPad Generation 11 ที่บอกให้รอแล้วเงียบ)" },
@@ -1528,6 +1530,16 @@ function priceLeakBeforeCard(text) {
   if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{1,3}(?:,\d{3})+\s*บาท/.test(t)) return true;
   if (/(?:ราคา|รับซื้อ)[^\d\n]{0,15}\d{4,6}\s*บาท/.test(t)) return true;
   return false;
+}
+
+// Internal jargon leaked into a customer-facing reply — tool names, field
+// names, or system-command markers. The verifier's rule 7 covers this but is
+// probabilistic; this deterministic net backs it up. (Word-boundary on the
+// latin tokens so normal Thai text never false-positives.)
+const INTERNAL_LEAK_RE =
+  /\b(search_models|create_quote_card|get_condition_questions|check_pickup_service|get_branches|get_promotions|get_faq|check_order_status|save_customer_info|escalate_to_human|model_id|variant_name|new_price|used_price|battery_pct|tool_use|ai_state|declined_model|ambiguous_model)\b|\[คำสั่งระบบ/;
+function internalLeak(text) {
+  return INTERNAL_LEAK_RE.test(String(text || ""));
 }
 
 // The reply tells the customer to WAIT while "someone" goes to check — a
@@ -3640,6 +3652,36 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
+        // Internal-jargon scrub — deterministic backup for verifier rule 7:
+        // tool/field names or system-command markers must never reach the
+        // customer. Rewrite keeps the content, drops the jargon; if the
+        // rewrite fails or still leaks, fall back to a safe continuation.
+        if (finalText && !state.escalated && internalLeak(finalText)) {
+          console.warn(`[${tag}] ${convoId} internal jargon in reply — scrubbing`);
+          let cleaned = "";
+          try {
+            const resp = await callClaudeResilient({
+              apiKey,
+              model: VERIFIER_MODEL,
+              system: [{
+                type: "text",
+                text: "แก้ร่างข้อความของพนักงานร้านรับซื้อมือถือ: ลบ/แปลงศัพท์เทคนิคภายในระบบทั้งหมดให้เป็นภาษาคน (เช่น ชื่อคำสั่งภาษาอังกฤษแบบ snake_case, ชื่อฟิลด์, ข้อความ '[คำสั่งระบบ...]') คงเนื้อหา คำถาม และบรรทัด [ตัวเลือก: ...] ท้ายข้อความไว้ครบ ตอบกลับเป็นข้อความที่แก้แล้วเท่านั้น ห้ามอธิบาย",
+                cache_control: { type: "ephemeral" },
+              }],
+              messages: [{ role: "user", content: finalText }],
+              tools: [],
+            });
+            cleaned = (resp.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+          } catch (err) {
+            console.warn(`[${tag}] ${convoId} jargon scrub failed:`, err && err.message);
+          }
+          if (cleaned && !internalLeak(cleaned)) {
+            finalText = cleaned;
+          } else {
+            finalText = "ขออภัยครับ ขอสรุปให้ใหม่แบบเข้าใจง่ายๆ นะครับ มีจุดไหนอยากให้ผมอธิบายเพิ่มหรือไปต่อขั้นถัดไปเลย บอกได้เลยครับ";
+          }
+        }
+
         // Verifier gate — vet a genuine AI reply before it reaches the customer.
         // (Skip canned escalation replies; those are safe fixed strings.)
         if (finalText && !state.escalated) {
@@ -3881,6 +3923,7 @@ module.exports = {
     priceLeakBeforeCard,
     announcedQuoteIntent,
     waitPromiseIntent,
+    internalLeak,
     searchFaq,
     TOOLS,
     STRONG_MODEL,

@@ -750,5 +750,19 @@ check("superseded guard runs before the flood guard", supersededAt > 0 && floodA
 check("pronoun rule: khun+name or khun-lukka only", sysNoCust.includes('ยังไม่รู้ชื่อ = "คุณลูกค้า" หรือ "คุณ"'));
 check("pronoun rule bans นอง/พี่ forms", sysNoCust.includes('ห้ามเรียก "น้อง/พี่/ลุง/ป้า/เธอ/นาย" เด็ดขาดทุกกรณี'));
 
+// --- internal-jargon leak net + iCloud unlock red line ------------------------
+// Owner: "กลัวจะหลุดไปหาลูกค้าโดยไม่ตั้งใจ". Two nets: deterministic detector
+// for tool/field names in the outgoing reply (backs up the probabilistic
+// verifier rule 7), and a hard rule that iCloud-unlock help is official-
+// owner-channels only — never bypass tools/services.
+check("tool name in reply is detected", __test.internalLeak("เดี๋ยวผมเรียก search_models ให้ครับ"));
+check("field name in reply is detected", __test.internalLeak("ต้องใช้ model_id ของรุ่นนี้ครับ"));
+check("system-command marker is detected", __test.internalLeak("[คำสั่งระบบ ไม่ใช่ลูกค้า] ทดสอบ"));
+check("normal Thai reply is NOT flagged", !__test.internalLeak("ได้เลยครับ รุ่นไหนครับ เดี๋ยวผมเช็คราคาให้"));
+check("english storage answer is NOT flagged", !__test.internalLeak("ความจุ 128GB ราคาดีมากครับ new ไหมครับ"));
+check("iCloud unlock: official owner channels only", sysNoCust.includes('ช่องทางทางการของเจ้าของเครื่องเอง'));
+check("iCloud unlock: bypass firmly banned", sysNoCust.includes('ห้ามแนะนำวิธี bypass/hack/เครื่องมือปลดล็อก/บริการปลดล็อกภายนอก'));
+check("iCloud unlock: refuse when device is not theirs", sysNoCust.includes('ให้ปฏิเสธการช่วยปลดล็อกอย่างสุภาพ'));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
