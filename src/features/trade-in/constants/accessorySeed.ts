@@ -83,6 +83,75 @@ export const ACCESSORY_CONDITION_SET = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// ความเข้ากันได้ระดับรุ่น (per-model) — อ้างอิงตาราง Apple:
+// support.apple.com/th-th/guide/ipad/ipad47ee2e98/ipados (Apple Pencil)
+// + หน้า Magic Keyboard / Smart Keyboard Folio ของ Apple.
+// key = ชื่อ accessory model, value = รายชื่อ "ชื่อรุ่น iPad" ในแคตตาล็อกร้าน
+// (PriceEditor แปลงชื่อ → model id ตอน migrate — เทียบแบบ trim กันช่องว่างเกิน,
+// ชื่อไหนไม่พบในแคตตาล็อกก็ข้ามเฉพาะชื่อนั้น)
+// ---------------------------------------------------------------------------
+const PRO_11_G1_G4 = ['iPad Pro 11" (2018)', 'iPad Pro 11" (2020)', 'iPad Pro 11" (ชิป M1, 2021)', 'iPad Pro 11" (ชิป M2, 2022)'];
+const PRO_129_G3_G6 = ['iPad Pro 12.9" (2018)', 'iPad Pro 12.9" (2020)', 'iPad Pro 12.9" (ชิป M1, 2021)', 'iPad Pro 12.9" (ชิป M2, 2022)'];
+const PRO_M4_M5_11 = ['iPad Pro 11" (ชิป M4, 2024)', 'iPad Pro 11" (ชิป M5, 2025)'];
+const PRO_M4_M5_13 = ['iPad Pro 13" (ชิป M4, 2024)', 'iPad Pro 13" (ชิป M5, 2025)'];
+const AIR_11_M2_UP = ['iPad Air 11" (ชิป M2, 2024)', 'iPad Air 11" (ชิป M3, 2025)', 'iPad Air 11" (ชิป M4, 2026)'];
+const AIR_13_M2_UP = ['iPad Air 13" (ชิป M2, 2024)', 'iPad Air 13" (ชิป M3, 2025)', 'iPad Air 13" (ชิป M4, 2026)'];
+const AIR_4_5 = ['iPad Air 4 (2020)', 'iPad Air 5 (ชิป M1, 2022)'];
+
+export const ACCESSORY_COMPAT_BY_NAME: Record<string, string[]> = {
+  // iPad 6-9 (Lightning), iPad 10 (ผ่านอะแดปเตอร์ USB-C — Apple ระบุรองรับ),
+  // Air 3, mini 5, Pro รุ่นแรกๆ (9.7/10.5/12.9 gen 1-2)
+  'Apple Pencil (1st generation)': [
+    'iPad Generation 6 (2018)', 'iPad Generation 7 (2019)', 'iPad Generation 8 (2020)',
+    'iPad Generation 9', 'iPad Generation 10',
+    'iPad Air 3 (2019)', 'iPad mini 5 (2019)',
+    'iPad Pro 9.7" (2016)', 'iPad Pro 10.5" (2017)', 'iPad Pro 12.9" (2015)', 'iPad Pro 12.9" (2017)',
+  ],
+  // mini 6, Air 4/5, Pro 11 gen 1-4, Pro 12.9 gen 3-6
+  'Apple Pencil (2nd generation)': [
+    'iPad mini (รุ่นที่ 6)', ...AIR_4_5, ...PRO_11_G1_G4, ...PRO_129_G3_G6,
+  ],
+  // ทุกรุ่นยุค USB-C + รุ่นที่รองรับ Pencil 2 (ตามตาราง Apple)
+  'Apple Pencil (USB-C)': [
+    'iPad mini (รุ่นที่ 6)', 'iPad mini รุ่นที่ 7 (ชิป A17 Pro)',
+    'iPad Generation 10', 'iPad Generation 11',
+    ...AIR_4_5, ...AIR_11_M2_UP, ...AIR_13_M2_UP,
+    ...PRO_11_G1_G4, ...PRO_129_G3_G6, ...PRO_M4_M5_11, ...PRO_M4_M5_13,
+  ],
+  // เฉพาะรุ่นใหม่: Pro M4/M5, Air M2 ขึ้นไป, mini A17 Pro
+  'Apple Pencil Pro': [
+    'iPad mini รุ่นที่ 7 (ชิป A17 Pro)',
+    ...AIR_11_M2_UP, ...AIR_13_M2_UP, ...PRO_M4_M5_11, ...PRO_M4_M5_13,
+  ],
+  'Smart Keyboard Folio 11"': [...PRO_11_G1_G4, ...AIR_4_5],
+  'Smart Keyboard Folio 12.9"': [...PRO_129_G3_G6],
+  // Magic Keyboard (2020) 11": Pro 11 gen 1-4, Air 4/5, Air 11 M2/M3
+  'Magic Keyboard 11"': [...PRO_11_G1_G4, ...AIR_4_5, 'iPad Air 11" (ชิป M2, 2024)', 'iPad Air 11" (ชิป M3, 2025)'],
+  // Magic Keyboard (2020) 12.9": Pro 12.9 gen 3-6, Air 13 M2/M3 (ตัว Pro M4 ใช้รุ่นใหม่แยก)
+  'Magic Keyboard 13"': [...PRO_129_G3_G6, 'iPad Air 13" (ชิป M2, 2024)', 'iPad Air 13" (ชิป M3, 2025)'],
+  'Magic Keyboard Folio': ['iPad Generation 10', 'iPad Generation 11'],
+  'Magic Keyboard for iPad Pro 11" (M4)': [...PRO_M4_M5_11],
+  'Magic Keyboard for iPad Pro 13" (M4)': [...PRO_M4_M5_13],
+};
+
+// รุ่นที่ seed รอบแรกยังไม่มี — Magic Keyboard รุ่นใหม่ของ iPad Pro M4/M5
+// (คนละตัวกับ Magic Keyboard 2020, ใส่ด้วยกันไม่ได้) เพิ่มให้ตอน migrate
+export const EXTRA_ACCESSORY_DEFS: AccessorySeedDef[] = [
+  { name: 'Magic Keyboard for iPad Pro 11" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 11 นิ้ว', usedPrice: 5500, newPrice: 8000, kinds: ['pro'] },
+  { name: 'Magic Keyboard for iPad Pro 13" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 13 นิ้ว', usedPrice: 6000, newPrice: 8500, kinds: ['pro'] },
+];
+
+/** แปลงรายชื่อ "ชื่อรุ่น iPad" → model ids จากแคตตาล็อกจริง (trim กันช่องว่างเกิน
+ *  ที่ติดมากับข้อมูลบางรุ่น). ชื่อที่หาไม่พบถูกข้าม — คืน [] เมื่อไม่พบเลย */
+export const resolveCompatModelIds = (allModels: Array<{ id?: string; name?: string; category?: string }>, names: string[]): string[] => {
+  const byName = new Map<string, string>();
+  (allModels || []).forEach((m) => {
+    if (m?.category === 'Tablets' && m.name && m.id) byName.set(String(m.name).trim(), m.id);
+  });
+  return names.map((n) => byName.get(n.trim())).filter((id): id is string => !!id);
+};
+
 const kindOf = (seriesName: string): SeriesKind => {
   if (/pro/i.test(seriesName)) return 'pro';
   if (/air/i.test(seriesName)) return 'air';
@@ -90,46 +159,57 @@ const kindOf = (seriesName: string): SeriesKind => {
   return 'standard';
 };
 
-/** สร้าง payload ของ model อุปกรณ์เสริมทั้งชุด พร้อม compatible_series ที่ map
- *  จากชื่อ series iPad จริงในระบบ (availableSeries จาก /series) */
+/** โครง payload กลางของ accessory model — ใช้ทั้ง seed แรกและ migrate เพิ่มรุ่น */
+export const buildAccessoryModelPayload = (
+  def: AccessorySeedDef,
+  conditionSetId: string,
+  compat: { series?: string[] | null; models?: string[] | null },
+) => ({
+  brand: 'Apple',
+  category: ACCESSORY_CATEGORY,
+  series: '',
+  name: def.name,
+  label_en: null,
+  alias_th: def.alias_th,
+  alias_en: def.alias_en || null,
+  imageUrl: '',
+  // เริ่มปิดรับซื้อไว้ก่อน — แอดมินตรวจราคาแล้วค่อยเปิดทีละรุ่น (ตัวเลือก
+  // add-on ทุกจุดกรอง isActive === false ออก จึงยังไม่โผล่ที่ไหน)
+  isActive: false,
+  isFeatured: false,
+  inStore: true,
+  // มูลค่าต่ำ ไม่คุ้มเรียกไรเดอร์เดี่ยวๆ — ขายพ่วงกับงาน iPad ได้ตามปกติ
+  pickup: false,
+  mailIn: true,
+  maxPickupDistanceKm: 0,
+  conditionSetId,
+  liquidityFactor: 1,
+  // ระดับรุ่นชนะระดับ series; ไม่มีทั้งคู่ (null) = ทุกรุ่น
+  compatible_models: (compat.models && compat.models.length > 0) ? compat.models : null,
+  compatible_series: (compat.series && compat.series.length > 0) ? compat.series : null,
+  attributesSchema: CATEGORY_SCHEMAS[ACCESSORY_CATEGORY] || [],
+  pricingMode: 'legacy',
+  variants: [{ id: 'v1', name: '', attributes: {}, newPrice: def.newPrice, usedPrice: def.usedPrice }],
+  updatedAt: Date.now(),
+});
+
+/** สร้าง payload ของ model อุปกรณ์เสริมทั้งชุดสำหรับ seed ครั้งแรก —
+ *  compatible_models map ตามตาราง Apple จากแคตตาล็อกจริง (allModels), และเก็บ
+ *  compatible_series (map จากชื่อ series) เป็น fallback สำรอง */
 export const buildAccessorySeedModels = (
   availableSeries: Array<{ name?: string; category?: string }>,
+  allModels: Array<{ id?: string; name?: string; category?: string }>,
   conditionSetId: string,
 ) => {
   const tabletSeries = (availableSeries || [])
     .filter((s) => s?.category === 'Tablets' && s.name)
     .map((s) => ({ name: s.name as string, kind: kindOf(s.name as string) }));
 
-  return ACCESSORY_SEED_DEFS.map((def) => {
-    const compat = def.kinds.length === 0
+  return [...ACCESSORY_SEED_DEFS, ...EXTRA_ACCESSORY_DEFS].map((def) => {
+    const seriesCompat = def.kinds.length === 0
       ? []
       : tabletSeries.filter((s) => def.kinds.includes(s.kind)).map((s) => s.name);
-    return {
-      brand: 'Apple',
-      category: ACCESSORY_CATEGORY,
-      series: '',
-      name: def.name,
-      label_en: null,
-      alias_th: def.alias_th,
-      alias_en: def.alias_en || null,
-      imageUrl: '',
-      // เริ่มปิดรับซื้อไว้ก่อน — แอดมินตรวจราคาแล้วค่อยเปิดทีละรุ่น (ตัวเลือก
-      // add-on ทุกจุดกรอง isActive === false ออก จึงยังไม่โผล่ที่ไหน)
-      isActive: false,
-      isFeatured: false,
-      inStore: true,
-      // มูลค่าต่ำ ไม่คุ้มเรียกไรเดอร์เดี่ยวๆ — ขายพ่วงกับงาน iPad ได้ตามปกติ
-      pickup: false,
-      mailIn: true,
-      maxPickupDistanceKm: 0,
-      conditionSetId,
-      liquidityFactor: 1,
-      // ไม่ match series ไหนเลย (เช่น เปลี่ยนชื่อ series) = null = ทุกรุ่น
-      compatible_series: compat.length > 0 ? compat : null,
-      attributesSchema: CATEGORY_SCHEMAS[ACCESSORY_CATEGORY] || [],
-      pricingMode: 'legacy',
-      variants: [{ id: 'v1', name: '', attributes: {}, newPrice: def.newPrice, usedPrice: def.usedPrice }],
-      updatedAt: Date.now(),
-    };
+    const modelCompat = resolveCompatModelIds(allModels, ACCESSORY_COMPAT_BY_NAME[def.name] || []);
+    return buildAccessoryModelPayload(def, conditionSetId, { series: seriesCompat, models: modelCompat });
   });
 };

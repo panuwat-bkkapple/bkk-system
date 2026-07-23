@@ -25,7 +25,10 @@ import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
 import { DISCONTINUED_MODELS } from './constants/discontinuedModels';
 import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
-import { ACCESSORY_CONDITION_SET, buildAccessorySeedModels } from './constants/accessorySeed';
+import {
+  ACCESSORY_CONDITION_SET, buildAccessorySeedModels, buildAccessoryModelPayload,
+  ACCESSORY_COMPAT_BY_NAME, EXTRA_ACCESSORY_DEFS, resolveCompatModelIds,
+} from './constants/accessorySeed';
 
 export const PriceEditor = () => {
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
@@ -56,6 +59,7 @@ export const PriceEditor = () => {
   // seedDefaultCategories (that only runs on an empty path) — backfill it once.
   const backfilledAccessoryCategoryRef = useRef(false);
   const seededAccessoryModelsRef = useRef(false);
+  const upgradedAccessoryCompatRef = useRef(false);
 
   // Category tabs + brand filter are now derived from Firebase-backed data.
   const categories = [...categoriesData].sort(
@@ -241,7 +245,7 @@ export const PriceEditor = () => {
       const setRef = push(ref(db, 'settings/condition_sets'));
       await update(setRef, ACCESSORY_CONDITION_SET);
 
-      const models = buildAccessorySeedModels(availableSeries, setRef.key as string);
+      const models = buildAccessorySeedModels(availableSeries, modelsData, setRef.key as string);
       await Promise.all(models.map(m => update(push(ref(db, 'models')), m)));
       toast.success(
         `เพิ่มรุ่นอุปกรณ์เสริม iPad ให้ ${models.length} รุ่น (Pencil/Keyboard) พร้อมชุดประเมินมาตรฐาน — ทุกรุ่นยัง "งดรับซื้อ" อยู่ ตรวจราคาแล้วกดเปิดใช้ทีละรุ่นได้เลย`,
@@ -249,6 +253,56 @@ export const PriceEditor = () => {
       );
     } catch {
       seededAccessoryModelsRef.current = false;
+    }
+  };
+
+  // One-time upgrade: accessory models seeded with series-level compatibility
+  // get precise per-model `compatible_models` (Apple's official compatibility
+  // tables mapped against the store's real iPad catalog), and the Pro-M4-era
+  // Magic Keyboards missing from the first seed are inserted. Self-guarding:
+  // only touches accessory models whose name is in the mapping AND that don't
+  // have compatible_models yet.
+  const upgradeAccessoryCompat = async () => {
+    try {
+      const accessories = modelsData.filter((m: any) => m?.category === ACCESSORY_CATEGORY);
+      if (accessories.length === 0) return;
+
+      const writes: Promise<any>[] = [];
+      let upgraded = 0;
+
+      for (const acc of accessories) {
+        if (Array.isArray(acc.compatible_models) && acc.compatible_models.length > 0) continue;
+        const names = ACCESSORY_COMPAT_BY_NAME[String(acc.name || '').trim()];
+        if (!names) continue;
+        const ids = resolveCompatModelIds(modelsData, names);
+        if (ids.length === 0) continue;
+        upgraded += 1;
+        writes.push(update(ref(db, `models/${acc.id}`), { compatible_models: ids, updatedAt: Date.now() }));
+      }
+
+      // Insert the Pro-M4-era Magic Keyboards if absent (reuse the condition
+      // set the other accessory models are already bound to).
+      const existingNames = new Set(accessories.map((m: any) => String(m.name || '').trim()));
+      const conditionSetId = accessories.find((m: any) => m.conditionSetId)?.conditionSetId;
+      let inserted = 0;
+      if (conditionSetId) {
+        for (const def of EXTRA_ACCESSORY_DEFS) {
+          if (existingNames.has(def.name)) continue;
+          const ids = resolveCompatModelIds(modelsData, ACCESSORY_COMPAT_BY_NAME[def.name] || []);
+          inserted += 1;
+          writes.push(update(push(ref(db, 'models')), buildAccessoryModelPayload(def, conditionSetId, { models: ids })));
+        }
+      }
+
+      if (writes.length === 0) return;
+      await Promise.all(writes);
+      toast.success(
+        `อัปเดตความเข้ากันได้อุปกรณ์เสริมเป็นระดับรุ่นตามตาราง Apple แล้ว ${upgraded} รุ่น` +
+        (inserted > 0 ? ` และเพิ่ม Magic Keyboard รุ่น Pro M4 อีก ${inserted} รุ่น (งดรับซื้อ — ตรวจราคาก่อนเปิดใช้)` : ''),
+        { duration: 10000 },
+      );
+    } catch {
+      upgradedAccessoryCompatRef.current = false;
     }
   };
 
@@ -286,6 +340,17 @@ export const PriceEditor = () => {
     seedDefaultAccessoryModels();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, modelsData, categoriesData, availableSeries]);
+
+  // Upgrade series-level accessory compatibility to per-model (one-shot after
+  // the models list is loaded; no-ops when everything already carries
+  // compatible_models).
+  useEffect(() => {
+    if (loading || upgradedAccessoryCompatRef.current) return;
+    if (!modelsData.some((m: any) => m?.category === ACCESSORY_CATEGORY)) return;
+    upgradedAccessoryCompatRef.current = true;
+    upgradeAccessoryCompat();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, modelsData]);
 
   // Breakpoint matches the list view swap (`lg` = 1024px): below it we use the
   // mobile card list + full-screen edit page; at/above it the desktop table + modal.
@@ -359,8 +424,14 @@ export const PriceEditor = () => {
         mailIn: editingItem.mailIn ?? true,
         maxPickupDistanceKm: Number(editingItem.maxPickupDistanceKm) || 0,
         conditionSetId: editingItem.conditionSetId,
-        // เฉพาะ accessory models — รายชื่อ series iPad ที่ใช้ร่วมกันได้ (ผูกด้วยชื่อ
-        // ตาม convention model.series). ว่าง = null ให้ Firebase ลบฟิลด์ (= ทุกรุ่น)
+        // เฉพาะ accessory models — ความเข้ากันได้ระดับรุ่น (model ids, convention
+        // เดียวกับ coupon applicable_models) ชนะระดับ series; ว่าง = null ให้
+        // Firebase ลบฟิลด์. compatible_series เก็บไว้เป็น fallback ข้อมูลเก่า
+        compatible_models: (editingItem.category === ACCESSORY_CATEGORY
+          && Array.isArray(editingItem.compatible_models)
+          && editingItem.compatible_models.filter(Boolean).length > 0)
+          ? editingItem.compatible_models.filter(Boolean)
+          : null,
         compatible_series: (editingItem.category === ACCESSORY_CATEGORY
           && Array.isArray(editingItem.compatible_series)
           && editingItem.compatible_series.filter(Boolean).length > 0)
@@ -703,6 +774,7 @@ export const PriceEditor = () => {
         editingItem={editingItem}
         conditionSets={conditionSets}
         availableSeries={availableSeries}
+        allModels={modelsData}
         categories={categoriesData}
         brands={brandsData}
         categorySchemas={CATEGORY_SCHEMAS}

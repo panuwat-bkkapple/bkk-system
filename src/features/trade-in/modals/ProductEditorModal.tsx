@@ -59,6 +59,8 @@ interface ProductEditorModalProps {
   editingItem: any;
   conditionSets: any[];
   availableSeries: any[];
+  /** แคตตาล็อกทั้งหมด — ใช้ทำ checkbox ความเข้ากันได้ระดับรุ่นของ accessory */
+  allModels?: any[];
   categories: any[];
   brands: any[];
   categorySchemas: typeof CATEGORY_SCHEMAS;
@@ -107,6 +109,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
   editingItem,
   conditionSets,
   availableSeries,
+  allModels = [],
   categories,
   brands,
   categorySchemas,
@@ -443,40 +446,76 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                   </div>
                 </div>
 
-                {/* iPad ที่ใช้ร่วมกันได้ — เฉพาะรุ่นอุปกรณ์เสริม. ผูกด้วยชื่อ series
-                    (convention เดียวกับ model.series) ใช้กรองตัวเลือก add-on ตอน
-                    สร้าง ticket ขาย iPad. ไม่ติ๊กเลย = เสนอกับ iPad ทุกรุ่น */}
-                {editingItem.category === ACCESSORY_CATEGORY && (
-                  <div>
-                    <label className="text-xs font-black text-blue-600 mb-2 block flex items-center gap-1"><Smartphone size={14} /> Compatible iPad Series (ใช้ร่วมกับ)</label>
-                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-2 max-h-44 overflow-y-auto">
-                      {availableSeries.filter(s => s.category === 'Tablets').length === 0 && (
-                        <p className="text-[10px] font-bold text-slate-400">ยังไม่มี series ของ iPad ในระบบ</p>
-                      )}
-                      {availableSeries.filter(s => s.category === 'Tablets').map(s => {
-                        const selected: string[] = Array.isArray(editingItem.compatible_series) ? editingItem.compatible_series : [];
-                        const checked = selected.includes(s.name);
-                        return (
-                          <label key={s.id} className="flex items-center gap-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...selected, s.name]
-                                  : selected.filter(n => n !== s.name);
-                                onEditingItemChange({ ...editingItem, compatible_series: next });
-                              }}
-                              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-sm font-bold text-slate-700">{s.name}</span>
-                          </label>
-                        );
-                      })}
+                {/* iPad ที่ใช้ร่วมกันได้ — เฉพาะรุ่นอุปกรณ์เสริม. ระดับ "รุ่น" (เก็บ
+                    model id — convention เดียวกับ coupon applicable_models) เพราะ
+                    ระดับ series หยาบไป เช่น Pencil 2 ใช้กับ iPad Pro M4 ไม่ได้.
+                    จัดกลุ่มตาม series + ปุ่มเลือกทั้งกลุ่ม. ไม่ติ๊กเลย = ทุกรุ่น */}
+                {editingItem.category === ACCESSORY_CATEGORY && (() => {
+                  const ipadModels = (allModels || []).filter((m: any) => m?.category === 'Tablets' && m.id && m.name);
+                  const groups = ipadModels.reduce((acc: Record<string, any[]>, m: any) => {
+                    const key = String(m.series || 'อื่นๆ').trim() || 'อื่นๆ';
+                    (acc[key] = acc[key] || []).push(m);
+                    return acc;
+                  }, {});
+                  const selected: string[] = Array.isArray(editingItem.compatible_models) ? editingItem.compatible_models : [];
+                  const setSelected = (next: string[]) => onEditingItemChange({ ...editingItem, compatible_models: next });
+                  return (
+                    <div>
+                      <label className="text-xs font-black text-blue-600 mb-2 block flex items-center gap-1"><Smartphone size={14} /> Compatible iPad Models (ใช้ร่วมกับ — ระดับรุ่น)</label>
+                      <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-4 max-h-72 overflow-y-auto">
+                        {ipadModels.length === 0 && (
+                          <p className="text-[10px] font-bold text-slate-400">ยังไม่มีรุ่น iPad ในระบบ</p>
+                        )}
+                        {Object.entries(groups).map(([groupName, models]) => {
+                          const ids = (models as any[]).map((m: any) => m.id);
+                          const allChecked = ids.length > 0 && ids.every(id => selected.includes(id));
+                          return (
+                            <div key={groupName}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">{groupName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelected(allChecked
+                                    ? selected.filter(id => !ids.includes(id))
+                                    : Array.from(new Set([...selected, ...ids])))}
+                                  className="text-[10px] font-bold text-blue-600 hover:underline"
+                                >
+                                  {allChecked ? 'เอาออกทั้งกลุ่ม' : 'เลือกทั้งกลุ่ม'}
+                                </button>
+                              </div>
+                              <div className="space-y-1.5">
+                                {(models as any[]).map((m: any) => {
+                                  const checked = selected.includes(m.id);
+                                  return (
+                                    <label key={m.id} className="flex items-center gap-3 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => setSelected(e.target.checked
+                                          ? [...selected, m.id]
+                                          : selected.filter(id => id !== m.id))}
+                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <span className={`text-xs font-bold ${m.isActive === false ? 'text-slate-400' : 'text-slate-700'}`}>
+                                        {String(m.name).trim()}{m.isActive === false ? ' (งดรับซื้อ)' : ''}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                        ไม่ติ๊กเลย = เสนอเป็น add-on กับ iPad ทุกรุ่น · เลือกแล้ว {selected.length} รุ่น
+                        {Array.isArray(editingItem.compatible_series) && editingItem.compatible_series.length > 0 && selected.length === 0
+                          ? ` · ข้อมูลเดิมระดับ series (${editingItem.compatible_series.join(', ')}) ยังใช้อยู่จนกว่าจะเลือกระดับรุ่น`
+                          : ''}
+                      </p>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium">ไม่ติ๊กเลย = เสนอเป็น add-on กับ iPad ทุกรุ่น</p>
-                  </div>
-                )}
+                  );
+                })()}
 
                 <div>
                   <label className="text-xs font-black text-emerald-600 mb-2 block flex items-center gap-1"><ArrowRightLeft size={14} /> Liquidity Factor (ตัวคูณส่วนลดสภาพ)</label>
