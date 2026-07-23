@@ -26,18 +26,18 @@ interface AccessorySeedDef {
   kinds: SeriesKind[];
 }
 
-// ราคา = ราคารับซื้อตั้งต้น (บาท) — ตลาดมือสองไทย ก.ค. 2026 โดยประมาณ.
-// แอดมินต้องตรวจ/ปรับก่อนกด Activate.
+// ราคา = ราคารับซื้อจริงที่เจ้าของร้านกำหนด (23 ก.ค. 2026). newPrice (ซีล)
+// เป็นค่าประมาณ — แอดมินปรับได้จากหน้าแก้ไขรุ่น
 const ACCESSORY_SEED_DEFS: AccessorySeedDef[] = [
-  { name: 'Apple Pencil (1st generation)', alias_th: 'ปากกาไอแพด รุ่น 1', alias_en: 'Apple Pencil 1', usedPrice: 800, newPrice: 1500, kinds: ['standard', 'air', 'mini'] },
-  { name: 'Apple Pencil (2nd generation)', alias_th: 'ปากกาไอแพด รุ่น 2', alias_en: 'Apple Pencil 2', usedPrice: 1800, newPrice: 2800, kinds: ['pro', 'air', 'mini'] },
-  { name: 'Apple Pencil (USB-C)', alias_th: 'ปากกาไอแพด USB-C', usedPrice: 1300, newPrice: 2000, kinds: [] },
-  { name: 'Apple Pencil Pro', alias_th: 'ปากกาไอแพดโปร', usedPrice: 2500, newPrice: 3500, kinds: ['pro', 'air', 'mini'] },
-  { name: 'Smart Keyboard Folio 11"', alias_th: 'สมาร์ทคีย์บอร์ด 11 นิ้ว', usedPrice: 1800, newPrice: 3000, kinds: ['pro', 'air'] },
-  { name: 'Smart Keyboard Folio 12.9"', alias_th: 'สมาร์ทคีย์บอร์ด 12.9 นิ้ว', usedPrice: 2200, newPrice: 3500, kinds: ['pro'] },
-  { name: 'Magic Keyboard 11"', alias_th: 'เมจิกคีย์บอร์ด 11 นิ้ว', usedPrice: 4000, newPrice: 6000, kinds: ['pro', 'air'] },
-  { name: 'Magic Keyboard 13"', alias_th: 'เมจิกคีย์บอร์ด 13 นิ้ว', alias_en: 'Magic Keyboard 12.9', usedPrice: 4500, newPrice: 6500, kinds: ['pro', 'air'] },
-  { name: 'Magic Keyboard Folio', alias_th: 'เมจิกคีย์บอร์ดโฟลิโอ (iPad 10)', usedPrice: 2500, newPrice: 4000, kinds: ['standard'] },
+  { name: 'Apple Pencil (1st generation)', alias_th: 'ปากกาไอแพด รุ่น 1', alias_en: 'Apple Pencil 1', usedPrice: 300, newPrice: 1500, kinds: ['standard', 'air', 'mini'] },
+  { name: 'Apple Pencil (2nd generation)', alias_th: 'ปากกาไอแพด รุ่น 2', alias_en: 'Apple Pencil 2', usedPrice: 500, newPrice: 2800, kinds: ['pro', 'air', 'mini'] },
+  { name: 'Apple Pencil (USB-C)', alias_th: 'ปากกาไอแพด USB-C', usedPrice: 500, newPrice: 2000, kinds: [] },
+  { name: 'Apple Pencil Pro', alias_th: 'ปากกาไอแพดโปร', usedPrice: 1000, newPrice: 3500, kinds: ['pro', 'air', 'mini'] },
+  { name: 'Smart Keyboard Folio 11"', alias_th: 'สมาร์ทคีย์บอร์ด 11 นิ้ว', usedPrice: 500, newPrice: 3000, kinds: ['pro', 'air'] },
+  { name: 'Smart Keyboard Folio 12.9"', alias_th: 'สมาร์ทคีย์บอร์ด 12.9 นิ้ว', usedPrice: 500, newPrice: 3500, kinds: ['pro'] },
+  { name: 'Magic Keyboard 11"', alias_th: 'เมจิกคีย์บอร์ด 11 นิ้ว', usedPrice: 500, newPrice: 6000, kinds: ['pro', 'air'] },
+  { name: 'Magic Keyboard 13"', alias_th: 'เมจิกคีย์บอร์ด 13 นิ้ว', alias_en: 'Magic Keyboard 12.9', usedPrice: 500, newPrice: 6500, kinds: ['pro', 'air'] },
+  { name: 'Magic Keyboard Folio', alias_th: 'เมจิกคีย์บอร์ดโฟลิโอ (iPad 10)', usedPrice: 1500, newPrice: 4000, kinds: ['standard'] },
 ];
 
 // ชุดประเมินกลางสำหรับอุปกรณ์เสริมทุกรุ่น (แนวทางระบบคือ 1 ชุด/1 รุ่น — แอดมิน
@@ -138,8 +138,8 @@ export const ACCESSORY_COMPAT_BY_NAME: Record<string, string[]> = {
 // รุ่นที่ seed รอบแรกยังไม่มี — Magic Keyboard รุ่นใหม่ของ iPad Pro M4/M5
 // (คนละตัวกับ Magic Keyboard 2020, ใส่ด้วยกันไม่ได้) เพิ่มให้ตอน migrate
 export const EXTRA_ACCESSORY_DEFS: AccessorySeedDef[] = [
-  { name: 'Magic Keyboard for iPad Pro 11" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 11 นิ้ว', usedPrice: 5500, newPrice: 8000, kinds: ['pro'] },
-  { name: 'Magic Keyboard for iPad Pro 13" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 13 นิ้ว', usedPrice: 6000, newPrice: 8500, kinds: ['pro'] },
+  { name: 'Magic Keyboard for iPad Pro 11" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 11 นิ้ว', usedPrice: 2000, newPrice: 8000, kinds: ['pro'] },
+  { name: 'Magic Keyboard for iPad Pro 13" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 13 นิ้ว', usedPrice: 2000, newPrice: 8500, kinds: ['pro'] },
 ];
 
 /** แปลงรายชื่อ "ชื่อรุ่น iPad" → model ids จากแคตตาล็อกจริง (trim กันช่องว่างเกิน
@@ -150,6 +150,25 @@ export const resolveCompatModelIds = (allModels: Array<{ id?: string; name?: str
     if (m?.category === 'Tablets' && m.name && m.id) byName.set(String(m.name).trim(), m.id);
   });
   return names.map((n) => byName.get(n.trim())).filter((id): id is string => !!id);
+};
+
+// ---------------------------------------------------------------------------
+// One-shot price patch (เจ้าของร้านกำหนดราคารับซื้อจริง 23 ก.ค. 2026).
+// ใช้ได้เฉพาะเมื่อราคาปัจจุบันยังเท่าค่า seed เดิม (from) — ราคาที่แอดมินแก้เอง
+// ทีหลังจะไม่ถูกทับ และหลัง patch ค่าไม่เท่า from แล้วจึงไม่ apply ซ้ำ
+// ---------------------------------------------------------------------------
+export const ACCESSORY_PRICE_PATCH: Record<string, { from: number; to: number }> = {
+  'Apple Pencil (1st generation)': { from: 800, to: 300 },
+  'Apple Pencil (2nd generation)': { from: 1800, to: 500 },
+  'Apple Pencil (USB-C)': { from: 1300, to: 500 },
+  'Apple Pencil Pro': { from: 2500, to: 1000 },
+  'Smart Keyboard Folio 11"': { from: 1800, to: 500 },
+  'Smart Keyboard Folio 12.9"': { from: 2200, to: 500 },
+  'Magic Keyboard 11"': { from: 4000, to: 500 },
+  'Magic Keyboard 13"': { from: 4500, to: 500 },
+  'Magic Keyboard for iPad Pro 11" (M4)': { from: 5500, to: 2000 },
+  'Magic Keyboard for iPad Pro 13" (M4)': { from: 6000, to: 2000 },
+  'Magic Keyboard Folio': { from: 2500, to: 1500 },
 };
 
 const kindOf = (seriesName: string): SeriesKind => {
