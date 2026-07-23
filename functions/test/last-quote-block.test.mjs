@@ -733,5 +733,18 @@ check("asking for info with 'เดี๋ยวผมเช็คให้' is N
 check("normal condition question is NOT a wait promise", !__test.waitPromiseIntent("จอหรือตัวเครื่องมีรอยไหมครับ"));
 check("prompt rule forbids ending on a wait", sysNoCust.includes('ห้ามจบข้อความด้วยการให้ลูกค้า "รอ"'));
 
+// --- rapid-fire customer messages (ตอบซ้ำสอง) --------------------------------
+// Live: "iPad Air (2013)" + "กี่ร้อย" sent seconds apart produced the SAME
+// decline reply twice — each message spawns an invocation. Guards: an
+// invocation superseded by a newer customer message stands down (checked at
+// start AND again right before sending), and writeAiMessage drops a reply
+// identical to the newest AI bubble within 3 minutes.
+check("superseded turn stands down at start", src.includes("superseded by newer customer message"));
+check("stale reply dropped when newer message arrived mid-turn", src.includes("dropping stale reply"));
+check("identical consecutive AI reply is deduped", src.includes("identical AI reply within 3 min"));
+const supersededAt = src.indexOf("superseded by newer customer message");
+const floodAt = src.indexOf("Flood guard");
+check("superseded guard runs before the flood guard", supersededAt > 0 && floodAt > 0 && supersededAt < floodAt);
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

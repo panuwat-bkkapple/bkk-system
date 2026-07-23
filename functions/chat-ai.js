@@ -1420,8 +1420,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.3";
+const LOGIC_VERSION = "2026-07-23.4";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "ลูกค้าพิมพ์รัวหลายข้อความ = ตอบครั้งเดียวรวบทุกข้อความ ไม่ตอบซ้ำสอง (เทิร์นเก่าสละสิทธิ์ให้เทิร์นล่าสุด + กันส่งข้อความ AI ซ้ำข้อความเดิมติดกัน)" },
   { at: "2026-07-23", text: "ห้ามทิ้งลูกค้าไว้กับ 'รอสักครู่ครับ' — ถ้าคำตอบสัญญาว่าจะไปเช็คอะไร ระบบบังคับเช็คให้เสร็จและตอบผลจริงในข้อความเดียวกันทันที (เคส iPad Generation 11 ที่บอกให้รอแล้วเงียบ)" },
   { at: "2026-07-23", text: "แก้บั๊กแบตหลุดจากการ์ด (เคส iPhone 11 แจ้ง 70% แต่การ์ดคิดแบตปกติ): ชุดประเมินที่มีตัวเลือกแค่ 'ปกติ/แบตเตอรี่เสื่อม' (ไม่มีช่วง %) ระบบจับคู่ไม่ได้ — ตอนนี้ต่ำกว่า 80% = เลือกตัวเลือกเสื่อมอัตโนมัติตามเกณฑ์ Apple" },
   { at: "2026-07-23", text: "แก้ FAQ เก่า 3 ข้อที่ขัดกับระบบจริง (เคยบอกว่า Rider รับถึงบ้าน 'ไม่มีค่าจัดส่ง/ไม่คิดค่าบริการใดๆ') — ตอนนี้ตอบตรงระบบ: Pickup มีค่าบริการตามระยะทาง แจ้งก่อนยืนยัน + โปรฟรีบางรุ่น/พื้นที่, Store-in/Mail-in ฟรี" },
@@ -1561,9 +1562,39 @@ function announcedQuoteIntent(text) {
   );
 }
 
+// The id of the NEWEST customer message in the conversation — used by the
+// superseded-turn guard: when customers fire several messages in a row each
+// one spawns its own invocation, and only the invocation for the newest
+// message should reply (with full context). Everyone else stands down.
+async function latestCustomerMsgId(db, convoId) {
+  const snap = await db.ref(`inbox/${convoId}/messages`).orderByKey().limitToLast(10).once("value");
+  let last = null;
+  snap.forEach((s) => {
+    const v = s.val();
+    if (v && v.senderRole === "customer") last = s.key;
+  });
+  return last;
+}
+
 async function writeAiMessage(db, convoId, assistantName, rawText) {
   const { text, choices } = extractChoices(stripMarkdown(rawText));
   const now = Date.now();
+  // Duplicate-reply guard — live bug: two rapid customer messages produced
+  // the SAME deterministic decline twice ("iPad Air (2013) งดรับซื้อ" x2).
+  // If the newest message is an identical AI bubble from the last 3 minutes,
+  // sending it again adds zero information — drop it.
+  try {
+    const lastSnap = await db.ref(`inbox/${convoId}/messages`).orderByKey().limitToLast(1).once("value");
+    let dupe = false;
+    lastSnap.forEach((s) => {
+      const v = s.val();
+      if (v && v.senderRole === "ai" && String(v.text || "") === text && now - Number(v.timestamp) < 3 * 60 * 1000) dupe = true;
+    });
+    if (dupe) {
+      console.warn(`[chatAi] ${convoId} identical AI reply within 3 min — skipping duplicate`);
+      return;
+    }
+  } catch { /* dedupe is best-effort — never block a reply on it */ }
   await db.ref(`inbox/${convoId}/messages`).push({
     sender: "ai",
     senderName: assistantName,
@@ -3009,6 +3040,16 @@ function registerChatAi({ dispatchAdminPush }) {
         history.push({ id: s.key, ...s.val() });
       });
 
+      // Superseded-turn guard (ตอบซ้ำสองเมื่อลูกค้าพิมพ์รัว) — each customer
+      // message spawns its own invocation; if a NEWER customer message already
+      // exists, this invocation stands down and lets the newest one answer
+      // everything in a single reply with full context.
+      const newestCustId = [...history].reverse().find((m) => m.senderRole === "customer");
+      if (newestCustId && newestCustId.id !== msgId) {
+        console.log(`[${tag}] ${convoId} superseded by newer customer message (${msgId} -> ${newestCustId.id}) — standing down`);
+        return;
+      }
+
       // Flood guard — a runaway client (or abuse) stops getting AI replies;
       // messages still land in the console via the denormalization above.
       const recentCustomerCount = history.filter(
@@ -3637,6 +3678,18 @@ function registerChatAi({ dispatchAdminPush }) {
             }
           }
         }
+
+        // Pre-send superseded check — the customer may have typed MORE while
+        // we were thinking (name then phone, model then "กี่ร้อย"). The newer
+        // message has its own invocation with fuller context; sending this
+        // stale draft too produces the double/contradictory replies seen live.
+        try {
+          const latestCust = await latestCustomerMsgId(db, convoId);
+          if (latestCust && latestCust !== msgId) {
+            console.log(`[${tag}] ${convoId} newer customer message arrived mid-turn (${msgId} -> ${latestCust}) — dropping stale reply`);
+            return;
+          }
+        } catch { /* best-effort — never block the reply */ }
 
         await writeAiMessage(db, convoId, assistantName, finalText.slice(0, 2000));
       } catch (err) {
