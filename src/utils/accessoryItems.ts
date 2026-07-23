@@ -64,16 +64,31 @@ export const findModelByDisplayName = (modelsData: any, displayName: string): an
   return list.find((m: any) => m?.name && (name === m.name || name.startsWith(m.name + ' ('))) || null;
 };
 
+/** ความเข้ากันได้ของ accessory กับ iPad หนึ่งรุ่น — ระดับรุ่นก่อน แล้วค่อย
+ *  fallback ระดับ series (ข้อมูลเก่า):
+ *  1. `compatible_models` (model ids — convention เดียวกับ coupon
+ *     applicable_models) มีรายการ → ต้องมี id ของ iPad รุ่นนั้น
+ *  2. ไม่มี → `compatible_series` (ชื่อ series) มีรายการ → ต้องมี series นั้น
+ *  3. ไม่มีทั้งคู่ → เข้ากับ iPad ทุกรุ่น */
+export const isAccessoryCompatible = (accessoryModel: any, deviceModel: any): boolean => {
+  if (!deviceModel) return false;
+  const byModel = Array.isArray(accessoryModel?.compatible_models)
+    ? accessoryModel.compatible_models.filter(Boolean) : [];
+  if (byModel.length > 0) return byModel.includes(deviceModel.id);
+  const bySeries = Array.isArray(accessoryModel?.compatible_series)
+    ? accessoryModel.compatible_series.filter(Boolean) : [];
+  return bySeries.length === 0 || bySeries.includes(deviceModel.series);
+};
+
 /** Accessory models offerable alongside a given device model (must be an iPad
- *  = category Tablets). compatible_series empty/missing = ทุกรุ่น iPad. */
+ *  = category Tablets). */
 export const accessoryModelsForDevice = (modelsData: any, deviceModel: any): any[] => {
   if (!deviceModel || deviceModel.category !== 'Tablets') return [];
   const list = Array.isArray(modelsData) ? modelsData : [];
   return list.filter((m: any) => {
     if (!m || m.category !== ACCESSORY_CATEGORY) return false;
     if (m.isActive === false) return false;
-    const compat = Array.isArray(m.compatible_series) ? m.compatible_series.filter(Boolean) : [];
-    return compat.length === 0 || compat.includes(deviceModel.series);
+    return isAccessoryCompatible(m, deviceModel);
   });
 };
 

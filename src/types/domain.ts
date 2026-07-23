@@ -829,8 +829,12 @@ export interface PricingModel {
   conditionSetId: string;
   /** ตัวคูณส่วนลดสภาพตามสภาพคล่องของรุ่น (default 1.0; >1 = หักหนักขึ้น, <1 = หักเบาลง) */
   liquidityFactor?: number;
-  /** เฉพาะ category Tablet Accessories — ชื่อ series ของ iPad ที่ใช้ร่วมกันได้
-   *  (ผูกด้วยชื่อ ตาม convention model.series). ว่าง/ไม่มี = เสนอกับ iPad ทุกรุ่น */
+  /** เฉพาะ category Tablet Accessories — ความเข้ากันได้ระดับรุ่น: model ids ของ
+   *  iPad ที่ใช้ร่วมกันได้ (convention เดียวกับ coupon applicable_models).
+   *  มีรายการ = ใช้ตัวนี้ตัดสิน, ว่าง/ไม่มี = fallback ไป compatible_series */
+  compatible_models?: string[];
+  /** legacy fallback ระดับ series (ชื่อ series iPad) — ใช้เมื่อไม่มี
+   *  compatible_models. ว่าง/ไม่มีทั้งคู่ = เสนอกับ iPad ทุกรุ่น */
   compatible_series?: string[];
   attributesSchema: AttributeSchemaItem[];
   updatedAt: number;
