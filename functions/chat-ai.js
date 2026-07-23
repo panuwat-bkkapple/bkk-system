@@ -1431,8 +1431,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.8";
+const LOGIC_VERSION = "2026-07-23.9";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "อุดรูต่อจากเกตขอเบอร์ก่อนส่งต่อ: ถ้าเกตตีกลับการส่งต่อแล้วคำตอบยังสัญญา 'เดี๋ยวแจ้งกลับ' โดยไม่ขอเบอร์ ระบบสลับเป็นข้อความขอชื่อ+เบอร์+รายละเอียดเครื่องให้อัตโนมัติ — ห้ามมีเคสสัญญาติดต่อกลับทั้งที่ไม่มีเบอร์และไม่มีคิวเจ้าหน้าที่ (เคสจริง iPhone 16e หลัง deploy เกต)" },
   { at: "2026-07-23", text: "รุ่นตระกูล e แยกจากรุ่นเลขเฉยๆ แล้ว (เคส iPhone 16e เคยถูกจับคู่เป็น iPhone 16) — 'iPhone 16e' จะไม่เจอรุ่น 16 ปกติอีก และถ้ารุ่นไม่มีในระบบ/ไม่มีราคา ระบบบังคับขอชื่อ+เบอร์+รายละเอียดเครื่องก่อน ห้ามส่งต่อเจ้าหน้าที่มือเปล่า" },
   { at: "2026-07-23", text: "คำถาม 'ประกัน/ปัจจัยใดมีผลต่อราคาไหม' ต้องดูจากชุดประเมินจริงของรุ่น ห้ามตอบจากความจำ (เคส iPad Gen 11 มีหัวข้อประกันต่างกันราวพันบาท แต่ AI ตอบว่าไม่มีผล) — มี guard จับคำตอบ 'ประกันไม่มีผล' แล้วแก้เป็นถามสถานะจริงพร้อมปุ่มจากตัวเลือกจริง + ลูกค้าบอกสถานะประกันเองต้องใส่เข้าใบเสนอราคา" },
   { at: "2026-07-23", text: "ตาข่ายกันหลุด 2 ชั้นใหม่: ศัพท์ภายในระบบ (ชื่อคำสั่ง/ฟิลด์) มีตัวจับ deterministic ก่อนส่งทุกข้อความ และเส้นแดงเรื่องปลดล็อก iCloud — แนะนำได้เฉพาะช่องทางทางการของเจ้าของเครื่อง ห้าม bypass ทุกกรณี" },
@@ -1529,6 +1530,13 @@ function stampLogicMeta(db) {
 // "รุ่นนี้เรารับซื้อแน่นอน" for a device we have not pinned down yet.
 const CONTACT_FIRST_ASK =
   "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+
+// Deterministic reply when the offer-mode contact gate bounced an escalate
+// this turn and the draft still doesn't ask for a callback number — the
+// customer must never be left with a bare "เดี๋ยวแจ้งราคากลับ" that has no
+// phone number behind it and nothing queued for staff.
+const OFFER_CONTACT_ASK =
+  "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
 
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
@@ -3655,13 +3663,36 @@ function registerChatAi({ dispatchAdminPush }) {
             console.warn(
               `[${tag}] ${convoId} escalation requested/promised but not executed (wantsHuman=${wantsHuman} saidForwarded=${saidForwarded}) — forcing escalate`
             );
-            await executeTool("escalate_to_human", {
+            const forcedResult = await executeTool("escalate_to_human", {
               reason: wantsHuman ? "customer_request" : "promised_forwarding",
               summary: wantsHuman
                 ? `ลูกค้าขอคุยกับเจ้าหน้าที่: "${text.slice(0, 120)}"`
                 : `AI บอกว่าส่งต่อแล้วแต่ยังไม่ได้ส่งจริง — ลูกค้า: "${text.slice(0, 120)}"`,
             });
+            if (forcedResult && forcedResult.error === "contact_required_first") {
+              // The offer-mode gate bounced the forced escalate: nothing is
+              // queued for staff, so the "เดี๋ยวแจ้งกลับ" draft is now a lie.
+              // Swap it for the contact ask the gate demanded.
+              console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
+              finalText = OFFER_CONTACT_ASK;
+            }
           }
+        }
+
+        // Offer-mode backstop: the contact gate fired somewhere this turn
+        // (first escalate attempt bounced) but the surviving draft neither
+        // asks for a phone number nor did a later escalate succeed. Without
+        // this, the customer gets a callback promise with no callback number
+        // and no staff queue entry — a silently lost lead (live case: the
+        // 16e wait-promise reply right after the gate shipped).
+        if (
+          finalText &&
+          !state.escalated &&
+          state.offerContactPromptedThisTurn &&
+          !/เบอร์/.test(finalText)
+        ) {
+          console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
+          finalText = OFFER_CONTACT_ASK;
         }
 
         // Deterministic price-leak scrub — contact-before-price is an owner

@@ -820,5 +820,24 @@ check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iph
   check("unpriced top result marks no-price", searchBody.includes("if (topUnpriced) state.lastSearchNoPrice = true;"));
 }
 
+// --- offer-mode gate must never strand a callback promise -------------------
+// Live case (right after the gate shipped): the forced escalate in the
+// escalation-promise guard was bounced by the gate, the bounce was ignored,
+// and "เดี๋ยวแจ้งราคากลับ" went out with NO callback number and NOTHING queued
+// for staff. Two nets: the forced-escalate call now reads its result, and a
+// final backstop swaps any no-contact draft for OFFER_CONTACT_ASK whenever
+// the gate fired this turn without a later successful escalate.
+{
+  const guard = src.indexOf("forcing escalate");
+  check("forced escalate captures its result", src.indexOf("const forcedResult = await executeTool(\"escalate_to_human\"", guard) > 0);
+  check("bounced forced escalate swaps to contact ask", src.indexOf('forcedResult.error === "contact_required_first"', guard) > guard);
+  const backstop = src.indexOf("Offer-mode backstop");
+  check("offer-mode backstop exists after the guard", backstop > guard);
+  check("backstop keys on the gate having fired this turn", src.indexOf("state.offerContactPromptedThisTurn &&", backstop) > backstop);
+  check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์/.test(finalText)", backstop) > backstop);
+  check("backstop overrides with the canned contact ask", src.indexOf("finalText = OFFER_CONTACT_ASK;", backstop) > backstop);
+  check("OFFER_CONTACT_ASK asks for name+phone+device details", /const OFFER_CONTACT_ASK\s*=\s*\n?\s*"[^"]*เบอร์โทร[^"]*ความจุ/.test(src));
+}
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
