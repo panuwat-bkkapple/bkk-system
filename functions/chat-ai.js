@@ -1225,7 +1225,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `- คุณคือพนักงานรับซื้อมืออาชีพที่อบอุ่น เป็นกันเอง และมั่นใจ เหมือนพนักงานหน้าร้านที่บริการดีที่สุด ไม่ใช่บอทตอบอัตโนมัติ`,
     `- ก่อนถามหรือให้ข้อมูลต่อ ให้รับทราบสิ่งที่ลูกค้าเพิ่งบอกสั้นๆ (เช่น "สภาพไม่มีรอยเลย ดีมากครับ" "แบต 90% ยังดีอยู่ครับ") ให้ลูกค้ารู้สึกว่ามีคนฟังอยู่จริง`,
     `- แต่ห้ามให้การรับทราบกลายเป็นสูตรซ้ำ (ปัญหาจริงที่ลูกค้ารำคาญ: ทุกข้อความขึ้นต้น "ดีครับ ... ขอถามต่อนะครับ" เหมือนหุ่นยนต์): (ก) ห้ามพูดประโยคเชื่อมประเภท "ขอถามต่อนะครับ/ขอถามอีกนิดนะครับ/ขอถามเรื่องถัดไปนะครับ" ซ้ำเกิน 1 ครั้งต่อบทสนทนา — คนจริงไม่ประกาศทุกครั้งว่ากำลังจะถามต่อ รับทราบสั้นๆ แล้วถามคำถามถัดไปตรงๆ ได้เลย (ข) เปลี่ยนคำรับทราบไปเรื่อยๆ อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้าของตัวเอง (ค) บางจังหวะรับทราบในเนื้อคำถามเลยก็ได้ เช่น "แบต 100% สภาพนางฟ้าเลยครับ แล้วกล่องอุปกรณ์ยังอยู่ครบไหมครับ" (ง) คำตอบกลางๆ ของลูกค้า (เช่น เลือกตัวเลือกเฉยๆ) ไม่ต้องชมหรือรับทราบทุกครั้ง ถามต่อได้เลย`,
-    `- รู้ชื่อลูกค้าเมื่อไหร่ ให้เรียกชื่อ (เช่น "คุณต้น") แทนคำว่า "คุณ" เฉยๆ`,
+    `- สรรพนามเรียกลูกค้า (มาตรฐานร้าน ห้ามพลาด): รู้ชื่อ = เรียก "คุณ" ตามด้วยชื่อ (เช่น "คุณต้น") เสมอ, ยังไม่รู้ชื่อ = "คุณลูกค้า" หรือ "คุณ" — ห้ามเรียก "น้อง/พี่/ลุง/ป้า/เธอ/นาย" เด็ดขาดทุกกรณี (บั๊กจริง: AI เรียกลูกค้าว่า "น้อง" — สุภาพเป็นกลางเท่านั้น ไม่ตีสนิทเกิน ไม่เดาอายุ/เพศ)`,
     `- ขายแบบช่วยเหลือ ไม่กดดัน: ชี้จุดที่ได้ราคาดี อธิบายเหตุผลการหักสั้นๆ เมื่อลูกค้าสงสัย และชวนไปขั้นถัดไปอย่างนุ่มนวล`,
     `- ประโยคเปิด-ปิดมีหางเสียงครบ ไม่ตอบห้วนเป็นวลีสั้นๆ เช่น อย่าตอบแค่ "ได้ครับ" ให้ตอบแบบ "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ทันทีครับ"`,
     `- ทักทายครั้งแรกให้สั้นและพุ่งเข้าเรื่องขายทันที เช่น "สวัสดีครับ อยากขายรุ่นไหน แจ้งมาได้เลยครับ เดี๋ยวผมประเมินราคาให้ทันที" — ไม่ต้องแนะนำตัวยาว ไม่ต้องไล่รายการบริการ`,
@@ -1420,8 +1420,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.4";
+const LOGIC_VERSION = "2026-07-23.5";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "สรรพนามมาตรฐานร้าน: เรียก 'คุณ+ชื่อ' เมื่อรู้ชื่อ / 'คุณลูกค้า' เมื่อยังไม่รู้ — ห้ามเรียก 'น้อง/พี่' ทุกกรณี (เคสจริง AI เรียกลูกค้าว่า 'น้อง')" },
   { at: "2026-07-23", text: "ลูกค้าพิมพ์รัวหลายข้อความ = ตอบครั้งเดียวรวบทุกข้อความ ไม่ตอบซ้ำสอง (เทิร์นเก่าสละสิทธิ์ให้เทิร์นล่าสุด + กันส่งข้อความ AI ซ้ำข้อความเดิมติดกัน)" },
   { at: "2026-07-23", text: "ห้ามทิ้งลูกค้าไว้กับ 'รอสักครู่ครับ' — ถ้าคำตอบสัญญาว่าจะไปเช็คอะไร ระบบบังคับเช็คให้เสร็จและตอบผลจริงในข้อความเดียวกันทันที (เคส iPad Generation 11 ที่บอกให้รอแล้วเงียบ)" },
   { at: "2026-07-23", text: "แก้บั๊กแบตหลุดจากการ์ด (เคส iPhone 11 แจ้ง 70% แต่การ์ดคิดแบตปกติ): ชุดประเมินที่มีตัวเลือกแค่ 'ปกติ/แบตเตอรี่เสื่อม' (ไม่มีช่วง %) ระบบจับคู่ไม่ได้ — ตอนนี้ต่ำกว่า 80% = เลือกตัวเลือกเสื่อมอัตโนมัติตามเกณฑ์ Apple" },
@@ -1464,6 +1465,7 @@ const LOGIC_BEHAVIORS = [
     "ลูกค้าเอ่ยชื่อรุ่นเมื่อไหร่ ค้นฐานข้อมูลทันที ห้ามตอบรับ/ปฏิเสธจากความจำ",
     "ห้ามใช้ศัพท์เทคนิคภายในระบบกับลูกค้า",
     "เขียนเหมือนพนักงานคนจริงพิมพ์แชท: สั้นยาวสลับจังหวะ ห้าม bullet/เลขข้อ ห้ามเอ่ยความเป็น AI เอง — ถูกถามตรงๆ ค่อยตอบตามจริงสั้นๆ แล้วพากลับเข้าเรื่อง",
+    "เรียกลูกค้าว่า 'คุณ+ชื่อ' หรือ 'คุณลูกค้า' เท่านั้น — ห้าม 'น้อง/พี่' ทุกกรณี",
     "ความรู้ทั่วไป/how-to (เช็คแบต, ปิด Find My, เตรียมเครื่องก่อนขาย) ตอบเองได้เต็มที่แบบผู้เชี่ยวชาญ — เฉพาะราคา/บริการ/นโยบายร้านเท่านั้นที่ยึดจากระบบ",
   ] },
   { key: "model", label: "ตรวจรุ่นจากฐานข้อมูล", emoji: "🔍", rules: [
@@ -3757,7 +3759,89 @@ function registerChatAi({ dispatchAdminPush }) {
     };
   });
 
-  return { chatWidgetAiReply, getChatAiKnowledge };
+  // วิเคราะห์บริบททั้งบทสนทนา + ร่างคำตอบให้แอดมินเลือกส่ง (copilot ฝั่งทีม) —
+  // ตอบโจทย์ workflow ที่เจ้าของเคยทำมือผ่าน Gemini: อ่านทั้งแชท สรุปว่าลูกค้า
+  // ต้องการอะไร แล้วเสนอร่าง 2-3 แบบ. ต่างจาก Gemini ตรงที่ยึดกฎร้านจริง
+  // (ห้ามขึ้นราคาเพราะโดนต่อ, ราคาต้องมาจากการ์ด/บทสนทนาเท่านั้น).
+  // ชื่อ function unique ระดับ project ตามกฎ {region}/{name}.
+  const suggestAdminReplies = onCall(
+    { region: REGION, timeoutSeconds: 60, memory: "512MiB" },
+    async (request) => {
+      if (!request.auth) throw new HttpsError("unauthenticated", "ต้องล็อกอินก่อน");
+      const convoId = String((request.data && request.data.convoId) || "");
+      if (!convoId) throw new HttpsError("invalid-argument", "ต้องระบุ convoId");
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new HttpsError("failed-precondition", "ยังไม่ได้ตั้งค่า AI");
+      const db = getDatabase();
+      const convoSnap = await db.ref(`inbox/${convoId}`).once("value");
+      if (!convoSnap.exists()) throw new HttpsError("not-found", "ไม่พบบทสนทนา");
+      const convo = convoSnap.val() || {};
+      const msgs = Object.entries(convo.messages || {})
+        .map(([id, m]) => ({ id, ...(m || {}) }))
+        .filter((m) => m.text && Number(m.timestamp) > 0)
+        .sort((a, b) => Number(a.timestamp) - Number(b.timestamp))
+        .slice(-40);
+      if (msgs.length === 0) throw new HttpsError("failed-precondition", "ยังไม่มีข้อความในบทสนทนา");
+      const roleLabel = { customer: "ลูกค้า", ai: "มาติน(AI)", admin: "แอดมิน", system: "ระบบ" };
+      const transcript = msgs
+        .map((m) => `${roleLabel[m.senderRole] || m.senderRole}: ${String(m.text).slice(0, 500)}`)
+        .join("\n");
+      const lq = convo.ai_state && convo.ai_state.last_quote;
+      const context = [
+        `ชื่อลูกค้า: ${convo.customer_name || convo.name || "ยังไม่ทราบ"}`,
+        `เบอร์: ${convo.customer_phone || "ยังไม่มี"}`,
+        lq ? `ใบเสนอราคาล่าสุดในแชท: ${lq.model_name} ${lq.variant_name} ยอดประเมิน ${lq.estimated_price} บาท` : `ยังไม่มีใบเสนอราคาในแชทนี้`,
+        convo.escalation && convo.escalation.summary ? `เหตุที่ส่งต่อเจ้าหน้าที่: ${convo.escalation.summary}` : ``,
+      ].filter(Boolean).join("\n");
+      const resp = await callClaudeResilient({
+        apiKey,
+        model: STRONG_MODEL,
+        system: [{
+          type: "text",
+          text: [
+            `คุณคือผู้ช่วยของ "เจ้าหน้าที่" ร้าน BKK APPLE (รับซื้ออุปกรณ์ Apple มือสอง) — อ่านบทสนทนาระหว่างลูกค้า/AI/แอดมิน แล้วช่วยเจ้าหน้าที่ 2 อย่าง: (1) สรุปว่าลูกค้าต้องการอะไรจริงๆ ในบริบทนี้ (2) ร่างคำตอบให้เลือก 2-3 แบบ`,
+            `กฎการร่างคำตอบ (เหมือนกฎของร้านทุกข้อ):`,
+            `- น้ำเสียงพนักงานคนจริง สุภาพ ลงท้ายครับ ไม่ใช้ bullet/เลขข้อ/อีโมจิ ไม่เกิน 3-4 ประโยคต่อร่าง`,
+            `- สรรพนาม: รู้ชื่อ = "คุณ<ชื่อ>", ไม่รู้ = "คุณลูกค้า" — ห้าม "น้อง/พี่"`,
+            `- ห้ามแต่งตัวเลขราคา/ค่าบริการ/นโยบายที่ไม่มีในบทสนทนาหรือ context ที่ให้มา — ตัวเลขที่อ้างได้มีเฉพาะที่ปรากฏแล้วเท่านั้น`,
+            `- ห้ามเสนอขึ้นราคาเพราะลูกค้าต่อรอง — ราคาปรับขึ้นได้เฉพาะเมื่อสภาพเครื่องจริงดีกว่าที่แจ้งตอนตรวจหน้างาน`,
+            `- ไม่รับซื้อเครื่องติด iCloud/MDM/Blacklist/ผ่อนไม่หมด ในทุกกรณี`,
+            `- แต่ละร่างให้มุมต่างกัน (เช่น ตอบตรงคำถาม / ยืนเงื่อนไขอย่างนุ่มนวล / ชวนปิดดีลขั้นถัดไป) พร้อม label สั้นๆ`,
+            `ตอบเป็น JSON บรรทัดเดียวเท่านั้น: {"intent":"<ลูกค้าต้องการอะไร 1-2 ประโยค>","situation":"<สถานะดีลตอนนี้ 1 ประโยค>","drafts":[{"label":"<ชื่อร่างสั้นๆ>","text":"<ข้อความพร้อมส่ง>"}]}`,
+          ].join("\n"),
+          cache_control: { type: "ephemeral" },
+        }],
+        messages: [{ role: "user", content: `ข้อมูลบทสนทนา:\n${context}\n\nบทสนทนา:\n${transcript}` }],
+        tools: [],
+      });
+      // Usage into the daily ledger (same books as the chat itself).
+      try {
+        const { ymd } = bangkokNowParts();
+        const u = resp.usage || {};
+        db.ref(`chat_ai_usage/${ymd}`).update({
+          input_tokens: ServerValue.increment(u.input_tokens || 0),
+          output_tokens: ServerValue.increment(u.output_tokens || 0),
+          cache_read_tokens: ServerValue.increment(u.cache_read_input_tokens || 0),
+          cache_write_tokens: ServerValue.increment(u.cache_creation_input_tokens || 0),
+        }).catch(() => {});
+      } catch { /* accounting is best-effort */ }
+      const txt = (resp.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const m = txt.match(/\{[\s\S]*\}/);
+      if (!m) throw new HttpsError("internal", "วิเคราะห์ไม่สำเร็จ ลองใหม่อีกครั้ง");
+      let parsed;
+      try { parsed = JSON.parse(m[0]); } catch { throw new HttpsError("internal", "วิเคราะห์ไม่สำเร็จ ลองใหม่อีกครั้ง"); }
+      return {
+        intent: String(parsed.intent || "").slice(0, 500),
+        situation: String(parsed.situation || "").slice(0, 500),
+        drafts: (Array.isArray(parsed.drafts) ? parsed.drafts : [])
+          .slice(0, 3)
+          .map((d) => ({ label: String((d && d.label) || "ร่างคำตอบ").slice(0, 60), text: String((d && d.text) || "").slice(0, 1200) }))
+          .filter((d) => d.text),
+      };
+    }
+  );
+
+  return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies };
 }
 
 // __test = internal surface for the regression harness (functions/test/).

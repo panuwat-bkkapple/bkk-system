@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ref, onValue, push, update, serverTimestamp, remove, increment, query, orderByChild, equalTo, limitToLast, get, type DataSnapshot } from 'firebase/database';
-import { db } from '../../api/firebase';
+import { app, db } from '../../api/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
@@ -332,6 +333,25 @@ export const InboxPage = () => {
   const removeConvoTag = async (tagId: string) => {
     if (!selectedConvo) return;
     await remove(ref(db, `inbox/${selectedConvo}/tags/${tagId}`));
+  };
+
+  // ---- AI copilot: วิเคราะห์บริบททั้งบทสนทนา + ร่างคำตอบให้แอดมินเลือก ----
+  interface AssistDraft { label: string; text: string }
+  interface AssistResult { intent: string; situation: string; drafts: AssistDraft[] }
+  const [assist, setAssist] = useState<{ loading: boolean; data?: AssistResult; error?: string } | null>(null);
+  const runAssist = async () => {
+    if (!selectedConvo) return;
+    setAssist({ loading: true });
+    try {
+      const fn = httpsCallable<{ convoId: string }, AssistResult>(
+        getFunctions(app, 'asia-southeast1'),
+        'suggestAdminReplies'
+      );
+      const res = await fn({ convoId: selectedConvo });
+      setAssist({ loading: false, data: res.data });
+    } catch (e) {
+      setAssist({ loading: false, error: (e as Error).message || 'วิเคราะห์ไม่สำเร็จ' });
+    }
   };
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
@@ -1190,6 +1210,39 @@ export const InboxPage = () => {
               <div ref={scrollRef} />
             </div>
 
+            {/* AI copilot result — สรุปความต้องการลูกค้า + ร่างคำตอบให้เลือก */}
+            {assist && !assist.loading && (
+              <div className="px-4 py-3 bg-violet-50/60 border-t border-violet-100 space-y-2 max-h-72 overflow-y-auto">
+                <div className="flex items-start justify-between gap-2">
+                  {assist.error ? (
+                    <p className="text-xs text-red-600 font-bold">{assist.error}</p>
+                  ) : (
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-violet-800">ลูกค้าต้องการ: <span className="font-bold text-slate-700">{assist.data?.intent}</span></p>
+                      {assist.data?.situation && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">สถานะดีล: {assist.data.situation}</p>
+                      )}
+                    </div>
+                  )}
+                  <button onClick={() => setAssist(null)} className="text-slate-400 hover:text-slate-600 shrink-0"><X size={14} /></button>
+                </div>
+                {(assist.data?.drafts || []).map((d, i) => (
+                  <div key={i} className="bg-white border border-violet-100 rounded-xl p-2.5 flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-black text-violet-500 uppercase tracking-wide">{d.label}</p>
+                      <p className="text-xs text-slate-700 mt-0.5 whitespace-pre-wrap">{d.text}</p>
+                    </div>
+                    <button
+                      onClick={() => { setInputText(d.text); setAssist(null); }}
+                      className="shrink-0 text-[11px] font-black px-2.5 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700"
+                    >
+                      ใช้ร่างนี้
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Input */}
             <div className="p-4 bg-white border-t border-slate-100 flex gap-2 items-center">
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
@@ -1212,6 +1265,21 @@ export const InboxPage = () => {
                   className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
                 >
                   <FileText size={20} />
+                </button>
+              )}
+              {/* AI copilot — วิเคราะห์บริบท + ร่างคำตอบให้เลือก */}
+              {selectedConversation.status && (
+                <button
+                  onClick={runAssist}
+                  disabled={assist?.loading}
+                  title="ให้ AI วิเคราะห์บทสนทนา + ร่างคำตอบ"
+                  className="p-2.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {assist?.loading ? (
+                    <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Bot size={20} />
+                  )}
                 </button>
               )}
               <input

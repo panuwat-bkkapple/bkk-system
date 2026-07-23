@@ -746,5 +746,9 @@ const supersededAt = src.indexOf("superseded by newer customer message");
 const floodAt = src.indexOf("Flood guard");
 check("superseded guard runs before the flood guard", supersededAt > 0 && floodAt > 0 && supersededAt < floodAt);
 
+// --- customer pronouns (live: AI called the customer 'น้อง') -----------------
+check("pronoun rule: khun+name or khun-lukka only", sysNoCust.includes('ยังไม่รู้ชื่อ = "คุณลูกค้า" หรือ "คุณ"'));
+check("pronoun rule bans นอง/พี่ forms", sysNoCust.includes('ห้ามเรียก "น้อง/พี่/ลุง/ป้า/เธอ/นาย" เด็ดขาดทุกกรณี'));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
