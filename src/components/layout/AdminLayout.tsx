@@ -199,6 +199,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />
                 {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/analytics/sales" icon={<TrendingUp size={18} />} label="วิเคราะห์กำไร" />}
                 <NavButton collapsed={isCollapsed} to="/analytics/coupons" icon={<Ticket size={18} />} label="วิเคราะห์คูปอง" />
+                <NavButton collapsed={isCollapsed} to="/analytics/chat" icon={<MessageSquare size={18} />} label="Chat Analytics & SLA" />
               </div>
             </div>
           )}
