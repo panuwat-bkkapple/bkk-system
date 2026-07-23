@@ -28,6 +28,7 @@ import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
 import {
   ACCESSORY_CONDITION_SET, buildAccessorySeedModels, buildAccessoryModelPayload,
   ACCESSORY_COMPAT_BY_NAME, EXTRA_ACCESSORY_DEFS, resolveCompatModelIds,
+  ACCESSORY_PRICE_PATCH,
 } from './constants/accessorySeed';
 
 export const PriceEditor = () => {
@@ -280,6 +281,23 @@ export const PriceEditor = () => {
         writes.push(update(ref(db, `models/${acc.id}`), { compatible_models: ids, updatedAt: Date.now() }));
       }
 
+      // Owner-set buy-in prices (one-shot): applies only while the current
+      // usedPrice still equals the seed default, so manual edits are never
+      // clobbered and the patch can't re-apply.
+      let repriced = 0;
+      for (const acc of accessories) {
+        const patch = ACCESSORY_PRICE_PATCH[String(acc.name || '').trim()];
+        if (!patch) continue;
+        const rawVariants = Array.isArray(acc.variants) ? acc.variants : Object.values(acc.variants || {});
+        const v0: any = rawVariants[0];
+        if (!v0 || Number(v0.usedPrice) !== patch.from) continue;
+        repriced += 1;
+        writes.push(update(ref(db, `models/${acc.id}`), {
+          variants: [{ ...v0, usedPrice: patch.to }, ...rawVariants.slice(1)],
+          updatedAt: Date.now(),
+        }));
+      }
+
       // Insert the Pro-M4-era Magic Keyboards if absent (reuse the condition
       // set the other accessory models are already bound to).
       const existingNames = new Set(accessories.map((m: any) => String(m.name || '').trim()));
@@ -296,11 +314,11 @@ export const PriceEditor = () => {
 
       if (writes.length === 0) return;
       await Promise.all(writes);
-      toast.success(
-        `อัปเดตความเข้ากันได้อุปกรณ์เสริมเป็นระดับรุ่นตามตาราง Apple แล้ว ${upgraded} รุ่น` +
-        (inserted > 0 ? ` และเพิ่ม Magic Keyboard รุ่น Pro M4 อีก ${inserted} รุ่น (งดรับซื้อ — ตรวจราคาก่อนเปิดใช้)` : ''),
-        { duration: 10000 },
-      );
+      const parts: string[] = [];
+      if (upgraded > 0) parts.push(`ผูกความเข้ากันได้ระดับรุ่นตามตาราง Apple ${upgraded} รุ่น`);
+      if (inserted > 0) parts.push(`เพิ่ม Magic Keyboard รุ่น Pro M4 อีก ${inserted} รุ่น`);
+      if (repriced > 0) parts.push(`อัปเดตราคารับซื้อตามที่กำหนด ${repriced} รุ่น`);
+      toast.success(`อุปกรณ์เสริม iPad: ${parts.join(' · ')} — ตรวจแล้วกดเปิดใช้ (Activate) รุ่นที่พร้อมรับซื้อได้เลย`, { duration: 10000 });
     } catch {
       upgradedAccessoryCompatRef.current = false;
     }
