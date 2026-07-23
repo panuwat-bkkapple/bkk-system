@@ -628,6 +628,13 @@ function rankModels(list, rawQuery) {
   // least one meaningful (non-brand, non-version) token to hit.
   const GENERIC = new Set(["apple"]);
   const meaningfulTokens = tokens.filter((t) => !GENERIC.has(t) && !versionTokens.includes(t));
+  // Apple's e-line ("iPhone 16e") is its own cheaper model, not iPhone 16 —
+  // but the letter-digit splitter turns "16e" into "16 e" and drops the bare
+  // "e", so the query used to collapse into plain "iPhone 16" (live: a 16e
+  // ask nearly matched the 16 — thousands of baht apart). Symmetric rule:
+  // an e-query only matches e-models of the same generation, and a plain
+  // query never surfaces an e-model.
+  const qE = q.match(/(?<!\d)(\d{1,2})\s*e(?:\s|$)/);
   return list
     .map((m) => {
       // ทั้ง 3 ชื่อของรุ่นเข้าตัวจับคู่: ชื่อทางการ + ชื่อเรียกไทย + ชื่อเรียกอังกฤษ
@@ -656,9 +663,11 @@ function rankModels(list, rawQuery) {
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
       const familyOk = !familyMismatch(q, hay);
       const sublineOk = !sublineMismatch(q, hay);
-      return { m, hits, versionOk, meaningfulOk, familyOk, sublineOk };
+      const hayE = hay.match(/\b(\d{1,2})e\b/);
+      const eOk = qE ? !!(hayE && hayE[1] === qE[1]) : !hayE;
+      return { m, hits, versionOk, meaningfulOk, familyOk, sublineOk, eOk };
     })
-    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk && x.sublineOk)
+    .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk && x.sublineOk && x.eOk)
     .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
     .slice(0, 5)
     .map((x) => x.m);
@@ -1422,8 +1431,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.7";
+const LOGIC_VERSION = "2026-07-23.8";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "รุ่นตระกูล e แยกจากรุ่นเลขเฉยๆ แล้ว (เคส iPhone 16e เคยถูกจับคู่เป็น iPhone 16) — 'iPhone 16e' จะไม่เจอรุ่น 16 ปกติอีก และถ้ารุ่นไม่มีในระบบ/ไม่มีราคา ระบบบังคับขอชื่อ+เบอร์+รายละเอียดเครื่องก่อน ห้ามส่งต่อเจ้าหน้าที่มือเปล่า" },
   { at: "2026-07-23", text: "คำถาม 'ประกัน/ปัจจัยใดมีผลต่อราคาไหม' ต้องดูจากชุดประเมินจริงของรุ่น ห้ามตอบจากความจำ (เคส iPad Gen 11 มีหัวข้อประกันต่างกันราวพันบาท แต่ AI ตอบว่าไม่มีผล) — มี guard จับคำตอบ 'ประกันไม่มีผล' แล้วแก้เป็นถามสถานะจริงพร้อมปุ่มจากตัวเลือกจริง + ลูกค้าบอกสถานะประกันเองต้องใส่เข้าใบเสนอราคา" },
   { at: "2026-07-23", text: "ตาข่ายกันหลุด 2 ชั้นใหม่: ศัพท์ภายในระบบ (ชื่อคำสั่ง/ฟิลด์) มีตัวจับ deterministic ก่อนส่งทุกข้อความ และเส้นแดงเรื่องปลดล็อก iCloud — แนะนำได้เฉพาะช่องทางทางการของเจ้าของเครื่อง ห้าม bypass ทุกกรณี" },
   { at: "2026-07-23", text: "สรรพนามมาตรฐานร้าน: เรียก 'คุณ+ชื่อ' เมื่อรู้ชื่อ / 'คุณลูกค้า' เมื่อยังไม่รู้ — ห้ามเรียก 'น้อง/พี่' ทุกกรณี (เคสจริง AI เรียกลูกค้าว่า 'น้อง')" },
@@ -1661,7 +1671,14 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const list = await loadModelsLight(db);
         const scoredDetailed = rankModelsScored(list, input.query);
         const scored = scoredDetailed.map((x) => x.m);
+        // Offer-mode memory for the escalate gate below: true when this turn's
+        // search ended in "no listed price" (not in catalog, or deliberately
+        // unpriced) — the two cases where rule 6 step 2(b) demands contact
+        // info BEFORE escalating. Reset every search so a later priced search
+        // clears it.
+        state.lastSearchNoPrice = false;
         if (scored.length === 0) {
+          state.lastSearchNoPrice = true;
           // Never let the model conclude "we don't buy this" from an empty
           // search — hand it the nearby catalogue names to retry with, or
           // escalate.
@@ -1744,6 +1761,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           !(buyable[0].variants || []).some(
             (v) => Number(v.used_price) > 0 || Number(v.usedPrice) > 0 || Number(v.new_price) > 0 || Number(v.newPrice) > 0
           );
+        if (topUnpriced) state.lastSearchNoPrice = true;
         const aliasNote = ipadAirGenAliasNote(input.query);
         const singleNote = buyable.length === 1 ? singleResultVariantNote(buyable[0]) : null;
         const baseNote = topUnpriced
@@ -2617,6 +2635,31 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             note: "แชทนี้ส่งเรื่องถึงเจ้าหน้าที่อยู่แล้ว ไม่ต้องส่งซ้ำ — ดูแลลูกค้าต่อระหว่างรอตามกติกาสถานะพิเศษ",
           };
         }
+        // Offer-mode contact gate (rule 6 step 2(b)): this turn's search ended
+        // with no listed price, so escalating bare-handed hands staff a lead
+        // with nobody to call — the exact iPhone 16e dead-end. Bounce the
+        // first attempt back with instructions to collect name+phone+device
+        // details; a repeat attempt (or an explicit "ขอคุยกับแอดมิน") passes,
+        // so forced-guard escalations can never deadlock here.
+        const alreadyAskedOffer =
+          !!(convo.ai_state && convo.ai_state.offer_contact_prompted_at) || state.offerContactPromptedThisTurn;
+        if (
+          state.lastSearchNoPrice &&
+          !(convo.customer_phone || state.savedPhone) &&
+          !alreadyAskedOffer &&
+          !humanRequestIntent(lastCustomerText)
+        ) {
+          state.offerContactPromptedThisTurn = true;
+          try {
+            await db.ref(`inbox/${convoId}/ai_state/offer_contact_prompted_at`).set(Date.now());
+          } catch (err) {
+            console.warn(`[chatAi] ${convoId} offer_contact_prompted_at save failed:`, err && err.message);
+          }
+          return {
+            error: "contact_required_first",
+            note: "โหมดรับ Offer: อย่าเพิ่งส่งต่อมือเปล่า — ตอบเชิงบวก ('รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ') แล้วขอ ชื่อ + เบอร์โทร + รายละเอียดเครื่อง (ความจุ สภาพ) ในข้อความเดียว พอได้เบอร์ให้ save_customer_info แล้วค่อย escalate_to_human พร้อมข้อมูลครบ",
+          };
+        }
         const inHours = isBusinessHours(pub);
         const summary = String(input.summary || "").slice(0, 500);
         const reason = String(input.reason || "cannot_answer");
@@ -3129,7 +3172,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [] };
+      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
       try {
         const inHours = isBusinessHours(pub);
 
