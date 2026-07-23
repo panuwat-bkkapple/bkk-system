@@ -29,6 +29,10 @@ export const QCStation = () => {
    const [supervisor, setSupervisor] = useState(SUPERVISORS[0]);
    const [printMode, setPrintMode] = useState<'none' | 'cert' | 'sticker'>('none');
 
+   // Serial ของอุปกรณ์เสริมที่พ่วงมากับงาน (key = accessory item id) — ช่างกรอก
+   // ก่อนกดเข้าคลัง แล้วค่าจะติดไปกับ child stock job ตอน unpack
+   const [accessorySerials, setAccessorySerials] = useState<Record<string, string>>({});
+
    const [qcForm, setQcForm] = useState({
       screen_touch: true, screen_display: true, truetone: true, faceid: true,
       camera_front: true, camera_rear: true, speaker_mic: true, wifi_bt: true, buttons: true, charging: true,
@@ -125,6 +129,11 @@ export const QCStation = () => {
 
    const handleOpenQC = (job: any) => {
       setSelectedJob(job);
+      setAccessorySerials(Object.fromEntries(
+         (Array.isArray(job.accessory_items) ? job.accessory_items : [])
+            .filter(Boolean)
+            .map((it: any, i: number) => [it.id || String(i), it.serial || ''])
+      ));
       // ใช้ค่าจาก Sickw เติมฟอร์มได้เฉพาะเมื่อผลตรวจเป็นของเครื่องนี้จริง — คือ id ที่
       // ส่งไปตรวจ (last_check.imei) ตรงกับ imei/serial ของใบงาน — กัน snapshot ที่เคย
       // เขียนผิดเครื่องมาเติมข้อมูลมั่ว
@@ -231,7 +240,17 @@ export const QCStation = () => {
          const newLogEntry = { action: actionLog, by: supervisor, timestamp: Date.now(), details: detailLog };
          const updatedLogs = [newLogEntry, ...(selectedJob.qc_logs || [])];
 
+         // เขียน serial ที่ช่างกรอกกลับเข้า accessory_items — child stock job จะได้
+         // serial ติดไปด้วยตอน unpack ด้านล่าง
+         const rawAccessoryItems = Array.isArray(selectedJob.accessory_items)
+            ? selectedJob.accessory_items.filter(Boolean) : [];
+         const updatedAccessoryItems = rawAccessoryItems.map((it: any, i: number) => ({
+            ...it,
+            serial: (accessorySerials[it.id || String(i)] || '').trim(),
+         }));
+
          await update(ref(db, `jobs/${selectedJob.id}`), {
+            ...(updatedAccessoryItems.length > 0 ? { accessory_items: updatedAccessoryItems } : {}),
             status: nextStatus, // 👈 ระบบจะฉลาดพอที่จะไม่ส่งกลับไปวนลูปแล้ว
             qc_txn_id: qcTxnId,
             qc_passed: isFunctionalPass,
@@ -257,7 +276,11 @@ export const QCStation = () => {
             toast.success(`บันทึกสำเร็จ! ส่งสินค้าเข้าคลังแล้ว ปิดจ๊อบสมบูรณ์! (TXN: ${qcTxnId})`);
             // งานที่ขายพ่วงอุปกรณ์เสริม (iPad + Pencil/Keyboard) — แตกเป็น stock
             // รายชิ้นแบบเดียวกับ B2B unpack (idempotent — เช็ค accessories_unpacked_at)
-            const unpacked = await unpackAccessoryItemsToStock(liveJob || selectedJob, supervisor);
+            // ใช้ items ที่เพิ่งอัปเดต serial เพื่อให้ child ได้ serial ไปด้วย
+            const unpacked = await unpackAccessoryItemsToStock(
+               { ...(liveJob || selectedJob), ...(updatedAccessoryItems.length > 0 ? { accessory_items: updatedAccessoryItems } : {}) },
+               supervisor
+            );
             if (unpacked > 0) {
                toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว (ref ${selectedJob.ref_no}-A1..)`);
             }
@@ -374,15 +397,28 @@ export const QCStation = () => {
                               <section className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
                                  <h3 className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-4 flex items-center gap-2"><ClipboardCheck size={16} /> Accessories in this job ({selectedJob.accessory_items.length})</h3>
                                  <div className="space-y-2">
-                                    {selectedJob.accessory_items.map((it: any, i: number) => (
-                                       <div key={it.id || i} className="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-4 py-3">
-                                          <div>
-                                             <div className="font-black text-sm text-slate-800">{it.model_name}</div>
-                                             {it.serial && <div className="text-[10px] font-mono font-bold text-slate-400">SN: {it.serial}</div>}
+                                    {selectedJob.accessory_items.map((it: any, i: number) => {
+                                       const itemKey = it.id || String(i);
+                                       return (
+                                          <div key={itemKey} className="flex justify-between items-center gap-3 bg-white rounded-xl border border-indigo-100 px-4 py-3">
+                                             <div className="flex-1 min-w-0">
+                                                <div className="font-black text-sm text-slate-800 truncate">{it.model_name}</div>
+                                                {selectedJob.accessories_unpacked_at ? (
+                                                   it.serial && <div className="text-[10px] font-mono font-bold text-slate-400">SN: {it.serial}</div>
+                                                ) : (
+                                                   <input
+                                                      type="text"
+                                                      placeholder="Serial (ถ้ามี — Pencil/Keyboard มีบนตัว/กล่อง)"
+                                                      value={accessorySerials[itemKey] ?? ''}
+                                                      onChange={e => setAccessorySerials(prev => ({ ...prev, [itemKey]: e.target.value }))}
+                                                      className="w-full mt-1 p-2 rounded-lg border border-indigo-100 font-mono text-xs font-bold outline-none focus:border-indigo-400"
+                                                   />
+                                                )}
+                                             </div>
+                                             <div className="font-black text-sm text-indigo-600 shrink-0">฿{(Number(it.price) || 0).toLocaleString()}</div>
                                           </div>
-                                          <div className="font-black text-sm text-indigo-600">฿{(Number(it.price) || 0).toLocaleString()}</div>
-                                       </div>
-                                    ))}
+                                       );
+                                    })}
                                  </div>
                                  <p className="text-[10px] font-bold text-indigo-400 mt-3">
                                     {selectedJob.accessories_unpacked_at
