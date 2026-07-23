@@ -33,6 +33,7 @@ import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
 import { isAwaitingOffer } from '../../utils/offerRequest';
+import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 
 // ---------------------------------------------------------------------------
@@ -296,6 +297,12 @@ export const MobileTicketDetail = () => {
       updated_at: Date.now()
     });
     toast.success(`อัพเดทเป็น ${newStatus}`);
+    // งานที่ขายพ่วงอุปกรณ์เสริม — เข้าคลังแล้วแตกเป็น stock รายชิ้น (ref -A1..)
+    // แบบเดียวกับ B2B unpack. idempotent ผ่าน accessories_unpacked_at
+    if (newStatus === 'In Stock') {
+      const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
+      if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
+    }
   };
 
   // Add a free-text sales note to the job history. Mirrors desktop
@@ -673,10 +680,31 @@ export const MobileTicketDetail = () => {
               </div>
             )}
             <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">ราคาเครื่อง</span>
-                <span className="font-bold text-slate-800">฿{basePrice.toLocaleString()}</span>
-              </div>
+              {/* งานที่ขายพ่วงอุปกรณ์เสริม: basePrice คือยอดรวมก้อนเดียว (invariant เดิม)
+                  — โชว์ breakdown เครื่อง + รายชิ้นให้แอดมินเห็น ไม่แตะสูตรเงิน */}
+              {Array.isArray(job.accessory_items) && job.accessory_items.length > 0 ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">ราคาเครื่อง</span>
+                    <span className="font-bold text-slate-800">฿{Math.max(0, basePrice - sumAccessoryItems(job.accessory_items)).toLocaleString()}</span>
+                  </div>
+                  {job.accessory_items.map((it: any, i: number) => (
+                    <div key={it.id || i} className="flex justify-between text-[11px] pl-2">
+                      <span className="text-slate-400">+ {it.model_name}{job.accessories_unpacked_at ? ' (เข้าสต๊อกแล้ว)' : ''}</span>
+                      <span className="font-bold text-slate-500">฿{(Number(it.price) || 0).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">รวมเครื่อง + อุปกรณ์เสริม</span>
+                    <span className="font-bold text-slate-800">฿{basePrice.toLocaleString()}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">ราคาเครื่อง</span>
+                  <span className="font-bold text-slate-800">฿{basePrice.toLocaleString()}</span>
+                </div>
+              )}
               {grossPickupFee > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">ค่าไรเดอร์</span>

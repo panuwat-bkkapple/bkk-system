@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { X, Search, ArrowRight, ArrowLeft, CheckCircle2, Phone, Zap, MessageCircle, Package, Banknote } from 'lucide-react';
 import { formatCurrency } from '../../../utils/formatters';
 import { useDatabase } from '../../../hooks/useDatabase';
+import { AccessoryAddOnPicker } from './AccessoryAddOnPicker';
+import { sumAccessoryItems, type JobAccessoryItem } from '../../../utils/accessoryItems';
 
 const BANKS = ["กสิกรไทย (KBank)", "ไทยพาณิชย์ (SCB)", "กรุงเทพ (BBL)", "กรุงศรี (BAY)", "ออมสิน (GSB)", "พร้อมเพย์ (PromptPay)"];
 
@@ -23,6 +25,9 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
     bank_name: BANKS[0], bank_account: '', bank_holder: '',
     customer_id: ''
   });
+  // อุปกรณ์เสริมที่ขายพ่วง (iPad เท่านั้น) — ราคาถูกบวกเข้า price ตอน submit;
+  // breakdown เก็บที่ accessory_items (ดู src/utils/accessoryItems.ts)
+  const [accessoryItems, setAccessoryItems] = useState<JobAccessoryItem[]>([]);
 
   // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
   const flattenedProducts = useMemo(() => {
@@ -129,8 +134,12 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
   };
 
   const handleSubmit = () => {
+    // price = ยอดรวมก้อนเดียว (เครื่อง + อุปกรณ์เสริม) — สูตร net_payout ทุกที่
+    // อ่าน price/final_price เดิมได้เลย; accessory_items เป็นแค่ breakdown
     onSubmit({
       ...formData,
+      price: (Number(formData.price) || 0) + sumAccessoryItems(accessoryItems),
+      ...(accessoryItems.length > 0 ? { accessory_items: accessoryItems } : {}),
       offer_note: offerNote,
     });
   };
@@ -265,7 +274,7 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                   className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${!isCustomPrice ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>
                   ค้นหาจากราคากลาง
                 </button>
-                <button onClick={() => setIsCustomPrice(true)}
+                <button onClick={() => { setIsCustomPrice(true); setAccessoryItems([]); }}
                   className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${isCustomPrice ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400'}`}>
                   พิมพ์ชื่อรุ่นเอง (ราคาพิเศษ)
                 </button>
@@ -283,7 +292,7 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                       const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
                       const isSelected = formData.model === displayName;
                       return (
-                        <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); }}
+                        <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); setAccessoryItems([]); }}
                           className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-100 hover:border-amber-200'}`}>
                           <div className="flex items-center gap-3">
                             {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100 shrink-0" />}
@@ -326,6 +335,16 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                 )}
               </div>
 
+              {/* Add-on อุปกรณ์เสริม — โผล่เฉพาะเมื่อรุ่นที่เลือกเป็น iPad (จากราคากลาง) */}
+              {!isCustomPrice && (
+                <AccessoryAddOnPicker
+                  modelsData={modelsData}
+                  deviceDisplayName={formData.model}
+                  items={accessoryItems}
+                  onChange={setAccessoryItems}
+                />
+              )}
+
               {/* Offer Note */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">หมายเหตุ / เหตุผลราคาพิเศษ (ไม่บังคับ)</label>
@@ -357,7 +376,13 @@ export const InstantSellModal = ({ onClose, onSubmit, jobs }: any) => {
                   <span className="text-[10px] font-bold text-slate-400">{formData.cust_phone}</span>
                 </div>
                 <div className="font-black text-slate-800 text-sm mb-2">{formData.model}</div>
-                <div className="text-2xl font-black text-amber-600">{formData.price ? formatCurrency(Number(formData.price)) : '—'}</div>
+                {accessoryItems.map(it => (
+                  <div key={it.id} className="flex justify-between items-center text-xs font-bold text-slate-500 mb-1">
+                    <span>+ {it.model_name}</span>
+                    <span>{formatCurrency(Number(it.price) || 0)}</span>
+                  </div>
+                ))}
+                <div className="text-2xl font-black text-amber-600">{formData.price ? formatCurrency((Number(formData.price) || 0) + sumAccessoryItems(accessoryItems)) : '—'}</div>
                 {offerNote && <div className="text-[10px] text-amber-600 font-bold mt-2 bg-amber-100/50 px-3 py-1.5 rounded-lg">"{offerNote}"</div>}
               </div>
 

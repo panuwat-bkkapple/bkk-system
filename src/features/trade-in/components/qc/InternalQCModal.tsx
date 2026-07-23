@@ -14,6 +14,7 @@ import { SickwDeviceCheck } from '../../../../components/sickw/SickwDeviceCheck'
 import { SickwGateBanner } from '../../../../components/sickw/SickwGateBanner';
 import { getSickwGateStatus } from '../../../../utils/sickwApi';
 import { sumAppliedAdjustments } from '../../../../utils/adjustments';
+import { sumAccessoryItems } from '../../../../utils/accessoryItems';
 import { useAuth } from '../../../../hooks/useAuth';
 
 interface InternalQCModalProps {
@@ -289,7 +290,10 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
             // satang precision, and floating-point sum-of-deductions
             // can introduce tiny .0001 / .9999 drift across multiple
             // devices that confuses the audit log later.
-            totalFinalPrice = Math.round(totalFinalPrice);
+            // อุปกรณ์เสริมขายพ่วง (accessory_items) ไม่อยู่ใน devices[] แต่มูลค่า
+            // อยู่ใน final_price รวม — recompute จากราคาเครื่องต้องบวกกลับ
+            // ไม่งั้นเงินอุปกรณ์เสริมหายตอน Internal QC (เหมือน fix ฝั่งไรเดอร์)
+            totalFinalPrice = Math.round(totalFinalPrice + sumAccessoryItems(job.accessory_items));
 
             // Sync net_payout ให้ตรงกับ final_price ใหม่ — กันค่าเก่าค้างใน DB ที่หน้า Finance จะไปหยิบไปแสดง
             // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.

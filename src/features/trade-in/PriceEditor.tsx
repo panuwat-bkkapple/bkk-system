@@ -24,6 +24,7 @@ import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
 import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
 import { DISCONTINUED_MODELS } from './constants/discontinuedModels';
+import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
 
 export const PriceEditor = () => {
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
@@ -50,6 +51,9 @@ export const PriceEditor = () => {
   // Seed guards — ensure the idempotent default seeding only fires once per mount.
   const seededCategoriesRef = useRef(false);
   const seededBrandsRef = useRef(false);
+  // Deployments seeded before the accessories category existed won't get it from
+  // seedDefaultCategories (that only runs on an empty path) — backfill it once.
+  const backfilledAccessoryCategoryRef = useRef(false);
 
   // Category tabs + brand filter are now derived from Firebase-backed data.
   const categories = [...categoriesData].sort(
@@ -134,6 +138,21 @@ export const PriceEditor = () => {
           return (a.name || '').localeCompare(b.name || '');
         });
         setCategoriesData(formatted);
+        if (!backfilledAccessoryCategoryRef.current
+          && !formatted.some((c: any) => c?.name === ACCESSORY_CATEGORY)) {
+          backfilledAccessoryCategoryRef.current = true;
+          const maxOrder = formatted.reduce((mx, c: any) => Math.max(mx, Number(c.order) || 0), 0);
+          update(push(ref(db, 'product_categories')), {
+            name: ACCESSORY_CATEGORY,
+            label_th: 'อุปกรณ์เสริม iPad',
+            icon: 'tablet',
+            route: '',
+            slug: 'tablet-accessories',
+            order: maxOrder + 1,
+            active: true,
+            schema: CATEGORY_SCHEMAS[ACCESSORY_CATEGORY] || [],
+          }).catch(() => { backfilledAccessoryCategoryRef.current = false; });
+        }
       } else {
         setCategoriesData([]);
         if (!seededCategoriesRef.current) {
@@ -183,6 +202,9 @@ export const PriceEditor = () => {
         { name: 'Smart Watch', label_th: 'สมาร์ทวอทช์', icon: 'watch', route: '/apple-watch', slug: 'smart-watch', order: 4, active: true },
         { name: 'Camera', label_th: 'กล้องถ่ายรูป', icon: 'camera', route: '', slug: 'camera', order: 5, active: false },
         { name: 'Game System', label_th: 'เครื่องเกมคอนโซล', icon: 'gamepad', route: '', slug: 'game-system', order: 6, active: false },
+        // อุปกรณ์เสริม iPad (Apple Pencil / Magic Keyboard) — admin-only ไม่มีหน้า
+        // customer web (route ว่าง) รับซื้อพ่วงกับ iPad หรือเดี่ยวผ่านแอดมิน
+        { name: ACCESSORY_CATEGORY, label_th: 'อุปกรณ์เสริม iPad', icon: 'tablet', route: '', slug: 'tablet-accessories', order: 7, active: true },
       ];
       await Promise.all(defaults.map(d => {
         const newRef = push(ref(db, 'product_categories'));
@@ -296,6 +318,13 @@ export const PriceEditor = () => {
         mailIn: editingItem.mailIn ?? true,
         maxPickupDistanceKm: Number(editingItem.maxPickupDistanceKm) || 0,
         conditionSetId: editingItem.conditionSetId,
+        // เฉพาะ accessory models — รายชื่อ series iPad ที่ใช้ร่วมกันได้ (ผูกด้วยชื่อ
+        // ตาม convention model.series). ว่าง = null ให้ Firebase ลบฟิลด์ (= ทุกรุ่น)
+        compatible_series: (editingItem.category === ACCESSORY_CATEGORY
+          && Array.isArray(editingItem.compatible_series)
+          && editingItem.compatible_series.filter(Boolean).length > 0)
+          ? editingItem.compatible_series.filter(Boolean)
+          : null,
         liquidityFactor: Number(editingItem.liquidityFactor) > 0 ? Number(editingItem.liquidityFactor) : 1,
         attributesSchema: editingItem.attributesSchema,
         pricingMode,

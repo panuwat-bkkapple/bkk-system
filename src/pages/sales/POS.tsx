@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { ref, update, push, get, runTransaction } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { stockCost } from '../../utils/accessoryItems';
 
 export const POS = () => {
     const toast = useToast();
@@ -58,7 +59,8 @@ export const POS = () => {
                     name: foundDevice.model || 'Unknown Device',
                     code: foundDevice.serial || foundDevice.imei || foundDevice.ref_no,
                     price: Number(foundDevice.promo_price) || Number(foundDevice.selling_price) || 0,
-                    cost: Number(foundDevice.final_price) || Number(foundDevice.price) || 0,
+                    // stockCost: งานแม่ที่แตกอุปกรณ์เสริมแล้วใช้ stock_cost — กันต้นทุนซ้ำกับ child
+                    cost: stockCost(foundDevice),
                     qty: 1,
                     refData: foundDevice
                 }]);

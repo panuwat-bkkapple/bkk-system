@@ -16,6 +16,7 @@ import { UpgradePreviewPanel } from '../components/pricing/UpgradePreviewPanel';
 import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
 import type { DetectResult } from '../utils/variantGenerator';
 import { tierDeduction } from '../../../utils/pricingResolver';
+import { ACCESSORY_CATEGORY } from '../../../utils/accessoryItems';
 
 /**
  * Representative used-price of a model for converting LEGACY tier options into
@@ -441,6 +442,41 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* iPad ที่ใช้ร่วมกันได้ — เฉพาะรุ่นอุปกรณ์เสริม. ผูกด้วยชื่อ series
+                    (convention เดียวกับ model.series) ใช้กรองตัวเลือก add-on ตอน
+                    สร้าง ticket ขาย iPad. ไม่ติ๊กเลย = เสนอกับ iPad ทุกรุ่น */}
+                {editingItem.category === ACCESSORY_CATEGORY && (
+                  <div>
+                    <label className="text-xs font-black text-blue-600 mb-2 block flex items-center gap-1"><Smartphone size={14} /> Compatible iPad Series (ใช้ร่วมกับ)</label>
+                    <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-2 max-h-44 overflow-y-auto">
+                      {availableSeries.filter(s => s.category === 'Tablets').length === 0 && (
+                        <p className="text-[10px] font-bold text-slate-400">ยังไม่มี series ของ iPad ในระบบ</p>
+                      )}
+                      {availableSeries.filter(s => s.category === 'Tablets').map(s => {
+                        const selected: string[] = Array.isArray(editingItem.compatible_series) ? editingItem.compatible_series : [];
+                        const checked = selected.includes(s.name);
+                        return (
+                          <label key={s.id} className="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...selected, s.name]
+                                  : selected.filter(n => n !== s.name);
+                                onEditingItemChange({ ...editingItem, compatible_series: next });
+                              }}
+                              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-sm font-bold text-slate-700">{s.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">ไม่ติ๊กเลย = เสนอเป็น add-on กับ iPad ทุกรุ่น</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-black text-emerald-600 mb-2 block flex items-center gap-1"><ArrowRightLeft size={14} /> Liquidity Factor (ตัวคูณส่วนลดสภาพ)</label>

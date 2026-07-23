@@ -42,7 +42,7 @@ export const CEODashboard = () => {
 
     // 2. สถิติการรับซื้อวันนี้ (อัปเกรดแบบ Accounting-Grade)
     const todaysJobs = allJobs.filter(j => {
-       if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked') return false;
+       if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
 
        // 🌟 หาเวลาที่ "ปิดจ๊อบ/จ่ายเงิน" จริงๆ จากประวัติ Logs
        const closedLog = j.qc_logs?.find((l: any) => 
@@ -84,7 +84,7 @@ export const CEODashboard = () => {
        
        // 🌟 กรองให้โชว์เฉพาะงานที่ "จ่ายเงินแล้ว/เข้าคลังแล้ว" เท่านั้น จะได้ไม่สับสนกับงานที่เพิ่งประเมินราคา
        ...allJobs.filter(j => {
-           if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked') return false;
+           if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
            return j.qc_logs?.some((l: any) => ['Payment Completed', 'In Stock', 'Paid', 'Deal Closed (Negotiated)', 'Payout Processing'].includes(l.action));
        }).map(j => {
            // ดึงเวลาตอนที่ "ปิดจ๊อบ" มาโชว์ (ไม่ใช่เวลาที่เปิดบิลครั้งแรก)
