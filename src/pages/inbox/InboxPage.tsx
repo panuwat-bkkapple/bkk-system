@@ -375,12 +375,22 @@ export const InboxPage = () => {
       },
       () => setProfile(null)
     );
-    // Orders for this person come from TWO joins, merged: by uid (the account's
-    // own self-checkout orders) AND by crm_customer_id (the CRM contact — this
-    // is what surfaces ADMIN-created orders, which carry no customer uid). The
-    // contact pointer is set on the conversation by save_customer_info / the
-    // admin re-link. Dedup by job id.
+    // Orders for this person are joined by IDENTITY, not just session: phone
+    // and email (normalised to the stored forms: 0xxxxxxxxx / lowercase) are
+    // the primary keys — the same person across guest sessions, accounts, and
+    // admin-created cases. uid (self-checkout orders of this session's
+    // account) and crm_customer_id (admin re-link) still contribute, but any
+    // joined order whose OWN contact info contradicts the chat's known
+    // phone/email is dropped — that's how admin-opened cases stopped showing
+    // the admin account's unrelated orders. Dedup by job id.
     const crmId = selectedConversation?.crm_customer_id;
+    const normPhone = (s?: string) => {
+      let d = (s || '').replace(/\D/g, '');
+      if (d.startsWith('66')) d = '0' + d.slice(2);
+      return d;
+    };
+    const knownPhone = normPhone(selectedConversation?.customer_phone || selectedConversation?.phone);
+    const knownEmail = (selectedConversation?.customer_email || '').trim().toLowerCase();
     const byId: Record<string, RecentJob> = {};
     const collect = (snap: DataSnapshot) => {
       snap.forEach((j) => {
@@ -399,18 +409,44 @@ export const InboxPage = () => {
         };
       });
     };
+    const jobsBy = (child: string, value: string) =>
+      get(query(ref(db, 'jobs'), orderByChild(child), equalTo(value), limitToLast(5))).then(collect).catch(() => {});
     Promise.all([
-      get(query(ref(db, 'jobs'), orderByChild('uid'), equalTo(selectedConvo), limitToLast(5))).then(collect).catch(() => {}),
-      crmId
-        ? get(query(ref(db, 'jobs'), orderByChild('crm_customer_id'), equalTo(crmId), limitToLast(5))).then(collect).catch(() => {})
+      jobsBy('uid', selectedConvo),
+      crmId ? jobsBy('crm_customer_id', crmId) : Promise.resolve(),
+      knownPhone.length >= 9 ? jobsBy('cust_phone', knownPhone) : Promise.resolve(),
+      knownEmail ? jobsBy('cust_email', knownEmail) : Promise.resolve(),
+      // Emails may be stored with the exact case the customer typed at
+      // checkout — try the raw form too when it differs.
+      knownEmail && (selectedConversation?.customer_email || '').trim() !== knownEmail
+        ? jobsBy('cust_email', (selectedConversation?.customer_email || '').trim())
         : Promise.resolve(),
     ]).then(() => {
-      const merged = Object.values(byId).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      // Identity filter: when the chat knows a phone/email, an order carrying
+      // DIFFERENT contact info on every known channel belongs to someone else
+      // (e.g. the admin's own account when staff opened the case). Orders
+      // matching on any channel — or carrying no contact info — stay.
+      const conflicts = (j: RecentJob) => {
+        if (!knownPhone && !knownEmail) return false;
+        const jp = normPhone(j.cust_phone);
+        const je = (j.cust_email || '').trim().toLowerCase();
+        if ((knownPhone && jp && jp === knownPhone) || (knownEmail && je && je === knownEmail)) return false;
+        return !!((knownPhone && jp && jp !== knownPhone) || (knownEmail && je && je !== knownEmail));
+      };
+      const merged = Object.values(byId)
+        .filter((j) => !conflicts(j))
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       setRecentJobs(merged.slice(0, 5));
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedConvo, isWebsiteChat, selectedConversation?.crm_customer_id]);
+  }, [
+    selectedConvo,
+    isWebsiteChat,
+    selectedConversation?.crm_customer_id,
+    selectedConversation?.customer_phone,
+    selectedConversation?.customer_email,
+  ]);
 
   // ข้อมูลติดต่อแบบ merged — ลำดับความน่าเชื่อ: ที่แอดมิน/ระบบเขียนไว้บนแชท >
   // โปรไฟล์บัญชี (ลูกค้ากรอกเองที่ checkout) > ออเดอร์ล่าสุด
