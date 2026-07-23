@@ -25,6 +25,7 @@ import { BatchPriceAdjustModal } from './modals/BatchPriceAdjustModal';
 import { generateVariantsFromModifiers } from './utils/variantGenerator';
 import { DISCONTINUED_MODELS } from './constants/discontinuedModels';
 import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
+import { ACCESSORY_CONDITION_SET, buildAccessorySeedModels } from './constants/accessorySeed';
 
 export const PriceEditor = () => {
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
@@ -54,6 +55,7 @@ export const PriceEditor = () => {
   // Deployments seeded before the accessories category existed won't get it from
   // seedDefaultCategories (that only runs on an empty path) — backfill it once.
   const backfilledAccessoryCategoryRef = useRef(false);
+  const seededAccessoryModelsRef = useRef(false);
 
   // Category tabs + brand filter are now derived from Firebase-backed data.
   const categories = [...categoriesData].sort(
@@ -224,6 +226,32 @@ export const PriceEditor = () => {
     }
   };
 
+  // One-time seed of the accessory catalog (Apple Pencil / Magic Keyboard):
+  // fires when the accessories category exists but has no models yet. Creates
+  // one shared condition set + all models as isActive:false so admin reviews
+  // the starting prices and activates each model before it is offered.
+  // Idempotent: guarded by ref + a one-shot get() re-check (races with other
+  // admin sessions the same way seedDefaultCategories does).
+  const seedDefaultAccessoryModels = async () => {
+    try {
+      const snap = await get(ref(db, 'models'));
+      const existing = snap.exists() ? Object.values(snap.val() as Record<string, any>) : [];
+      if (existing.some((m: any) => m?.category === ACCESSORY_CATEGORY)) return;
+
+      const setRef = push(ref(db, 'settings/condition_sets'));
+      await update(setRef, ACCESSORY_CONDITION_SET);
+
+      const models = buildAccessorySeedModels(availableSeries, setRef.key as string);
+      await Promise.all(models.map(m => update(push(ref(db, 'models')), m)));
+      toast.success(
+        `เพิ่มรุ่นอุปกรณ์เสริม iPad ให้ ${models.length} รุ่น (Pencil/Keyboard) พร้อมชุดประเมินมาตรฐาน — ทุกรุ่นยัง "งดรับซื้อ" อยู่ ตรวจราคาแล้วกดเปิดใช้ทีละรุ่นได้เลย`,
+        { duration: 10000 },
+      );
+    } catch {
+      seededAccessoryModelsRef.current = false;
+    }
+  };
+
   const seedDefaultBrands = async () => {
     try {
       const snap = await get(ref(db, 'product_brands'));
@@ -245,6 +273,19 @@ export const PriceEditor = () => {
       setActiveCategory(categories[0].name);
     }
   }, [categoriesData]);
+
+  // Seed the accessory catalog once everything needed is loaded: the category
+  // exists, series are available (compatible_series maps against real iPad
+  // series names), and no accessory model exists yet.
+  useEffect(() => {
+    if (loading || seededAccessoryModelsRef.current) return;
+    if (!categoriesData.some((c: any) => c?.name === ACCESSORY_CATEGORY)) return;
+    if (availableSeries.length === 0) return;
+    if (modelsData.some((m: any) => m?.category === ACCESSORY_CATEGORY)) return;
+    seededAccessoryModelsRef.current = true;
+    seedDefaultAccessoryModels();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, modelsData, categoriesData, availableSeries]);
 
   // Breakpoint matches the list view swap (`lg` = 1024px): below it we use the
   // mobile card list + full-screen edit page; at/above it the desktop table + modal.
