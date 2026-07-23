@@ -6,7 +6,8 @@ import {
   Inbox, MessageSquare, Users, Truck, Send, Search,
   Image as ImageIcon, Plus, X, Phone, User, Clock,
   CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
-  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin, History
+  Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin, History,
+  Tag as TagIcon
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -57,6 +58,9 @@ interface Conversation {
     last_quote?: { model_name?: string; variant_name?: string; estimated_price?: number; condition_type?: string; at?: number };
     last_search?: { results?: { name?: string }[] };
   };
+  // Staff-managed tags (inbox/{id}/tags/{pushId} = label) — added/removed in
+  // the chat header, shown in the list, and filterable. Shared by the team.
+  tags?: Record<string, string>;
 }
 
 interface Message {
@@ -150,6 +154,9 @@ export const InboxPage = () => {
 
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Tag filter — special auto-tag keys start with '__'; anything else matches
+  // a staff-created tag label. Empty string = no tag filtering.
+  const [tagFilter, setTagFilter] = useState<string>('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConvo, setSelectedConvo] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -208,6 +215,7 @@ export const InboxPage = () => {
         crm_customer_id: val.crm_customer_id,
         escalation: val.escalation,
         ai_state: val.ai_state,
+        tags: val.tags,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       setConversations(list);
@@ -285,6 +293,14 @@ export const InboxPage = () => {
     if (statusFilter !== 'all') {
       list = list.filter((c) => c.status === statusFilter);
     }
+    if (tagFilter) {
+      list = list.filter((c) => {
+        if (tagFilter === '__quoted') return !!c.ai_state?.last_quote;
+        if (tagFilter === '__phone') return !!c.customer_phone;
+        if (tagFilter === '__new') return c.ai_state?.last_quote?.condition_type === 'new';
+        return Object.values(c.tags || {}).includes(tagFilter);
+      });
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -295,7 +311,28 @@ export const InboxPage = () => {
       );
     }
     return list;
-  }, [conversations, activeTab, statusFilter, searchQuery]);
+  }, [conversations, activeTab, statusFilter, tagFilter, searchQuery]);
+
+  // Distinct staff-created tag labels across all conversations (filter chips).
+  const allCustomTags = useMemo(() => {
+    const set = new Set<string>();
+    conversations.forEach((c) => Object.values(c.tags || {}).forEach((t) => t && set.add(t)));
+    return Array.from(set).sort();
+  }, [conversations]);
+
+  const addConvoTag = async () => {
+    if (!selectedConvo) return;
+    const label = window.prompt('ชื่อแท็ก (เช่น VIP, ด่วน, รอโทรกลับ, นัดพรุ่งนี้)');
+    const t = (label || '').trim().slice(0, 30);
+    if (!t) return;
+    const cur = conversations.find((c) => c.id === selectedConvo);
+    if (Object.values(cur?.tags || {}).includes(t)) return; // no duplicates
+    await push(ref(db, `inbox/${selectedConvo}/tags`), t);
+  };
+  const removeConvoTag = async (tagId: string) => {
+    if (!selectedConvo) return;
+    await remove(ref(db, `inbox/${selectedConvo}/tags/${tagId}`));
+  };
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
 
@@ -701,6 +738,28 @@ export const InboxPage = () => {
           })}
         </div>
 
+        {/* Tag filter — auto deal tags + staff-created tags */}
+        <div className="flex gap-1.5 px-4 py-2 border-b border-slate-100 overflow-x-auto no-scrollbar items-center">
+          <TagIcon size={12} className="text-slate-300 shrink-0" />
+          {[
+            { key: '', label: 'ทุกแท็ก' },
+            { key: '__quoted', label: 'เสนอแล้ว' },
+            { key: '__phone', label: 'มีเบอร์' },
+            { key: '__new', label: 'มือ 1' },
+            ...allCustomTags.map((t) => ({ key: t, label: `🏷 ${t}` })),
+          ].map((f) => (
+            <button
+              key={f.key || '__all'}
+              onClick={() => setTagFilter(f.key)}
+              className={`shrink-0 text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${
+                tagFilter === f.key ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
         {/* Conversation List */}
         <div className="flex-1 overflow-y-auto">
           {filteredConversations.length === 0 ? (
@@ -775,6 +834,11 @@ export const InboxPage = () => {
                                 ☎ มีเบอร์
                               </span>
                             )}
+                            {Object.entries(convo.tags || {}).map(([tid, label]) => (
+                              <span key={tid} className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 border border-violet-100 truncate max-w-[120px]">
+                                🏷 {label}
+                              </span>
+                            ))}
                           </>
                         );
                       })()}
@@ -862,6 +926,21 @@ export const InboxPage = () => {
                     </span>
                   )}
                   <StatusPill status={selectedConversation.status} assignedName={selectedConversation.assigned_staff_name} />
+                  {/* Staff tags — click × to remove, + แท็ก to add (shared team-wide) */}
+                  {Object.entries(selectedConversation.tags || {}).map(([tid, label]) => (
+                    <span key={tid} className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 border border-violet-100 flex items-center gap-1">
+                      🏷 {label}
+                      <button onClick={() => removeConvoTag(tid)} title="ถอดแท็กนี้" className="text-violet-300 hover:text-red-500 font-black">
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={addConvoTag}
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border border-dashed border-slate-300 text-slate-400 hover:text-violet-600 hover:border-violet-300 transition-colors"
+                  >
+                    + แท็ก
+                  </button>
                   {selectedConversation.source_url && (
                     <span className="text-[10px] text-slate-400 flex items-center gap-1 truncate max-w-[180px]">
                       <Globe size={10} /> {selectedConversation.source_url}
