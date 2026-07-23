@@ -118,6 +118,8 @@ export enum ProductCategory {
   SMART_WATCH = 'Smart Watch',
   CAMERA = 'Camera',
   GAME_SYSTEM = 'Game System',
+  /** อุปกรณ์เสริม iPad (Apple Pencil / Magic Keyboard) — รับซื้อพ่วงกับ iPad หรือเดี่ยว */
+  TABLET_ACCESSORIES = 'Tablet Accessories',
 }
 
 /** แบรนด์สินค้า */
@@ -388,6 +390,22 @@ export interface Job {
   qc_logs: QCLog[];
   /** รายการอุปกรณ์ในงาน */
   devices: JobDevice[];
+
+  // อุปกรณ์เสริม iPad ที่ขายพ่วง (ดู src/utils/accessoryItems.ts)
+  /** breakdown อุปกรณ์เสริมที่รับซื้อพ่วง — ราคารวมอยู่ใน price/final_price แล้ว (แสดงผล/audit เท่านั้น ไม่เข้าสูตรเงินแยก) */
+  accessory_items?: {
+    id: string;
+    model_id: string;
+    model_name: string;
+    price: number;
+    serial?: string;
+  }[];
+  /** เวลาแตกอุปกรณ์เสริมเป็น child job เข้าสต๊อก (idempotency guard) */
+  accessories_unpacked_at?: number;
+  /** ต้นทุนสต๊อกของ job นี้หลังแยกมูลค่าอุปกรณ์เสริมออก — inventory/POS อ่านผ่าน stockCost() */
+  stock_cost?: number;
+  /** child accessory job ชี้กลับงานแม่ */
+  parent_job_id?: string;
 
   // วิธีชำระเงิน & ธนาคาร
   /** วิธีการชำระเงิน */
@@ -811,6 +829,9 @@ export interface PricingModel {
   conditionSetId: string;
   /** ตัวคูณส่วนลดสภาพตามสภาพคล่องของรุ่น (default 1.0; >1 = หักหนักขึ้น, <1 = หักเบาลง) */
   liquidityFactor?: number;
+  /** เฉพาะ category Tablet Accessories — ชื่อ series ของ iPad ที่ใช้ร่วมกันได้
+   *  (ผูกด้วยชื่อ ตาม convention model.series). ว่าง/ไม่มี = เสนอกับ iPad ทุกรุ่น */
+  compatible_series?: string[];
   attributesSchema: AttributeSchemaItem[];
   updatedAt: number;
 

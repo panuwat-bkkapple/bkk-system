@@ -31,6 +31,11 @@ export const CATEGORY_SCHEMAS: Record<string, AttributeSchemaItem[]> = {
   ],
   'Game System': [
     { key: 'storage', label: 'Storage / Edition', type: 'text' }
+  ],
+  // อุปกรณ์เสริม iPad (Apple Pencil / Magic Keyboard) — ส่วนใหญ่ไม่มี variant
+  // จริงจัง ใช้ size เดียวพอ (เช่น Magic Keyboard 11"/13"); Pencil ปล่อยว่างได้
+  'Tablet Accessories': [
+    { key: 'size', label: 'Size / รุ่นย่อย (ถ้ามี)', type: 'text' }
   ]
 };
 

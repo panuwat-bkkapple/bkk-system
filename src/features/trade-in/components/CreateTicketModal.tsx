@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, Database, ArrowRight, ArrowLeft, CheckCircle2, MapPin, Store, Bike, Mail, Phone } from 'lucide-react';
 import { formatCurrency } from '../../../utils/formatters';
 import { useDatabase } from '../../../hooks/useDatabase'; // 🌟 1. นำเข้า useDatabase
+import { AccessoryAddOnPicker } from './AccessoryAddOnPicker';
+import { sumAccessoryItems, type JobAccessoryItem } from '../../../utils/accessoryItems';
 
 const BANKS = ["กสิกรไทย (KBank)", "ไทยพาณิชย์ (SCB)", "กรุงเทพ (BBL)", "กรุงศรี (BAY)", "ออมสิน (GSB)", "พร้อมเพย์ (PromptPay)"];
 const RECEIVE_METHODS = [
@@ -27,6 +29,9 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
     bank_name: BANKS[0], bank_account: '', bank_holder: '', status: 'New Lead',
     customer_id: '' // 🌟 เก็บ ID อ้างอิงเวลาดึงจาก CRM
   });
+  // อุปกรณ์เสริมที่ขายพ่วง (iPad เท่านั้น) — ราคาถูกบวกเข้า price ตอน submit;
+  // breakdown เก็บที่ accessory_items (ดู src/utils/accessoryItems.ts)
+  const [accessoryItems, setAccessoryItems] = useState<JobAccessoryItem[]>([]);
 
   // Flatten models → variants เป็นรายการเดียวสำหรับค้นหา
   const flattenedProducts = useMemo(() => {
@@ -136,7 +141,7 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
                     const displayName = item.variant ? `${item.model} (${item.variant})` : item.model;
                     const isSelected = formData.model === displayName;
                     return (
-                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
+                      <div key={item.id} onClick={() => { setFormData({ ...formData, model: displayName, price: item.usedPrice || '' }); setModelSearch(displayName); setAccessoryItems([]); }} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 hover:border-blue-200'}`}>
                         <div className="flex items-center gap-3">
                           {item.imageUrl && <img src={item.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100 shrink-0" />}
                           <div className="flex-1 min-w-0">
@@ -161,6 +166,21 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
                 </div>
               </div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ราคาเสนอรับซื้อเริ่มต้น</label><input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-2xl outline-none" placeholder="0.00" /></div>
+
+              {/* Add-on อุปกรณ์เสริม — โผล่เฉพาะเมื่อรุ่นที่เลือกเป็น iPad */}
+              <AccessoryAddOnPicker
+                modelsData={modelsData}
+                deviceDisplayName={formData.model}
+                items={accessoryItems}
+                onChange={setAccessoryItems}
+              />
+              {accessoryItems.length > 0 && (
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ยอดรวม (เครื่อง + อุปกรณ์เสริม)</span>
+                  <span className="font-black text-emerald-600 text-lg">{formatCurrency((Number(formData.price) || 0) + sumAccessoryItems(accessoryItems))}</span>
+                </div>
+              )}
+
               <button onClick={() => setStep(2)} className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black flex items-center justify-center gap-2 hover:bg-black uppercase">NEXT: CUSTOMER KYC <ArrowRight size={18} /></button>
             </div>
           )}
@@ -273,7 +293,17 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
 
               <div className="flex gap-4 pt-4">
                 <button onClick={() => setStep(2)} className="flex-1 py-5 font-bold text-slate-400 uppercase text-[10px]"><ArrowLeft size={16} className="inline mr-2" /> BACK</button>
-                <button onClick={() => onSubmit(formData)} className="flex-[2] bg-blue-600 text-white py-5 rounded-[2rem] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">CREATE TICKET</button>
+                <button
+                  onClick={() => {
+                    // price = ยอดรวมก้อนเดียว (เครื่อง + อุปกรณ์เสริม) — สูตร net_payout
+                    // ทุกที่อ่าน price/final_price เดิมได้เลย; accessory_items เป็นแค่ breakdown
+                    onSubmit({
+                      ...formData,
+                      price: (Number(formData.price) || 0) + sumAccessoryItems(accessoryItems),
+                      ...(accessoryItems.length > 0 ? { accessory_items: accessoryItems } : {}),
+                    });
+                  }}
+                  className="flex-[2] bg-blue-600 text-white py-5 rounded-[2rem] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">CREATE TICKET</button>
               </div>
             </div>
           )}

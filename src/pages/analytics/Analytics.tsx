@@ -4,6 +4,7 @@ import { useDatabase } from '../../hooks/useDatabase';
 import { ref, update, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { stockCost } from '../../utils/accessoryItems';
 import { StaffPerformanceWidget } from '../../components/staff/StaffPerformanceWidget';
 import { 
   BarChart3, TrendingUp, DollarSign, Package, 
@@ -134,7 +135,8 @@ export const Analytics = ({ mode }: AnalyticsProps) => {
       let slowMoving = { count: 0, value: 0, items: [] as any[] };
 
       currentStock.forEach(j => {
-          const cost = Number(j.final_price) || Number(j.price) || 0;
+          // stockCost: งานแม่ที่แตกอุปกรณ์เสริมแล้วใช้ stock_cost — กันนับมูลค่าสต็อกซ้ำกับ child
+          const cost = stockCost(j);
           const daysOld = Math.floor((now - j.created_at) / msPerDay);
           const itemData = { ...j, cost, daysOld };
 
@@ -149,7 +151,9 @@ export const Analytics = ({ mode }: AnalyticsProps) => {
       // --- B. VELOCITY & TRUE P&L (เฉลี่ย 30 วัน) ---
       const dailyFixedCost = fixedCosts / 30; // 💸 แปลงค่าใช้จ่ายรายเดือนเป็นรายวัน
 
-      const recentJobs = jobsList.filter(j => j.created_at >= thirtyDaysAgo && j.type !== 'Withdrawal');
+      // ตัด child อุปกรณ์เสริม (type Accessory) — เงินที่จ่ายจริงอยู่ใน final_price
+      // ของงานแม่แล้ว นับ child ด้วยจะเป็น spend ซ้ำ
+      const recentJobs = jobsList.filter(j => j.created_at >= thirtyDaysAgo && j.type !== 'Withdrawal' && j.type !== 'Accessory');
       const totalSpent30d = recentJobs.reduce((sum, j) => sum + (Number(j.final_price) || Number(j.price) || 0), 0);
       const avgDailySpend = totalSpent30d / 30; // 📉 เงินออก/วัน (รับซื้อเครื่อง)
 

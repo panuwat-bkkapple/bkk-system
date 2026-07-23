@@ -11,6 +11,7 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
+import { unpackAccessoryItemsToStock } from '../../utils/accessoryItems';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
@@ -254,6 +255,12 @@ export const QCStation = () => {
             toast.success(`บันทึกผลสำเร็จ! ส่งให้ Admin เคาะราคาแล้ว (TXN: ${qcTxnId})`);
          } else {
             toast.success(`บันทึกสำเร็จ! ส่งสินค้าเข้าคลังแล้ว ปิดจ๊อบสมบูรณ์! (TXN: ${qcTxnId})`);
+            // งานที่ขายพ่วงอุปกรณ์เสริม (iPad + Pencil/Keyboard) — แตกเป็น stock
+            // รายชิ้นแบบเดียวกับ B2B unpack (idempotent — เช็ค accessories_unpacked_at)
+            const unpacked = await unpackAccessoryItemsToStock(liveJob || selectedJob, supervisor);
+            if (unpacked > 0) {
+               toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว (ref ${selectedJob.ref_no}-A1..)`);
+            }
          }
 
          setSelectedJob(null);
@@ -360,6 +367,30 @@ export const QCStation = () => {
                               {/* แสดงผลที่เก็บไว้ + ตรวจ mismatch กับใบงาน + ปุ่ม Sync to Job */}
                               <SickwStoredResultCard sickwCheck={liveJob?.sickw_check} job={liveJob} />
                            </section>
+
+                           {/* อุปกรณ์เสริมที่รับซื้อพ่วงมากับเครื่องนี้ — ตรวจของให้ครบก่อน
+                               กด In Stock (ระบบจะแตกเป็น stock รายชิ้น ref -A1.. อัตโนมัติ) */}
+                           {Array.isArray(selectedJob.accessory_items) && selectedJob.accessory_items.length > 0 && (
+                              <section className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
+                                 <h3 className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-4 flex items-center gap-2"><ClipboardCheck size={16} /> Accessories in this job ({selectedJob.accessory_items.length})</h3>
+                                 <div className="space-y-2">
+                                    {selectedJob.accessory_items.map((it: any, i: number) => (
+                                       <div key={it.id || i} className="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-4 py-3">
+                                          <div>
+                                             <div className="font-black text-sm text-slate-800">{it.model_name}</div>
+                                             {it.serial && <div className="text-[10px] font-mono font-bold text-slate-400">SN: {it.serial}</div>}
+                                          </div>
+                                          <div className="font-black text-sm text-indigo-600">฿{(Number(it.price) || 0).toLocaleString()}</div>
+                                       </div>
+                                    ))}
+                                 </div>
+                                 <p className="text-[10px] font-bold text-indigo-400 mt-3">
+                                    {selectedJob.accessories_unpacked_at
+                                       ? 'แตกเข้าสต๊อกเป็นรายชิ้นแล้ว (ref -A1..)'
+                                       : 'เมื่อกดเข้าคลัง (In Stock) ระบบจะแตกอุปกรณ์เสริมเป็น stock รายชิ้นอัตโนมัติ'}
+                                 </p>
+                              </section>
+                           )}
 
                            <section>
                               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Cpu size={16} /> Hardware Diagnostics</h3>

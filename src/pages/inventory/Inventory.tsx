@@ -11,6 +11,7 @@ import {
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { stockCost } from '../../utils/accessoryItems';
 
 export const Inventory = () => {
   const toast = useToast();
@@ -64,7 +65,9 @@ export const Inventory = () => {
     );
     
     const totalItems = currentStock.length;
-    const totalCost = currentStock.reduce((sum, item) => sum + (Number(item.final_price) || Number(item.price) || 0), 0); 
+    // stockCost: งานแม่ที่แตกอุปกรณ์เสริมออกแล้วใช้ stock_cost (หักมูลค่า accessory
+    // ที่กลายเป็น stock รายชิ้นไปแล้ว) — กันนับต้นทุนซ้ำ
+    const totalCost = currentStock.reduce((sum, item) => sum + stockCost(item), 0);
     const totalSellingValue = currentStock.reduce((sum, item) => sum + (Number(item.selling_price) || 0), 0);
     const potentialProfit = totalSellingValue - totalCost;
 
@@ -186,7 +189,7 @@ export const Inventory = () => {
                <tbody className="divide-y divide-slate-50">
                   {inventoryItems.map((item) => {
                      const age = getStockAge(item.qc_date);
-                     const cost = Number(item.final_price) || Number(item.price) || 0;
+                     const cost = stockCost(item);
                      const profit = (item.selling_price || 0) - cost;
 
                      return (
@@ -195,9 +198,15 @@ export const Inventory = () => {
                               <div className="flex items-center gap-3">
                                  <div className="bg-slate-100 p-2 rounded-lg"><Smartphone size={20} className="text-slate-500"/></div>
                                  <div>
-                                    <div className="font-black text-sm text-slate-800">{item.model}</div>
+                                    <div className="font-black text-sm text-slate-800 flex items-center gap-2">
+                                       {item.model}
+                                       {item.type === 'Accessory' && <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded">Accessory</span>}
+                                    </div>
                                     <div className="text-[10px] font-mono font-bold text-slate-400 flex gap-2"><span>SN: {item.serial || 'N/A'}</span> • <span>{item.color}</span></div>
-                                    <div className="mt-1"><span className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">{item.ref_no}</span></div>
+                                    <div className="mt-1 flex items-center gap-1">
+                                       <span className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">{item.ref_no}</span>
+                                       {item.type === 'Accessory' && item.parent_ref_no && <span className="text-[8px] text-slate-400 font-bold">จากงาน {item.parent_ref_no}</span>}
+                                    </div>
                                  </div>
                               </div>
                            </td>
@@ -291,7 +300,7 @@ export const Inventory = () => {
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                      <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Device</div>
                      <div className="font-black text-slate-800">{editingItem.model}</div>
-                     <div className="text-xs font-bold text-slate-500 mt-1">Cost: ฿{(Number(editingItem.final_price) || Number(editingItem.price) || 0).toLocaleString()} | Grade: {editingItem.grade}</div>
+                     <div className="text-xs font-bold text-slate-500 mt-1">Cost: ฿{stockCost(editingItem).toLocaleString()} | Grade: {editingItem.grade}</div>
                   </div>
 
                   <div className="space-y-4">
