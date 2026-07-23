@@ -775,5 +775,50 @@ check("rule 6.4.4 forbids memory answers on price factors", sysNoCust.includes('
 check("stated warranty status must enter the quote answers", sysNoCust.includes('ให้ใส่ option ตามที่ลูกค้าบอกเข้า answers ด้วยเสมอ'));
 check("old absolute 'warranty not in questions' text is gone", !sysNoCust.includes("ประกันไม่ได้อยู่ในคำถามสภาพ 5 ข้อ"));
 
+// --- e-series models (iPhone 16e) are a separate line from the plain digit --
+// Live case #CI63: "รับซื้อ iPhone 16e ไหม" — the letter-digit splitter turned
+// "16e" into "16 e", dropped the single-letter token, and the query collapsed
+// into "iPhone 16" (a different device, thousands of baht apart). Symmetric
+// guard: e-query only matches same-gen e-models; plain query never surfaces
+// an e-model.
+const E_CATALOG = [
+  { id: "ip16", brand: "Apple", name: "iPhone 16", isActive: true },
+  { id: "ip16p", brand: "Apple", name: "iPhone 16 Plus", isActive: true },
+  { id: "ip16pro", brand: "Apple", name: "iPhone 16 Pro", isActive: true },
+  { id: "ip16pm", brand: "Apple", name: "iPhone 16 Pro Max", isActive: true },
+];
+check("16e query finds nothing when no e-model exists", __test.rankModels(E_CATALOG, "iPhone 16e").length === 0);
+check("16e query with space finds nothing either", __test.rankModels(E_CATALOG, "รับซื้อ iphone 16 e ไหม").length === 0);
+const E_CATALOG2 = [...E_CATALOG, { id: "ip16e", brand: "Apple", name: "iPhone 16e", isActive: true }];
+check("16e query matches only the 16e once it exists", __test.rankModels(E_CATALOG2, "iphone 16e").map((m) => m.id).join(",") === "ip16e");
+check("plain 16 query excludes the 16e", !__test.rankModels(E_CATALOG2, "iphone 16").some((m) => m.id === "ip16e"));
+check("plain 16 query still finds the 16", __test.rankModels(E_CATALOG2, "iphone 16")[0]?.id === "ip16");
+check("16 plus query unaffected", __test.rankModels(E_CATALOG2, "iphone 16 plus")[0]?.id === "ip16p");
+check("16 pro max query unaffected", __test.rankModels(E_CATALOG2, "iphone 16 pro max")[0]?.id === "ip16pm");
+check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iphone 15e").some((m) => m.id === "ip16e"));
+
+// --- offer-mode contact gate on escalate (no bare-handed handoffs) -----------
+// Same live case: the AI escalated with no name/phone collected, leaving staff
+// a lead with nobody to call. First escalate attempt after a no-price search
+// bounces back demanding contact; a repeat attempt or an explicit human
+// request passes (no deadlock with forced-guard escalations).
+{
+  const esc = src.indexOf('case "escalate_to_human"');
+  const gate = src.indexOf("contact_required_first", esc);
+  const statusUpdate = src.indexOf('status: "waiting_human"', esc);
+  check("escalate executor exists", esc > 0);
+  check("contact gate lives inside the escalate executor", gate > esc && gate < statusUpdate);
+  check("gate keys on this turn's no-price search", src.indexOf("state.lastSearchNoPrice &&", esc) > esc && src.indexOf("state.lastSearchNoPrice &&", esc) < statusUpdate);
+  check("gate skips when a callback number exists", /!\(convo\.customer_phone \|\| state\.savedPhone\)/.test(src.slice(esc, statusUpdate)));
+  check("gate never blocks an explicit human request", src.slice(esc, statusUpdate).includes("!humanRequestIntent(lastCustomerText)"));
+  check("second attempt passes (prompted-at marker)", src.slice(esc, statusUpdate).includes("offer_contact_prompted_at"));
+  check("search_models resets the no-price flag each call", src.includes("state.lastSearchNoPrice = false;"));
+  const searchCase = src.indexOf('case "search_models"');
+  const searchEnd = src.indexOf('case "get_condition_questions"');
+  const searchBody = src.slice(searchCase, searchEnd);
+  check("empty search marks no-price", searchBody.includes("state.lastSearchNoPrice = true;"));
+  check("unpriced top result marks no-price", searchBody.includes("if (topUnpriced) state.lastSearchNoPrice = true;"));
+}
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
