@@ -50,6 +50,13 @@ interface Conversation {
   matched_orders_count?: number;
   crm_customer_id?: string;
   escalation?: { reason?: string; summary?: string; at?: number; live_summary?: string; live_summary_at?: number };
+  // Deal context written by the chat AI (chat-ai.js): last quote card issued
+  // (model/variant/value) + last model search — rendered as deal tags in the
+  // conversation list so staff can scan model + deal value without opening.
+  ai_state?: {
+    last_quote?: { model_name?: string; variant_name?: string; estimated_price?: number; condition_type?: string; at?: number };
+    last_search?: { results?: { name?: string }[] };
+  };
 }
 
 interface Message {
@@ -200,6 +207,7 @@ export const InboxPage = () => {
         matched_orders_count: val.matched_orders_count,
         crm_customer_id: val.crm_customer_id,
         escalation: val.escalation,
+        ai_state: val.ai_state,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       setConversations(list);
@@ -738,15 +746,39 @@ export const InboxPage = () => {
                       </span>
                     )}
                   </div>
-                  {convo.status && (
-                    <div className="mt-1">
-                      <StatusPill status={convo.status} assignedName={convo.assigned_staff_name} />
+                  {(convo.status || convo.ai_state?.last_quote || convo.ai_state?.last_search?.results?.[0]?.name || convo.customer_phone) && (
+                    <div className="mt-1 flex items-center gap-1 flex-wrap">
+                      {convo.status && <StatusPill status={convo.status} assignedName={convo.assigned_staff_name} />}
+                      {/* Deal tags — model being discussed + quote issued + deal value */}
+                      {(() => {
+                        const lq = convo.ai_state?.last_quote;
+                        const modelTag = lq?.model_name || convo.ai_state?.last_search?.results?.[0]?.name || convo.jobModel;
+                        return (
+                          <>
+                            {modelTag && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 border border-blue-100 truncate max-w-[150px]">
+                                📱 {modelTag}
+                              </span>
+                            )}
+                            {lq && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 shrink-0">
+                                เสนอแล้ว{Number(lq.estimated_price) > 0 ? ` ฿${Number(lq.estimated_price).toLocaleString()}` : ''}
+                              </span>
+                            )}
+                            {lq?.condition_type === 'new' && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-100 shrink-0">
+                                มือ 1
+                              </span>
+                            )}
+                            {convo.customer_phone && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-50 text-slate-500 border border-slate-100 shrink-0">
+                                ☎ มีเบอร์
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
-                  )}
-                  {convo.jobModel && (
-                    <p className="text-[10px] text-blue-500 font-bold mt-0.5 truncate">
-                      📱 {convo.jobModel}
-                    </p>
                   )}
                 </div>
               </button>
