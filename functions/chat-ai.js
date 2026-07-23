@@ -767,6 +767,10 @@ function humanRequestIntent(text) {
     "ติดต่อแอดมิน", "ติดต่อเจ้าหน้าที่", "หาแอดมิน", "หาเจ้าหน้าที่", "แอดมินอยู่ไหม",
     "เจ้าหน้าที่อยู่ไหม", "ขอสายเจ้าหน้าที่", "โอนสาย", "ขอคนจริง", "คนจริงๆ",
     "ไม่อยากคุยกับบอท", "ไม่คุยกับบอท", "ไม่อยากคุยกับai", "ไม่คุยกับai",
+    // English-speaking customers ask the same thing in English.
+    "talktoahuman", "talktoaperson", "talktoanagent", "talktostaff", "talktoadmin",
+    "speaktoahuman", "speaktoaperson", "speaktoanagent", "speaktostaff",
+    "realperson", "humanplease", "humanagent", "notabot", "noai",
   ];
   return needles.some((n) => t.includes(n));
 }
@@ -778,7 +782,10 @@ function humanRequestIntent(text) {
 // copy ("ราคายืนยันตอนเจ้าหน้าที่ตรวจเครื่อง") does not match.
 function claimsHumanForwarding(reply) {
   const r = String(reply || "").replace(/\s+/g, "");
-  return /ส่งเรื่อง(ต่อ)?(ถึง|ให้)|ส่งต่อ(ให้|เรื่อง|เคส)|(แจ้ง|ประสาน)(ทีมงาน|เจ้าหน้าที่|แอดมิน)|(เจ้าหน้าที่|แอดมิน|ทีมงาน)(จะ)?(เข้ามา(ตอบ|ดูแล|คุย)|ติดต่อกลับ|มาดูแล|รับเรื่องต่อ)/.test(r);
+  if (/ส่งเรื่อง(ต่อ)?(ถึง|ให้)|ส่งต่อ(ให้|เรื่อง|เคส)|(แจ้ง|ประสาน)(ทีมงาน|เจ้าหน้าที่|แอดมิน)|(เจ้าหน้าที่|แอดมิน|ทีมงาน)(จะ)?(เข้ามา(ตอบ|ดูแล|คุย)|ติดต่อกลับ|มาดูแล|รับเรื่องต่อ)/.test(r)) return true;
+  // English forwarding claims — same trap in the customer's language.
+  const e = String(reply || "").toLowerCase();
+  return /(forwarded|passed|escalated)\s+(this|your|the)?\s*(request|case|chat|question)?\s*to\s+(our\s+)?(staff|team|agent|admin)|(our\s+)?(staff|team|agent|admin)\s+will\s+(get\s+back|contact|reach|call)\s+(to\s+)?you/.test(e);
 }
 
 // Given the light model list, find the sibling that actually matches the line
@@ -979,7 +986,7 @@ const VERIFIER_SYSTEM = [
   `7. หลุดศัพท์เทคนิค/ภายในระบบกับลูกค้า เช่น "เรียก tool", "search_models", "new_price", "ระบบ error", "model_id" — ต้องเป็นภาษาคนเท่านั้น`,
   `8. รับปากว่า "รับซื้อ/รับแน่นอน" รุ่นที่ลูกค้าเอ่ยชื่อ หรือเริ่มถามความจุ/ถามสภาพของรุ่นนั้น "ทั้งที่ในคำตอบไม่มีราคารับซื้อของรุ่นนั้นเลย" — แปลว่ายังไม่ได้เช็คระบบจริง (บางรุ่นร้านงดรับซื้อ/ไม่มีในระบบ) ห้ามรับปากหรือไล่ถามก่อนยืนยันจากระบบ. corrected: บอกว่ากำลังเช็ครุ่นนี้ให้ อย่าเพิ่งยืนยันรับซื้อ`,
   `ถ้าผ่านทุกข้อ: {"ok":true}`,
-  `ถ้าไม่ผ่าน: {"ok":false,"issue":"<สั้นๆ ว่าผิดข้อไหน>","corrected":"<คำตอบที่แก้ให้ถูกต้อง สุภาพ ลงท้ายครับ คงส่วนที่ถูกไว้ แก้เฉพาะจุดผิด ยึดข้อเท็จจริงที่ยืนยันแล้วเท่านั้น ถ้าแก้ไม่ได้อย่างปลอดภัยให้เว้นว่าง>"}`,
+  `ถ้าไม่ผ่าน: {"ok":false,"issue":"<สั้นๆ ว่าผิดข้อไหน>","corrected":"<คำตอบที่แก้ให้ถูกต้อง สุภาพ คงส่วนที่ถูกไว้ แก้เฉพาะจุดผิด ยึดข้อเท็จจริงที่ยืนยันแล้วเท่านั้น และ "ใช้ภาษาเดียวกับคำตอบเดิมเสมอ" (คำตอบเดิมเป็นอังกฤษ = corrected เป็นอังกฤษ ห้ามแปลกลับเป็นไทย; ไทย = ลงท้ายครับ) ถ้าแก้ไม่ได้อย่างปลอดภัยให้เว้นว่าง>"}`,
   `ตอบเป็น JSON บรรทัดเดียวเท่านั้น ห้ามมีข้อความอื่น`,
 ].join("\n");
 
@@ -1233,6 +1240,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     ``,
     `บุคลิกและน้ำเสียง:`,
     `- คุณคือพนักงานรับซื้อมืออาชีพที่อบอุ่น เป็นกันเอง และมั่นใจ เหมือนพนักงานหน้าร้านที่บริการดีที่สุด ไม่ใช่บอทตอบอัตโนมัติ`,
+    `- ภาษา: ตอบเป็น "ภาษาเดียวกับข้อความล่าสุดของลูกค้า" เสมอ — ลูกค้าพิมพ์อังกฤษ = ตอบอังกฤษลื่นไหลเป็นธรรมชาติ โทนเดียวกับเวอร์ชันไทย (อบอุ่น มืออาชีพ ไม่ใช้ bullet) ลูกค้าสลับภาษากลางคัน = สลับตามทันที และ "ห้ามอ้างว่าร้านให้บริการเฉพาะภาษาไทย" เด็ดขาด (ไม่ใช่นโยบายร้าน — เคยมีเคสปฏิเสธลูกค้าต่างชาติทั้งที่ตอบได้). กติกาข้อมูลไม่เปลี่ยนทุกภาษา: ราคา/ค่าบริการ/โปร/นโยบายยังต้องมาจากระบบเท่านั้น. ปุ่ม [ตัวเลือก: ...] แปลเป็นภาษาลูกค้าได้เพื่อให้กดง่าย แต่ตอนใส่ answers ให้ tools (create_quote_card ฯลฯ) ต้องใช้ label ภาษาไทยตรงตามชุดคำถามจริงจาก get_condition_questions เสมอ — ระบบจับคู่ตัวเลือกด้วยข้อความไทย`,
     `- ก่อนถามหรือให้ข้อมูลต่อ ให้รับทราบสิ่งที่ลูกค้าเพิ่งบอกสั้นๆ (เช่น "สภาพไม่มีรอยเลย ดีมากครับ" "แบต 90% ยังดีอยู่ครับ") ให้ลูกค้ารู้สึกว่ามีคนฟังอยู่จริง`,
     `- แต่ห้ามให้การรับทราบกลายเป็นสูตรซ้ำ (ปัญหาจริงที่ลูกค้ารำคาญ: ทุกข้อความขึ้นต้น "ดีครับ ... ขอถามต่อนะครับ" เหมือนหุ่นยนต์): (ก) ห้ามพูดประโยคเชื่อมประเภท "ขอถามต่อนะครับ/ขอถามอีกนิดนะครับ/ขอถามเรื่องถัดไปนะครับ" ซ้ำเกิน 1 ครั้งต่อบทสนทนา — คนจริงไม่ประกาศทุกครั้งว่ากำลังจะถามต่อ รับทราบสั้นๆ แล้วถามคำถามถัดไปตรงๆ ได้เลย (ข) เปลี่ยนคำรับทราบไปเรื่อยๆ อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้าของตัวเอง (ค) บางจังหวะรับทราบในเนื้อคำถามเลยก็ได้ เช่น "แบต 100% สภาพนางฟ้าเลยครับ แล้วกล่องอุปกรณ์ยังอยู่ครบไหมครับ" (ง) คำตอบกลางๆ ของลูกค้า (เช่น เลือกตัวเลือกเฉยๆ) ไม่ต้องชมหรือรับทราบทุกครั้ง ถามต่อได้เลย`,
     `- สรรพนามเรียกลูกค้า (มาตรฐานร้าน ห้ามพลาด): รู้ชื่อ = เรียก "คุณ" ตามด้วยชื่อ (เช่น "คุณต้น") เสมอ, ยังไม่รู้ชื่อ = "คุณลูกค้า" หรือ "คุณ" — ห้ามเรียก "น้อง/พี่/ลุง/ป้า/เธอ/นาย" เด็ดขาดทุกกรณี (บั๊กจริง: AI เรียกลูกค้าว่า "น้อง" — สุภาพเป็นกลางเท่านั้น ไม่ตีสนิทเกิน ไม่เดาอายุ/เพศ)`,
@@ -1431,8 +1439,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.9";
+const LOGIC_VERSION = "2026-07-23.10";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "เปิดโหมดหลายภาษา (เคสจริง 'english please' แล้วมาตินอ้างว่าให้บริการเฉพาะไทย — นโยบายที่ไม่มีจริง): ตอบภาษาเดียวกับลูกค้าเสมอ อังกฤษได้เต็มรูปแบบ, ข้อความระบบ/ข้อความบังคับของ guard มี 2 ภาษา, ตัวตรวจคำตอบห้ามแปลกลับเป็นไทย, ลูกค้าพิมพ์ 'talk to a human' ภาษาอังกฤษก็บังคับส่งต่อได้เหมือนภาษาไทย — ราคา/นโยบายยังมาจากระบบเท่านั้นทุกภาษา" },
   { at: "2026-07-23", text: "อุดรูต่อจากเกตขอเบอร์ก่อนส่งต่อ: ถ้าเกตตีกลับการส่งต่อแล้วคำตอบยังสัญญา 'เดี๋ยวแจ้งกลับ' โดยไม่ขอเบอร์ ระบบสลับเป็นข้อความขอชื่อ+เบอร์+รายละเอียดเครื่องให้อัตโนมัติ — ห้ามมีเคสสัญญาติดต่อกลับทั้งที่ไม่มีเบอร์และไม่มีคิวเจ้าหน้าที่ (เคสจริง iPhone 16e หลัง deploy เกต)" },
   { at: "2026-07-23", text: "รุ่นตระกูล e แยกจากรุ่นเลขเฉยๆ แล้ว (เคส iPhone 16e เคยถูกจับคู่เป็น iPhone 16) — 'iPhone 16e' จะไม่เจอรุ่น 16 ปกติอีก และถ้ารุ่นไม่มีในระบบ/ไม่มีราคา ระบบบังคับขอชื่อ+เบอร์+รายละเอียดเครื่องก่อน ห้ามส่งต่อเจ้าหน้าที่มือเปล่า" },
   { at: "2026-07-23", text: "คำถาม 'ประกัน/ปัจจัยใดมีผลต่อราคาไหม' ต้องดูจากชุดประเมินจริงของรุ่น ห้ามตอบจากความจำ (เคส iPad Gen 11 มีหัวข้อประกันต่างกันราวพันบาท แต่ AI ตอบว่าไม่มีผล) — มี guard จับคำตอบ 'ประกันไม่มีผล' แล้วแก้เป็นถามสถานะจริงพร้อมปุ่มจากตัวเลือกจริง + ลูกค้าบอกสถานะประกันเองต้องใส่เข้าใบเสนอราคา" },
@@ -1530,6 +1539,19 @@ function stampLogicMeta(db) {
 // "รุ่นนี้เรารับซื้อแน่นอน" for a device we have not pinned down yet.
 const CONTACT_FIRST_ASK =
   "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+const CONTACT_FIRST_ASK_EN =
+  "Sure, let me put a quote together for you — the exact amount will be on your quote card. Could I get your name and phone number so our staff can look after your quote? And one quick question about the device: any scratches or damage on the screen or body?";
+
+// Canned guard texts fire deterministically, bypassing the model — so they
+// must speak the customer's language themselves. Heuristic: latest customer
+// message is Latin-script with no Thai characters => English variant.
+function isEnglishText(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const thai = (t.match(/[ก-๙]/g) || []).length;
+  const latin = (t.match(/[a-zA-Z]/g) || []).length;
+  return thai === 0 && latin >= 3;
+}
 
 // Deterministic reply when the offer-mode contact gate bounced an escalate
 // this turn and the draft still doesn't ask for a callback number — the
@@ -1537,6 +1559,8 @@ const CONTACT_FIRST_ASK =
 // phone number behind it and nothing queued for staff.
 const OFFER_CONTACT_ASK =
   "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
+const OFFER_CONTACT_ASK_EN =
+  "For this model our team makes a direct offer with our best price. Could you leave your name, phone number, and a few details about the device (storage and condition)? Our team will call you back with the best offer.";
 
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
@@ -2678,13 +2702,19 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // No callback number = a dead lead ("จะติดต่อกลับ" with nothing to
         // dial). Deterministic nudge whenever we escalate contact-less.
         const hasCallback = !!(convo.customer_phone || state.savedPhone);
+        const enCustomer = isEnglishText(lastCustomerText);
         await writeSystemMessage(
           db,
           convoId,
-          (inHours
-            ? "ส่งเรื่องถึงเจ้าหน้าที่แล้ว เจ้าหน้าที่จะเข้ามาตอบในอีกสักครู่"
-            : "ส่งเรื่องถึงเจ้าหน้าที่แล้ว เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ") +
-            (hasCallback ? "" : " — ฝากชื่อและเบอร์โทรไว้ตรงนี้ได้เลย เจ้าหน้าที่จะได้ติดต่อกลับสะดวกขึ้น")
+          enCustomer
+            ? (inHours
+                ? "Your request has been forwarded to our staff — someone will reply shortly."
+                : "Your request has been forwarded to our staff — we will get back to you during business hours.") +
+                (hasCallback ? "" : " Feel free to leave your name and phone number here so we can reach you faster.")
+            : (inHours
+                ? "ส่งเรื่องถึงเจ้าหน้าที่แล้ว เจ้าหน้าที่จะเข้ามาตอบในอีกสักครู่"
+                : "ส่งเรื่องถึงเจ้าหน้าที่แล้ว เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ") +
+                (hasCallback ? "" : " — ฝากชื่อและเบอร์โทรไว้ตรงนี้ได้เลย เจ้าหน้าที่จะได้ติดต่อกลับสะดวกขึ้น")
         );
         const displayName = convo.customer_name || convo.name || "ลูกค้า";
         await dispatchAdminPush(
@@ -3520,7 +3550,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // condition questions, no card this turn.
         if (finalText && !state.escalated && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
-          finalText = CONTACT_FIRST_ASK;
+          finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
           await markContactAsked();
         } else if (finalText && !state.escalated && !quoteOk && announcedQuote) {
           console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing quote recovery`);
@@ -3584,8 +3614,7 @@ function registerChatAi({ dispatchAdminPush }) {
           if (!quoteOk && gateBlockedInRecovery) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
-            finalText =
-              CONTACT_FIRST_ASK;
+            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
             if (!state.escalated) {
@@ -3674,7 +3703,7 @@ function registerChatAi({ dispatchAdminPush }) {
               // queued for staff, so the "เดี๋ยวแจ้งกลับ" draft is now a lie.
               // Swap it for the contact ask the gate demanded.
               console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
-              finalText = OFFER_CONTACT_ASK;
+              finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
             }
           }
         }
@@ -3689,10 +3718,10 @@ function registerChatAi({ dispatchAdminPush }) {
           finalText &&
           !state.escalated &&
           state.offerContactPromptedThisTurn &&
-          !/เบอร์/.test(finalText)
+          !/เบอร์|phone/i.test(finalText)
         ) {
           console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
-          finalText = OFFER_CONTACT_ASK;
+          finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
         }
 
         // Deterministic price-leak scrub — contact-before-price is an owner
@@ -3730,11 +3759,12 @@ function registerChatAi({ dispatchAdminPush }) {
           if (scrubbed && !priceLeakBeforeCard(scrubbed)) {
             finalText = scrubbed;
           } else if (contactGateWillBlock) {
-            finalText = CONTACT_FIRST_ASK;
+            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
             await markContactAsked();
           } else {
-            finalText =
-              "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+            finalText = isEnglishText(text)
+              ? "Sure — the exact amount will be on your quote card. One more question about the device: any scratches or damage on the screen or body?"
+              : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
           }
         }
 
@@ -4010,6 +4040,7 @@ module.exports = {
     priceHaggleIntent,
     humanRequestIntent,
     claimsHumanForwarding,
+    isEnglishText,
     normalizePhone,
     verifyReply,
     callClaude,

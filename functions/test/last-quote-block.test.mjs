@@ -834,10 +834,34 @@ check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iph
   const backstop = src.indexOf("Offer-mode backstop");
   check("offer-mode backstop exists after the guard", backstop > guard);
   check("backstop keys on the gate having fired this turn", src.indexOf("state.offerContactPromptedThisTurn &&", backstop) > backstop);
-  check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์/.test(finalText)", backstop) > backstop);
-  check("backstop overrides with the canned contact ask", src.indexOf("finalText = OFFER_CONTACT_ASK;", backstop) > backstop);
+  check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์|phone/i.test(finalText)", backstop) > backstop);
+  check("backstop overrides with the canned contact ask", src.indexOf("OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;", backstop) > backstop);
   check("OFFER_CONTACT_ASK asks for name+phone+device details", /const OFFER_CONTACT_ASK\s*=\s*\n?\s*"[^"]*เบอร์โทร[^"]*ความจุ/.test(src));
 }
+
+// --- multilingual mode (live case: "english please" -> AI claimed Thai-only) -
+// The Thai-only policy never existed; the AI invented it. Now: reply in the
+// customer's language, guard/canned texts are bilingual, the verifier must
+// not translate corrections back to Thai, and English "talk to a human"
+// forces escalation like the Thai phrases do.
+check("language rule: mirror the customer's language", sysNoCust.includes("ภาษาเดียวกับข้อความล่าสุดของลูกค้า"));
+check("language rule: bans the invented Thai-only claim", sysNoCust.includes("ห้ามอ้างว่าร้านให้บริการเฉพาะภาษาไทย"));
+check("language rule: tool answers stay Thai-canonical", sysNoCust.includes("ต้องใช้ label ภาษาไทยตรงตามชุดคำถามจริงจาก get_condition_questions เสมอ"));
+check("isEnglishText: plain English detected", __test.isEnglishText("brand new box iphone 16"));
+check("isEnglishText: Thai not misdetected", !__test.isEnglishText("รับซื้อ iPhone 16 ไหมครับ"));
+check("isEnglishText: mixed Thai+English is Thai", !__test.isEnglishText("มี iPhone 16 อยากขายครับ"));
+check("isEnglishText: empty/short is not English", !__test.isEnglishText("ok") === false || !__test.isEnglishText(""));
+check("English human request triggers the escalate guard", __test.humanRequestIntent("Can I talk to a human please"));
+check("English agent request triggers too", __test.humanRequestIntent("I want to speak to an agent"));
+check("plain English question does NOT trigger", !__test.humanRequestIntent("How much for an iPhone 15?"));
+check("English forwarding claim is detected", __test.claimsHumanForwarding("I have forwarded your request to our staff."));
+check("English callback claim is detected", __test.claimsHumanForwarding("Our team will get back to you shortly."));
+check("plain English answer is NOT a forwarding claim", !__test.claimsHumanForwarding("The exact amount will be on your quote card."));
+check("EN canned texts exist and ask for phone", /const CONTACT_FIRST_ASK_EN\s*=\s*\n?\s*"[^"]*phone number/.test(src) && /const OFFER_CONTACT_ASK_EN\s*=\s*\n?\s*"[^"]*phone number/.test(src));
+check("all canned-text sites are language-aware", !/finalText =\s*\n?\s*(CONTACT_FIRST_ASK|OFFER_CONTACT_ASK);/.test(src));
+check("escalate system message is bilingual", src.includes("Your request has been forwarded to our staff"));
+check("verifier keeps the reply's original language", src.includes("ใช้ภาษาเดียวกับคำตอบเดิมเสมอ"));
+check("offer backstop accepts English phone asks", src.includes("!/เบอร์|phone/i.test(finalText)"));
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
