@@ -233,7 +233,7 @@ export function ChatAnalytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} />
                 <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                <Tooltip formatter={(v: number) => [`${v} นาที`, '']} />
+                <Tooltip formatter={(v) => [v == null ? '—' : `${v} นาที`, '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line type="monotone" dataKey="AI" stroke="#1e3a8a" strokeWidth={2} dot={{ r: 3 }} connectNulls />
                 <Line type="monotone" dataKey="Admin" stroke="#94a3b8" strokeWidth={2} dot={{ r: 3 }} connectNulls />

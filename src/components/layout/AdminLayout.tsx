@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift, Share2
+  Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift, Share2
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
