@@ -4990,6 +4990,9 @@ const chatAi = registerChatAi({
 exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
 // Read-only audit of the AI's built-in knowledge for the chat-settings page.
 exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
+// Staff copilot: analyze a conversation's full context + draft replies for
+// the admin to pick/edit in the chat console.
+exports.suggestAdminReplies = chatAi.suggestAdminReplies;
 
 // ---------------------------------------------------------------------------
 // CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).
