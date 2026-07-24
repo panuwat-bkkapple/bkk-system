@@ -293,6 +293,124 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'ไม่มีสายนาฬิกา': 'No watch band',
   'สายแท้': 'Genuine band',
   'สายไม่แท้': 'Non-genuine band',
+  // --- Built-in Engine seed templates (assessmentSeedTemplates.ts) ----------
+  // Every Thai string those templates ship with MUST resolve here (enforced by
+  // assessmentSeedTemplates.test.ts) so fillEnFields leaves no empty *_en.
+  // Functional screening — display / touch
+  'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว': 'Touchscreen responds; no dark spots, lines, or backlight bleed',
+  'จอชัด ทัชลื่น ไม่มีตำหนิ': 'Clear display, smooth touch response, no defects',
+  'จอเสีย / ทัชมีปัญหา': 'Display or touch issue',
+  'มีจุดดำ เส้น แสงรั่ว หรือทัชสกรีนไม่ตอบสนอง': 'Dark spots, lines, backlight bleed, or unresponsive touchscreen',
+  'หน้าจอสัมผัสตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีจอเบิร์น': 'Touchscreen responds; no dark spots, lines, or burn-in',
+  'มีจุดดำ เส้น จอเบิร์น หรือทัชไม่ตอบสนอง': 'Dark spots, lines, burn-in, or unresponsive touchscreen',
+  'หน้าจอแสดงผล': 'Display',
+  'ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว สีสม่ำเสมอ ไม่มีจอเบิร์น': 'No dark spots, lines, backlight bleed, uneven color, or burn-in',
+  'จอชัด สีปกติ ไม่มีตำหนิ': 'Clear display, accurate colors, no defects',
+  'จอเสีย / จอเบิร์น': 'Display issue or burn-in',
+  'มีจุดดำ เส้น แสงรั่ว หรือจอเบิร์น': 'Dark spots, lines, backlight bleed, or burn-in',
+  // Functional screening — camera
+  'ถ่ายรูป/วิดีโอได้ ไม่มีฝ้า ไม่มีรอยร้าวที่เลนส์': 'Photos and video work; no haze or cracked lens',
+  'ถ่ายได้คมชัด เลนส์ปกติ': 'Sharp photos, lens in good condition',
+  'กล้องมีปัญหา': 'Camera issue',
+  'ถ่ายไม่ได้ ภาพเบลอ มีฝ้า หรือเลนส์ร้าว': 'Camera does not work, blurry images, haze, or cracked lens',
+  // Functional screening — connectivity
+  'โทรได้ รับสายได้ เชื่อมต่อ Wi-Fi ได้ สัญญาณปกติ': 'Calls, Wi-Fi, and cellular signal all work normally',
+  'โทร/เน็ต/Wi-Fi ใช้ได้ปกติ': 'Calls, data, and Wi-Fi work normally',
+  'สัญญาณ / การเชื่อมต่อมีปัญหา': 'Signal or connectivity issue',
+  'โทร/รับสายไม่ได้ ต่อ Wi-Fi ไม่ได้ หรือสัญญาณผิดปกติ': 'Cannot make or receive calls, no Wi-Fi, or abnormal signal',
+  'เชื่อมต่อ Wi-Fi / Bluetooth ได้ สัญญาณปกติ': 'Wi-Fi and Bluetooth connect normally',
+  'ต่อ Wi-Fi/Bluetooth ได้ปกติ': 'Wi-Fi and Bluetooth work normally',
+  'การเชื่อมต่อมีปัญหา': 'Connectivity issue',
+  'ต่อ Wi-Fi หรือ Bluetooth ไม่ได้ หรือสัญญาณผิดปกติ': 'Cannot connect to Wi-Fi or Bluetooth, or abnormal signal',
+  'เชื่อมต่อ Bluetooth กับ iPhone ได้ เชื่อมต่อ Wi-Fi ได้ปกติ': 'Pairs with iPhone over Bluetooth; Wi-Fi connects normally',
+  'ต่อ Bluetooth/Wi-Fi ได้ปกติ': 'Bluetooth and Wi-Fi work normally',
+  'ต่อ Bluetooth กับ iPhone หรือ Wi-Fi ไม่ได้': 'Cannot pair with iPhone over Bluetooth or connect to Wi-Fi',
+  // Functional screening — audio
+  'เสียงดังชัด ไม่มีเสียงแตก ไมค์รับเสียงได้': 'Clear sound with no distortion; microphone picks up audio',
+  'เสียงดังชัด ไมค์ปกติ': 'Clear sound, microphone works',
+  'เสียง / ไมค์มีปัญหา': 'Speaker or microphone issue',
+  'เสียงแตก ไม่ดัง หรือไมค์รับเสียงไม่ได้': 'Distorted or low sound, or microphone does not pick up audio',
+  // Functional screening — battery
+  'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่ (Battery Health) อยู่ในเกณฑ์ดี': 'Battery charges, holds a reasonable charge, no swelling, and battery health is in good range',
+  'แบตเตอรี่ชาร์จเข้า ใช้งานได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี': 'Battery charges, holds a reasonable charge, no swelling, and battery health is in good range',
+  'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม สุขภาพแบตเตอรี่อยู่ในเกณฑ์ดี': 'Battery charges, holds a reasonable charge, no swelling, and battery health is in good range',
+  'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม ไม่ร้อนผิดปกติ': 'Battery charges, holds a reasonable charge, no swelling or overheating',
+  'แบตชาร์จเข้า อยู่ได้นาน ไม่บวม': 'Battery charges, lasts well, no swelling',
+  'แบตเตอรี่เสื่อม': 'Degraded battery',
+  'สุขภาพแบตต่ำ ไฟหมดเร็ว ชาร์จไม่เข้า หรือแบตบวม': 'Low battery health, drains quickly, does not charge, or swollen battery',
+  'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ': 'Battery drains quickly, does not charge, swollen, or overheats',
+  // Functional screening — power / charging (Mac + Watch)
+  'เปิดเครื่อง / ชาร์จไฟ': 'Power / Charging',
+  'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ': 'Turns on with no shutdowns, freezes, or restarts; charges normally',
+  'เปิดติด ชาร์จเข้า ใช้งานได้ปกติ': 'Turns on, charges, and works normally',
+  'เปิดไม่ติด ค้าง ดับเอง หรือชาร์จไฟไม่เข้า': 'Does not turn on, freezes, shuts down, or does not charge',
+  'ใช้งานได้ตามปกติ ไม่มีปัญหา': 'Works normally with no issues',
+  // Functional screening — Mac keyboard / trackpad / ports
+  'คีย์บอร์ด + แทร็คแพด': 'Keyboard + trackpad',
+  'ปุ่มกดได้ทุกปุ่ม ไม่มีปุ่มค้าง แทร็คแพดคลิกและเลื่อนได้ปกติ': 'All keys work with none sticking; trackpad clicks and tracks normally',
+  'ปุ่ม + แทร็คแพดใช้ได้ครบ': 'Keys and trackpad fully working',
+  'คีย์บอร์ด / แทร็คแพดมีปัญหา': 'Keyboard or trackpad issue',
+  'มีปุ่มค้าง กดไม่ติด หรือแทร็คแพดผิดปกติ': 'Sticky or dead keys, or trackpad not working properly',
+  'พอร์ต + Wi-Fi / Bluetooth': 'Ports + Wi-Fi / Bluetooth',
+  'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ': 'USB-C/Thunderbolt ports work; Wi-Fi and Bluetooth connect normally',
+  'พอร์ต + การเชื่อมต่อใช้ได้ปกติ': 'Ports and connectivity work normally',
+  'พอร์ต / การเชื่อมต่อมีปัญหา': 'Port or connectivity issue',
+  'พอร์ตใช้ไม่ได้ ต่อ Wi-Fi หรือ Bluetooth ไม่ได้': 'Ports not working, or cannot connect to Wi-Fi or Bluetooth',
+  // Functional screening — Apple Watch crown / sensors
+  'Digital Crown + ปุ่มข้าง': 'Digital Crown + side button',
+  'หมุน Digital Crown ได้ลื่น กดปุ่มด้านข้างได้ปกติ ไม่ค้าง': 'Digital Crown rotates smoothly; side button clicks normally without sticking',
+  'Crown + ปุ่มใช้ได้ปกติ': 'Crown and buttons work normally',
+  'Crown / ปุ่มมีปัญหา': 'Crown or button issue',
+  'หมุน Crown ไม่ลื่น หรือกดปุ่มไม่ติด/ค้าง': 'Crown does not rotate smoothly, or buttons stick or do not respond',
+  'เซ็นเซอร์ (วัดชีพจร ฯลฯ)': 'Sensors (heart rate, etc.)',
+  'เซ็นเซอร์วัดชีพจร ตรวจจับการสวมใส่ และเซ็นเซอร์อื่นๆ ทำงานได้ปกติ': 'Heart rate, wrist detection, and other sensors work normally',
+  'เซ็นเซอร์ทำงานได้ครบปกติ': 'All sensors work normally',
+  'เซ็นเซอร์มีปัญหา': 'Sensor issue',
+  'เซ็นเซอร์วัดชีพจร/ตรวจจับการสวมใส่ไม่ทำงาน': 'Heart rate or wrist detection sensor not working',
+  // Condition template — repair history
+  'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่': 'Has the device ever been repaired or had parts replaced?',
+  'เครื่องเดิมจากโรงงาน ไม่เคยเปิดซ่อม': 'Factory original, never opened or repaired',
+  'เคยซ่อมศูนย์ / อะไหล่แท้': 'Repaired by Apple / genuine parts',
+  'เคยเข้าศูนย์ Apple เปลี่ยนอะไหล่แท้': 'Serviced by Apple with genuine parts',
+  'ซ่อมนอกศูนย์ / อะไหล่เทียบ (ไม่แท้)': 'Third-party repair / non-genuine parts',
+  'เคยซ่อมร้านนอก หรือเปลี่ยนอะไหล่เทียบ/ไม่แท้': 'Repaired by a third-party shop or fitted with non-genuine parts',
+  // Condition template — country of purchase
+  'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)': 'Thai or international model (check the model number suffix)',
+  'ศูนย์ไทย (TH)': 'Thai model (TH)',
+  'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย TH/A': 'Thai model — model number ends in TH/A',
+  'เครื่องนอก (ZP / LL / อื่นๆ)': 'International model (ZP / LL / other)',
+  'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย': 'Imported or international model that works normally in Thailand',
+  'ล็อกเครือข่าย / ใช้ในไทยไม่ได้': 'Carrier-locked / unusable in Thailand',
+  'เครื่องติดล็อกเครือข่ายผู้ให้บริการ ใช้ซิมไทยไม่ได้': 'Locked to a carrier and cannot use a Thai SIM',
+  // Condition template — body condition
+  'รอย ตำหนิ หรือความเสียหายของตัวเครื่องและฝาหลัง': 'Scratches, blemishes, or damage on the body and back',
+  'ตัวเครื่องสวย ไม่มีรอย ไม่มีตำหนิ': 'Clean body with no scratches or blemishes',
+  'มีรอยขนแมวบางๆ': 'Minor light scratches',
+  'รอยขนแมวเล็กน้อย มองเห็นเมื่อสะท้อนแสง': 'Faint light scratches, visible only under reflection',
+  'มีรอยขีดข่วน / ถลอกเห็นชัด': 'Visible scratches or scuffs',
+  'มีรอยขีดข่วนหรือถลอกที่มองเห็นได้ชัดเจน': 'Clearly visible scratches or scuffs',
+  'บุบ / บิ่น / ตกกระแทก': 'Dents / chips / impact marks',
+  'ตัวเครื่องบุบ บิ่น หรือมีร่องรอยตกกระแทก': 'Dents, chips, or signs of impact on the body',
+  'เครื่องงอ / ผิดรูป': 'Bent or deformed body',
+  'ตัวเครื่องงอ ผิดรูป หรือบิดเบี้ยว': 'Body is bent, deformed, or warped',
+  // Condition template — screen condition
+  'รอยหรือความเสียหายของกระจกหน้าจอ': 'Scratches or damage on the screen glass',
+  'หน้าจอใส ไม่มีรอย ไม่มีตำหนิ': 'Clean screen with no scratches or blemishes',
+  'รอยขนแมวเล็กน้อยบนหน้าจอ': 'Faint light scratches on the screen',
+  'มีรอยขีดข่วนเห็นชัด': 'Visible scratches',
+  'มีรอยขีดข่วนบนหน้าจอที่มองเห็นได้ชัด': 'Clearly visible scratches on the screen',
+  'จอแตก / ร้าว': 'Cracked/Broken screen',
+  'กระจกหน้าจอแตกหรือร้าว': 'Screen glass is cracked or broken',
+  // Condition template — warranty
+  'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)': 'Warranty status (does not affect the condition grade)',
+  'เหลือประกันศูนย์ / AppleCare+': 'Apple warranty remaining / AppleCare+',
+  'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+': 'Still under Apple warranty or covered by AppleCare+',
+  'พ้นระยะประกันศูนย์แล้ว': 'Apple warranty period has ended',
+  // Editor placeholders (new set / new group / new option / duplicate)
+  'หัวข้อประเมินใหม่': 'New assessment topic',
+  'หัวข้อประเมิน': 'Assessment topic',
+  'ตัวเลือก 1': 'Option 1',
+  'ตัวเลือกใหม่': 'New option',
 };
 
 /**
@@ -348,6 +466,9 @@ export const ASSESSMENT_EN_PARTS: Record<string, string> = {
   'อะแดปเตอร์': 'power adapter',
   'กล่อง': 'box',
   'หูฟัง': 'earphones',
+  // "(สำเนา)" suffix minted by the group-duplicate button — lets a duplicated
+  // title resolve as "X (Copy)" via the parenthetical rule.
+  'สำเนา': 'Copy',
 };
 
 /** Trim + collapse internal whitespace so lookups match the seed keys. */
