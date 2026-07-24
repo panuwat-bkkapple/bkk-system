@@ -926,6 +926,7 @@ export const PriceEditor = () => {
 
       <EngineSettingsModal
         conditionSets={conditionSets}
+        models={modelsData}
         isOpen={isEngineModalOpen}
         onClose={() => setIsEngineModalOpen(false)}
       />

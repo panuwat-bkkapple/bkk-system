@@ -16,44 +16,10 @@ import { UpgradePreviewPanel } from './components/pricing/UpgradePreviewPanel';
 import { BuyingStatusBadge } from './components/pricing/BuyingStatusBadge';
 import { detectModifiersFromLegacyVariants } from './utils/variantGenerator';
 import type { DetectResult } from './utils/variantGenerator';
-import { tierDeduction } from '../../utils/pricingResolver';
 import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
 import { getModelReadiness, READINESS_ISSUE_LABELS } from './utils/modelReadiness';
-
-/**
- * Representative used-price of a model for converting LEGACY tier options into
- * a single flat `deduct` while cloning a per-model condition set: median of the
- * variants' used prices, falling back to the modifier-mode base prices.
- */
-function representativeBasePrice(model: any): number {
-  const prices = (model?.variants || [])
-    .map((v: any) => Number(v?.usedPrice || v?.price || 0))
-    .filter((p: number) => p > 0)
-    .sort((a: number, b: number) => a - b);
-  if (prices.length > 0) return prices[Math.floor(prices.length / 2)];
-  return Number(model?.baseUsedPrice || 0) || Number(model?.baseNewPrice || 0) || 0;
-}
-
-/**
- * Convert cloned groups off the legacy tier system: each option that still
- * relies on t1/t2/t3 gets a single `deduct` resolved at the model's
- * representative price; options already on `deduct`/`pct` just drop stale tiers.
- */
-function convertGroupsToSingleDeduct(groups: any[], basePrice: number): any[] {
-  return (groups || []).map((g: any) => ({
-    ...g,
-    options: (g?.options || []).map((o: any) => {
-      const next: any = { ...o };
-      if (next.deduct == null && next.pct == null && (next.t1 != null || next.t2 != null || next.t3 != null)) {
-        next.deduct = tierDeduction(next, basePrice);
-      }
-      delete next.t1;
-      delete next.t2;
-      delete next.t3;
-      return next;
-    }),
-  }));
-}
+// Tier->deduct conversion is shared with the Engine's bulk "แตกชุดรายรุ่น" tool.
+import { representativeBasePrice, convertGroupsToSingleDeduct } from './utils/perModelConditionSets';
 
 interface ModelEditorPageProps {
   editingItem: any;
