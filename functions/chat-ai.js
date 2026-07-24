@@ -788,6 +788,20 @@ function claimsHumanForwarding(reply) {
   return /(forwarded|passed|escalated)\s+(this|your|the)?\s*(request|case|chat|question)?\s*to\s+(our\s+)?(staff|team|agent|admin)|(our\s+)?(staff|team|agent|admin)\s+will\s+(get\s+back|contact|reach|call)\s+(to\s+)?you/.test(e);
 }
 
+// Extract the RTDB job id from a customer tracking URL (/track/{jobId}) or a
+// bare pasted id. Possession of this id IS the authorization: the /track page
+// is public to anyone holding the link and shows full order details — so the
+// chat revealing model+status for the same id discloses strictly less than
+// the page itself. Push ids always start with "-".
+function parseTrackJobId(text) {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  const m = t.match(/\/track\/(-[A-Za-z0-9_-]{10,})/);
+  if (m) return m[1];
+  if (/^-[A-Za-z0-9_-]{10,}$/.test(t)) return t;
+  return "";
+}
+
 // Given the light model list, find the sibling that actually matches the line
 // the customer named (same generation, correct line, still active). Pure so it
 // can be unit-tested. Prefers the shortest name = the most exact match.
@@ -1090,8 +1104,14 @@ const TOOLS = [
   {
     name: "check_order_status",
     description:
-      "เช็คออเดอร์ของลูกค้าคนนี้ (ตามบัญชีที่ใช้แชทอยู่เท่านั้น) คืนรุ่น+สถานะ (ไม่มียอดเงิน — PDPA) เฉพาะออเดอร์ที่เป็นของบัญชีนี้จริง ถ้าพบออเดอร์จากเบอร์โทรที่ลูกค้าแจ้งในแชท (ยังไม่ยืนยันตัวตน) จะบอกแค่จำนวน ห้ามเปิดเผยรายละเอียดหรือยอดเงิน ให้ส่งต่อเจ้าหน้าที่",
-    input_schema: { type: "object", properties: {} },
+      "เช็คออเดอร์ของลูกค้าคนนี้ คืนรุ่น+สถานะ (ไม่มียอดเงิน — PDPA) ลำดับการยืนยันตัวตน: (1) ออเดอร์ของบัญชีที่แชทอยู่ = เปิดเผยได้, (2) ลูกค้าแปะลิงก์ติดตาม (/track/...) หรือเลขงานจากลิงก์ = ถือว่าถือครองลิงก์แล้ว เปิดเผยสถานะออเดอร์นั้นได้ (ใส่ track_url), (3) เลขออเดอร์ OID-xxx + เบอร์ที่ตรงกับออเดอร์ = เปิดเผยได้ (ใส่ ref_no; เบอร์ใช้ของแชท/ที่ลูกค้าแจ้ง), (4) เบอร์ที่ลูกค้าพิมพ์ลอยๆ โดยไม่มีเลขออเดอร์ = บอกได้แค่จำนวน ห้ามเปิดเผยรายละเอียด ให้ส่งต่อเจ้าหน้าที่",
+    input_schema: {
+      type: "object",
+      properties: {
+        track_url: { type: "string", description: "ลิงก์ติดตามที่ลูกค้าแปะในแชท (bkkapple.com/track/...) หรือเลขงานจากลิงก์นั้น" },
+        ref_no: { type: "string", description: "เลขออเดอร์ที่ลูกค้าแจ้ง เช่น OID-XXXXXXX-XXX (ต้องมีเบอร์โทรประกอบ)" },
+      },
+    },
   },
   {
     name: "save_customer_info",
@@ -1291,7 +1311,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `7.1 ห้ามพูดศัพท์เทคนิคหรือชื่อฟิลด์ภายในระบบกับลูกค้าเด็ดขาด (เช่น new_price, model_id, tool, ระบบ error) — แปลเป็นภาษาคนเสมอ เช่น "ราคารับซื้อมือ 1" แทน new_price`,
     `8. คำถามสภาพเครื่องให้ถาม "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือก ตามข้อ 6 ขั้นที่ 3 เท่านั้น — ห้ามรวมหลายเรื่องเป็นลิสต์เลขข้อในข้อความเดียว (เช่น "1. แบตกี่% 2. มีกล่องไหม 3. ศูนย์ไทยไหม 4. เคยซ่อมไหม" — บั๊กจริง: ลูกค้าต้องพิมพ์ตอบยาวเองแทนที่จะกดปุ่มทีละข้อ) เว้นแต่ลูกค้าขอให้ถามรวดเดียวเอง`,
     `9. ถ้าลูกค้าแจ้งชื่อหรือเบอร์โทร เรียก save_customer_info ทันที`,
-    `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ถ้าไม่พบออเดอร์ของบัญชีนี้ ให้ขอชื่อ+เบอร์ (save_customer_info) แล้ว escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์ที่ยังไม่ยืนยันตัวตน`,
+    `10. ถ้าลูกค้าถามสถานะออเดอร์ ใช้ check_order_status ทันที (ระบบเช็คบัญชีนี้ + ลิงก์ติดตามที่ลูกค้าถืออยู่ให้เองอัตโนมัติ). ถ้าไม่พบ: บอกลูกค้าว่า "ส่งลิงก์ติดตาม หรือเลขออเดอร์ (OID-...) พร้อมเบอร์โทรที่ใช้ตอนสั่ง มาได้เลย" — ลูกค้าแปะลิงก์ /track/... = เรียก check_order_status ใหม่ใส่ track_url, ลูกค้าบอกเลขออเดอร์+เบอร์ = save_customer_info ก่อนแล้วเรียกใหม่ใส่ ref_no. ถ้ายังไม่พบหรือข้อมูลไม่ตรง ให้ escalate ให้เจ้าหน้าที่ตรวจสอบ ห้ามเปิดเผยรายละเอียดออเดอร์จากเบอร์เปล่าๆ ที่ยังไม่ยืนยันตัวตน`,
     `10.1 PDPA — ห้ามบอกยอดเงินของออเดอร์ในแชทเด็ดขาด (ยอดสุทธิ/ราคารับซื้อ/ยอดโอน ของออเดอร์ที่สั่งไปแล้ว) แม้เป็นออเดอร์ของบัญชีที่ล็อกอินอยู่ก็ตาม — ถ้าลูกค้าถามเรื่องเงินของออเดอร์เก่า ให้ชี้ไปที่หน้าติดตามสถานะ (track) หรือ escalate ให้เจ้าหน้าที่ (ราคา "ประเมินรับซื้อ" ของเครื่องที่กำลังจะขายบอกได้ปกติ — คนละเรื่องกับยอดของออเดอร์ที่สั่งไปแล้ว)`,
     `10.2 เบอร์โทรที่ลูกค้าพิมพ์ในแชท "ไม่ใช่การยืนยันตัวตน" — ห้ามใช้เบอร์ที่พิมพ์มาเปิดดูหรือเล่ารายละเอียดออเดอร์ของใครทั้งสิ้น (เลขออเดอร์ รุ่น สถานะ ยอดเงิน) พบว่ามีออเดอร์จากเบอร์นั้นให้บอกแค่ว่าจะให้เจ้าหน้าที่ยืนยันตัวตนแล้วแจ้งกลับ`,
     `10.3 ห้ามแต่ง/เดารายละเอียดออเดอร์ (เลขออเดอร์ รุ่น สถานะ ยอด) ที่ไม่ได้มาจากฟิลด์ own_orders ของ check_order_status เด็ดขาด — ไม่มีข้อมูลจริงให้ escalate อย่าสร้างเลขออเดอร์หรือยอดขึ้นมาเอง`,
@@ -1439,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.11";
+const LOGIC_VERSION = "2026-07-24.1";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-24", text: "แชทตามสถานะออเดอร์เจอแล้วแม้คนละ session (เคสจริง OID-MRYEA7KM-240 สั่งกับแชทคนละ uid ทั้งที่เครื่องเดียวกัน): ระบบยืนยันตัวตนได้ 4 ทาง — บัญชีที่แชทอยู่ / ลูกค้าเปิดหรือแปะลิงก์ติดตาม (ถือลิงก์ = ยืนยัน เพราะหน้า track เปิดให้คนถือลิงก์อยู่แล้ว) / เลขออเดอร์+เบอร์ตรงกัน (มาตรฐานเดียวกับหน้า track lookup) / เบอร์จากบัญชี checkout — ทุกทางบอกแค่รุ่น+สถานะ+นัด ห้ามบอกยอดเงิน (PDPA เดิม)" },
   { at: "2026-07-23", text: "ทำรายการสำเร็จผ่านแชทแล้วได้ลิงก์ติดตามในแชททันที: ออเดอร์ใหม่ของลูกค้าที่มาจากแชทเว็บ ระบบโพสต์ลิงก์ /track เข้าแชทให้อัตโนมัติ (2 ภาษาตามภาษาที่ลูกค้าใช้ตอน checkout) — ลูกค้าปิดหน้าติดตามไปแล้วกลับมาเปิดแชทก็เจอลิงก์เสมอ ฝั่งแอดมินเห็นในคอนโซลด้วย (กลไกระบบ ไม่ใช่ AI คิดเอง ยิงทุกออเดอร์แน่นอน)" },
   { at: "2026-07-23", text: "เปิดโหมดหลายภาษา (เคสจริง 'english please' แล้วมาตินอ้างว่าให้บริการเฉพาะไทย — นโยบายที่ไม่มีจริง): ตอบภาษาเดียวกับลูกค้าเสมอ อังกฤษได้เต็มรูปแบบ, ข้อความระบบ/ข้อความบังคับของ guard มี 2 ภาษา, ตัวตรวจคำตอบห้ามแปลกลับเป็นไทย, ลูกค้าพิมพ์ 'talk to a human' ภาษาอังกฤษก็บังคับส่งต่อได้เหมือนภาษาไทย — ราคา/นโยบายยังมาจากระบบเท่านั้นทุกภาษา" },
   { at: "2026-07-23", text: "อุดรูต่อจากเกตขอเบอร์ก่อนส่งต่อ: ถ้าเกตตีกลับการส่งต่อแล้วคำตอบยังสัญญา 'เดี๋ยวแจ้งกลับ' โดยไม่ขอเบอร์ ระบบสลับเป็นข้อความขอชื่อ+เบอร์+รายละเอียดเครื่องให้อัตโนมัติ — ห้ามมีเคสสัญญาติดต่อกลับทั้งที่ไม่มีเบอร์และไม่มีคิวเจ้าหน้าที่ (เคสจริง iPhone 16e หลัง deploy เกต)" },
@@ -2570,6 +2591,38 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "check_order_status": {
+        // PDPA: ห้ามคืนยอดเงิน (net_payout/price) ให้แชทเด็ดขาด — การเงินเป็น
+        // ข้อมูลอ่อนไหว ลูกค้าดูยอดได้ที่หน้า track ที่มีการยืนยันตัวตนเอง
+        const redactJob = (job, key) => ({
+          ref_no: job.ref_no || key,
+          model: job.model || "",
+          status: job.status || "",
+          ...(job.pickup_schedule && job.pickup_schedule.date
+            ? { appointment: `${job.pickup_schedule.date} ${job.pickup_schedule.time || ""}`.trim() }
+            : {}),
+        });
+        const PDPA_NOTE =
+          "บอกได้แค่รุ่น สถานะ และนัดหมาย ห้ามบอกยอดเงิน/ราคา/ยอดสุทธิของออเดอร์ในแชทเด็ดขาด (PDPA) ถ้าลูกค้าถามเรื่องเงินหรือรายละเอียดลึก ให้ชี้ไปที่หน้าติดตามสถานะ (track) หรือ escalate ให้เจ้าหน้าที่";
+        // (1) Tracking-link possession — the strongest evidence the customer
+        // can present in chat: /track/{jobId} is public to link holders and
+        // shows MORE than we ever reveal here. Sources: explicit paste
+        // (input.track_url) or the page the widget says they're on
+        // (state.trackJobId, remembered across turns via ai_state).
+        const linkJobId = parseTrackJobId(input.track_url || "") || state.trackJobId || "";
+        if (linkJobId) {
+          const snap = await db.ref(`jobs/${linkJobId}`).once("value");
+          if (snap.exists()) {
+            return {
+              own_orders: [redactJob(snap.val(), linkJobId)],
+              verified_by: "tracking_link",
+              note: `ยืนยันด้วยลิงก์ติดตามที่ลูกค้าถืออยู่ — ${PDPA_NOTE}`,
+            };
+          }
+          if (input.track_url) {
+            return { own_orders: [], note: "ลิงก์/เลขงานนี้ไม่พบในระบบ ให้ขอเลขออเดอร์ (OID-...) พร้อมเบอร์โทรที่ใช้สั่ง หรือส่งต่อเจ้าหน้าที่" };
+          }
+        }
+        // (2) Orders owned by this chat session's account (uid join).
         const jobsSnap = await db
           .ref("jobs")
           .orderByChild("uid")
@@ -2579,25 +2632,54 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const own = [];
         if (jobsSnap.exists()) {
           jobsSnap.forEach((j) => {
-            const job = j.val() || {};
-            // PDPA: ห้ามคืนยอดเงิน (net_payout/price) ให้แชทเด็ดขาด — การเงินเป็น
-            // ข้อมูลอ่อนไหว ลูกค้าดูยอดได้ที่หน้า track ที่มีการยืนยันตัวตนเอง
-            own.push({
-              ref_no: job.ref_no || j.key,
-              model: job.model || "",
-              status: job.status || "",
-            });
+            own.push(redactJob(j.val() || {}, j.key));
           });
         }
         if (own.length > 0) {
           return {
             own_orders: own.reverse(),
-            note:
-              "นี่คือออเดอร์ของบัญชีที่ลูกค้าล็อกอินอยู่ตอนนี้ บอกได้แค่รุ่นและสถานะกว้างๆ ห้ามบอกยอดเงิน/ราคา/ยอดสุทธิของออเดอร์ในแชทเด็ดขาด (PDPA) ถ้าลูกค้าถามเรื่องเงินหรือรายละเอียดลึก ให้ชี้ไปที่หน้าติดตามสถานะ (track) หรือ escalate ให้เจ้าหน้าที่",
+            note: `นี่คือออเดอร์ของบัญชีที่ลูกค้าล็อกอินอยู่ตอนนี้ ${PDPA_NOTE}`,
           };
         }
-
         const claimedPhone = normalizePhone(convo.customer_phone || state.savedPhone);
+        // (3) Order number + matching phone — mirrors the public /track lookup
+        // page (ref_no + phone → full details), so revealing model+status here
+        // discloses strictly less than the website itself would.
+        const refNo = String(input.ref_no || "").trim().toUpperCase();
+        if (refNo && claimedPhone) {
+          const byPhone = await db
+            .ref("jobs")
+            .orderByChild("cust_phone")
+            .equalTo(claimedPhone)
+            .limitToLast(20)
+            .once("value");
+          let matched = null;
+          if (byPhone.exists()) {
+            byPhone.forEach((j) => {
+              const job = j.val() || {};
+              if (String(job.ref_no || "").toUpperCase() === refNo) matched = redactJob(job, j.key);
+            });
+          }
+          if (matched) {
+            return { own_orders: [matched], verified_by: "ref_no_phone", note: `เลขออเดอร์ตรงกับเบอร์ที่แจ้ง — ${PDPA_NOTE}` };
+          }
+          return { own_orders: [], note: "เลขออเดอร์กับเบอร์โทรไม่ตรงกัน ห้ามเปิดเผยรายละเอียด ให้ escalate ให้เจ้าหน้าที่ตรวจสอบ" };
+        }
+        // (4) Verified account phone (system-written from checkout profile,
+        // NOT typed in chat) — identity join by phone, uid เป็นแค่ session.
+        if (convo.customer_phone && convo.phone_source === "account") {
+          const byAcctPhone = await db
+            .ref("jobs")
+            .orderByChild("cust_phone")
+            .equalTo(normalizePhone(convo.customer_phone))
+            .limitToLast(5)
+            .once("value");
+          const acct = [];
+          if (byAcctPhone.exists()) byAcctPhone.forEach((j) => acct.push(redactJob(j.val() || {}, j.key)));
+          if (acct.length > 0) {
+            return { own_orders: acct.reverse(), verified_by: "account_phone", note: `ยืนยันจากเบอร์บัญชี checkout ของลูกค้า — ${PDPA_NOTE}` };
+          }
+        }
         if (claimedPhone) {
           const byPhoneSnap = await db
             .ref("jobs")
@@ -3215,6 +3297,20 @@ function registerChatAi({ dispatchAdminPush }) {
       try {
         const inHours = isBusinessHours(pub);
 
+        // Track-page context = bearer evidence. The widget sends the page URL
+        // with every customer message; if the customer is (or recently was)
+        // on /track/{jobId}, they hold that order's public tracking link —
+        // remember it on the conversation so "สถานะออเดอร์ผมล่ะ" resolves even
+        // when the order's uid is a DIFFERENT browser session than the chat's
+        // (live case OID-MRYEA7KM-240: same phone, checkout uid ≠ chat uid).
+        let trackJobId = parseTrackJobId((msg.client_context && msg.client_context.url) || "");
+        if (trackJobId) {
+          db.ref(`inbox/${convoId}/ai_state/last_track_job_id`).set({ job_id: trackJobId, at: Date.now() }).catch(() => {});
+        } else if (convo.ai_state && convo.ai_state.last_track_job_id && convo.ai_state.last_track_job_id.job_id) {
+          trackJobId = String(convo.ai_state.last_track_job_id.job_id);
+        }
+        state.trackJobId = trackJobId;
+
         // Customer context block for the system prompt.
         let ordersLine = "ยังไม่พบออเดอร์ของบัญชีนี้";
         try {
@@ -3231,6 +3327,32 @@ function registerChatAi({ dispatchAdminPush }) {
               lines.push(`- ${job.ref_no || j.key}: ${job.model || ""} สถานะ ${job.status || ""}`);
             });
             ordersLine = `ออเดอร์ของบัญชีนี้ (เปิดเผยกับลูกค้าได้):\n${lines.reverse().join("\n")}`;
+          } else if (trackJobId) {
+            // No orders under this session's uid, but the customer holds a
+            // tracking link — surface that order (model+status only).
+            const tSnap = await db.ref(`jobs/${trackJobId}`).once("value");
+            if (tSnap.exists()) {
+              const job = tSnap.val() || {};
+              ordersLine = `ออเดอร์จากลิงก์ติดตามที่ลูกค้าถืออยู่ (ยืนยันด้วยการถือลิงก์ — เปิดเผยรุ่น+สถานะได้ ห้ามบอกยอดเงิน):\n- ${job.ref_no || trackJobId}: ${job.model || ""} สถานะ ${job.status || ""}`;
+            }
+          } else if (convo.customer_phone && convo.phone_source === "account") {
+            // Phone written by the system from the checkout/account profile
+            // (NOT typed in chat) = verified identity → orders join by phone,
+            // the same principle the console's recent-orders panel uses.
+            const pSnap = await db
+              .ref("jobs")
+              .orderByChild("cust_phone")
+              .equalTo(normalizePhone(convo.customer_phone))
+              .limitToLast(3)
+              .once("value");
+            if (pSnap.exists()) {
+              const lines = [];
+              pSnap.forEach((j) => {
+                const job = j.val() || {};
+                lines.push(`- ${job.ref_no || j.key}: ${job.model || ""} สถานะ ${job.status || ""}`);
+              });
+              ordersLine = `ออเดอร์ของลูกค้าคนนี้ (ยืนยันจากเบอร์บัญชี checkout — เปิดเผยรุ่น+สถานะได้ ห้ามบอกยอดเงิน):\n${lines.reverse().join("\n")}`;
+            }
           }
         } catch { /* jobs lookup is best-effort context */ }
 
@@ -4097,6 +4219,7 @@ module.exports = {
     pickBatteryOptionId,
     modelLineMismatch,
     pickSiblingModel,
+    parseTrackJobId,
     priceHaggleIntent,
     humanRequestIntent,
     claimsHumanForwarding,
