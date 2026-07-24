@@ -6,6 +6,11 @@ name: Backfill image Cache-Control
 
 on:
   workflow_dispatch:
+  # GitHub App ที่ใช้เปิด PR ไม่มีสิทธิ์ยิง workflow_dispatch (403) —
+  # ให้รันเองเมื่อไฟล์นี้ถูกแก้บน main แทน (สคริปต์ idempotent รันซ้ำได้)
+  push:
+    branches: [main]
+    paths: ['.github/workflows/backfill-image-cache.yml']
 
 jobs:
   backfill:
