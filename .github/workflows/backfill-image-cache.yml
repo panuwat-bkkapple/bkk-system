@@ -1,0 +1,33 @@
+# One-off (กดรันเองจากแท็บ Actions): ตั้ง Cache-Control ให้รูปเก่าใน
+# product-images/ ที่อัปโหลดก่อนที่ uploadImage.ts จะตั้ง metadata เอง (#404)
+# idempotent — รันซ้ำได้ ไฟล์ที่ header ถูกแล้วจะถูกข้าม เก็บไว้ใช้ซ้ำได้
+# ถ้ามีการ import รูปเข้า bucket ทางอื่นที่ไม่ผ่านแอดมินแอป
+name: Backfill image Cache-Control
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install functions deps (for firebase-admin)
+        run: npm ci --prefix functions --no-audit --no-fund
+
+      - name: Run backfill
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+        run: |
+          if [[ -z "$FIREBASE_SA" ]]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN secret is empty"
+            exit 1
+          fi
+          echo "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          node scripts/backfill-image-cache-control.cjs
