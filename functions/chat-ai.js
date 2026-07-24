@@ -1459,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-24.1";
+const LOGIC_VERSION = "2026-07-24.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-24", text: "ลูกค้า guest สั่งขายโดยไม่เคยแชท: ระบบเปิดห้องแชทของ session นั้นให้เลยพร้อมฝากลิงก์ติดตามรอไว้ + เติมชื่อ/เบอร์จากออเดอร์ (นับเป็นเบอร์ยืนยันแล้ว) — เปิด widget ครั้งแรกก็เจอลิงก์และถามสถานะต่อได้ทันที ไม่ต้องยืนยันตัวตนซ้ำ" },
   { at: "2026-07-24", text: "แชทตามสถานะออเดอร์เจอแล้วแม้คนละ session (เคสจริง OID-MRYEA7KM-240 สั่งกับแชทคนละ uid ทั้งที่เครื่องเดียวกัน): ระบบยืนยันตัวตนได้ 4 ทาง — บัญชีที่แชทอยู่ / ลูกค้าเปิดหรือแปะลิงก์ติดตาม (ถือลิงก์ = ยืนยัน เพราะหน้า track เปิดให้คนถือลิงก์อยู่แล้ว) / เลขออเดอร์+เบอร์ตรงกัน (มาตรฐานเดียวกับหน้า track lookup) / เบอร์จากบัญชี checkout — ทุกทางบอกแค่รุ่น+สถานะ+นัด ห้ามบอกยอดเงิน (PDPA เดิม)" },
   { at: "2026-07-23", text: "ทำรายการสำเร็จผ่านแชทแล้วได้ลิงก์ติดตามในแชททันที: ออเดอร์ใหม่ของลูกค้าที่มาจากแชทเว็บ ระบบโพสต์ลิงก์ /track เข้าแชทให้อัตโนมัติ (2 ภาษาตามภาษาที่ลูกค้าใช้ตอน checkout) — ลูกค้าปิดหน้าติดตามไปแล้วกลับมาเปิดแชทก็เจอลิงก์เสมอ ฝั่งแอดมินเห็นในคอนโซลด้วย (กลไกระบบ ไม่ใช่ AI คิดเอง ยิงทุกออเดอร์แน่นอน)" },
   { at: "2026-07-23", text: "เปิดโหมดหลายภาษา (เคสจริง 'english please' แล้วมาตินอ้างว่าให้บริการเฉพาะไทย — นโยบายที่ไม่มีจริง): ตอบภาษาเดียวกับลูกค้าเสมอ อังกฤษได้เต็มรูปแบบ, ข้อความระบบ/ข้อความบังคับของ guard มี 2 ภาษา, ตัวตรวจคำตอบห้ามแปลกลับเป็นไทย, ลูกค้าพิมพ์ 'talk to a human' ภาษาอังกฤษก็บังคับส่งต่อได้เหมือนภาษาไทย — ราคา/นโยบายยังมาจากระบบเท่านั้นทุกภาษา" },
@@ -4159,9 +4160,12 @@ function registerChatAi({ dispatchAdminPush }) {
         // Accessory/B2B child rows and admin-created orders carry no customer
         // uid — nothing to link a chat to.
         if (!uid) return;
+        // Skip system-generated child rows (accessory unpack / B2B unpack) —
+        // they duplicate the parent order the customer already got a link for.
+        if (job.type === "Accessory" || job.type === "B2B-Unpacked") return;
         const db = getDatabase();
         const convoSnap = await db.ref(`inbox/${uid}/lastMessageAt`).once("value");
-        if (!convoSnap.exists()) return; // this uid never chatted
+        const isNewConvo = !convoSnap.exists();
         // Idempotency across function retries — the flag lives on the job.
         const sentSnap = await db.ref(`jobs/${jobId}/chat_track_link_sent_at`).once("value");
         if (sentSnap.exists()) return;
@@ -4175,6 +4179,25 @@ function registerChatAi({ dispatchAdminPush }) {
         const settingsSnap = await db.ref("settings/chat_widget/public/assistant_name").once("value");
         const assistantName = settingsSnap.val() || "BKK APPLE Assistant";
         const now = Date.now();
+        if (isNewConvo) {
+          // Guest checkout with no prior chat (owner's ask): SEED the chat
+          // room for this uid so the tracking link is already waiting when
+          // they first open the widget — same browser session, same uid,
+          // zero extra steps. Contact info comes from the order itself, so
+          // the phone counts as account-verified (identity, not session):
+          // check_order_status and the console panel resolve this customer
+          // by phone from message one.
+          await db.ref(`inbox/${uid}`).update({
+            type: "customer",
+            name: job.cust_name || `ลูกค้า #${uid.slice(-4).toUpperCase()}`,
+            status: "ai",
+            createdAt: now,
+            ...(job.cust_name ? { customer_name: job.cust_name } : {}),
+            ...(job.cust_phone ? { customer_phone: job.cust_phone, phone_source: "account" } : {}),
+            ...(job.cust_email ? { customer_email: job.cust_email } : {}),
+            source_url: "order_confirmation",
+          });
+        }
         await db.ref(`inbox/${uid}/messages`).push({
           sender: "ai",
           senderName: assistantName,
