@@ -50,7 +50,13 @@ export const uploadImageToFirebase = async (
     const storageRef = ref(storage, fullPath);
 
     // 4. โยนไฟล์ "ที่บีบอัดแล้ว" (compressedFile) ขึ้น Firebase Storage
-    const snapshot = await uploadBytes(storageRef, compressedFile);
+    // ชื่อไฟล์มี timestamp/random เสมอ (อัปโหลดใหม่ = URL ใหม่) จึงตั้ง cache
+    // ยาวแบบ immutable ได้ — ถ้าไม่ตั้ง Firebase จะเสิร์ฟ `private, max-age=0`
+    // ทำให้ browser ลูกค้าโหลดรูปซ้ำทุกครั้งและเห็นรูปแตกทันทีที่เน็ต/CDN สะดุด
+    // (KYC ใช้ private กัน shared cache; รูปสินค้า public ให้ CDN cache ได้)
+    const snapshot = await uploadBytes(storageRef, compressedFile, {
+      cacheControl: `${options.opaqueFilename ? 'private' : 'public'}, max-age=31536000, immutable`,
+    });
     return await getDownloadURL(snapshot.ref);
 
   } catch (error) {
