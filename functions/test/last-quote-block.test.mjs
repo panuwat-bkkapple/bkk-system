@@ -863,5 +863,23 @@ check("escalate system message is bilingual", src.includes("Your request has bee
 check("verifier keeps the reply's original language", src.includes("ใช้ภาษาเดียวกับคำตอบเดิมเสมอ"));
 check("offer backstop accepts English phone asks", src.includes("!/เบอร์|phone/i.test(finalText)"));
 
+// --- tracking link posted into the chat on order creation --------------------
+// Owner: customer completes an order via chat -> the /track link must land in
+// the chat thread itself (customer can re-find it after closing the track
+// page; staff see it in-console). Deterministic DB trigger, not AI behavior.
+{
+  const fn = src.indexOf("const onJobCreatedChatTrackLink = onValueCreated(");
+  check("chat track-link trigger exists", fn > 0);
+  check("fires on job creation", src.indexOf('ref: "/jobs/{jobId}"', fn) > fn);
+  check("links via the chat conversation key (job.uid)", src.indexOf("inbox/${uid}/lastMessageAt", fn) > fn);
+  check("idempotent across retries", src.indexOf("chat_track_link_sent_at", fn) > fn);
+  check("URL mirrors checkout's own redirect", src.indexOf("https://www.bkkapple.com/track/${jobId}", fn) > fn);
+  check("bilingual by checkout locale", src.indexOf('job.cust_locale === "en"', fn) > fn);
+  check("failures never break order creation", src.indexOf("a failed chat note must never break order creation", fn) > fn);
+  check("exported from registerChatAi", src.includes("return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink };"));
+  const idx = readFileSync(new URL("../index.js", import.meta.url), "utf8");
+  check("wired up in index.js", idx.includes("exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;"));
+}
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
