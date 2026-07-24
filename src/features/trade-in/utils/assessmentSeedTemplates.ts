@@ -124,4 +124,37 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
   ] },
+  // แบต + ประกัน 2 ระดับความละเอียด — สำหรับชุดประเมินรายรุ่น (1 รุ่น : 1 ชุด):
+  //   • รุ่นใหม่/ราคาสูง (iPhone 16/17...) แบตและประกันมีผลต่อราคามาก → ถาม %
+  //     เป็นช่วงละเอียด + ประกันแบ่งตามระยะเวลาที่เหลือ
+  //   • รุ่นเก่า (iPhone 13/14 ลงไป) → ถามแค่ ดี/เสื่อม และ มี/หมดประกัน
+  // ค่าหักเป็น pct (สเกลตามราคา variant อัตโนมัติ) — เป็นแค่ค่าตั้งต้น แอดมิน
+  // จูนต่อรายรุ่นได้. ทั้งแบตและประกันถูก exclude จากเกรด A/B/C/D อยู่แล้ว
+  // (GRADE_EXCLUDE_RE ใน bkk-frontend-next conditionGrade.ts จับจากชื่อหัวข้อ
+  // "แบต"/"ประกัน") — จึงหักราคาได้โดยเกรดสภาพไม่ตก ตามนโยบาย "แบต 98% ยังเกรด A".
+  battery_new: { label: 'แบต % ละเอียด + ประกัน (รุ่นใหม่)', items: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
+      { label: 'สุขภาพแบต 100%', description: 'แบตเตอรี่ยังเต็ม 100% เหมือนใหม่', deduct: 0 },
+      { label: 'สุขภาพแบต 98-99%', description: 'เสื่อมเล็กน้อยมาก แทบเท่าเครื่องใหม่', pct: 1 },
+      { label: 'สุขภาพแบต 95-97%', description: 'เสื่อมเล็กน้อยตามการใช้งาน', pct: 3 },
+      { label: 'สุขภาพแบต 90-94%', description: 'เสื่อมตามการใช้งาน ยังใช้ได้ปกติ', pct: 6 },
+      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 10 },
+      { label: 'แบตต่ำกว่า 85% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+    ] },
+    { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
+      { label: 'เหลือประกันศูนย์มากกว่า 6 เดือน / AppleCare+', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+      { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', pct: 2 },
+      { label: 'หมดประกันศูนย์แล้ว', description: 'พ้นระยะประกันศูนย์แล้ว', pct: 4 },
+    ] },
+  ] },
+  battery_old: { label: 'แบตดี/เสื่อม + ประกัน (รุ่นเก่า)', items: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
+      { label: 'แบตเตอรี่ดี', description: 'สุขภาพแบต 80% ขึ้นไป ไม่ขึ้น Service', deduct: 0 },
+      { label: 'แบตเตอรี่เสื่อม', description: 'สุขภาพแบตต่ำกว่า 80% หรือขึ้นเตือน Service', pct: 10, failBehavior: 'deduct' },
+    ] },
+    { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
+      { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+      { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
+    ] },
+  ] },
 };
