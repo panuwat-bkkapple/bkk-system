@@ -877,6 +877,11 @@ check("offer backstop accepts English phone asks", src.includes("!/เบอร�
   check("bilingual by checkout locale", src.indexOf('job.cust_locale === "en"', fn) > fn);
   check("failures never break order creation", src.indexOf("a failed chat note must never break order creation", fn) > fn);
   check("exported from registerChatAi", src.includes("return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink };"));
+  // Guest checkout with no prior chat: the trigger SEEDS the conversation so
+  // the link waits in the widget, with order contact info pre-verified.
+  check("no-chat guests get a seeded conversation", src.includes("const isNewConvo = !convoSnap.exists();"));
+  check("seed carries account-verified phone", /isNewConvo[\s\S]{0,900}phone_source: "account"/.test(src));
+  check("seed skips system child rows", src.includes('job.type === "Accessory" || job.type === "B2B-Unpacked"'));
   const idx = readFileSync(new URL("../index.js", import.meta.url), "utf8");
   check("wired up in index.js", idx.includes("exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;"));
 }
