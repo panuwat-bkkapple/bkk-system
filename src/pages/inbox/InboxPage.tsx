@@ -307,7 +307,9 @@ export const InboxPage = () => {
       list = list.filter(
         (c) =>
           c.name.toLowerCase().includes(q) ||
+          c.customer_name?.toLowerCase().includes(q) ||
           c.phone?.includes(q) ||
+          c.customer_phone?.includes(q) ||
           c.lastMessage.toLowerCase().includes(q)
       );
     }
@@ -846,7 +848,7 @@ export const InboxPage = () => {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="font-bold text-sm text-slate-800 truncate">{convo.name}</span>
+                    <span className="font-bold text-sm text-slate-800 truncate">{convo.customer_name || convo.name}</span>
                     <span className="text-[10px] text-slate-400 shrink-0 ml-2">
                       {formatTime(convo.lastMessageAt)}
                     </span>
