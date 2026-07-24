@@ -55,7 +55,13 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
   useEffect(() => {
     if (activeSetId) {
       const found = conditionSets.find(c => c.id === activeSetId);
-      if (found) setEditingSet(JSON.parse(JSON.stringify(found)));
+      if (found) {
+        // เติมคำแปลอังกฤษเป็นค่า default ตั้งแต่เปิดชุด (เฉพาะช่องที่ยังว่าง —
+        // ของที่กรอกไว้ไม่ถูกทับ) ยังเป็นแค่ state ในหน้าจอจนกว่าจะกด Save
+        const copy = JSON.parse(JSON.stringify(found));
+        const { groups } = fillEnFields(copy.groups || []);
+        setEditingSet({ ...copy, groups });
+      }
     } else {
       setEditingSet(null);
     }
