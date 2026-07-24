@@ -1439,8 +1439,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-23.10";
+const LOGIC_VERSION = "2026-07-23.11";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-23", text: "ทำรายการสำเร็จผ่านแชทแล้วได้ลิงก์ติดตามในแชททันที: ออเดอร์ใหม่ของลูกค้าที่มาจากแชทเว็บ ระบบโพสต์ลิงก์ /track เข้าแชทให้อัตโนมัติ (2 ภาษาตามภาษาที่ลูกค้าใช้ตอน checkout) — ลูกค้าปิดหน้าติดตามไปแล้วกลับมาเปิดแชทก็เจอลิงก์เสมอ ฝั่งแอดมินเห็นในคอนโซลด้วย (กลไกระบบ ไม่ใช่ AI คิดเอง ยิงทุกออเดอร์แน่นอน)" },
   { at: "2026-07-23", text: "เปิดโหมดหลายภาษา (เคสจริง 'english please' แล้วมาตินอ้างว่าให้บริการเฉพาะไทย — นโยบายที่ไม่มีจริง): ตอบภาษาเดียวกับลูกค้าเสมอ อังกฤษได้เต็มรูปแบบ, ข้อความระบบ/ข้อความบังคับของ guard มี 2 ภาษา, ตัวตรวจคำตอบห้ามแปลกลับเป็นไทย, ลูกค้าพิมพ์ 'talk to a human' ภาษาอังกฤษก็บังคับส่งต่อได้เหมือนภาษาไทย — ราคา/นโยบายยังมาจากระบบเท่านั้นทุกภาษา" },
   { at: "2026-07-23", text: "อุดรูต่อจากเกตขอเบอร์ก่อนส่งต่อ: ถ้าเกตตีกลับการส่งต่อแล้วคำตอบยังสัญญา 'เดี๋ยวแจ้งกลับ' โดยไม่ขอเบอร์ ระบบสลับเป็นข้อความขอชื่อ+เบอร์+รายละเอียดเครื่องให้อัตโนมัติ — ห้ามมีเคสสัญญาติดต่อกลับทั้งที่ไม่มีเบอร์และไม่มีคิวเจ้าหน้าที่ (เคสจริง iPhone 16e หลัง deploy เกต)" },
   { at: "2026-07-23", text: "รุ่นตระกูล e แยกจากรุ่นเลขเฉยๆ แล้ว (เคส iPhone 16e เคยถูกจับคู่เป็น iPhone 16) — 'iPhone 16e' จะไม่เจอรุ่น 16 ปกติอีก และถ้ารุ่นไม่มีในระบบ/ไม่มีราคา ระบบบังคับขอชื่อ+เบอร์+รายละเอียดเครื่องก่อน ห้ามส่งต่อเจ้าหน้าที่มือเปล่า" },
@@ -4017,7 +4018,66 @@ function registerChatAi({ dispatchAdminPush }) {
     }
   );
 
-  return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies };
+  // When an order lands from a website-chat customer (job.uid === the chat
+  // conversation key), drop the tracking link into that chat as มาติน — the
+  // customer who closes the /track page can always find it again in the chat,
+  // and staff see the same link in the console thread. Deterministic server
+  // mechanism, not AI behavior: fires on EVERY such order (self-checkout via
+  // the quote card included), no model call involved. URL format mirrors
+  // checkout's own redirect (/track/{jobId} reads jobs/{jobId} directly).
+  // Name is project-unique per the {region}/{name} collision rule.
+  const onJobCreatedChatTrackLink = onValueCreated(
+    { ref: "/jobs/{jobId}", region: REGION },
+    async (event) => {
+      const tag = "onJobCreatedChatTrackLink";
+      try {
+        const job = event.data.val() || {};
+        const jobId = event.params.jobId;
+        const uid = String(job.uid || "");
+        // Accessory/B2B child rows and admin-created orders carry no customer
+        // uid — nothing to link a chat to.
+        if (!uid) return;
+        const db = getDatabase();
+        const convoSnap = await db.ref(`inbox/${uid}/lastMessageAt`).once("value");
+        if (!convoSnap.exists()) return; // this uid never chatted
+        // Idempotency across function retries — the flag lives on the job.
+        const sentSnap = await db.ref(`jobs/${jobId}/chat_track_link_sent_at`).once("value");
+        if (sentSnap.exists()) return;
+        await db.ref(`jobs/${jobId}/chat_track_link_sent_at`).set(Date.now());
+        const url = `https://www.bkkapple.com/track/${jobId}`;
+        const refNo = job.ref_no ? String(job.ref_no) : "";
+        const en = job.cust_locale === "en";
+        const text = en
+          ? `Your order${refNo ? ` ${refNo}` : ""} has been received. You can follow its status anytime here: ${url} — I will keep you posted in this chat as well.`
+          : `รับคำสั่งขาย${refNo ? ` ${refNo}` : ""} ของคุณเรียบร้อยแล้วครับ ติดตามสถานะได้ตลอดที่ลิงก์นี้ ${url} — เข้ามาดูในแชทนี้เมื่อไหร่ก็เจอลิงก์นี้ได้เลยครับ`;
+        const settingsSnap = await db.ref("settings/chat_widget/public/assistant_name").once("value");
+        const assistantName = settingsSnap.val() || "BKK APPLE Assistant";
+        const now = Date.now();
+        await db.ref(`inbox/${uid}/messages`).push({
+          sender: "ai",
+          senderName: assistantName,
+          senderRole: "ai",
+          kind: "text",
+          text,
+          timestamp: now,
+          read: false,
+        });
+        await db.ref(`inbox/${uid}`).update({
+          lastMessage: text.slice(0, 200),
+          lastMessageAt: now,
+          customer_unread: ServerValue.increment(1),
+          last_order_job_id: jobId,
+          ...(refNo ? { last_order_ref: refNo } : {}),
+        });
+        console.log(`[${tag}] ${uid} tracking link posted for job ${jobId}${refNo ? ` (${refNo})` : ""}`);
+      } catch (err) {
+        // Best-effort: a failed chat note must never break order creation flows.
+        console.error(`[${tag}] failed:`, err && err.message);
+      }
+    }
+  );
+
+  return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink };
 }
 
 // __test = internal surface for the regression harness (functions/test/).

@@ -4993,6 +4993,9 @@ exports.getChatAiKnowledge = chatAi.getChatAiKnowledge;
 // Staff copilot: analyze a conversation's full context + draft replies for
 // the admin to pick/edit in the chat console.
 exports.suggestAdminReplies = chatAi.suggestAdminReplies;
+// Order created by a website-chat customer → post the /track link into their
+// chat thread (customer can always find it again; staff see it in-console).
+exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;
 
 // ---------------------------------------------------------------------------
 // CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).
