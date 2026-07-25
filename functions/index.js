@@ -706,6 +706,16 @@ exports.migrateOldJobs = onRequest(
       });
     }
 
+    if (action === "backfill-public-track" || action === "backfill-public-track-dry") {
+      const result = await runPublicTrackBackfill({ dryRun: action.endsWith("-dry") });
+      return res.json({
+        success: true,
+        action,
+        message: `${action.endsWith("-dry") ? "DRY RUN — would write" : "Wrote"} ${result.mirrors} public_track mirrors from ${result.jobs} jobs`,
+        ...result,
+      });
+    }
+
     const result = await runArchive();
     res.json({
       success: true,
@@ -715,6 +725,61 @@ exports.migrateOldJobs = onRequest(
     });
   }
 );
+
+// =============================================================================
+// public_track backfill (?action=backfill-public-track[-dry])
+//
+// One-off: build the masked customer mirror public_track/{jobId} for jobs
+// created BEFORE bkk-frontend-next's onJobWritePublicTrack trigger shipped.
+// Lives here (an UPDATE to this existing endpoint) because the frontend
+// repo's deploy service account cannot create new public HTTPS functions
+// (cloudfunctions.functions.setIamPolicy).
+//
+// FIELD LIST MIRRORS PUBLIC_TRACK_FIELDS in
+// bkk-frontend-next/functions/src/publicTrack.ts — keep both in sync. Drift
+// self-heals for any job that gets written again (the DB trigger there is
+// the long-term source of truth); this list only matters for dormant jobs.
+// =============================================================================
+const PUBLIC_TRACK_FIELDS_MIRROR = [
+  "ref_no", "OID", "status", "model", "type", "created_at", "updated_at",
+  "receive_method", "branch_name",
+  "devices", "expected_items", "accessory_items", "offer_request",
+  "price", "original_price", "initial_customer_price", "revised_price",
+  "final_price", "net_payout", "pickup_fee", "rider_fee_discount",
+  "applied_coupon", "applied_rider_promo", "adjustments",
+  "revise_reason", "price_revision", "accepted_at",
+  "pickup_schedule", "appointment_date", "appointment_time",
+  "pickup_date", "pickup_time", "tracking_number",
+  "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
+  "payment_info", "payment_proof", "payment_slip", "slip_image", "slip_url",
+  "customer_signature", "quote_expiry_date",
+  "is_reviewed", "uid", "rider_id",
+  "cancelled_at", "cancel_reason", "cancellation_reason", "reopened_at",
+];
+
+async function runPublicTrackBackfill({ dryRun }) {
+  const db = getDatabase();
+  // Manual, run-once endpoint — the documented exception to the
+  // no-full-node-read rule.
+  const jobsSnap = await db.ref("jobs").once("value");
+  const updates = {};
+  let jobs = 0;
+  let mirrors = 0;
+  jobsSnap.forEach((child) => {
+    jobs++;
+    const job = child.val();
+    if (!job || typeof job !== "object") return;
+    const mirror = {};
+    for (const f of PUBLIC_TRACK_FIELDS_MIRROR) {
+      if (job[f] !== undefined && job[f] !== null) mirror[f] = job[f];
+    }
+    updates[`public_track/${child.key}`] = mirror;
+    mirrors++;
+  });
+  if (!dryRun && mirrors > 0) await db.ref().update(updates);
+  console.log(`[backfill-public-track] ${dryRun ? "dry:" : "wrote"} ${mirrors} mirrors from ${jobs} jobs`);
+  return { jobs, mirrors, dry_run: !!dryRun };
+}
 
 /**
  * One-off migration (?action=move-chats): move embedded jobs/{id}/chats to
