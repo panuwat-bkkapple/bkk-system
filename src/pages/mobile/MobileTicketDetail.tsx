@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ref, onValue, update, push, remove } from 'firebase/database';
+import { ref, onValue, update, push, remove, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   Phone, MapPin, Truck, Store, Mail, Clock, User, Package,
@@ -33,7 +33,8 @@ import DiagnosStartPanel from '../../components/DiagnosStartPanel';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
-import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '../../utils/receiveMethod';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
+import type { BranchRecord } from '../../utils/receiveMethod';
 import { isAwaitingOffer } from '../../utils/offerRequest';
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
@@ -121,7 +122,10 @@ export const MobileTicketDetail = () => {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [editForm, setEditForm] = useState<{ model: string; price: string; cust_name: string; cust_phone: string; cust_address: string; appt_date: string; appt_start: string; appt_end: string; receive_method: string; cust_lat?: number; cust_lng?: number }>({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '', cust_lat: undefined, cust_lng: undefined });
+  const [editForm, setEditForm] = useState<{ model: string; price: string; cust_name: string; cust_phone: string; cust_address: string; appt_date: string; appt_start: string; appt_end: string; receive_method: string; branch_id: string; cust_lat?: number; cust_lng?: number }>({ model: '', price: '', cust_name: '', cust_phone: '', cust_address: '', appt_date: '', appt_start: '', appt_end: '', receive_method: '', branch_id: '', cust_lat: undefined, cust_lng: undefined });
+  // Real branch list for the Store-in picker (settings/branches — same source
+  // the customer checkout uses). Loaded once when the edit modal opens.
+  const [branchList, setBranchList] = useState<BranchRecord[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -552,15 +556,33 @@ export const MobileTicketDetail = () => {
       price: String(job.price ?? ''),
       cust_name: job.cust_name || '',
       cust_phone: job.cust_phone || '',
-      // Store-in keeps its location in store_branch; everyone else in cust_address.
-      cust_address: currentLocation(job),
+      // Pickup/Mail-in keep the location in cust_address. For Store-in the
+      // branch comes from the picker (branch_id) — NOT free text, so the
+      // customer's home address can never smear into store_branch again.
+      cust_address: job.cust_address || '',
       appt_date: existingApptDate(job.pickup_schedule),
       appt_start: start,
       appt_end: end,
       receive_method: job.receive_method || '',
+      branch_id: job.branch_details?.id || '',
       cust_lat: typeof job.cust_lat === 'number' ? job.cust_lat : undefined,
       cust_lng: typeof job.cust_lng === 'number' ? job.cust_lng : undefined,
     });
+    // Load the branch list for the Store-in picker (small node, one-shot).
+    get(ref(db, 'settings/branches')).then((snap) => {
+      if (!snap.exists()) { setBranchList([]); return; }
+      const data = snap.val() || {};
+      const list: BranchRecord[] = Object.keys(data)
+        .map((key) => ({ id: key, ...data[key] }))
+        .filter((b: BranchRecord) => b.isActive !== false);
+      setBranchList(list);
+      // Legacy Store-in job without branch_details — try matching the stored
+      // branch name so the picker preselects the right branch.
+      if (!job.branch_details?.id && (job.branch_name || job.store_branch)) {
+        const byName = list.find((b) => b.name && (b.name === job.branch_name || b.name === job.store_branch));
+        if (byName) setEditForm((f) => ({ ...f, branch_id: f.branch_id || byName.id }));
+      }
+    }).catch(() => setBranchList([]));
     setShowEditModal(true);
   };
 
@@ -596,9 +618,18 @@ export const MobileTicketDetail = () => {
       return;
     }
 
+    const isStoreIn = newMethod === 'Store-in';
+    // Store-in must point at a REAL branch record — free text here used to
+    // smear the customer's address into store_branch and left the tracking
+    // page guessing a default branch.
+    const selectedBranch = isStoreIn ? branchList.find((b) => b.id === editForm.branch_id) : undefined;
+    if (isStoreIn && !selectedBranch) {
+      toast.warning('กรุณาเลือกสาขาที่ลูกค้าจะนำเครื่องเข้ามา');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const isStoreIn = newMethod === 'Store-in';
       const logs: any[] = [];
 
       const payload: any = {
@@ -607,15 +638,23 @@ export const MobileTicketDetail = () => {
         cust_name: editForm.cust_name.trim() || null,
         cust_phone: editForm.cust_phone.trim() || null,
         updated_at: Date.now(),
-        // Location is written to the field that matches the (possibly new) method.
-        ...buildMethodLocationFields(newMethod, editForm.cust_address),
+        // Location is written to the fields that match the (possibly new)
+        // method — Store-in snapshots the picked branch (same shape as the
+        // customer checkout) so the tracking page shows the real branch.
+        ...(isStoreIn && selectedBranch
+          ? buildStoreInBranchFields(selectedBranch)
+          : buildMethodLocationFields(newMethod, editForm.cust_address)),
       };
+
+      if (isStoreIn && selectedBranch && job.branch_details?.id !== selectedBranch.id && !methodChanged) {
+        logs.push(makeLog('Branch Changed', `เปลี่ยนสาขานัดหมายเป็น "${selectedBranch.name || selectedBranch.id}"`));
+      }
 
       if (methodChanged) {
         payload.receive_method = newMethod;
         logs.push(makeLog(
           'Trade Method Changed',
-          `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+          `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod}${isStoreIn && selectedBranch ? ` (สาขา ${selectedBranch.name || ''})` : ''} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
         ));
       }
 
@@ -1746,12 +1785,43 @@ export const MobileTicketDetail = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">{locationLabel(editForm.receive_method)}</label>
-                <textarea
-                  value={editForm.cust_address}
-                  onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}
-                  rows={2}
-                  className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
-                />
+                {editForm.receive_method === 'Store-in' ? (
+                  // Store-in = pick a REAL branch (settings/branches) — never
+                  // free text. The save snapshots branch_name/branch_details
+                  // exactly like the customer checkout does.
+                  <>
+                    <select
+                      value={editForm.branch_id}
+                      onChange={(e) => setEditForm({ ...editForm, branch_id: e.target.value })}
+                      className="w-full border rounded-xl px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value="">— เลือกสาขา —</option>
+                      {branchList.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name || b.id}{b.isOpen === false ? ' (ปิดทำการชั่วคราว)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {(() => {
+                      const b = branchList.find((x) => x.id === editForm.branch_id);
+                      if (!b) return branchList.length === 0
+                        ? <p className="text-[10px] text-amber-600 mt-1">โหลดรายชื่อสาขาไม่สำเร็จ หรือยังไม่มีสาขาในระบบ (จัดการที่เมนู Branch Manager)</p>
+                        : null;
+                      return (
+                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                          {[b.address, b.phone ? `โทร ${b.phone}` : ''].filter(Boolean).join(' · ')}
+                        </p>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <textarea
+                    value={editForm.cust_address}
+                    onChange={(e) => setEditForm({ ...editForm, cust_address: e.target.value })}
+                    rows={2}
+                    className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                  />
+                )}
                 {/* Pickup only — pin the location so the rider fee / payout can
                     be recomputed from the real distance (auto after save). */}
                 {editForm.receive_method === 'Pickup' && (

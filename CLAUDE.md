@@ -78,7 +78,8 @@
 - **UI เลื่อนนัด:** mobile = โมดอล "แก้ไขข้อมูลงาน" ใน `MobileTicketDetail.tsx`; desktop = scheduler ใน `PricingSidebar.tsx` (มีครบทั้ง Pickup / Store-in / Mail-in)
 
 ## เปลี่ยน Trade Method (receive_method) หลังสร้างงาน
-- เปลี่ยนได้ทุกทิศทาง (Pickup ⇄ Store-in ⇄ Mail-in). helper อยู่ที่ `src/utils/receiveMethod.ts` (`canChangeReceiveMethod`, `locationLabel`, `currentLocation`, `buildMethodLocationFields`)
+- เปลี่ยนได้ทุกทิศทาง (Pickup ⇄ Store-in ⇄ Mail-in). helper อยู่ที่ `src/utils/receiveMethod.ts` (`canChangeReceiveMethod`, `locationLabel`, `currentLocation`, `buildMethodLocationFields`, `buildStoreInBranchFields`)
+- **Store-in ต้องเลือกสาขาจริงจาก `settings/branches` เสมอ (dropdown ทั้ง mobile + desktop) — ห้าม free text.** การ save ใช้ `buildStoreInBranchFields(branch)` เขียน `store_branch` + `branch_name` + `branch_details {id,name,address,phone,lat,lng,openHour,closeHour}` รูปเดียวกับ `validateAndCreateOrder` ฝั่ง checkout เพื่อให้หน้า track ลูกค้า resolve สาขาสดจาก `branch_details.id` ได้ (บั๊กเดิม: ช่องข้อความทำให้ที่อยู่ลูกค้าไหลเข้า `store_branch` และ track โชว์สาขา fallback มั่ว). ช่องแก้ที่อยู่ใน CustomerInfoCard/B2CWorkspace เขียนได้แค่ `cust_address` ห้ามแตะ `store_branch`. ออกจาก Store-in → `buildMethodLocationFields` ล้าง `branch_name`/`branch_details` ทิ้งด้วย
 - **client เขียนแค่ `receive_method` + ฟิลด์สถานที่ (`cust_address`/`store_branch`) + qc_log** — เรื่องเงิน (pickup_fee/net_payout) และการถอนไรเดอร์ให้ `onReceiveMethodChanged` (cloud function) จัดการ เพื่อให้ค่าไรเดอร์ใช้ `computeRiderFee` ที่เดียว
 - `canChangeReceiveMethod` block เมื่อเครื่องอยู่ในมือ/จ่ายเงินแล้ว/พัสดุส่งแล้ว/ปิดงาน (เช็ค status) — UI ทั้ง mobile + desktop ใช้ guard เดียวกัน
 - UI: mobile = ตัวเลือกในโมดอล "แก้ไขข้อมูลงาน"; desktop = section "Trade Method" ใน `PricingSidebar.tsx`

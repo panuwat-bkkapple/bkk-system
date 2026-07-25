@@ -746,7 +746,7 @@ exports.migrateOldJobs = onRequest(
 // =============================================================================
 const PUBLIC_TRACK_FIELDS_MIRROR = [
   "ref_no", "OID", "status", "model", "type", "created_at", "updated_at",
-  "receive_method", "branch_name", "store_branch",
+  "receive_method", "branch_name", "store_branch", "branch_details",
   "devices", "expected_items", "accessory_items", "offer_request",
   "price", "original_price", "initial_customer_price", "revised_price",
   "final_price", "net_payout", "pickup_fee", "rider_fee_discount",

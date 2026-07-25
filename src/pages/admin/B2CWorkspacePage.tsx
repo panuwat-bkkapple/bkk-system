@@ -154,7 +154,10 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const handleSaveCustomerInfo = async () => {
     try {
       const p: any = { cust_name: editCustData.name, cust_phone: editCustData.phone, cust_email: editCustData.email };
-      if (job.receive_method === 'Store-in') p.store_branch = editCustData.address; else p.cust_address = editCustData.address;
+      // Always the CUSTOMER's own address — the Store-in branch is a real
+      // branch record managed by the Trade Method branch picker, never free
+      // text (writing here used to corrupt store_branch with home addresses).
+      p.cust_address = editCustData.address;
       p.qc_logs = [makeLog('Customer Info Updated', 'อัปเดตข้อมูลการติดต่อ/ที่อยู่ของลูกค้า'), ...(job.qc_logs || [])];
       await update(ref(db, `jobs/${job.id}`), p);
       setIsEditingCustomer(false);

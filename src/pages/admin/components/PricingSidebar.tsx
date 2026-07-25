@@ -1,16 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle2, Store, ListChecks, History, Wallet, MessageCircle,
   ExternalLink, Clock, AlertOctagon, XCircle, Send, PhoneCall, Archive,
   Plus, X, PackageOpen, ShieldCheck, Truck, CalendarClock
 } from 'lucide-react';
-import { ref, update } from 'firebase/database';
+import { ref, update, get } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } from '@/utils/appointment';
-import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
+import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '@/utils/receiveMethod';
+import type { BranchRecord } from '@/utils/receiveMethod';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 import { canReviewAdjustments } from '@/utils/adjustments';
@@ -156,10 +157,39 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const [methodLat, setMethodLat] = useState<number | undefined>(typeof job.cust_lat === 'number' ? job.cust_lat : undefined);
   const [methodLng, setMethodLng] = useState<number | undefined>(typeof job.cust_lng === 'number' ? job.cust_lng : undefined);
   const [savingMethod, setSavingMethod] = useState(false);
+  // Store-in branch picker — real records from settings/branches (same source
+  // the customer checkout uses). Loaded lazily when Store-in is selected.
+  const [branchList, setBranchList] = useState<BranchRecord[]>([]);
+  const [methodBranchId, setMethodBranchId] = useState<string>(job.branch_details?.id || '');
+  useEffect(() => {
+    if (methodEdit !== 'Store-in' || branchList.length > 0) return;
+    get(ref(db, 'settings/branches')).then((snap) => {
+      if (!snap.exists()) return;
+      const data = snap.val() || {};
+      const list: BranchRecord[] = Object.keys(data)
+        .map((key) => ({ id: key, ...data[key] }))
+        .filter((b: BranchRecord) => b.isActive !== false);
+      setBranchList(list);
+      // Legacy Store-in job without branch_details — preselect by stored name.
+      if (!job.branch_details?.id && (job.branch_name || job.store_branch)) {
+        const byName = list.find((b) => b.name && (b.name === job.branch_name || b.name === job.store_branch));
+        if (byName) setMethodBranchId((cur) => cur || byName.id);
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [methodEdit]);
+  const selectedMethodBranch = branchList.find((b) => b.id === methodBranchId);
+  const branchChanged = methodEdit === 'Store-in' && job.receive_method === 'Store-in'
+    && !!selectedMethodBranch && job.branch_details?.id !== selectedMethodBranch.id;
 
   const handleSaveMethod = async () => {
     const newMethod = methodEdit || job.receive_method;
-    if (newMethod === job.receive_method || !canChangeReceiveMethod(job.status)) return;
+    const methodChanged = newMethod !== job.receive_method;
+    if ((!methodChanged && !branchChanged) || !canChangeReceiveMethod(job.status)) return;
+    // Store-in must snapshot a REAL branch — free text used to smear the
+    // customer's address into store_branch and left branch_details empty,
+    // so the customer tracking page fell back to a guessed default branch.
+    if (newMethod === 'Store-in' && !selectedMethodBranch) return;
     setSavingMethod(true);
     try {
       // Switching to Pickup: the rider navigates by cust_lat/cust_lng, so send a
@@ -177,16 +207,21 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           ? { cust_lat: lat, cust_lng: lng }
           : { cust_lat: null, cust_lng: null };
       }
+      const locationFields = newMethod === 'Store-in' && selectedMethodBranch
+        ? buildStoreInBranchFields(selectedMethodBranch)
+        : buildMethodLocationFields(newMethod, methodLoc);
       await update(ref(db, `jobs/${job.id}`), {
-        receive_method: newMethod,
-        ...buildMethodLocationFields(newMethod, methodLoc),
+        ...(methodChanged ? { receive_method: newMethod } : {}),
+        ...locationFields,
         ...pinFields,
         qc_logs: [
           {
-            action: 'Trade Method Changed',
+            action: methodChanged ? 'Trade Method Changed' : 'Branch Changed',
             by: currentUserName,
             timestamp: Date.now(),
-            details: `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`,
+            details: methodChanged
+              ? `เปลี่ยนวิธีรับจาก ${job.receive_method || '-'} เป็น ${newMethod}${newMethod === 'Store-in' && selectedMethodBranch ? ` (สาขา ${selectedMethodBranch.name || ''})` : ''} — ระบบจะคำนวณค่าธรรมเนียม/ยอดโอนใหม่อัตโนมัติ`
+              : `เปลี่ยนสาขานัดหมายเป็น "${selectedMethodBranch?.name || ''}"`,
           },
           ...(job.qc_logs || []),
         ],
@@ -634,16 +669,43 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               </div>
               {!canChangeReceiveMethod(job.status) ? (
                 <p className="text-[10px] font-bold text-amber-600">เปลี่ยนวิธีรับไม่ได้ในสถานะนี้ (งานเข้าสู่ขั้นรับเครื่อง/จ่ายเงินแล้ว)</p>
-              ) : methodEdit !== job.receive_method ? (
+              ) : (methodEdit !== job.receive_method || methodEdit === 'Store-in') ? (
                 <>
                   <div>
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{locationLabel(methodEdit)}</p>
-                    <textarea
-                      value={methodLoc}
-                      onChange={(e) => setMethodLoc(e.target.value)}
-                      rows={2}
-                      className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400 resize-none"
-                    />
+                    {methodEdit === 'Store-in' ? (
+                      // Store-in = pick a REAL branch (settings/branches) — the
+                      // save snapshots branch_name/branch_details exactly like
+                      // the customer checkout, so tracking shows the real branch.
+                      <>
+                        <select
+                          value={methodBranchId}
+                          onChange={(e) => setMethodBranchId(e.target.value)}
+                          className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                        >
+                          <option value="">— เลือกสาขา —</option>
+                          {branchList.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name || b.id}{b.isOpen === false ? ' (ปิดทำการชั่วคราว)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedMethodBranch ? (
+                          <p className="text-[10px] font-bold text-slate-400 mt-1 leading-relaxed">
+                            {[selectedMethodBranch.address, selectedMethodBranch.phone ? `โทร ${selectedMethodBranch.phone}` : ''].filter(Boolean).join(' · ')}
+                          </p>
+                        ) : branchList.length === 0 ? (
+                          <p className="text-[10px] font-bold text-amber-600 mt-1">ยังไม่มีสาขาในระบบ / โหลดไม่สำเร็จ — จัดการที่เมนู Branch Manager</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <textarea
+                        value={methodLoc}
+                        onChange={(e) => setMethodLoc(e.target.value)}
+                        rows={2}
+                        className="w-full bg-white border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-bold outline-none focus:border-blue-400 resize-none"
+                      />
+                    )}
                   </div>
                   {methodEdit === 'Pickup' && (
                     <PickupLocationPicker
@@ -653,14 +715,18 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                       onChange={({ lat, lng }) => { setMethodLat(lat); setMethodLng(lng); }}
                     />
                   )}
-                  <p className="text-[10px] font-bold text-blue-600">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
-                  <button
-                    onClick={handleSaveMethod}
-                    disabled={savingMethod}
-                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
-                  >
-                    <Truck size={16} /> {savingMethod ? 'กำลังบันทึก...' : `เปลี่ยนเป็น ${methodEdit}`}
-                  </button>
+                  {methodEdit !== job.receive_method && (
+                    <p className="text-[10px] font-bold text-blue-600">ระบบจะคำนวณค่าไรเดอร์/ยอดโอนใหม่อัตโนมัติหลังบันทึก{job.receive_method === 'Pickup' ? ' และถอนงานจากไรเดอร์ที่ถืออยู่' : ''}</p>
+                  )}
+                  {(methodEdit !== job.receive_method || branchChanged) && (
+                    <button
+                      onClick={handleSaveMethod}
+                      disabled={savingMethod || (methodEdit === 'Store-in' && !selectedMethodBranch)}
+                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
+                    >
+                      <Truck size={16} /> {savingMethod ? 'กำลังบันทึก...' : methodEdit !== job.receive_method ? `เปลี่ยนเป็น ${methodEdit}` : 'เปลี่ยนสาขานัดหมาย'}
+                    </button>
+                  )}
                 </>
               ) : null}
             </div>
