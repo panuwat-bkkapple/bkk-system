@@ -912,5 +912,13 @@ check("short garbage id rejected", __test.parseTrackJobId("-abc") === "");
   check("rule 10 teaches the link/ref_no recovery path", sysNoCust.includes("ส่งลิงก์ติดตาม หรือเลขออเดอร์"));
 }
 
+// --- copilot drafts mirror the customer's language ---------------------------
+// Live case: Kate Jackson's conversation ran in English but every copilot
+// draft came out Thai. Drafts are customer-facing (sent verbatim via
+// "ใช้ร่างนี้") so they follow the customer's language; intent/situation/label
+// stay Thai — they are admin-facing.
+check("copilot: drafts follow the customer's language", src.includes('ร่างทุกฉบับต้องเป็น "ภาษาเดียวกับข้อความล่าสุดของลูกค้า"'));
+check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/label ยังเขียนเป็นไทยเสมอ"));
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
