@@ -24,7 +24,7 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
-import { sumAppliedAdjustments, listAdjustments } from '../../utils/adjustments';
+import { sumAppliedAdjustments, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
@@ -144,6 +144,10 @@ export const MobileTicketDetail = () => {
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
   const [adjBusy, setAdjBusy] = useState(false);
+  // Inline coupon add/edit form (admin manual top-up / fix a wrong coupon)
+  const [couponFormOpen, setCouponFormOpen] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponAmount, setCouponAmount] = useState('');
 
   // Load job. RTDB returns arrays as objects when keys aren't sequential
   // integers (e.g. qc_logs that got a string key written by mistake), so
@@ -251,6 +255,10 @@ export const MobileTicketDetail = () => {
     ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover', 'ready to sell', 'sold', 'rider returning'].includes(statusLowerForPaid) ||
     statusLowerForPaid.includes('paid') ||
     (job.qc_logs || []).some((log: any) => ['paid', 'payment completed'].includes(String(log?.action || '').toLowerCase()));
+  // CEO/MANAGER — may approve offers, edit/remove coupons and rider-fee
+  // discounts, and remove applied lines. Other roles can only propose.
+  const isPrivileged = canReviewAdjustments(currentUser?.role);
+  const canTouchMoney = !hasBeenPaid && !isCancelled;
 
   // Pipeline progress
   // Use the FURTHEST step the job has ever reached (max from qc_logs +
@@ -288,27 +296,115 @@ export const MobileTicketDetail = () => {
     if (!lbl || !Number.isFinite(amt) || amt === 0) { toast.warning('กรุณาระบุชื่อรายการและจำนวนเงิน'); return; }
     setAdjBusy(true);
     try {
+      // CEO/MANAGER apply on the spot (self-approved trail). Other roles
+      // PROPOSE: the line lands 'pending' (not in net_payout yet) and the
+      // onAdminOfferProposed cloud function pushes an approval request to
+      // CEO/MANAGER devices.
+      const canApply = canReviewAdjustments(currentUser?.role);
+      const now = Date.now();
       const entry: JobAdjustment = {
-        id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj_${Date.now()}`),
-        label: lbl, amount: amt, device_index: 0, source: 'admin_manual', status: 'applied',
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj_${now}`),
+        label: lbl, amount: amt, device_index: 0, source: 'admin_manual',
+        status: canApply ? 'applied' : 'pending',
         by_uid: currentUser?.id || currentUser?.uid, by_name: currentUser?.name || 'Admin',
-        by_role: currentUser?.role, at: Date.now(),
+        by_role: currentUser?.role, at: now,
+        ...(canApply ? {
+          approved_by_uid: currentUser?.id || currentUser?.uid,
+          approved_by_name: currentUser?.name || 'Admin',
+          approved_by_role: currentUser?.role,
+          approved_at: now,
+        } : {}),
       };
       const list = [...listAdjustments(job), entry];
       const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
       const sign = amt < 0 ? '-' : '+';
       await update(ref(db, `jobs/${job.id}`), {
         adjustments: list, net_payout: net,
-        qc_logs: [makeLog('Adjustment Added', `เพิ่มรายการ "${lbl}" ${sign}฿${Math.abs(amt).toLocaleString()} (ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+        qc_logs: [makeLog(
+          canApply ? 'Adjustment Added' : 'Offer Proposed',
+          canApply
+            ? `เพิ่มรายการ "${lbl}" ${sign}฿${Math.abs(amt).toLocaleString()} (ยอดสุทธิ ${net.toLocaleString()} บ.)`
+            : `เสนอรายการ "${lbl}" ${sign}฿${Math.abs(amt).toLocaleString()} — รออนุมัติจาก CEO/MANAGER`,
+        ), ...(job.qc_logs || [])],
         updated_at: Date.now(),
       });
       setAdjLabel(''); setAdjAmount('');
-      toast.success('เพิ่มรายการปรับราคาแล้ว');
+      toast.success(canApply ? 'เพิ่มรายการปรับราคาแล้ว' : 'ส่งคำขออนุมัติไปยัง CEO/MANAGER แล้ว');
     } catch {
       toast.error('บันทึกไม่สำเร็จ');
     } finally {
       setAdjBusy(false);
     }
+  };
+
+  // CEO/MANAGER decision on a pending admin offer.
+  const handleReviewAdjustment = async (adjId: string, approve: boolean) => {
+    if (!canReviewAdjustments(currentUser?.role)) { toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่อนุมัติได้'); return; }
+    const now = Date.now();
+    const target = listAdjustments(job).find((a) => a.id === adjId);
+    const list = listAdjustments(job).map((a): JobAdjustment => {
+      if (a.id !== adjId || a.status !== 'pending') return a;
+      return approve
+        ? { ...a, status: 'applied', approved_by_uid: currentUser?.id || currentUser?.uid, approved_by_name: currentUser?.name || 'Admin', approved_by_role: currentUser?.role, approved_at: now }
+        : { ...a, status: 'rejected', rejected_by_name: currentUser?.name || 'Admin', rejected_at: now };
+    });
+    const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
+    await update(ref(db, `jobs/${job.id}`), {
+      adjustments: list, net_payout: net,
+      qc_logs: [makeLog(
+        approve ? 'Offer Approved' : 'Offer Rejected',
+        `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}รายการ "${target?.label || ''}" ${Number(target?.amount) < 0 ? '-' : '+'}฿${Math.abs(Number(target?.amount || 0)).toLocaleString()} (เสนอโดย ${target?.by_name || '-'})`,
+      ), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    toast.success(approve ? 'อนุมัติรายการแล้ว' : 'ปฏิเสธรายการแล้ว');
+  };
+
+  // Coupon add/edit/remove — mirrors desktop B2CWorkspacePage. The ledger
+  // (issued_coupons) is server-write-only; the onJobCouponRevoked cloud
+  // function reconciles it when a redeemed coupon is pulled off a job.
+  const handleSaveCoupon = async () => {
+    const code = couponCode.trim();
+    const val = Number(couponAmount);
+    if (!code || !Number.isFinite(val) || val <= 0) { toast.warning('กรุณาระบุโค้ดและจำนวนเงิน'); return; }
+    await update(ref(db, `jobs/${job.id}`), {
+      applied_coupon: { code, name: 'Admin Manual Top-up', value: val, actual_value: val },
+      net_payout: Math.max(0, basePrice - pickupFee + val + adjustmentsSum),
+      qc_logs: [makeLog('Admin Top-up', `แอดมิน${job.applied_coupon ? 'แก้ไข' : 'เพิ่ม'}คูปอง: ${code} (+฿${val.toLocaleString()})`), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    setCouponFormOpen(false); setCouponCode(''); setCouponAmount('');
+    toast.success('บันทึกคูปองแล้ว');
+  };
+  const handleRemoveCoupon = async () => {
+    if (!confirm(`ยืนยันการลบคูปอง ${job.applied_coupon?.code || ''} และดึงเงินกลับ?`)) return;
+    await update(ref(db, `jobs/${job.id}`), {
+      applied_coupon: null,
+      net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-฿${Number(job.applied_coupon?.value || 0).toLocaleString()})`), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    toast.success('ลบคูปองแล้ว');
+  };
+
+  // Rider-fee discount edit/remove — client recomputes net_payout; the
+  // onRiderFeeDiscountEdited cloud function syncs the absorbed-cost ledger.
+  const handleEditRiderDiscount = async (newValue: number) => {
+    if (!Number.isFinite(newValue) || newValue < 0) return;
+    const capped = Math.min(newValue, grossPickupFee);
+    const effFee = Math.max(0, grossPickupFee - capped);
+    await update(ref(db, `jobs/${job.id}`), {
+      rider_fee_discount: capped,
+      ...(capped === 0 ? { applied_rider_promo: null } : {}),
+      net_payout: Math.max(0, basePrice - effFee + couponValue + adjustmentsSum),
+      qc_logs: [makeLog('Rider-Fee Discount Edited', `แก้ส่วนลดค่าไรเดอร์เป็น ฿${capped.toLocaleString()} (เดิม ฿${riderFeeDiscount.toLocaleString()})`), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    toast.success('อัปเดตส่วนลดค่าไรเดอร์แล้ว');
+  };
+  const handleRemoveRiderDiscount = async () => {
+    if (!confirm('ยืนยันการยกเลิกส่วนลดค่าไรเดอร์? ลูกค้าจะถูกหักค่าบริการเต็มจำนวน')) return;
+    await handleEditRiderDiscount(0);
   };
 
   const handleRemoveAdjustment = async (adjId: string) => {
@@ -786,9 +882,27 @@ export const MobileTicketDetail = () => {
                   — the gross row above otherwise reconciles to nothing. */}
               {riderFeeDiscount > 0 && (
                 <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">ส่วนลดค่าไรเดอร์{(job.applied_rider_promo?.name || job.applied_rider_promo?.code) ? ` (${job.applied_rider_promo.name || job.applied_rider_promo.code})` : ''}</span>
-                    <span className="font-bold text-emerald-500">+฿{riderFeeDiscount.toLocaleString()}</span>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">ส่วนลดค่าไรเดอร์{(job.applied_rider_promo?.name || job.applied_rider_promo?.code) ? ` (${job.applied_rider_promo.name || job.applied_rider_promo.code})` : ''}</span>
+                      {isPrivileged && canTouchMoney && (
+                        <>
+                          <button
+                            onClick={() => {
+                              const v = window.prompt('ส่วนลดค่าไรเดอร์ใหม่ (บาท)', String(riderFeeDiscount));
+                              if (v === null) return;
+                              const n = Number(v);
+                              if (Number.isFinite(n) && n >= 0) handleEditRiderDiscount(n);
+                            }}
+                            className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
+                          >แก้ไข</button>
+                          <button onClick={handleRemoveRiderDiscount} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ยกเลิกส่วนลด">
+                            <CloseIcon size={12} />
+                          </button>
+                        </>
+                      )}
+                    </span>
+                    <span className="font-bold text-emerald-500 shrink-0">+฿{riderFeeDiscount.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-[11px] pl-2">
                     <span className="text-slate-400">ค่าบริการรับเครื่องสุทธิ</span>
@@ -796,10 +910,38 @@ export const MobileTicketDetail = () => {
                   </div>
                 </>
               )}
-              {couponValue > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">คูปอง ({job.applied_coupon?.code})</span>
-                  <span className="font-bold text-green-500">+฿{couponValue.toLocaleString()}</span>
+              {couponValue > 0 && !couponFormOpen && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">คูปอง ({job.applied_coupon?.code})</span>
+                    {isPrivileged && canTouchMoney && (
+                      <>
+                        <button
+                          onClick={() => { setCouponCode(job.applied_coupon?.code || ''); setCouponAmount(String(job.applied_coupon?.actual_value || job.applied_coupon?.value || '')); setCouponFormOpen(true); }}
+                          className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
+                        >แก้ไข</button>
+                        <button onClick={handleRemoveCoupon} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบคูปอง">
+                          <CloseIcon size={12} />
+                        </button>
+                      </>
+                    )}
+                  </span>
+                  <span className="font-bold text-green-500 shrink-0">+฿{couponValue.toLocaleString()}</span>
+                </div>
+              )}
+              {isPrivileged && canTouchMoney && !job.applied_coupon && !couponFormOpen && (
+                <button onClick={() => { setCouponCode(''); setCouponAmount(''); setCouponFormOpen(true); }} className="w-full py-1.5 border border-dashed border-slate-200 rounded-lg text-[11px] font-bold text-slate-400 active:bg-slate-50">
+                  + เพิ่มคูปอง / Top-up (Admin)
+                </button>
+              )}
+              {couponFormOpen && (
+                <div className="pt-1">
+                  <div className="flex gap-1.5">
+                    <input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="โค้ด / เหตุผล" className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs" />
+                    <input value={couponAmount} onChange={(e) => setCouponAmount(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="1000" className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right" />
+                    <button onClick={handleSaveCoupon} className="bg-emerald-600 text-white px-3 rounded-lg text-xs font-black">บันทึก</button>
+                    <button onClick={() => setCouponFormOpen(false)} className="text-slate-400 px-1" aria-label="ปิด"><CloseIcon size={14} /></button>
+                  </div>
                 </div>
               )}
               {/* Itemised ad-hoc adjustments (ต่อรองราคา/หักตำหนิ) — transparent
@@ -809,30 +951,46 @@ export const MobileTicketDetail = () => {
               {appliedAdjustments.map((a) => {
                 const neg = Number(a.amount) < 0;
                 return (
-                  <div key={a.id} className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${neg ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>ปรับราคา</span>
-                      <span className="truncate">{a.label}</span>
-                      {canEdit && !hasBeenPaid && !isCancelled && (
-                        <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบรายการ">
-                          <CloseIcon size={12} />
-                        </button>
-                      )}
-                    </span>
-                    <span className={`font-bold shrink-0 ${neg ? 'text-red-500' : 'text-emerald-500'}`}>{neg ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                  <div key={a.id} className="text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${neg ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>Offer</span>
+                        <span className="truncate">{a.label}</span>
+                        {isPrivileged && canTouchMoney && (
+                          <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบรายการ">
+                            <CloseIcon size={12} />
+                          </button>
+                        )}
+                      </span>
+                      <span className={`font-bold shrink-0 ${neg ? 'text-red-500' : 'text-emerald-500'}`}>{neg ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                    </div>
+                    {(a.by_name || a.approved_by_name) && (
+                      <p className="text-[10px] text-slate-400 pl-1">เสนอโดย {a.by_name || '-'}{a.approved_by_name ? ` · อนุมัติโดย ${a.approved_by_name}` : ''}</p>
+                    )}
                   </div>
                 );
               })}
               {pendingAdjustments.map((a) => (
-                <div key={a.id} className="flex justify-between items-center text-xs text-amber-600">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 shrink-0">รออนุมัติ</span>
-                    <span className="truncate">{a.label}</span>
-                  </span>
-                  <span className="font-bold shrink-0">{Number(a.amount) < 0 ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                <div key={a.id} className="text-xs text-amber-600">
+                  <div className="flex justify-between items-center">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 shrink-0">รออนุมัติ</span>
+                      <span className="truncate">{a.label}</span>
+                    </span>
+                    <span className="font-bold shrink-0">{Number(a.amount) < 0 ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between pl-1 mt-0.5">
+                    <p className="text-[10px] text-slate-400">เสนอโดย {a.by_name || '-'}</p>
+                    {a.source === 'admin_manual' && isPrivileged && canTouchMoney && (
+                      <span className="flex gap-1.5 shrink-0">
+                        <button onClick={() => handleReviewAdjustment(a.id, true)} className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-black active:bg-emerald-700">อนุมัติ</button>
+                        <button onClick={() => handleReviewAdjustment(a.id, false)} className="px-2.5 py-1 rounded-lg bg-red-50 text-red-500 border border-red-100 text-[10px] font-black active:bg-red-100">ปฏิเสธ</button>
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
-              {canEdit && !hasBeenPaid && !isCancelled && (
+              {canTouchMoney && (
                 <div className="pt-1">
                   <div className="flex gap-1.5">
                     <input
@@ -848,9 +1006,12 @@ export const MobileTicketDetail = () => {
                       placeholder="+1000"
                       className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right"
                     />
-                    <button onClick={handleAddAdjustment} disabled={adjBusy} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40">เพิ่ม</button>
+                    <button onClick={handleAddAdjustment} disabled={adjBusy} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40">{isPrivileged ? 'เพิ่ม' : 'เสนอ'}</button>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">บวก = เพิ่มเงิน (เช่น ต่อรองราคา) · ติดลบ = หักเงิน · รายการนี้ไม่ถูกล้างตอนตรวจเครื่อง และลูกค้าเห็นในหน้า Tracking</p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    บวก = เพิ่มเงิน (Offer ต่อรอง) · ติดลบ = หักเงิน · ไม่ถูกล้างตอนตรวจเครื่อง · ลูกค้าเห็นในหน้า Tracking
+                    {!isPrivileged && ' · รายการของคุณจะส่งขออนุมัติจาก CEO/MANAGER ก่อนมีผล'}
+                  </p>
                 </div>
               )}
               <div className="border-t border-slate-100 pt-2 flex justify-between">

@@ -22,6 +22,23 @@ export interface JobAdjustment {
   at: number;
   reason?: string;
   evidence?: { url: string; uploaded_at?: number }[];
+  // Approval trail — admin offers proposed by non-CEO/MANAGER staff start
+  // 'pending' and need a CEO/MANAGER decision (push notified via the
+  // onAdminOfferProposed cloud function). CEO/MANAGER-created lines are
+  // self-approved on the spot so the trail is never empty.
+  approved_by_uid?: string;
+  approved_by_name?: string;
+  approved_by_role?: string;
+  approved_at?: number;
+  rejected_by_name?: string;
+  rejected_at?: number;
+}
+
+// Roles allowed to approve/reject a pending admin offer (and to create one
+// that applies immediately). Everyone else proposes → pending.
+export function canReviewAdjustments(role?: string): boolean {
+  const r = String(role || '').toUpperCase();
+  return r === 'CEO' || r === 'MANAGER';
 }
 
 // RTDB stores adjustments as an array or a push-keyed object depending on the

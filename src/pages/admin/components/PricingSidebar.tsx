@@ -13,6 +13,7 @@ import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } 
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields } from '@/utils/receiveMethod';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
+import { canReviewAdjustments } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
 
 interface PricingSidebarHandlers {
@@ -31,6 +32,9 @@ interface PricingSidebarHandlers {
   setActiveChatJobId: (id: string | null) => void;
   handleAddAdjustment: (label: string, amount: number) => Promise<void>;
   handleRemoveAdjustment: (id: string) => Promise<void>;
+  handleReviewAdjustment: (id: string, approve: boolean) => Promise<void>;
+  handleEditRiderDiscount: (newValue: number) => Promise<void>;
+  handleRemoveRiderDiscount: () => Promise<void>;
 }
 
 interface CouponState {
@@ -75,18 +79,21 @@ interface PricingSidebarProps {
   couponState: CouponState;
   pricing: PricingCalculations;
   currentUserName: string;
+  currentUserRole?: string;
 }
 
 export const PricingSidebar: React.FC<PricingSidebarProps> = ({
-  job, handlers, couponState, pricing, currentUserName
+  job, handlers, couponState, pricing, currentUserName, currentUserRole
 }) => {
   const {
     handleUpdateStatus, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
     handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
     setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId,
-    handleAddAdjustment, handleRemoveAdjustment
+    handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment,
+    handleEditRiderDiscount, handleRemoveRiderDiscount
   } = handlers;
+  const canReview = canReviewAdjustments(currentUserRole);
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
   const [adjBusy, setAdjBusy] = useState(false);
@@ -275,6 +282,21 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   <span className="flex items-center gap-2">
                     <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border border-emerald-500/30">โปรค่าไรเดอร์</span>
                     <span className="text-xs">{riderPromoLabel || 'ส่วนลดค่าไรเดอร์'}</span>
+                    {!hasBeenPaid && !isCancelled && canReview && (
+                      <>
+                        <button
+                          onClick={() => {
+                            const v = window.prompt('ส่วนลดค่าไรเดอร์ใหม่ (บาท)', String(riderFeeDiscount));
+                            if (v === null) return;
+                            const n = Number(v);
+                            if (Number.isFinite(n) && n >= 0) handleEditRiderDiscount(n);
+                          }}
+                          className="text-slate-500 hover:text-emerald-300 text-[10px] shrink-0 underline underline-offset-2"
+                          title="แก้ไขส่วนลด"
+                        >แก้ไข</button>
+                        <button onClick={handleRemoveRiderDiscount} className="text-slate-500 hover:text-red-400 text-xs shrink-0" title="ยกเลิกส่วนลด">✕</button>
+                      </>
+                    )}
                   </span>
                   <span>+ {formatCurrency(riderFeeDiscount)}</span>
                 </div>
@@ -301,20 +323,38 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             {appliedAdjustments.map((a) => {
               const neg = Number(a.amount) < 0;
               return (
-                <div key={a.id} className="flex justify-between items-center text-sm font-bold text-slate-200">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border ${neg ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>Adj</span>
-                    <span className="text-xs truncate">{a.label}</span>
-                    {!hasBeenPaid && <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-500 hover:text-red-400 text-xs shrink-0" title="ลบรายการ">✕</button>}
-                  </span>
-                  <span className={neg ? 'text-red-300' : 'text-emerald-300'}>{neg ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+                <div key={a.id} className="text-sm font-bold text-slate-200">
+                  <div className="flex justify-between items-center">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border ${neg ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'}`}>Offer</span>
+                      <span className="text-xs truncate">{a.label}</span>
+                      {!hasBeenPaid && canReview && <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-500 hover:text-red-400 text-xs shrink-0" title="ลบรายการ">✕</button>}
+                    </span>
+                    <span className={neg ? 'text-red-300' : 'text-emerald-300'}>{neg ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+                  </div>
+                  {(a.by_name || a.approved_by_name) && (
+                    <p className="text-[9px] font-bold text-slate-500 pl-1 mt-0.5">
+                      เสนอโดย {a.by_name || '-'}{a.approved_by_name ? ` · อนุมัติโดย ${a.approved_by_name}` : ''}
+                    </p>
+                  )}
                 </div>
               );
             })}
             {pendingAdjustments.map((a) => (
-              <div key={a.id} className="flex justify-between items-center text-xs font-medium text-amber-300/80">
-                <span className="flex items-center gap-2 min-w-0"><span className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest border bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0">รออนุมัติ</span><span className="truncate">{a.label}</span></span>
-                <span className="shrink-0">{Number(a.amount) < 0 ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+              <div key={a.id} className="text-xs font-medium text-amber-300/80">
+                <div className="flex justify-between items-center">
+                  <span className="flex items-center gap-2 min-w-0"><span className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-widest border bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0">รออนุมัติ</span><span className="truncate">{a.label}</span></span>
+                  <span className="shrink-0">{Number(a.amount) < 0 ? '- ' : '+ '}{formatCurrency(Math.abs(Number(a.amount)))}</span>
+                </div>
+                <div className="flex items-center justify-between pl-1 mt-0.5">
+                  <p className="text-[9px] font-bold text-slate-500">เสนอโดย {a.by_name || '-'}</p>
+                  {a.source === 'admin_manual' && canReview && !hasBeenPaid && (
+                    <span className="flex gap-1.5 shrink-0">
+                      <button onClick={() => handleReviewAdjustment(a.id, true)} className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-black uppercase hover:bg-emerald-500/40">อนุมัติ</button>
+                      <button onClick={() => handleReviewAdjustment(a.id, false)} className="px-2 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30 text-[9px] font-black uppercase hover:bg-red-500/40">ปฏิเสธ</button>
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
             {!hasBeenPaid && !isCancelled && (
@@ -324,7 +364,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   <input value={adjAmount} onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))} inputMode="numeric" placeholder="-500" className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right placeholder:text-slate-500" />
                   <button onClick={submitAdjustment} disabled={adjBusy} className="bg-slate-200 text-slate-900 px-3 rounded-lg text-xs font-black disabled:opacity-40">เพิ่ม</button>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">ค่าติดลบ = หักเงิน (เช่น -500) · บวก = เพิ่มเงิน · ลูกค้าเห็นรายการนี้</p>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  ค่าติดลบ = หักเงิน (เช่น -500) · บวก = เพิ่มเงิน (Offer ต่อรอง) · ลูกค้าเห็นรายการนี้ · ไม่ถูกล้างตอนตรวจเครื่อง
+                  {!canReview && ' · รายการของคุณจะส่งขออนุมัติจาก CEO/MANAGER ก่อนมีผล'}
+                </p>
               </div>
             )}
           </div>

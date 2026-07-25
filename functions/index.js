@@ -34,7 +34,10 @@ initializeApp();
 // Each device registers admin_fcm_tokens/{staffId}/{deviceId} with an `app`
 // tag (see src/utils/adminPush.ts). This is what stops customer-chat pushes
 // from double-buzzing on both PWAs.
-async function dispatchAdminPush(message, tag, audience = "admin") {
+// allowStaffIds (optional Set<string>): restrict delivery to these staff ids
+// (admin_fcm_tokens keys). Used for role-targeted pushes, e.g. offer-approval
+// requests that only CEO/MANAGER should receive. null/undefined = everyone.
+async function dispatchAdminPush(message, tag, audience = "admin", allowStaffIds = null) {
   const db = getDatabase();
   const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
   if (!tokensSnap.exists()) {
@@ -45,6 +48,7 @@ async function dispatchAdminPush(message, tag, audience = "admin") {
   const tokens = [];
   const tokenMeta = [];
   tokensSnap.forEach((staffSnap) => {
+    if (allowStaffIds && !allowStaffIds.has(staffSnap.key)) return;
     staffSnap.forEach((tokenSnap) => {
       const data = tokenSnap.val();
       if (!data || !data.token) return;
@@ -3029,6 +3033,233 @@ function validateRiderRequest(type, body) {
 
   return out;
 }
+
+// =============================================================================
+// Admin offer approval + benefit-edit reconciliation triggers
+// -----------------------------------------------------------------------------
+// Data contract: jobs/{id}/adjustments[] (see src/utils/adjustments.ts).
+// A non-CEO/MANAGER admin proposing an offer writes a line with
+// source:'admin_manual', status:'pending' — it must be approved before it
+// counts toward net_payout. These triggers own the notification side:
+//   - new pending admin offer  → push to CEO/MANAGER devices only
+//   - pending → applied/rejected → push back to the proposer
+// Names stay specific (never `onJobUpdated`) per the {region}/{name}
+// project-wide collision rule.
+// =============================================================================
+
+function normalizeAdjustmentList(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (raw && typeof raw === "object") return Object.values(raw).filter(Boolean);
+  return [];
+}
+
+// staff/{key} is the id admin_fcm_tokens is keyed by (bkk_session id).
+async function staffIdsByRoles(db, roles) {
+  const snap = await db.ref("staff").once("value");
+  const out = new Set();
+  if (!snap.exists()) return out;
+  snap.forEach((child) => {
+    const role = String(child.val()?.role || "").toUpperCase();
+    if (roles.includes(role)) out.add(child.key);
+  });
+  return out;
+}
+
+exports.onAdminOfferProposed = onValueWritten(
+  { ref: "/jobs/{jobId}/adjustments", region: "asia-southeast1" },
+  async (event) => {
+    const jobId = event.params.jobId;
+    const before = normalizeAdjustmentList(event.data.before.val());
+    const after = normalizeAdjustmentList(event.data.after.val());
+    const beforeById = new Map(before.map((a) => [a.id, a]));
+
+    const newPending = after.filter(
+      (a) => a.source === "admin_manual" && a.status === "pending" && !beforeById.has(a.id)
+    );
+    const decided = after.filter((a) => {
+      if (a.source !== "admin_manual") return false;
+      const prev = beforeById.get(a.id);
+      return prev && prev.status === "pending" && (a.status === "applied" || a.status === "rejected");
+    });
+    if (newPending.length === 0 && decided.length === 0) return;
+
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+    const model = job.model || "ไม่ระบุรุ่น";
+    const refNo = job.ref_no || jobId.slice(-6);
+
+    const fmt = (amt) => `${Number(amt) < 0 ? "-" : "+"}฿${Math.abs(Number(amt) || 0).toLocaleString("en-US")}`;
+    const baseMessage = (title, body, eventName) => ({
+      data: { jobId, type: "offer_approval", event: eventName, title, body, model },
+      android: {
+        priority: "high",
+        notification: { channelId: "status_changes", priority: "high", defaultSound: true, tag: `offer-${jobId}` },
+      },
+      apns: {
+        headers: { "apns-priority": "10", "apns-push-type": "alert" },
+        payload: { aps: { "mutable-content": 1, sound: "default" } },
+      },
+      webpush: { headers: { Urgency: "high", TTL: "86400" } },
+    });
+
+    // 1) New proposals → CEO/MANAGER devices only.
+    if (newPending.length > 0) {
+      const approvers = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+      if (approvers.size === 0) {
+        console.warn(`[onAdminOfferProposed] ${jobId}: no CEO/MANAGER staff found — approval push skipped`);
+      } else {
+        for (const a of newPending) {
+          const title = "💰 ขออนุมัติปรับราคารับซื้อ";
+          const body = `${model} (#${refNo}) ${fmt(a.amount)} "${a.label}" — เสนอโดย ${a.by_name || "แอดมิน"}`;
+          await dispatchAdminPush(
+            baseMessage(title, body, "offer_proposed"),
+            `onAdminOfferProposed(${jobId})`,
+            "admin",
+            approvers
+          );
+        }
+      }
+    }
+
+    // 2) Decisions → notify the proposer's own devices.
+    for (const a of decided) {
+      if (!a.by_uid) continue;
+      const ok = a.status === "applied";
+      const title = ok ? "✅ Offer ได้รับอนุมัติ" : "❌ Offer ถูกปฏิเสธ";
+      const body = `${model} (#${refNo}) ${fmt(a.amount)} "${a.label}" โดย ${ok ? (a.approved_by_name || "CEO/MANAGER") : (a.rejected_by_name || "CEO/MANAGER")}`;
+      await dispatchAdminPush(
+        baseMessage(title, body, ok ? "offer_approved" : "offer_rejected"),
+        `onAdminOfferProposed(${jobId})`,
+        "admin",
+        new Set([a.by_uid])
+      );
+    }
+  }
+);
+
+// =============================================================================
+// Coupon revoked/edited on a job → reconcile the redemption ledger
+// -----------------------------------------------------------------------------
+// Admin UIs may remove or replace jobs/{id}/applied_coupon, but the ledger
+// paths are server-write-only (issued_coupons, users/{uid}/coupons on other
+// accounts, /coupons quota). When a coupon that was redeemed at checkout is
+// pulled off a job, flip its ledger row back to 'issued', un-flag the wallet
+// entry, and free the master's quota — so /issued-coupons reconciliation and
+// re-use both stay correct. Admin "Manual Top-up" pseudo-coupons have no
+// ledger row and fall through as no-ops. All steps are best-effort.
+// =============================================================================
+exports.onJobCouponRevoked = onValueWritten(
+  { ref: "/jobs/{jobId}/applied_coupon", region: "asia-southeast1" },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    const beforeCode = String(before?.code || "").trim();
+    const afterCode = String(after?.code || "").trim();
+    // Only care when a previously-applied coupon disappears or is replaced.
+    if (!beforeCode || beforeCode === afterCode) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const uid = jobSnap.val().uid;
+
+    // 1) Ledger rows for this customer (indexed by uid) that were consumed by
+    //    THIS job with THIS code → back to 'issued'.
+    let revertedLedger = 0;
+    if (uid) {
+      try {
+        const ledgerSnap = await db.ref("issued_coupons").orderByChild("uid").equalTo(uid).once("value");
+        const updates = {};
+        ledgerSnap.forEach((row) => {
+          const v = row.val() || {};
+          if (v.status === "used" && v.used_job_id === jobId && String(v.code || "").trim() === beforeCode) {
+            updates[`issued_coupons/${row.key}/status`] = "issued";
+            updates[`issued_coupons/${row.key}/used_at`] = null;
+            updates[`issued_coupons/${row.key}/used_job_id`] = null;
+            updates[`issued_coupons/${row.key}/revoked_from_job_at`] = Date.now();
+            revertedLedger++;
+          }
+        });
+        if (revertedLedger > 0) await db.ref().update(updates);
+      } catch (err) {
+        console.error(`[onJobCouponRevoked] ledger revert failed for ${jobId}:`, err);
+      }
+
+      // 2) Wallet entry — clear is_used so the customer can redeem it again.
+      try {
+        const walletSnap = await db.ref(`users/${uid}/coupons`).once("value");
+        const updates = {};
+        walletSnap.forEach((row) => {
+          const v = row.val() || {};
+          if (v.is_used === true && String(v.code || "").trim().toUpperCase() === beforeCode.toUpperCase()) {
+            updates[`users/${uid}/coupons/${row.key}/is_used`] = false;
+          }
+        });
+        if (Object.keys(updates).length > 0) await db.ref().update(updates);
+      } catch (err) {
+        console.error(`[onJobCouponRevoked] wallet revert failed for ${jobId}:`, err);
+      }
+    }
+
+    // 3) Master quota — free one use so the campaign counter stays truthful.
+    try {
+      const mastersSnap = await db.ref("coupons").once("value");
+      let masterKey = null;
+      mastersSnap.forEach((row) => {
+        if (String(row.val()?.code || "").trim().toUpperCase() === beforeCode.toUpperCase()) {
+          masterKey = row.key;
+        }
+      });
+      if (masterKey) {
+        await db.ref(`coupons/${masterKey}/used_count`).transaction((cur) =>
+          Math.max(0, Number(cur || 0) - 1)
+        );
+      }
+    } catch (err) {
+      console.error(`[onJobCouponRevoked] quota revert failed for ${jobId}:`, err);
+    }
+
+    console.log(`[onJobCouponRevoked] ${jobId}: "${beforeCode}" removed — ledger rows reverted: ${revertedLedger}`);
+  }
+);
+
+// =============================================================================
+// Rider-fee discount edited on a job → sync the absorbed-cost ledger
+// -----------------------------------------------------------------------------
+// issued_rider_fee_discounts/{jobId} is server-write-only; when an admin edits
+// or removes jobs/{id}/rider_fee_discount from the ticket UI, mirror the new
+// value into the ledger so financial reports total what the company actually
+// absorbed. Only touches an EXISTING row (a job that never had a promo has no
+// row and must not gain one). onReceiveMethodChanged's own revert writes the
+// same shape, so double-firing is harmless.
+// =============================================================================
+exports.onRiderFeeDiscountEdited = onValueWritten(
+  { ref: "/jobs/{jobId}/rider_fee_discount", region: "asia-southeast1" },
+  async (event) => {
+    const before = Number(event.data.before.val() || 0);
+    const after = Number(event.data.after.val() || 0);
+    if (before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    try {
+      const rowRef = db.ref(`issued_rider_fee_discounts/${jobId}`);
+      const rowSnap = await rowRef.once("value");
+      if (!rowSnap.exists()) return;
+      await rowRef.update({
+        value: after,
+        status: after > 0 ? "applied" : "reverted",
+        applied_at: Date.now(),
+      });
+      console.log(`[onRiderFeeDiscountEdited] ${jobId}: ledger synced ${before} → ${after}`);
+    } catch (err) {
+      console.error(`[onRiderFeeDiscountEdited] ledger sync failed for ${jobId}:`, err);
+    }
+  }
+);
 
 exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) => {
   if (!request.auth) {
