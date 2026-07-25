@@ -836,6 +836,10 @@ export interface PricingModel {
   /** legacy fallback ระดับ series (ชื่อ series iPad) — ใช้เมื่อไม่มี
    *  compatible_models. ว่าง/ไม่มีทั้งคู่ = เสนอกับ iPad ทุกรุ่น */
   compatible_series?: string[];
+  /** เวอร์ชันตาราง Apple ที่ migrate ล่าสุด (ACCESSORY_COMPAT_VERSION) */
+  compat_version?: number;
+  /** 'manual' = แอดมินแก้ความเข้ากันได้เองแล้ว — migration จะไม่ทับ */
+  compat_source?: string;
   attributesSchema: AttributeSchemaItem[];
   updatedAt: number;
 
