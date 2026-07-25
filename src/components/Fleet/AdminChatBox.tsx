@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, push, update } from 'firebase/database';
+import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { Send, X, MessageSquare, User, Image as ImageIcon } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage'; // 🌟 ดึงฟังก์ชันอัปโหลดรูปมาใช้
 import { useToast } from '../../components/ui/ToastProvider';
+import { subscribeJobChats, sendJobChatMessage, markJobChatsRead } from '../../utils/jobChats';
 
 interface AdminChatBoxProps {
   jobId: string;
@@ -23,23 +24,20 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
 
   useEffect(() => {
     const jobRef = ref(db, `jobs/${jobId}`);
-    const unsubscribe = onValue(jobRef, (snapshot) => {
+    let legacyChats: Record<string, any> = {};
+    const unsubJob = onValue(jobRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
+        legacyChats = data.chats || {};
         setJobInfo(data);
-        if (data.chats) {
-          const msgArray = Object.values(data.chats).sort((a: any, b: any) => a.timestamp - b.timestamp);
-          setMessages(msgArray);
-
-          Object.keys(data.chats).forEach(key => {
-            if (data.chats[key].sender === 'rider' && !data.chats[key].read) {
-              update(ref(db, `jobs/${jobId}/chats/${key}`), { read: true });
-            }
-          });
-        }
       }
     });
-    return () => unsubscribe();
+    const unsubChats = subscribeJobChats(jobId, (chats) => {
+      const msgArray = Object.values(chats).sort((a: any, b: any) => a.timestamp - b.timestamp);
+      setMessages(msgArray);
+      markJobChatsRead(jobId, chats, 'rider', legacyChats);
+    });
+    return () => { unsubJob(); unsubChats(); };
   }, [jobId]);
 
   useEffect(() => {
@@ -50,7 +48,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
     if (!inputText.trim()) return;
     const msgText = inputText.trim();
     try {
-      await push(ref(db, `jobs/${jobId}/chats`), {
+      await sendJobChatMessage(jobId, {
         sender: 'admin',
         senderName: adminName,
         text: msgText,
@@ -73,7 +71,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
     try {
       const imageUrl = await uploadImageToFirebase(file, `jobs/${jobId}/chats/images`);
 
-      await push(ref(db, `jobs/${jobId}/chats`), {
+      await sendJobChatMessage(jobId, {
         sender: 'admin',
         senderName: adminName,
         text: '📷 ส่งรูปภาพ',

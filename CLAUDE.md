@@ -28,7 +28,8 @@
 - **VAPID Key:** ต้องตั้งค่าใน GitHub Secrets (ไม่ใช่แค่ .env)
 
 ## Firebase Database Paths
-- **`jobs/`** — ข้อมูล ticket/job ทั้งหมด
+- **`jobs/`** — ข้อมูล ticket/job ทั้งหมด (ห้ามฝัง blob โต ๆ เพิ่ม — ทุก byte คูณด้วยทุกคนอ่าน)
+- **`job_chats/{jobId}/`** — ข้อความแชทของงาน (ย้ายออกจาก `jobs/{id}/chats` เพื่อลดค่า download RTDB). ตัว job มีแค่ `chat_flags` (`unread_from_admin/rider/customer`, `last_at`) ที่ cloud function (`onJobChatMessageV2`/`onChatMessageCreated`) เซ็ตให้ badge อ่าน — client อ่าน/เขียนผ่าน helper `src/utils/jobChats.ts` (mirror ใน bkk-rider-app; frontend inline ใน `RiderChatModal`) ซึ่ง dual-read path เก่า+ใหม่ช่วงเปลี่ยนผ่าน. migration ครั้งเดียว: `migrateOldJobs?action=move-chats` (รันหลัง deploy rules + ทุก client). archive จะ fold แชทกลับเข้า `jobs_archived/{id}/chats`
 - **`jobs_archived/`** — งานเก่าที่ archive แล้ว (>90 วัน)
 - **`admin_fcm_tokens/{staffId}/{tokenKey}`** — FCM tokens ของ admin สำหรับ push notification
 - **`riders/{riderId}/fcm_token`** — FCM token ของ rider
@@ -146,6 +147,11 @@
 - **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings)
 - **STAFF:** เข้าถึงฟีเจอร์พื้นฐาน
 - **FINANCE:** เข้าถึง Finance, Daily Expenses
+
+## RTDB Cost Rules (บทเรียนจากบิล ก.ค. 2026 — อย่าทำพัง)
+- **ห้าม scheduler อ่าน `/jobs` ทั้งก้อน** — ใช้ `fetchJobsByStatuses()` (query ตาม `.indexOn: status`) เสมอ. `checkOverdueReturns` รันทุก 5 นาที เคยกวาดทั้ง node = ~288 full download/วัน ลงบิลตรงๆ. ข้อยกเว้นที่ตั้งใจ: `autoFlagRiders` (วันละครั้ง ต้องดูทุกงานใน lookback) และ endpoint migration แบบ manual
+- **ห้าม client subscribe `/jobs` ทั้งก้อนจากอุปกรณ์จำนวนมาก** — rider ใช้ `useRiderJobs` (query rider_id + pool statuses). แอดมินใช้ shared keep-alive store ใน `useDatabase` (listener ต่อ path ตัวเดียวทั้งแอป ห้ามกลับไป subscribe/unsubscribe ต่อหน้า)
+- **ISR ฝั่ง bkk-frontend-next = 300s** — ห้ามลดต่ำกว่านี้โดยไม่คิดเรื่องบิล (ทุก revalidate = ดึง `/models.json` ทั้งก้อน)
 
 ## Known Issues & Workarounds
 - **VAPID Key + atob():** Firebase SDK ใช้ `atob()` ภายใน `getToken()` ซึ่ง fail กับ base64url ไม่มี padding → ต้อง patch `window.atob` ชั่วคราว (ดู `useAdminPushNotifications.ts`)

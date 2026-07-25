@@ -531,34 +531,56 @@ const TERMINAL_STATUSES = [
 const ARCHIVE_THRESHOLD_DAYS = 90;
 
 /**
+ * ดึงเฉพาะ jobs ใน status ที่ระบุผ่าน indexed query (".indexOn": "status")
+ * แทนการโหลด /jobs ทั้ง node — RTDB คิดเงินทุก byte ที่ Admin SDK ดึง และ
+ * scheduler บางตัวรันทุก 5 นาที การกวาดทั้ง node ที่ cadence นั้นเคยเป็น
+ * ตัวขับค่า download อันดับต้นของบิล. คืนค่าเป็น Map<jobId, job>.
+ */
+async function fetchJobsByStatuses(db, statuses) {
+  const snaps = await Promise.all(
+    statuses.map((s) =>
+      db.ref("jobs").orderByChild("status").equalTo(s).once("value")
+    )
+  );
+  const jobs = new Map();
+  for (const snap of snaps) {
+    snap.forEach((child) => {
+      jobs.set(child.key, child.val());
+    });
+  }
+  return jobs;
+}
+
+/**
  * ฟังก์ชันกลางสำหรับ archive งานเก่า
  * ย้ายงานที่สถานะจบ + เก่ากว่า 90 วัน จาก jobs → jobs_archived
  */
 async function runArchive() {
   const db = getDatabase();
-  const jobsSnap = await db.ref("jobs").once("value");
-  if (!jobsSnap.exists()) return { archived: 0 };
+  const jobs = await fetchJobsByStatuses(db, TERMINAL_STATUSES);
+  if (jobs.size === 0) return { archived: 0 };
 
   const now = Date.now();
   const thresholdMs = ARCHIVE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
   const updates = {};
   let count = 0;
 
-  jobsSnap.forEach((child) => {
-    const job = child.val();
-    const jobId = child.key;
+  for (const [jobId, job] of jobs) {
     const createdAt = job.created_at || job.updated_at || 0;
+    if (!(createdAt > 0 && now - createdAt > thresholdMs)) continue;
 
-    if (
-      TERMINAL_STATUSES.includes(job.status) &&
-      createdAt > 0 &&
-      now - createdAt > thresholdMs
-    ) {
-      updates[`jobs_archived/${jobId}`] = { ...job, archived_at: now };
-      updates[`jobs/${jobId}`] = null;
-      count++;
-    }
-  });
+    // แชทถูกย้ายออกไปเก็บที่ /job_chats/{id} — fold กลับเข้า record ที่
+    // archive เพื่อให้คนเปิดดูประวัติยังเห็นบทสนทนา แล้วลบตัว live ทิ้ง
+    const chatsSnap = await db.ref(`job_chats/${jobId}`).once("value");
+    const chats = { ...(job.chats || {}), ...(chatsSnap.val() || {}) };
+    const archived = { ...job, archived_at: now };
+    if (Object.keys(chats).length > 0) archived.chats = chats;
+
+    updates[`jobs_archived/${jobId}`] = archived;
+    updates[`jobs/${jobId}`] = null;
+    updates[`job_chats/${jobId}`] = null;
+    count++;
+  }
 
   if (count > 0) {
     await db.ref().update(updates);
@@ -606,21 +628,18 @@ exports.finalizeCancelledJobs = onSchedule(
   },
   async () => {
     const db = getDatabase();
-    const jobsSnap = await db.ref("jobs").once("value");
-    if (!jobsSnap.exists()) return;
+    const jobs = await fetchJobsByStatuses(db, ["Cancelled"]);
+    if (jobs.size === 0) return;
 
     const now = Date.now();
     const updates = {};
     let count = 0;
 
-    jobsSnap.forEach((child) => {
-      const job = child.val();
-      if (job.status !== "Cancelled") return;
+    for (const [jobId, job] of jobs) {
       // No timestamp → can't age it out safely; leave for an admin to close.
-      if (!job.cancelled_at) return;
-      if (now - job.cancelled_at < REOPEN_WINDOW_MS) return;
+      if (!job.cancelled_at) continue;
+      if (now - job.cancelled_at < REOPEN_WINDOW_MS) continue;
 
-      const jobId = child.key;
       const existingLogs = Array.isArray(job.qc_logs)
         ? job.qc_logs
         : job.qc_logs
@@ -640,7 +659,7 @@ exports.finalizeCancelledJobs = onSchedule(
       ];
       updates[`jobs/${jobId}/updated_at`] = now;
       count += 1;
-    });
+    }
 
     if (count === 0) return;
     console.log(`[finalize-cancelled] Closing ${count} expired soft-cancelled jobs`);
@@ -677,6 +696,16 @@ exports.migrateOldJobs = onRequest(
       });
     }
 
+    if (action === "move-chats") {
+      const result = await runChatMigration();
+      return res.json({
+        success: true,
+        action,
+        message: `Moved ${result.messages} chat messages from ${result.jobs} jobs to /job_chats`,
+        ...result,
+      });
+    }
+
     const result = await runArchive();
     res.json({
       success: true,
@@ -686,6 +715,36 @@ exports.migrateOldJobs = onRequest(
     });
   }
 );
+
+/**
+ * One-off migration (?action=move-chats): move embedded jobs/{id}/chats to
+ * /job_chats/{id}. Run by hand AFTER database rules for /job_chats are
+ * deployed and all three clients + both function codebases are live —
+ * clients dual-read both paths, so nothing breaks before or after.
+ * The one full-node read here is fine: it's a manual, run-once endpoint.
+ */
+async function runChatMigration() {
+  const db = getDatabase();
+  const jobsSnap = await db.ref("jobs").once("value");
+  const updates = {};
+  let jobsTouched = 0;
+  let messages = 0;
+
+  jobsSnap.forEach((child) => {
+    const job = child.val();
+    if (!job || !job.chats) return;
+    jobsTouched++;
+    for (const [msgId, msg] of Object.entries(job.chats)) {
+      updates[`job_chats/${child.key}/${msgId}`] = msg;
+      messages++;
+    }
+    updates[`jobs/${child.key}/chats`] = null;
+  });
+
+  if (jobsTouched > 0) await db.ref().update(updates);
+  console.log(`[move-chats] moved ${messages} messages from ${jobsTouched} jobs`);
+  return { jobs: jobsTouched, messages };
+}
 
 // =============================================================================
 // Status migration (Phase 2D-4)
@@ -1564,22 +1623,29 @@ exports.onSaleCreated = onValueCreated(
  * (codebase rider-notifications → onNewChatMessage) เพื่อหลีกเลี่ยง push ซ้ำ
  * และรองรับ rider ที่ login หลายเครื่อง (multi-device FCM tokens)
  */
-exports.onChatMessageCreated = onValueCreated(
-  {
-    ref: "/jobs/{jobId}/chats/{chatId}",
-    region: "asia-southeast1",
-    // Warm — see onNewTicketCreated. Chat pushes are latency-critical too
-    // (admin/rider waiting on a live conversation), so avoid cold-start lag.
-    minInstances: 1,
-  },
-  async (event) => {
-    const chat = event.data.val();
+async function handleJobChatMessage(jobId, chat) {
     if (!chat) return;
 
-    const sender = chat.sender || "";
+    const sender = String(chat.sender || "");
+
+    // Lightweight unread flags on the job row — list badges in all three
+    // apps read these instead of scanning message bodies (messages live at
+    // /job_chats/{jobId}, outside the job node, so lists no longer carry
+    // the full conversation).
+    const senderKey =
+      sender.toLowerCase() === "rider" ? "rider"
+        : sender.toLowerCase() === "admin" ? "admin"
+          : "customer";
+    await getDatabase()
+      .ref(`jobs/${jobId}/chat_flags`)
+      .update({
+        [`unread_from_${senderKey}`]: true,
+        last_at: chat.timestamp || Date.now(),
+      })
+      .catch(() => {});
+
     if (sender !== "rider") return;
 
-    const { jobId } = event.params;
     const senderName = chat.senderName || sender;
     const text = chat.text || "";
     const imageUrl = chat.imageUrl || "";
@@ -1624,7 +1690,35 @@ exports.onChatMessageCreated = onValueCreated(
       },
       "onChatMessageCreated"
     );
-  }
+}
+
+exports.onChatMessageCreated = onValueCreated(
+  {
+    ref: "/jobs/{jobId}/chats/{chatId}",
+    region: "asia-southeast1",
+    // Legacy path — only stale (pre-/job_chats) clients still write here
+    // during the transition; cold start is acceptable. The warm slot moved
+    // to onJobChatMessageV2 so we don't pay for two min-instances.
+  },
+  async (event) => handleJobChatMessage(event.params.jobId, event.data.val())
+);
+
+/**
+ * Canonical chat trigger — messages now live at /job_chats/{jobId} so the
+ * conversation stops inflating the job row (and every list/scheduler read
+ * of it). Same handler as the legacy trigger above.
+ * ชื่อ function ต้อง unique ระดับ project (rider codebase มี chat trigger
+ * ของตัวเอง — ห้ามใช้ชื่อชนกัน ดูหมายเหตุ onAdminJobStatusNotify)
+ */
+exports.onJobChatMessageV2 = onValueCreated(
+  {
+    ref: "/job_chats/{jobId}/{chatId}",
+    region: "asia-southeast1",
+    // Warm — see onNewTicketCreated. Chat pushes are latency-critical too
+    // (admin/rider waiting on a live conversation), so avoid cold-start lag.
+    minInstances: 1,
+  },
+  async (event) => handleJobChatMessage(event.params.jobId, event.data.val())
 );
 
 /**
@@ -3788,25 +3882,23 @@ exports.checkOverdueReturns = onSchedule(
     const cutoff = now - thresholdMin * 60 * 1000;
     const lookback = now - 24 * 60 * 60 * 1000; // ignore stale data > 24h
 
-    // Scan the live jobs collection — archived jobs (>90d) aren't here.
-    // No paid_at index in rules so we filter in code; live set is ~hundreds,
-    // negligible at every-5-min cadence.
-    const jobsSnap = await db.ref("jobs").once("value");
-    if (!jobsSnap.exists()) {
+    // Query only the STILL_OUT status rows (indexed on "status") instead of
+    // sweeping the whole node — this runs every 5 minutes, so a full-node
+    // read here was ~288 full downloads/day straight onto the RTDB bill.
+    const jobs = await fetchJobsByStatuses(db, STILL_OUT_STATUSES);
+    if (jobs.size === 0) {
       console.log("[checkOverdueReturns] no jobs to scan");
       return;
     }
 
     const overdue = [];
-    jobsSnap.forEach((snap) => {
-      const job = snap.val();
-      if (!job || typeof job.paid_at !== "number") return;
-      if (job.paid_at < lookback || job.paid_at > cutoff) return;
-      if (!STILL_OUT_STATUSES.includes(job.status)) return;
-      if (job.overdue_notified_at) return; // already alerted once
-      if (!job.rider_id) return; // store-in / mail-in skip — no rider in the loop
-      overdue.push({ id: snap.key, job });
-    });
+    for (const [id, job] of jobs) {
+      if (!job || typeof job.paid_at !== "number") continue;
+      if (job.paid_at < lookback || job.paid_at > cutoff) continue;
+      if (job.overdue_notified_at) continue; // already alerted once
+      if (!job.rider_id) continue; // store-in / mail-in skip — no rider in the loop
+      overdue.push({ id, job });
+    }
 
     if (overdue.length === 0) {
       console.log(`[checkOverdueReturns] none overdue (threshold ${thresholdMin}m)`);
