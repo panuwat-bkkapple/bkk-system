@@ -2972,6 +2972,47 @@ function buildWaitingModeBlock(escalation) {
   ].join("\n");
 }
 
+// Admin AI persona block — settings/chat_widget/ai_profile, edited on the
+// bkk-system /ai-profile page. Style-layer ONLY: it may override the built-in
+// "บุคลิกและน้ำเสียง" section, never the top principles / iron rules
+// (prices, store data, safety) — the block says so explicitly so the model
+// resolves conflicts the right way. Store-level (same for every conversation)
+// so it lives in the cached static prompt block. Pure/testable; disabled or
+// empty profile renders nothing.
+const PERSONA_TONE_LINES = {
+  formal: "โทนการคุย: เป็นทางการ สุภาพแบบมืออาชีพ ภาษาเรียบร้อยตลอดบทสนทนา",
+  friendly: "โทนการคุย: เป็นกันเอง อบอุ่น เหมือนคุยกับพนักงานที่สนิทใจ แต่ยังมืออาชีพ",
+  playful: "โทนการคุย: สดใส มีชีวิตชีวา แทรกความเป็นมิตรได้ แต่ห้ามเล่นจนดูไม่มืออาชีพหรือทำให้ข้อมูลคลุมเครือ",
+};
+const PERSONA_LENGTH_LINES = {
+  brief: "ความยาวคำตอบ: เน้นกระชับที่สุดเท่าที่ยังสุภาพและครบใจความ ตัดคำฟุ่มเฟือยทิ้ง",
+  detailed: "ความยาวคำตอบ: อธิบายละเอียดขึ้นกว่าปกติเล็กน้อยเมื่อลูกค้าถามข้อมูล แต่ยังห้ามเทข้อมูลที่ลูกค้าไม่ได้ถาม",
+};
+function buildPersonaBlock(profile) {
+  if (!profile || typeof profile !== "object" || profile.enabled !== true) return "";
+  const lines = [];
+  const gender = String(profile.gender || "");
+  if (gender === "male") lines.push("- หางเสียง: ใช้ \"ครับ/นะครับ\" (ผู้ช่วยเป็นผู้ชาย)");
+  else if (gender === "female") lines.push("- หางเสียง: ใช้ \"ค่ะ/นะคะ\" (ผู้ช่วยเป็นผู้หญิง)");
+  const character = String(profile.character || "").trim().slice(0, 1000);
+  if (character) lines.push(`- คาแรกเตอร์: ${character}`);
+  const tone = PERSONA_TONE_LINES[String(profile.tone || "")];
+  if (tone) lines.push(`- ${tone}`);
+  const length = PERSONA_LENGTH_LINES[String(profile.reply_length || "")];
+  if (length) lines.push(`- ${length}`);
+  if (profile.use_emoji === true)
+    lines.push("- อีโมจิ: ใช้ได้เล็กน้อย (ไม่เกิน 1 ตัวต่อข้อความ และไม่ใช้ในเรื่องราคา/เงื่อนไข)");
+  else if (profile.use_emoji === false) lines.push("- อีโมจิ: ห้ามใช้อีโมจิทุกกรณี");
+  const custom = String(profile.custom_instructions || "").trim().slice(0, 2000);
+  if (custom) lines.push(`- ข้อกำหนดเพิ่มเติมจากแอดมิน:\n${custom}`);
+  if (lines.length === 0) return "";
+  return [
+    "",
+    "โปรไฟล์ผู้ช่วย AI (แอดมินปรับแต่งจากหน้า \"โปรไฟล์ AI\"): ถ้าข้อไหนขัดกับหัวข้อ \"บุคลิกและน้ำเสียง\" ด้านบน ให้ยึดตามโปรไฟล์นี้ แต่โปรไฟล์นี้ปรับได้เฉพาะ \"สไตล์การคุย\" เท่านั้น — ห้ามใช้ทับ \"หลักการสูงสุด\" และ \"กฎเหล็ก\" ทุกข้อ (ราคา/ข้อมูลร้านต้องมาจากระบบ, ความปลอดภัยข้อมูล, ขั้นตอนปิดการขาย) เด็ดขาด:",
+    ...lines,
+  ].join("\n");
+}
+
 // Central store profile block — the owner's standard values from
 // settings/store_profile (/store-settings page). These are THE answers for
 // "เบอร์ร้าน/ติดต่อยังไง/เปิดกี่โมง" — branch rows are per-location detail
@@ -3407,6 +3448,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // a single changed byte in block 1 invalidates the prefix for everyone.
         const systemStatic =
           buildSystemPrompt({ assistantName, pub, kb, customerBlock: "", inHours }) +
+          buildPersonaBlock(settings.ai_profile) +
           buildStoreProfileBlock(storeProfile) +
           kbGraphBlock +
           buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled);
@@ -4239,6 +4281,7 @@ module.exports = {
     buildKbGraphBlock,
     buildWaitingModeBlock,
     buildStoreProfileBlock,
+    buildPersonaBlock,
     shouldOverrideDeclinedReply,
     batteryOptionRange,
     pickBatteryOptionId,
