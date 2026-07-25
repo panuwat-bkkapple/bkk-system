@@ -24,7 +24,8 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
-import { sumAppliedAdjustments } from '../../utils/adjustments';
+import { sumAppliedAdjustments, listAdjustments } from '../../utils/adjustments';
+import type { JobAdjustment } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
@@ -136,6 +137,13 @@ export const MobileTicketDetail = () => {
   const [rider, setRider] = useState<{ name: string; phone: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  // Ad-hoc price adjustment form (ปรับราคา/โบนัสต่อรอง) — mirrors desktop
+  // PricingSidebar. Adjustments survive the inspection recompute (every
+  // recompute path folds in sumAppliedAdjustments), unlike a final_price
+  // edit which gets rebuilt from catalog price − deductions at inspection.
+  const [adjLabel, setAdjLabel] = useState('');
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjBusy, setAdjBusy] = useState(false);
 
   // Load job. RTDB returns arrays as objects when keys aren't sequential
   // integers (e.g. qc_logs that got a string key written by mistake), so
@@ -234,6 +242,15 @@ export const MobileTicketDetail = () => {
   const couponValue = Number(job.applied_coupon?.value || 0);
   const adjustmentsSum = sumAppliedAdjustments(job);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue + adjustmentsSum);
+  const appliedAdjustments = listAdjustments(job).filter((a) => a && a.status === 'applied');
+  const pendingAdjustments = listAdjustments(job).filter((a) => a && a.status === 'pending');
+  // Mirrors desktop B2CWorkspacePage.hasBeenPaid — once money moved, the
+  // payout composition is frozen (no more add/remove adjustment).
+  const statusLowerForPaid = (job.status || '').trim().toLowerCase();
+  const hasBeenPaid = !!job.paid_at || !!job.payment_slip ||
+    ['paid', 'deal closed', 'deal closed (negotiated)', 'in stock', 'sent to qc lab', 'payment completed', 'completed', 'success', 'transferred', 'waiting for handover', 'ready to sell', 'sold', 'rider returning'].includes(statusLowerForPaid) ||
+    statusLowerForPaid.includes('paid') ||
+    (job.qc_logs || []).some((log: any) => ['paid', 'payment completed'].includes(String(log?.action || '').toLowerCase()));
 
   // Pipeline progress
   // Use the FURTHEST step the job has ever reached (max from qc_logs +
@@ -259,6 +276,52 @@ export const MobileTicketDetail = () => {
   const makeLog = (action: string, details: string) => ({
     action, details, by: currentUser?.name || 'Admin', timestamp: Date.now()
   });
+
+  // Itemised ad-hoc adjustment (เช่น เพิ่มราคาจากการต่อรองในแชท หรือหักตำหนิ
+  // ที่ไม่อยู่ในชุดประเมิน) — same write shape as desktop
+  // B2CWorkspacePage.handleAddAdjustment. amount > 0 = เพิ่มเงิน, < 0 = หัก.
+  // เข้าอยู่ในสูตร net_payout ทุกจุด (client + cloud functions + ตอนตรวจเครื่อง)
+  // จึงไม่หายเมื่อระบบ recompute ราคาตอนรับเครื่องเข้าตรวจสอบ.
+  const handleAddAdjustment = async () => {
+    const lbl = adjLabel.trim();
+    const amt = Number(adjAmount);
+    if (!lbl || !Number.isFinite(amt) || amt === 0) { toast.warning('กรุณาระบุชื่อรายการและจำนวนเงิน'); return; }
+    setAdjBusy(true);
+    try {
+      const entry: JobAdjustment = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj_${Date.now()}`),
+        label: lbl, amount: amt, device_index: 0, source: 'admin_manual', status: 'applied',
+        by_uid: currentUser?.id || currentUser?.uid, by_name: currentUser?.name || 'Admin',
+        by_role: currentUser?.role, at: Date.now(),
+      };
+      const list = [...listAdjustments(job), entry];
+      const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
+      const sign = amt < 0 ? '-' : '+';
+      await update(ref(db, `jobs/${job.id}`), {
+        adjustments: list, net_payout: net,
+        qc_logs: [makeLog('Adjustment Added', `เพิ่มรายการ "${lbl}" ${sign}฿${Math.abs(amt).toLocaleString()} (ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+        updated_at: Date.now(),
+      });
+      setAdjLabel(''); setAdjAmount('');
+      toast.success('เพิ่มรายการปรับราคาแล้ว');
+    } catch {
+      toast.error('บันทึกไม่สำเร็จ');
+    } finally {
+      setAdjBusy(false);
+    }
+  };
+
+  const handleRemoveAdjustment = async (adjId: string) => {
+    const target = listAdjustments(job).find((a) => a.id === adjId);
+    const list = listAdjustments(job).filter((a) => a.id !== adjId);
+    const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
+    await update(ref(db, `jobs/${job.id}`), {
+      adjustments: list, net_payout: net,
+      qc_logs: [makeLog('Adjustment Removed', `ลบรายการ "${target?.label || ''}" (ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    toast.success('ลบรายการปรับราคาแล้ว');
+  };
 
   // Same write shape as desktop B2CWorkspacePage.handleCancelTicket —
   // structured category for analytics, free text kept separate, and the
@@ -737,6 +800,57 @@ export const MobileTicketDetail = () => {
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">คูปอง ({job.applied_coupon?.code})</span>
                   <span className="font-bold text-green-500">+฿{couponValue.toLocaleString()}</span>
+                </div>
+              )}
+              {/* Itemised ad-hoc adjustments (ต่อรองราคา/หักตำหนิ) — transparent
+                  lines the customer also sees, survive the inspection
+                  recompute (unlike a final_price edit). Mirrors desktop
+                  PricingSidebar. */}
+              {appliedAdjustments.map((a) => {
+                const neg = Number(a.amount) < 0;
+                return (
+                  <div key={a.id} className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${neg ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'}`}>ปรับราคา</span>
+                      <span className="truncate">{a.label}</span>
+                      {canEdit && !hasBeenPaid && !isCancelled && (
+                        <button onClick={() => handleRemoveAdjustment(a.id)} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบรายการ">
+                          <CloseIcon size={12} />
+                        </button>
+                      )}
+                    </span>
+                    <span className={`font-bold shrink-0 ${neg ? 'text-red-500' : 'text-emerald-500'}`}>{neg ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                  </div>
+                );
+              })}
+              {pendingAdjustments.map((a) => (
+                <div key={a.id} className="flex justify-between items-center text-xs text-amber-600">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 shrink-0">รออนุมัติ</span>
+                    <span className="truncate">{a.label}</span>
+                  </span>
+                  <span className="font-bold shrink-0">{Number(a.amount) < 0 ? '-' : '+'}฿{Math.abs(Number(a.amount)).toLocaleString()}</span>
+                </div>
+              ))}
+              {canEdit && !hasBeenPaid && !isCancelled && (
+                <div className="pt-1">
+                  <div className="flex gap-1.5">
+                    <input
+                      value={adjLabel}
+                      onChange={(e) => setAdjLabel(e.target.value)}
+                      placeholder="เช่น เพิ่มราคาตามตกลงในแชท"
+                      className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                    />
+                    <input
+                      value={adjAmount}
+                      onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))}
+                      inputMode="numeric"
+                      placeholder="+1000"
+                      className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right"
+                    />
+                    <button onClick={handleAddAdjustment} disabled={adjBusy} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40">เพิ่ม</button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">บวก = เพิ่มเงิน (เช่น ต่อรองราคา) · ติดลบ = หักเงิน · รายการนี้ไม่ถูกล้างตอนตรวจเครื่อง และลูกค้าเห็นในหน้า Tracking</p>
                 </div>
               )}
               <div className="border-t border-slate-100 pt-2 flex justify-between">
@@ -1417,6 +1531,10 @@ export const MobileTicketDetail = () => {
                   onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
                   className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
+                <p className="text-[10px] text-amber-600 mt-1 leading-relaxed">
+                  ราคาที่แก้ตรงนี้จะถูกคำนวณใหม่ตอนตรวจสภาพเครื่อง (คิดจากราคากลาง − ค่าหักสภาพ)
+                  — ถ้าเป็นการเพิ่ม/ลดราคาจากการต่อรอง ให้ใช้ช่อง &quot;ปรับราคา&quot; ในการ์ดยอดเงินแทน จะไม่ถูกล้างทิ้ง
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อลูกค้า</label>
