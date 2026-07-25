@@ -9,6 +9,7 @@ import {
 import { ref, update, onValue, set } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { AdminChatBox } from '../../components/Fleet/AdminChatBox';
+import { hasUnreadFrom } from '../../utils/jobChats';
 import { useToast } from '../../components/ui/ToastProvider';
 import { JOB_STATUS } from '../../types/job-statuses';
 
@@ -200,7 +201,7 @@ export const DispatcherPage = () => {
                           className="relative p-1 hover:bg-slate-700 rounded-md text-slate-400 hover:text-purple-400 transition-all"
                         >
                           <MessageSquare size={14} />
-                          {task.chats && Object.values(task.chats).some((c: any) => c.sender === 'rider' && !c.read) && (
+                          {hasUnreadFrom(task, 'rider') && (
                             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-purple-500 rounded-full border border-slate-900 animate-pulse"></span>
                           )}
                         </button>

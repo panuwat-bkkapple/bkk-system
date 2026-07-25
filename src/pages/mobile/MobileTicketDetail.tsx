@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
+import { subscribeJobChats, sendJobChatMessage } from '../../utils/jobChats';
 import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
 import { LocationVerificationCard } from '../admin/components/LocationVerificationCard';
@@ -128,6 +129,9 @@ export const MobileTicketDetail = () => {
   const [isUploading, setIsUploading] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Keys of messages still on the legacy embedded path (pre-/job_chats) so
+  // read-marking writes to the path each message actually lives on.
+  const legacyChatsRef = useRef<Record<string, any>>({});
   const [unreadCount, setUnreadCount] = useState(0);
   const [rider, setRider] = useState<{ name: string; phone: string } | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -171,14 +175,12 @@ export const MobileTicketDetail = () => {
     return () => unsub();
   }, [job?.rider_id]);
 
-  // Load chat messages
+  // Load chat messages (merged legacy embedded path + /job_chats)
   useEffect(() => {
     if (!id) return;
-    const unsub = onValue(ref(db, `jobs/${id}/chats`), (snap) => {
-      if (!snap.exists()) { setMessages([]); return; }
-      const data = snap.val();
+    const unsub = subscribeJobChats(id, (data) => {
       const list = Object.entries(data)
-        .map(([key, val]: [string, any]) => ({ key, ...val }))
+        .map(([key, val]: [string, any]) => ({ key, ...val, _legacy: !!legacyChatsRef.current[key] }))
         .sort((a: any, b: any) => a.timestamp - b.timestamp);
       setMessages(list);
 
@@ -186,7 +188,10 @@ export const MobileTicketDetail = () => {
       const unread = Object.values(data).filter((m: any) => m.sender === 'rider' && !m.read).length;
       setUnreadCount(unread);
     });
-    return () => unsub();
+    const unsubLegacy = onValue(ref(db, `jobs/${id}/chats`), (snap) => {
+      legacyChatsRef.current = snap.val() || {};
+    });
+    return () => { unsub(); unsubLegacy(); };
   }, [id]);
 
   // Auto scroll chat
@@ -199,9 +204,11 @@ export const MobileTicketDetail = () => {
     if (!showChat || !id) return;
     messages.forEach((msg) => {
       if (msg.sender === 'rider' && !msg.read) {
-        update(ref(db, `jobs/${id}/chats/${msg.key}`), { read: true });
+        const path = msg._legacy ? `jobs/${id}/chats/${msg.key}` : `job_chats/${id}/${msg.key}`;
+        update(ref(db, path), { read: true }).catch(() => {});
       }
     });
+    update(ref(db, `jobs/${id}/chat_flags`), { unread_from_rider: false }).catch(() => {});
   }, [showChat, messages, id]);
 
   if (loading) return <div className="flex items-center justify-center h-full"><RefreshCw size={24} className="animate-spin text-slate-400" /></div>;
@@ -571,7 +578,7 @@ export const MobileTicketDetail = () => {
     if (!chatInput.trim() || !id) return;
     const text = chatInput.trim();
     setChatInput('');
-    await push(ref(db, `jobs/${id}/chats`), {
+    await sendJobChatMessage(id, {
       sender: 'admin',
       senderName: currentUser?.name || 'Admin',
       text, timestamp: Date.now(), read: false
@@ -583,7 +590,7 @@ export const MobileTicketDetail = () => {
     setIsUploading(true);
     try {
       const url = await uploadImageToFirebase(e.target.files[0], `jobs/${id}/chats/images`);
-      await push(ref(db, `jobs/${id}/chats`), {
+      await sendJobChatMessage(id, {
         sender: 'admin', senderName: currentUser?.name || 'Admin',
         text: '📷 ส่งรูปภาพ', imageUrl: url,
         timestamp: Date.now(), read: false
