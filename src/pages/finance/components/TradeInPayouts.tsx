@@ -98,10 +98,13 @@ export const TradeInPayouts = () => {
       const isB2B = selectedTx.type === 'B2B Trade-in';
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`);
 
-      // 🌟 ใช้ยอดสุทธิและค่าไรเดอร์ที่ถูกต้อง
+      // 🌟 ใช้ยอดสุทธิและค่าบริการที่ถูกต้อง
       const actualTransferAmount = getNetPayout(selectedTx);
-      // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
-      const riderFee = Number(selectedTx.rider_fee || 0);
+      // รายได้ค่าบริการรับเครื่อง = pickup_fee ที่หักจากลูกค้า (หลังหักส่วนลดที่บริษัทออก)
+      // — คนละก้อนกับ rider_fee ที่จ่ายไรเดอร์ (จ่ายผ่าน Settlement เป็น JOB_PAYOUT)
+      const serviceFee = selectedTx.receive_method === 'Pickup'
+        ? Math.max(0, Number(selectedTx.pickup_fee || 0) - Number(selectedTx.rider_fee_discount || 0))
+        : 0;
 
       // Status string is intentionally the legacy lowercase 'Waiting for
       // Handover' — admin readers across this app (TradeInDashboard,
@@ -145,15 +148,19 @@ export const TradeInPayouts = () => {
         slip_url: slipUrl
       };
 
-      // Transaction: CREDIT (logistics revenue)
-      if (riderFee > 0) {
+      // Transaction: CREDIT (logistics revenue) — company ledger row, so
+      // rider_id is always 'SYSTEM'. Tagging the real rider here made the
+      // rider-app wallet (which sums every row with its rider_id) count this
+      // company revenue as rider income on top of the JOB_PAYOUT settlement
+      // credit — a double credit per Pickup job.
+      if (serviceFee > 0) {
         const creditKey = push(child(ref(db), 'transactions')).key;
         updates[`transactions/${creditKey}`] = {
-          rider_id: selectedTx.rider_id || 'SYSTEM',
-          amount: riderFee,
+          rider_id: 'SYSTEM',
+          amount: serviceFee,
           type: 'CREDIT',
           category: 'LOGISTICS_REVENUE',
-          description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
+          description: `รายได้ค่าบริการรับเครื่องถึงที่ - Ref: ${selectedTx.ref_no}`,
           timestamp: transferredAt,
           ref_job_id: selectedTx.id
         };

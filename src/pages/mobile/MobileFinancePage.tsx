@@ -148,8 +148,11 @@ export const MobileFinancePage = () => {
       const slipUrl = await uploadImageToFirebase(slipFile as File, `slips/tradein/${selectedTx.id}_${now}`);
 
       const actualTransferAmount = getNetPayout(selectedTx);
-      // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
-      const riderFee = Number(selectedTx.rider_fee || 0);
+      // รายได้ค่าบริการรับเครื่อง = pickup_fee ที่หักจากลูกค้า (หลังหักส่วนลดที่บริษัทออก)
+      // — คนละก้อนกับ rider_fee ที่จ่ายไรเดอร์ (จ่ายผ่าน Settlement เป็น JOB_PAYOUT)
+      const serviceFee = selectedTx.receive_method === 'Pickup'
+        ? Math.max(0, Number(selectedTx.pickup_fee || 0) - Number(selectedTx.rider_fee_discount || 0))
+        : 0;
 
       const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
       const logAction = isB2B ? 'Payment Completed' : 'Paid';
@@ -183,14 +186,17 @@ export const MobileFinancePage = () => {
         slip_url: slipUrl
       };
 
-      if (riderFee > 0) {
+      // Company ledger row — rider_id must be 'SYSTEM'. Tagging the real
+      // rider made the rider-app wallet count this company revenue as rider
+      // income on top of the JOB_PAYOUT settlement credit (double credit).
+      if (serviceFee > 0) {
         const creditKey = push(child(ref(db), 'transactions')).key;
         updates[`transactions/${creditKey}`] = {
-          rider_id: selectedTx.rider_id || 'SYSTEM',
-          amount: riderFee,
+          rider_id: 'SYSTEM',
+          amount: serviceFee,
           type: 'CREDIT',
           category: 'LOGISTICS_REVENUE',
-          description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
+          description: `รายได้ค่าบริการรับเครื่องถึงที่ - Ref: ${selectedTx.ref_no}`,
           timestamp: transferredAt,
           ref_job_id: selectedTx.id
         };
