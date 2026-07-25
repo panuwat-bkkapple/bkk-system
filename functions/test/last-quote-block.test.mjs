@@ -920,5 +920,20 @@ check("short garbage id rejected", __test.parseTrackJobId("-abc") === "");
 check("copilot: drafts follow the customer's language", src.includes('ร่างทุกฉบับต้องเป็น "ภาษาเดียวกับข้อความล่าสุดของลูกค้า"'));
 check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/label ยังเขียนเป็นไทยเสมอ"));
 
+// --- proactive coupon hook at search time ------------------------------------
+// Owner: "ในแชทยังเสนอคูปองไม่ได้". The card already resolves the best coupon
+// (pickBestCouponForModel) — now search_models does too, so the AI can open
+// with the bonus instead of waiting for the card. Same fail-closed picker;
+// numbers come from the system only.
+{
+  const searchCase = src.indexOf('case "search_models"');
+  const searchEnd = src.indexOf('case "get_condition_questions"');
+  const body = src.slice(searchCase, searchEnd);
+  check("search resolves the best coupon for the top model", body.includes("searchCoupon = await pickBestCouponForModel(db, buyable[0].id, topPrice)"));
+  check("offer-mode searches skip the coupon hook", body.includes("if (!topUnpriced && buyable.length > 0)"));
+  check("coupon note forbids inventing name/value", body.includes("ห้ามแต่งชื่อ/มูลค่าเอง ใช้ตามนี้เท่านั้น"));
+  check("search result carries eligible_coupon for the model", body.includes("...(searchCoupon ? { eligible_coupon:"));
+}
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);

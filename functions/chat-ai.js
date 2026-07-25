@@ -1459,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-25.1";
+const LOGIC_VERSION = "2026-07-25.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-25", text: "เสนอคูปองเชิงรุกตั้งแต่ต้นบทสนทนา: ค้นเจอรุ่นปุ๊บระบบเช็คคูปองที่ดีที่สุดของรุ่นนั้นให้ทันที (ตัวคัดเดียวกับการ์ด — กรองโควตาเต็ม/หมดเขต/จำกัดรุ่น/คูปอง system อัตโนมัติ) มาตินใช้เป็นตัวชวนได้เลย ไม่ต้องรอถึงตอนออกการ์ด — ชื่อ/มูลค่ามาจากระบบเท่านั้น ห้ามแต่งเอง. หมายเหตุ: คูปองจะโผล่เมื่อแคมเปญยังมีโควตา (NEW300/TRADEUP300 ตอนนี้เต็ม 100/100 ต้องเติมที่หน้า /coupons)" },
   { at: "2026-07-25", text: "ร่างคำตอบของ AI copilot (ปุ่มช่วยแอดมินในคอนโซล) ตามภาษาลูกค้าแล้ว — ลูกค้าคุยอังกฤษ ร่างเป็นอังกฤษ ส่วนสรุปบริบท/ชื่อร่างยังเป็นไทยให้แอดมินอ่าน (เคสจริง Kate Jackson คุยอังกฤษแต่ร่างออกมาเป็นไทย)" },
   { at: "2026-07-24", text: "ลูกค้า guest สั่งขายโดยไม่เคยแชท: ระบบเปิดห้องแชทของ session นั้นให้เลยพร้อมฝากลิงก์ติดตามรอไว้ + เติมชื่อ/เบอร์จากออเดอร์ (นับเป็นเบอร์ยืนยันแล้ว) — เปิด widget ครั้งแรกก็เจอลิงก์และถามสถานะต่อได้ทันที ไม่ต้องยืนยันตัวตนซ้ำ" },
   { at: "2026-07-24", text: "แชทตามสถานะออเดอร์เจอแล้วแม้คนละ session (เคสจริง OID-MRYEA7KM-240 สั่งกับแชทคนละ uid ทั้งที่เครื่องเดียวกัน): ระบบยืนยันตัวตนได้ 4 ทาง — บัญชีที่แชทอยู่ / ลูกค้าเปิดหรือแปะลิงก์ติดตาม (ถือลิงก์ = ยืนยัน เพราะหน้า track เปิดให้คนถือลิงก์อยู่แล้ว) / เลขออเดอร์+เบอร์ตรงกัน (มาตรฐานเดียวกับหน้า track lookup) / เบอร์จากบัญชี checkout — ทุกทางบอกแค่รุ่น+สถานะ+นัด ห้ามบอกยอดเงิน (PDPA เดิม)" },
@@ -1818,16 +1819,35 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             (v) => Number(v.used_price) > 0 || Number(v.usedPrice) > 0 || Number(v.new_price) > 0 || Number(v.newPrice) > 0
           );
         if (topUnpriced) state.lastSearchNoPrice = true;
+        // Proactive coupon hook (owner's ask): surface the best live coupon
+        // for the top model AT SEARCH TIME, not only on the card — the AI can
+        // use it as an opener ("รุ่นนี้มีโบนัสเพิ่ม X บาทอยู่ครับ"). Same
+        // fail-closed picker the card uses; the card/checkout still own the
+        // real numbers.
+        let searchCoupon = null;
+        if (!topUnpriced && buyable.length > 0) {
+          try {
+            const topPrice = Math.max(
+              0,
+              ...(buyable[0].variants || []).map((v) => Number(v.used_price) || Number(v.usedPrice) || 0)
+            );
+            if (topPrice > 0) searchCoupon = await pickBestCouponForModel(db, buyable[0].id, topPrice);
+          } catch { /* coupon hook is best-effort */ }
+        }
         const aliasNote = ipadAirGenAliasNote(input.query);
         const singleNote = buyable.length === 1 ? singleResultVariantNote(buyable[0]) : null;
         const baseNote = topUnpriced
           ? "รุ่นนี้มีในระบบแต่ 'ตั้งใจไม่ตั้งราคา' (กลุ่มรับ Offer — ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → เข้าโหมดรับ Offer ตามกฎข้อ 6 ขั้นที่ 2(ข): ตอบเชิงบวก ขอชื่อ+เบอร์+รายละเอียดเครื่อง (save_customer_info เมื่อได้เบอร์) แล้ว escalate_to_human พร้อมข้อมูลครบ — ห้ามบอกว่าไม่รับซื้อ ห้าม escalate มือเปล่า ห้ามออกการ์ด"
           : "used_price คือราคากลางเครื่องสภาพดี ก่อนหักตามสภาพจริง แจ้งลูกค้าเป็นราคาประเมินเบื้องต้นเสมอ";
+        const couponNote = searchCoupon
+          ? `รุ่นนี้มีคูปอง "${searchCoupon.name}" เพิ่มให้อีก ${Number(searchCoupon.computed_value).toLocaleString("th-TH")} บาท — ใช้เป็นตัวชวนได้เลยตั้งแต่ตอนนี้ (เช่น "รุ่นนี้มีโบนัสเพิ่ม ${Number(searchCoupon.computed_value).toLocaleString("th-TH")} บาทอยู่ครับ") ห้ามแต่งชื่อ/มูลค่าเอง ใช้ตามนี้เท่านั้น ยอดสุทธิจริงระบบจะคิดบนการ์ดและตอน checkout ให้เอง`
+          : null;
         return {
           // Never surface a delisted model as buyable alongside active ones.
           results: buyable,
           ...(topUnpriced ? { offer_mode: true } : {}),
-          note: [aliasNote, singleNote, baseNote].filter(Boolean).join(" | "),
+          ...(searchCoupon ? { eligible_coupon: { name: searchCoupon.name, value: searchCoupon.computed_value } } : {}),
+          note: [aliasNote, singleNote, couponNote, baseNote].filter(Boolean).join(" | "),
         };
       }
 
