@@ -28,7 +28,7 @@ import { ACCESSORY_CATEGORY } from '../../utils/accessoryItems';
 import {
   ACCESSORY_CONDITION_SET, buildAccessorySeedModels, buildAccessoryModelPayload,
   ACCESSORY_COMPAT_BY_NAME, EXTRA_ACCESSORY_DEFS, resolveCompatModelIds,
-  ACCESSORY_PRICE_PATCH,
+  ACCESSORY_PRICE_PATCH, ACCESSORY_COMPAT_VERSION,
 } from './constants/accessorySeed';
 
 export const PriceEditor = () => {
@@ -272,13 +272,20 @@ export const PriceEditor = () => {
       let upgraded = 0;
 
       for (const acc of accessories) {
-        if (Array.isArray(acc.compatible_models) && acc.compatible_models.length > 0) continue;
+        // แอดมินเคยแก้ความเข้ากันได้เองจากหน้าแก้ไขรุ่น → ระบบไม่ทับ
+        if (acc.compat_source === 'manual') continue;
+        // ตารางเวอร์ชันเดิม (หรือยังไม่เคย migrate) เท่านั้นที่อัปเดต
+        if ((Number(acc.compat_version) || 0) >= ACCESSORY_COMPAT_VERSION) continue;
         const names = ACCESSORY_COMPAT_BY_NAME[String(acc.name || '').trim()];
         if (!names) continue;
         const ids = resolveCompatModelIds(modelsData, names);
         if (ids.length === 0) continue;
         upgraded += 1;
-        writes.push(update(ref(db, `models/${acc.id}`), { compatible_models: ids, updatedAt: Date.now() }));
+        writes.push(update(ref(db, `models/${acc.id}`), {
+          compatible_models: ids,
+          compat_version: ACCESSORY_COMPAT_VERSION,
+          updatedAt: Date.now(),
+        }));
       }
 
       // Owner-set buy-in prices (one-shot): applies only while the current
@@ -316,7 +323,7 @@ export const PriceEditor = () => {
       await Promise.all(writes);
       const parts: string[] = [];
       if (upgraded > 0) parts.push(`ผูกความเข้ากันได้ระดับรุ่นตามตาราง Apple ${upgraded} รุ่น`);
-      if (inserted > 0) parts.push(`เพิ่ม Magic Keyboard รุ่น Pro M4 อีก ${inserted} รุ่น`);
+      if (inserted > 0) parts.push(`เพิ่มรุ่นคีย์บอร์ดที่ยังขาดอีก ${inserted} รุ่น (งดรับซื้อ — ตรวจราคาก่อนเปิดใช้)`);
       if (repriced > 0) parts.push(`อัปเดตราคารับซื้อตามที่กำหนด ${repriced} รุ่น`);
       toast.success(`อุปกรณ์เสริม iPad: ${parts.join(' · ')} — ตรวจแล้วกดเปิดใช้ (Activate) รุ่นที่พร้อมรับซื้อได้เลย`, { duration: 10000 });
     } catch {
@@ -455,6 +462,9 @@ export const PriceEditor = () => {
           && editingItem.compatible_series.filter(Boolean).length > 0)
           ? editingItem.compatible_series.filter(Boolean)
           : null,
+        // แอดมิน save จากหน้าแก้ไขรุ่นแล้ว = ถือว่าดูแลความเข้ากันได้เอง —
+        // migration ตาราง Apple เวอร์ชันถัดๆ ไปจะไม่ทับรุ่นนี้อีก
+        ...(editingItem.category === ACCESSORY_CATEGORY ? { compat_source: 'manual' } : {}),
         liquidityFactor: Number(editingItem.liquidityFactor) > 0 ? Number(editingItem.liquidityFactor) : 1,
         attributesSchema: editingItem.attributesSchema,
         pricingMode,

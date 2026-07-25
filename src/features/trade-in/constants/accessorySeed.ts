@@ -99,12 +99,18 @@ const AIR_11_M2_UP = ['iPad Air 11" (ชิป M2, 2024)', 'iPad Air 11" (ชิ
 const AIR_13_M2_UP = ['iPad Air 13" (ชิป M2, 2024)', 'iPad Air 13" (ชิป M3, 2025)', 'iPad Air 13" (ชิป M4, 2026)'];
 const AIR_4_5 = ['iPad Air 4 (2020)', 'iPad Air 5 (ชิป M1, 2022)'];
 
+// เวอร์ชันของตาราง — bump ทุกครั้งที่แก้ mapping เพื่อให้ migration รอบใหม่
+// อัปเดตข้อมูลเดิม (ข้ามรุ่นที่แอดมินแก้เอง = compat_source 'manual')
+// v2: เพิ่ม iPad Gen 11 ใน Pencil 1, เพิ่ม Magic Keyboard for iPad Air 11"/13"
+//     และ Smart Keyboard (2019)
+export const ACCESSORY_COMPAT_VERSION = 2;
+
 export const ACCESSORY_COMPAT_BY_NAME: Record<string, string[]> = {
-  // iPad 6-9 (Lightning), iPad 10 (ผ่านอะแดปเตอร์ USB-C — Apple ระบุรองรับ),
-  // Air 3, mini 5, Pro รุ่นแรกๆ (9.7/10.5/12.9 gen 1-2)
+  // iPad 6-9 (Lightning), iPad 10 + iPad A16/Gen 11 (ผ่านอะแดปเตอร์ USB-C —
+  // Apple ระบุรองรับทั้งคู่), Air 3, mini 5, Pro รุ่นแรกๆ (9.7/10.5/12.9 gen 1-2)
   'Apple Pencil (1st generation)': [
     'iPad Generation 6 (2018)', 'iPad Generation 7 (2019)', 'iPad Generation 8 (2020)',
-    'iPad Generation 9', 'iPad Generation 10',
+    'iPad Generation 9', 'iPad Generation 10', 'iPad Generation 11',
     'iPad Air 3 (2019)', 'iPad mini 5 (2019)',
     'iPad Pro 9.7" (2016)', 'iPad Pro 10.5" (2017)', 'iPad Pro 12.9" (2015)', 'iPad Pro 12.9" (2017)',
   ],
@@ -133,13 +139,27 @@ export const ACCESSORY_COMPAT_BY_NAME: Record<string, string[]> = {
   'Magic Keyboard Folio': ['iPad Generation 10', 'iPad Generation 11'],
   'Magic Keyboard for iPad Pro 11" (M4)': [...PRO_M4_M5_11],
   'Magic Keyboard for iPad Pro 13" (M4)': [...PRO_M4_M5_13],
+  // Magic Keyboard for iPad Air (2025, มีแถวปุ่มฟังก์ชัน) — Air M2/M3/M4
+  // (Apple ขายคู่กับ Air M4 2026 ในหน้าสินค้า)
+  'Magic Keyboard for iPad Air 11"': [...AIR_11_M2_UP],
+  'Magic Keyboard for iPad Air 13"': [...AIR_13_M2_UP],
+  // Smart Keyboard (2019) — iPad Gen 7-9, Air 3, Pro 10.5" (Smart Connector รุ่นเก่า)
+  'Smart Keyboard': [
+    'iPad Generation 7 (2019)', 'iPad Generation 8 (2020)', 'iPad Generation 9',
+    'iPad Air 3 (2019)', 'iPad Pro 10.5" (2017)',
+  ],
 };
 
-// รุ่นที่ seed รอบแรกยังไม่มี — Magic Keyboard รุ่นใหม่ของ iPad Pro M4/M5
-// (คนละตัวกับ Magic Keyboard 2020, ใส่ด้วยกันไม่ได้) เพิ่มให้ตอน migrate
+// รุ่นที่ seed รอบแรกยังไม่มี — เพิ่มให้ตอน migrate (ทั้งหมด seed เป็นงดรับซื้อ):
+// v1: Magic Keyboard รุ่น iPad Pro M4/M5 (คนละตัวกับ Magic Keyboard 2020)
+// v2: Magic Keyboard for iPad Air 11"/13" (Air M2/M3/M4 ไม่มีคีย์บอร์ดให้เลือกเลย)
+//     + Smart Keyboard (2019) สำหรับ iPad รุ่นธรรมดา/Air 3/Pro 10.5
 export const EXTRA_ACCESSORY_DEFS: AccessorySeedDef[] = [
   { name: 'Magic Keyboard for iPad Pro 11" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 11 นิ้ว', usedPrice: 2000, newPrice: 8000, kinds: ['pro'] },
   { name: 'Magic Keyboard for iPad Pro 13" (M4)', alias_th: 'เมจิกคีย์บอร์ดโปร M4 13 นิ้ว', usedPrice: 2000, newPrice: 8500, kinds: ['pro'] },
+  { name: 'Magic Keyboard for iPad Air 11"', alias_th: 'เมจิกคีย์บอร์ดแอร์ 11 นิ้ว', usedPrice: 1500, newPrice: 7500, kinds: ['air'] },
+  { name: 'Magic Keyboard for iPad Air 13"', alias_th: 'เมจิกคีย์บอร์ดแอร์ 13 นิ้ว', usedPrice: 1500, newPrice: 8000, kinds: ['air'] },
+  { name: 'Smart Keyboard', alias_th: 'สมาร์ทคีย์บอร์ด (iPad รุ่นธรรมดา)', usedPrice: 300, newPrice: 2500, kinds: ['standard'] },
 ];
 
 /** แปลงรายชื่อ "ชื่อรุ่น iPad" → model ids จากแคตตาล็อกจริง (trim กันช่องว่างเกิน
@@ -206,6 +226,7 @@ export const buildAccessoryModelPayload = (
   // ระดับรุ่นชนะระดับ series; ไม่มีทั้งคู่ (null) = ทุกรุ่น
   compatible_models: (compat.models && compat.models.length > 0) ? compat.models : null,
   compatible_series: (compat.series && compat.series.length > 0) ? compat.series : null,
+  compat_version: ACCESSORY_COMPAT_VERSION,
   attributesSchema: CATEGORY_SCHEMAS[ACCESSORY_CATEGORY] || [],
   pricingMode: 'legacy',
   variants: [{ id: 'v1', name: '', attributes: {}, newPrice: def.newPrice, usedPrice: def.usedPrice }],
