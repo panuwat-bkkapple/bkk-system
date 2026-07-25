@@ -1459,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-25.2";
+const LOGIC_VERSION = "2026-07-25.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-25", text: "อุดรูสุดท้ายของ 'รอสักครู่ครับ' (เคสจริง iPad Gen 10 — ยืนยันรุ่นแล้วแต่ AI ทิ้งลูกค้าไว้กับคำว่ารอ จนแอดมินต้องออกการ์ดเอง): เดิมตัวบังคับเช็คให้จบในเทิร์นเป็น best-effort ถ้าโมเดลยังติดโหมดรอ ข้อความเดิมหลุดได้ — ตอนนี้มีด่านท้ายแบบตายตัว: คำสัญญาให้รอที่รอดมาถึงปลายทางจะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ (ขอชื่อ+เบอร์+ถามสภาพ / โหมด Offer ขอเบอร์ / ถามความจุ+สภาพ) ไม่มีทางส่งคำว่า 'รอ' ปิดเทิร์นได้อีก" },
   { at: "2026-07-25", text: "เสนอคูปองเชิงรุกตั้งแต่ต้นบทสนทนา: ค้นเจอรุ่นปุ๊บระบบเช็คคูปองที่ดีที่สุดของรุ่นนั้นให้ทันที (ตัวคัดเดียวกับการ์ด — กรองโควตาเต็ม/หมดเขต/จำกัดรุ่น/คูปอง system อัตโนมัติ) มาตินใช้เป็นตัวชวนได้เลย ไม่ต้องรอถึงตอนออกการ์ด — ชื่อ/มูลค่ามาจากระบบเท่านั้น ห้ามแต่งเอง. หมายเหตุ: คูปองจะโผล่เมื่อแคมเปญยังมีโควตา (NEW300/TRADEUP300 ตอนนี้เต็ม 100/100 ต้องเติมที่หน้า /coupons)" },
   { at: "2026-07-25", text: "ร่างคำตอบของ AI copilot (ปุ่มช่วยแอดมินในคอนโซล) ตามภาษาลูกค้าแล้ว — ลูกค้าคุยอังกฤษ ร่างเป็นอังกฤษ ส่วนสรุปบริบท/ชื่อร่างยังเป็นไทยให้แอดมินอ่าน (เคสจริง Kate Jackson คุยอังกฤษแต่ร่างออกมาเป็นไทย)" },
   { at: "2026-07-24", text: "ลูกค้า guest สั่งขายโดยไม่เคยแชท: ระบบเปิดห้องแชทของ session นั้นให้เลยพร้อมฝากลิงก์ติดตามรอไว้ + เติมชื่อ/เบอร์จากออเดอร์ (นับเป็นเบอร์ยืนยันแล้ว) — เปิด widget ครั้งแรกก็เจอลิงก์และถามสถานะต่อได้ทันที ไม่ต้องยืนยันตัวตนซ้ำ" },
@@ -3822,6 +3823,28 @@ function registerChatAi({ dispatchAdminPush }) {
             }
           } catch (err) {
             console.error(`[${tag}] wait-promise recovery failed:`, err && err.message);
+          }
+          // Deterministic tail — recovery above is best-effort: if the model
+          // kept stalling (every recovery draft was still a wait-promise) or
+          // the recovery call errored, the ORIGINAL "รอสักครู่ครับ" used to
+          // ship anyway (live case #PSP1: iPad Gen 10 confirmed via chip ->
+          // "ขอเช็คราคา...รอสักครู่ครับ" -> silence until the admin issued the
+          // card by hand). A wait-promise must never survive to the customer:
+          // replace it with the flow's real next step.
+          if (finalText && !state.escalated && !quoteOk && waitPromiseIntent(finalText)) {
+            console.warn(`[${tag}] ${convoId} wait promise survived recovery — overriding with the next real step`);
+            if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
+              // Offer mode with no callback number -> the offer-mode contact ask.
+              state.offerContactPromptedThisTurn = true;
+              finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+            } else if (contactGateWillBlock) {
+              finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+              await markContactAsked();
+            } else {
+              finalText = isEnglishText(text)
+                ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
+                : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
+            }
           }
         }
 
