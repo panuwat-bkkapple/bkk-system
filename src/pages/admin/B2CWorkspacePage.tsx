@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
-import { sumAppliedAdjustments, listAdjustments, type JobAdjustment } from '@/utils/adjustments';
+import { sumAppliedAdjustments, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
 
 import { AdminKYCModal } from '../mobile/components/AdminKYCModal';
 import { SmartPipeline } from './components/SmartPipeline';
@@ -154,7 +154,10 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const handleSaveCustomerInfo = async () => {
     try {
       const p: any = { cust_name: editCustData.name, cust_phone: editCustData.phone, cust_email: editCustData.email };
-      if (job.receive_method === 'Store-in') p.store_branch = editCustData.address; else p.cust_address = editCustData.address;
+      // Always the CUSTOMER's own address — the Store-in branch is a real
+      // branch record managed by the Trade Method branch picker, never free
+      // text (writing here used to corrupt store_branch with home addresses).
+      p.cust_address = editCustData.address;
       p.qc_logs = [makeLog('Customer Info Updated', 'อัปเดตข้อมูลการติดต่อ/ที่อยู่ของลูกค้า'), ...(job.qc_logs || [])];
       await update(ref(db, `jobs/${job.id}`), p);
       setIsEditingCustomer(false);
@@ -183,23 +186,92 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const handleAddAdjustment = async (label: string, amount: number) => {
     const lbl = label.trim();
     if (!lbl || !Number.isFinite(amount) || amount === 0) { toast.warning('กรุณาระบุชื่อรายการและจำนวนเงิน'); return; }
+    // CEO/MANAGER apply on the spot (self-approved trail). Everyone else
+    // PROPOSES: the line lands as 'pending' (excluded from net_payout),
+    // and the onAdminOfferProposed cloud function pushes an approval
+    // request to CEO/MANAGER devices.
+    const canApply = canReviewAdjustments(currentUser?.role);
+    const now = Date.now();
     const entry: JobAdjustment = {
-      id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj_${Date.now()}`),
-      label: lbl, amount, device_index: 0, source: 'admin_manual', status: 'applied',
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj_${now}`),
+      label: lbl, amount, device_index: 0, source: 'admin_manual',
+      status: canApply ? 'applied' : 'pending',
       by_uid: currentUser?.id, by_name: currentUser?.name || 'Admin',
-      by_role: (currentUser as { role?: string } | null)?.role, at: Date.now(),
+      by_role: (currentUser as { role?: string } | null)?.role, at: now,
+      ...(canApply ? {
+        approved_by_uid: currentUser?.id,
+        approved_by_name: currentUser?.name || 'Admin',
+        approved_by_role: currentUser?.role,
+        approved_at: now,
+      } : {}),
     };
     const list = [...listAdjustments(job), entry];
     const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
     const sign = amount < 0 ? '-' : '+';
     await update(ref(db, `jobs/${job.id}`), {
       adjustments: list, net_payout: net,
-      qc_logs: [makeLog('Adjustment Added', `เพิ่มรายการ "${lbl}" ${sign}฿${Math.abs(amount).toLocaleString()} (ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+      qc_logs: [makeLog(
+        canApply ? 'Adjustment Added' : 'Offer Proposed',
+        canApply
+          ? `เพิ่มรายการ "${lbl}" ${sign}฿${Math.abs(amount).toLocaleString()} (ยอดสุทธิ ${net.toLocaleString()} บ.)`
+          : `เสนอรายการ "${lbl}" ${sign}฿${Math.abs(amount).toLocaleString()} — รออนุมัติจาก CEO/MANAGER`,
+      ), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+    if (!canApply) toast.success('ส่งคำขออนุมัติปรับราคาไปยัง CEO/MANAGER แล้ว');
+  };
+
+  // CEO/MANAGER decision on a pending admin offer. Approving folds the line
+  // into net_payout; rejecting keeps it visible (struck) in the trail.
+  const handleReviewAdjustment = async (adjId: string, approve: boolean) => {
+    if (!canReviewAdjustments(currentUser?.role)) { toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่อนุมัติได้'); return; }
+    const now = Date.now();
+    const list = listAdjustments(job).map((a): JobAdjustment => {
+      if (a.id !== adjId || a.status !== 'pending') return a;
+      return approve
+        ? { ...a, status: 'applied', approved_by_uid: currentUser?.id, approved_by_name: currentUser?.name || 'Admin', approved_by_role: currentUser?.role, approved_at: now }
+        : { ...a, status: 'rejected', rejected_by_name: currentUser?.name || 'Admin', rejected_at: now };
+    });
+    const target = listAdjustments(job).find(a => a.id === adjId);
+    const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
+    await update(ref(db, `jobs/${job.id}`), {
+      adjustments: list, net_payout: net,
+      qc_logs: [makeLog(
+        approve ? 'Offer Approved' : 'Offer Rejected',
+        `${approve ? 'อนุมัติ' : 'ปฏิเสธ'}รายการ "${target?.label || ''}" ${Number(target?.amount) < 0 ? '-' : '+'}฿${Math.abs(Number(target?.amount || 0)).toLocaleString()} (เสนอโดย ${target?.by_name || '-'}${approve ? ` · ยอดสุทธิใหม่ ${net.toLocaleString()} บ.` : ''})`,
+      ), ...(job.qc_logs || [])],
       updated_at: Date.now(),
     });
   };
+
+  // Rider-fee discount (promo the company absorbs) — edit/remove from admin.
+  // Client recomputes net_payout with the canonical formula; the
+  // onRiderFeeDiscountEdited cloud function syncs the absorbed-cost ledger
+  // (issued_rider_fee_discounts is server-write-only).
+  const handleEditRiderDiscount = async (newValue: number) => {
+    if (!Number.isFinite(newValue) || newValue < 0) return;
+    const capped = Math.min(newValue, grossPickupFee);
+    const effFee = Math.max(0, grossPickupFee - capped);
+    await update(ref(db, `jobs/${job.id}`), {
+      rider_fee_discount: capped,
+      ...(capped === 0 ? { applied_rider_promo: null } : {}),
+      net_payout: Math.max(0, basePrice - effFee + couponValue + adjustmentsSum),
+      qc_logs: [makeLog('Rider-Fee Discount Edited', `แก้ส่วนลดค่าไรเดอร์เป็น ฿${capped.toLocaleString()} (เดิม ฿${riderFeeDiscount.toLocaleString()})`), ...(job.qc_logs || [])],
+      updated_at: Date.now(),
+    });
+  };
+  const handleRemoveRiderDiscount = async () => {
+    if (!confirm('ยืนยันการยกเลิกส่วนลดค่าไรเดอร์? ลูกค้าจะถูกหักค่าบริการเต็มจำนวน')) return;
+    await handleEditRiderDiscount(0);
+  };
   const handleRemoveAdjustment = async (id: string) => {
     const target = listAdjustments(job).find(a => a.id === id);
+    // Applied lines change the payout — only CEO/MANAGER may pull one out.
+    // A pending proposal can be withdrawn by its proposer too.
+    if (target?.status === 'applied' && !canReviewAdjustments(currentUser?.role)) {
+      toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่ลบรายการที่มีผลแล้วได้');
+      return;
+    }
     const list = listAdjustments(job).filter(a => a.id !== id);
     const net = Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments({ adjustments: list }));
     await update(ref(db, `jobs/${job.id}`), {
@@ -410,10 +482,11 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
         </div>
         <PricingSidebar
           job={job}
-          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment }}
+          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment, handleEditRiderDiscount, handleRemoveRiderDiscount }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
           pricing={{ basePrice, pickupFee, couponValue, netPayout, adjustments: listAdjustments(job), adjustmentsSum, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}
+          currentUserRole={currentUser?.role}
         />
       </div>
       <CancelModal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} onConfirm={handleCancelTicket} />

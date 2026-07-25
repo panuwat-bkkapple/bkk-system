@@ -74,8 +74,10 @@ export const B2CWorkspace = ({
               cust_phone: editCustData.phone,
               cust_email: editCustData.email,
           };
-          if (job.receive_method === 'Store-in') updatePayload.store_branch = editCustData.address;
-          else updatePayload.cust_address = editCustData.address;
+          // Always the CUSTOMER's own address — the Store-in branch is a real
+          // branch record (branch_details) managed by the branch picker, never
+          // free text (writing here used to corrupt store_branch).
+          updatePayload.cust_address = editCustData.address;
 
           const updatedLogs = [{ action: 'Customer Info Updated', by: 'Admin', timestamp: Date.now(), details: 'อัปเดตข้อมูลการติดต่อ/ที่อยู่ของลูกค้า' }, ...(job.qc_logs || [])];
           updatePayload.qc_logs = updatedLogs;

@@ -44,8 +44,54 @@ export function currentLocation(job: any): string {
 // Field updates for the location given the (selected) method. Store-in keeps it
 // in store_branch; Pickup / Mail-in keep it in cust_address. The inactive field
 // is nulled so stale data from the previous method doesn't linger.
+//
+// Store-in MUST come from a real branch record (settings/branches) via
+// buildStoreInBranchFields below — free text here used to smear the
+// customer's home address into store_branch and left branch_details empty,
+// so the customer tracking page fell back to a guessed default branch.
 export function buildMethodLocationFields(newMethod: string, location: string): Record<string, any> {
   const loc = (location || '').trim() || null;
   if (newMethod === 'Store-in') return { store_branch: loc, cust_address: null };
-  return { cust_address: loc, store_branch: null };
+  // Leaving Store-in: clear the branch snapshot too — the tracking page
+  // resolves the live branch from branch_details.id and must not show a
+  // stale branch on a job that is no longer Store-in.
+  return { cust_address: loc, store_branch: null, branch_name: null, branch_details: null };
+}
+
+// Branch record as stored at settings/branches/{id} (see BranchManager).
+export interface BranchRecord {
+  id: string;
+  name?: string;
+  address?: string;
+  mapInfo?: string;
+  phone?: string;
+  lat?: number;
+  lng?: number;
+  openHour?: number;
+  closeHour?: number;
+  isActive?: boolean;
+  isOpen?: boolean;
+}
+
+// Store-in fields written by the ADMIN when picking a branch — the SAME
+// shape validateAndCreateOrder (bkk-frontend-next functions) writes at
+// customer checkout, so the tracking page (TrackDeliverySection /
+// PickupDeliveryLegacy) resolves the live branch identically for both
+// creation paths. branch_details.id is what the live-branch lookup keys on.
+export function buildStoreInBranchFields(branch: BranchRecord): Record<string, any> {
+  return {
+    store_branch: branch.name || '',
+    branch_name: branch.name || '',
+    branch_details: {
+      id: branch.id,
+      name: branch.name || '',
+      address: branch.address || '',
+      phone: branch.phone || '',
+      lat: branch.lat != null ? Number(branch.lat) : null,
+      lng: branch.lng != null ? Number(branch.lng) : null,
+      openHour: Number.isFinite(Number(branch.openHour)) ? Number(branch.openHour) : null,
+      closeHour: Number.isFinite(Number(branch.closeHour)) ? Number(branch.closeHour) : null,
+    },
+    cust_address: null,
+  };
 }
