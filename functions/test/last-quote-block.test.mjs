@@ -935,5 +935,24 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("search result carries eligible_coupon for the model", body.includes("...(searchCoupon ? { eligible_coupon:"));
 }
 
+// --- a wait-promise must never survive to the customer -----------------------
+// Live case #PSP1: customer confirmed "iPad Generation 10" via chip, the AI
+// replied "ขอเช็คราคา...รอสักครู่ครับ" and went silent — the recovery loop is
+// best-effort (if every recovery draft is still a wait-promise, the original
+// text used to ship). Deterministic tail now replaces any surviving wait
+// promise with the flow's real next step.
+{
+  const rec = src.indexOf("wait-promise reply — forcing the check to finish this turn");
+  const tail = src.indexOf("wait promise survived recovery — overriding with the next real step");
+  check("deterministic tail exists after the recovery loop", tail > rec && rec > 0);
+  const tailBody = src.slice(tail, tail + 1600);
+  check("tail re-checks the surviving draft", src.slice(rec, tail).includes("waitPromiseIntent(finalText)"));
+  check("offer mode with no phone -> offer contact ask", tailBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
+  check("contact gate pending -> contact-first ask", tailBody.includes("CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK"));
+  check("otherwise -> ask storage+condition, never wait", tailBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
+  check("the fallback lines are not themselves wait-promises", !__test.waitPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
+  check("live #PSP1 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ ขอเช็คราคารับซื้อ iPad Generation 10 ในระบบให้ก่อนนะครับ รอสักครู่ครับ"));
+}
+
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);
 process.exit(failures ? 1 : 0);
