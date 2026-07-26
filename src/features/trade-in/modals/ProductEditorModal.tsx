@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import {
   Smartphone, X, Image as ImageIcon, ClipboardList, Save, Upload, Loader2,
-  Zap, List, ArrowRightLeft, Copy
+  Zap, List, ArrowRightLeft, Copy, AlertTriangle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
@@ -17,6 +17,7 @@ import { detectModifiersFromLegacyVariants } from '../utils/variantGenerator';
 import type { DetectResult } from '../utils/variantGenerator';
 import { tierDeduction } from '../../../utils/pricingResolver';
 import { ACCESSORY_CATEGORY } from '../../../utils/accessoryItems';
+import { getModelReadiness, READINESS_ISSUE_LABELS } from '../utils/modelReadiness';
 
 /**
  * Representative used-price of a model for converting LEGACY tier options into
@@ -247,6 +248,55 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+
+          {/* Readiness banner (Reusely-style empty state): บอกว่ารุ่นนี้ขาด
+              config อะไรถึงจะรับซื้อได้จริง พร้อมปุ่มแก้ตรงนี้เลย — หายเอง
+              ทันทีที่แก้ครบเพราะคำนวณสดจาก editingItem */}
+          {(() => {
+            const r = getModelReadiness(editingItem, conditionSets);
+            if (r.ready) return null;
+            const methodButtons: Array<{ key: string; label: string }> = [
+              { key: 'inStore', label: 'เปิด In-store' },
+              { key: 'pickup', label: 'เปิด Pickup' },
+              { key: 'mailIn', label: 'เปิด Mail-in' },
+            ];
+            return (
+              <div className="max-w-7xl mx-auto w-full mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-black text-amber-800">
+                      {editingItem.name ? `"${editingItem.name}" ` : 'รุ่นนี้'}ยังไม่พร้อมเปิดรับซื้อ — ตั้งค่าให้ครบก่อน ลูกค้าถึงจะขายรุ่นนี้ได้
+                    </p>
+                    <ul className="mt-1.5 space-y-0.5">
+                      {r.issues.map(i => (
+                        <li key={i} className="text-xs font-bold text-amber-700">
+                          - {READINESS_ISSUE_LABELS[i]}
+                          {i === 'condition_group' && ' — เลือกได้ที่ข้อ 2 (Assign Condition Item)'}
+                          {i === 'pricing' && ' — กรอกได้ที่ข้อ 3 (Pricing)'}
+                        </li>
+                      ))}
+                    </ul>
+                    {r.issues.includes('purchasing_method') && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {methodButtons.map(b => (
+                          <button
+                            key={b.key}
+                            type="button"
+                            onClick={() => onEditingItemChange({ ...editingItem, [b.key]: true })}
+                            className="px-3 py-1.5 text-xs font-bold text-amber-700 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition"
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 max-w-7xl mx-auto w-full">
 
             {/* Left Column (Info & Settings) */}
@@ -399,6 +449,7 @@ export const ProductEditorModal: React.FC<ProductEditorModalProps> = ({
               {/* Trade-in Settings */}
               <div className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-200 space-y-5">
                 <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-3">2. Trade-in Settings</h4>
+                <label className="text-xs font-bold text-slate-500 block -mb-2">วิธีรับซื้อ (Purchasing Method)</label>
                 <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={editingItem.inStore} onChange={(e) => onEditingItemChange({ ...editingItem, inStore: e.target.checked })} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
