@@ -206,13 +206,13 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   battery_latest: { label: 'แบต % ละเอียด + ประกันละเอียด + ZP/A (รุ่นล่าสุด iPhone 17)', items: [
     SCREEN_GROUP(3, 8, 30),
     BODY_GROUP(3, 6, 12, 40),
+    // เครื่องรุ่นล่าสุดยังใหม่ทั้งตลาด — ไม่มีเครื่องแบตต่ำจริง จึงถามแค่ 4 ช่วง
+    // (ต่ำกว่า 90% เป็น catch-all หักหนัก ไม่ต้องมีขั้น 80s/เสื่อม)
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 100%', description: 'แบตเตอรี่ยังเต็ม 100% เหมือนใหม่', deduct: 0 },
-      { label: 'สุขภาพแบต 98-99%', description: 'เสื่อมเล็กน้อยมาก แทบเท่าเครื่องใหม่', pct: 1 },
-      { label: 'สุขภาพแบต 95-97%', description: 'เสื่อมเล็กน้อยตามการใช้งาน', pct: 3 },
+      { label: 'สุขภาพแบต 95-99%', description: 'เสื่อมเล็กน้อยตามการใช้งาน', pct: 2 },
       { label: 'สุขภาพแบต 90-94%', description: 'เสื่อมตามการใช้งาน ยังใช้ได้ปกติ', pct: 6 },
-      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 10 },
-      { label: 'แบตต่ำกว่า 85% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+      { label: 'แบตต่ำกว่า 90%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 12, failBehavior: 'deduct' },
     ] },
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'เหลือประกันศูนย์มากกว่า 6 เดือน / AppleCare+', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
