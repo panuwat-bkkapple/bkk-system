@@ -1004,6 +1004,15 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("CONTACT_FIRST_ASK is NOT a callback promise", !__test.callbackPromiseIntent("ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ"));
   check("storage+condition fallback is NOT a callback promise", !__test.callbackPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
   check("forwarding claim now covers staff-will-check phrasing", __test.claimsHumanForwarding("เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ"));
+  // Live case IMG_5141 (MacBook Neo — model priced in catalog, AI skipped
+  // search_models and narrated a future check): both sentences dodge the
+  // original anchors ("ในระบบก่อนนะ" not "ให้ก่อนนะ"; causative "ให้เจ้าหน้าที่
+  // ตรวจสอบ...แจ้งราคาให้" has no "จะ" and no "กลับ").
+  const t5141 = "ขอบคุณสำหรับข้อมูลครับ ผมขอเช็ครุ่น MacBook Neo นี้ในระบบก่อนนะครับ ว่าทางร้านรับซื้อรุ่นนี้หรือไม่ และราคาประเมินเท่าไหร่ รบกวนขอชื่อกับเบอร์โทรติดต่อไว้ด้วยครับ เดี๋ยวผมให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้เลยครับ";
+  check("IMG_5141 'ขอเช็ค...ในระบบก่อน' is a wait promise", __test.waitPromiseIntent(t5141));
+  check("IMG_5141 causative staff-check is a callback promise", __test.callbackPromiseIntent("เดี๋ยวผมให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้เลยครับ"));
+  check("clarifying opener 'ขอเช็คให้ชัดก่อนนะครับ' stays clean", !__test.waitPromiseIntent("ขอเช็คให้ชัดก่อนนะครับ หมายถึงรุ่นไหนครับ [ตัวเลือก: iPad Gen 9 | iPad mini 6]"));
+  check("warranty correction opener stays clean", !__test.waitPromiseIntent("ขอเช็คให้ชัวร์ก่อนครับ รุ่นนี้สถานะประกันศูนย์มีผลกับราคาประเมินด้วยครับ"));
   // Canned-final plumbing: our own deterministic copy (OFFER_CONTACT_ASK's
   // conditional "ฝากเบอร์...เดี๋ยวทีมงานติดต่อกลับ") must not be re-mangled
   // or force-escalated empty-handed.
