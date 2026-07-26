@@ -32,7 +32,7 @@ export const ASSESSMENT_PRESETS: Record<string, PresetCategory> = {
     label: 'สภาพหน้าจอ',
     topics: [
       { th: 'สภาพหน้าจอ', en: 'Screen condition', desc_th: 'รอยขีดข่วนหรือความเสียหายของกระจกหน้าจอ', desc_en: 'Scratches or damage on the front glass' },
-      { th: 'หน้าจอ + ทัชสกรีน', en: 'Display + Touchscreen', desc_th: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว', desc_en: 'Touchscreen responds normally with no dark spots, lines, or backlight bleed' },
+      { th: 'การแสดงผล + ทัชสกรีน', en: 'Display + Touchscreen', desc_th: 'ทัชสกรีนตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว', desc_en: 'Touchscreen responds normally with no dark spots, lines, or backlight bleed' },
       { th: 'สภาพจอภาพและกระจก', en: 'Screen & Glass Condition', desc_th: 'สภาพโดยรวมของจอแสดงผลและกระจกหน้า', desc_en: 'Overall condition of the display and front glass' },
       { th: 'สภาพกระจกหลัง', en: 'Back glass condition', desc_th: 'รอยแตกหรือร้าวของกระจกฝาหลัง', desc_en: 'Chips or cracks in the back glass' },
     ],

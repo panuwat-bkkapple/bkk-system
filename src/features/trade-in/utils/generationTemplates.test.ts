@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   classifyIphoneGeneration,
   buildGenerationGroups,
+  buildFunctionalScreeningGroups,
   applyGenerationToGroups,
   planGenerationApply,
 } from './generationTemplates';
@@ -100,26 +101,64 @@ const makeSet = () => ({
   ],
 });
 
+const IPHONE_SCREENING_TITLES = [
+  'เปิดเครื่อง / ใช้งานทั่วไป',
+  'การแสดงผล + ทัชสกรีน',
+  'กล้องหน้า / กล้องหลัง',
+  'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)',
+  'ลำโพง / ไมโครโฟน',
+];
+
+describe('buildFunctionalScreeningGroups', () => {
+  it('materializes the standard screening minus battery, with baked EN labels', () => {
+    const groups = buildFunctionalScreeningGroups('mid');
+    expect(groups.map((g: any) => g.title)).toEqual(IPHONE_SCREENING_TITLES);
+    for (const g of groups) {
+      expect(g.kind).toBe('functional');
+      expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
+      expect(g.description, `description of ${g.title}`).toBeTruthy();
+      for (const o of g.options) {
+        expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
+        expect(o.description, `description of ${o.label}`).toBeTruthy();
+      }
+    }
+  });
+  it('cracked-but-working glass counts as ปกติ (points customers at the cosmetic topic)', () => {
+    const display = buildFunctionalScreeningGroups('latest').find((g: any) => g.title === 'การแสดงผล + ทัชสกรีน')!;
+    expect(display.options[0].description).toContain('แม้กระจกจะมีรอยหรือแตก');
+  });
+  it('ipad tiers use the ipad screening template', () => {
+    const titles = buildFunctionalScreeningGroups('ipad_old').map((g: any) => g.title);
+    expect(titles).toContain('Wi-Fi / Bluetooth / สัญญาณ');
+    expect(titles).not.toContain('แบตเตอรี่');
+  });
+});
+
 describe('applyGenerationToGroups', () => {
-  it('replaces battery/warranty/region groups in place, keeping the rest untouched', () => {
+  it('normalizes screening + replaces deduction groups in place, keeping the rest untouched', () => {
     const { groups, removedTitles } = applyGenerationToGroups(makeSet().groups, 'mid');
-    expect(removedTitles).toEqual(['แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
-    // Inserted where the first removed group (index 1) used to be — the old
-    // cosmetic screen group is replaced too, per the full-set redesign.
+    expect(removedTitles).toEqual(['เปิดเครื่อง / ใช้งานทั่วไป', 'แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
     expect(groups.map((g: any) => g.title)).toEqual([
-      'เปิดเครื่อง / ใช้งานทั่วไป',
+      ...IPHONE_SCREENING_TITLES,
       'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง',
       'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ',
       'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
     // Untouched groups keep their identity.
-    expect(groups[0].id).toBe('g1');
     expect(groups[groups.length - 1].id).toBe('g6');
   });
-  it('appends when the set had no battery/warranty/region groups', () => {
-    const bare = [{ id: 'g1', title: 'กล้องหน้า / กล้องหลัง', options: [] }];
+  it('the old functional battery screen is folded into the single pricing battery group', () => {
+    const { groups } = applyGenerationToGroups(makeSet().groups, 'mid');
+    expect(groups.filter((g: any) => /แบต/.test(g.title))).toHaveLength(1);
+  });
+  it('prepends screening and appends deduction groups when the set had neither', () => {
+    const bare = [{ id: 'g1', title: 'อุปกรณ์เสริมที่นำมาด้วย', options: [] }];
     const { groups } = applyGenerationToGroups(bare, 'old');
-    expect(groups.map((g: any) => g.title)).toEqual(['กล้องหน้า / กล้องหลัง', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
+    expect(groups.map((g: any) => g.title)).toEqual([
+      ...IPHONE_SCREENING_TITLES,
+      'อุปกรณ์เสริมที่นำมาด้วย',
+      'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ',
+    ]);
   });
 });
 
