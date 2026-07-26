@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import {
   X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
-  Copy, ChevronUp, ChevronDown, Languages
+  Copy, ChevronUp, ChevronDown, Languages, Split, Loader2, CheckCircle2, Sparkles
 } from 'lucide-react';
 import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
 import { writeConditionSet } from '../utils/conditionSets';
+import { planPerModelSplit, executePerModelSplit } from '../utils/perModelConditionSets';
+import { planGenerationApply, executeGenerationApply, GEN_LABELS, type IphoneGeneration } from '../utils/generationTemplates';
 import { fillEnFields } from '../utils/assessmentEnSeed';
 import { FUNCTIONAL_TEMPLATES, CONDITION_TEMPLATES } from '../utils/assessmentSeedTemplates';
 import { ASSESSMENT_PRESETS } from '../utils/assessmentPresets';
@@ -29,11 +31,13 @@ const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(_uidSeq
 
 interface EngineSettingsModalProps {
   conditionSets: any[];
+  /** แคตตาล็อกทั้งหมด — ใช้วางแผน/รันเครื่องมือแตกชุดรายรุ่น (1 รุ่น : 1 ชุด) */
+  models?: any[];
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ conditionSets, isOpen, onClose }) => {
+export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ conditionSets, models = [], isOpen, onClose }) => {
   const [activeSetId, setActiveSetId] = useState<string | null>(conditionSets.length > 0 ? conditionSets[0].id : null);
   const [editingSet, setEditingSet] = useState<any>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -43,6 +47,73 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
 
   // Which group's icon-picker popover is open (by group id), or null.
   const [iconMenuFor, setIconMenuFor] = useState<string | null>(null);
+
+  // ---- Bulk split to 1 model : 1 condition set --------------------------------
+  // The plan is recomputed from live models + sets, and only ever contains
+  // models whose set is still SHARED — so it shrinks to zero as the split runs
+  // (and re-running never duplicates anything).
+  const [splitProgress, setSplitProgress] = useState<{ done: number; total: number } | null>(null);
+  const splitPlan = useMemo(
+    () => planPerModelSplit(models, conditionSets),
+    [models, conditionSets],
+  );
+
+  // ---- Auto-apply generation battery/warranty/region templates (iPhone) -----
+  // Runs AFTER the 1:1 split: only per-model sets are touched (shared sets are
+  // skipped and counted), so pressing it early is safe. Idempotent — a set that
+  // already carries its tier's template groups is skipped by the planner.
+  const [genProgress, setGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const genPlan = useMemo(
+    () => planGenerationApply(models, conditionSets),
+    [models, conditionSets],
+  );
+
+  const handleApplyGeneration = async () => {
+    if (genProgress || genPlan.actions.length === 0) return;
+    const tierLine = (Object.keys(GEN_LABELS) as IphoneGeneration[])
+      .filter((t) => genPlan.tierCounts[t] > 0)
+      .map((t) => `- ${GEN_LABELS[t]}: ${genPlan.tierCounts[t]} รุ่น`).join('\n');
+    if (!confirm(
+      `ปรับหัวข้อ แบต + ประกัน + ประเทศที่ซื้อ ตามนโยบายรายรุ่นให้ ${genPlan.actions.length} รุ่น (iPhone + iPad)?\n\n`
+      + `${tierLine}\n\n`
+      + `หัวข้อแบต/ประกัน/ประเทศเดิมของแต่ละชุดจะถูกแทนที่ด้วยชุดคำถามตามรุ่น (หัวข้ออื่นไม่ถูกแตะ) — ราคาประเมินจะเปลี่ยนตามนโยบายใหม่ทันที`
+      + (genPlan.sharedSkipped.length > 0 ? `\n\nข้าม ${genPlan.sharedSkipped.length} รุ่นที่ยังใช้ชุดร่วมกับรุ่นอื่น — กด "แตกชุดรายรุ่น" ก่อน` : ''),
+    )) return;
+    setGenProgress({ done: 0, total: genPlan.actions.length });
+    try {
+      const result = await executeGenerationApply(genPlan.actions, (done, total) => setGenProgress({ done, total }));
+      if (result.failed.length === 0) {
+        toast.success(`ปรับชุดคำถามตามรุ่นสำเร็จ ${result.done} รุ่น`);
+      } else {
+        toast.error(`สำเร็จ ${result.done} รุ่น, ล้มเหลว ${result.failed.length} รุ่น (${result.failed.slice(0, 3).map((f) => f.modelName).join(', ')}${result.failed.length > 3 ? ', …' : ''}) — กดซ้ำเพื่อทำเฉพาะที่ค้าง`);
+      }
+    } finally {
+      setGenProgress(null);
+    }
+  };
+
+  const handleSplitPerModel = async () => {
+    if (splitProgress || splitPlan.actions.length === 0) return;
+    const bySource = new Map<string, number>();
+    for (const a of splitPlan.actions) bySource.set(a.sourceSetName, (bySource.get(a.sourceSetName) || 0) + 1);
+    const summary = [...bySource.entries()].map(([n, c]) => `- ${n}: ${c} รุ่น`).join('\n');
+    if (!confirm(
+      `แตกชุดประเมินเป็นรายรุ่น (1 รุ่น : 1 ชุด) ทั้งหมด ${splitPlan.actions.length} รุ่น?\n\n`
+      + `${summary}\n\n`
+      + `แต่ละรุ่นจะได้ "สำเนา" ของชุดเดิมเป็นของตัวเอง (ตั้งชื่อตามรุ่น) โดยค่าหักแบบ tier เดิมถูกแปลงเป็นค่าเดียวตามราคากลางของรุ่นนั้น — ชุดเดิมไม่ถูกแก้/ลบ`,
+    )) return;
+    setSplitProgress({ done: 0, total: splitPlan.actions.length });
+    try {
+      const result = await executePerModelSplit(splitPlan.actions, (done, total) => setSplitProgress({ done, total }));
+      if (result.failed.length === 0) {
+        toast.success(`แตกชุดรายรุ่นสำเร็จ ${result.done} รุ่น — ชุดเดิมที่ไม่มีรุ่นใช้แล้วลบได้จากเมนูซ้าย`);
+      } else {
+        toast.error(`สำเร็จ ${result.done} รุ่น, ล้มเหลว ${result.failed.length} รุ่น (${result.failed.slice(0, 3).map((f) => f.modelName).join(', ')}${result.failed.length > 3 ? ', …' : ''}) — กดซ้ำเพื่อทำเฉพาะที่ค้าง`);
+      }
+    } finally {
+      setSplitProgress(null);
+    }
+  };
 
   // Keep latest editingSet for rollback inside async callbacks without stale closures.
   const editingSetRef = useRef<any>(null);
@@ -305,6 +376,84 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
             <button onClick={handleCreateNewSet} className="w-full py-3 bg-white border border-dashed border-indigo-300 text-indigo-600 font-bold rounded-xl hover:bg-indigo-50 transition mb-2 flex items-center justify-center gap-2">
               <Plus size={18} /> สร้างชุดประเมินใหม่
             </button>
+
+            {/* เครื่องมือแตกชุดรายรุ่น — โผล่เฉพาะเมื่อมีแคตตาล็อกให้วางแผน */}
+            {models.length > 0 && (
+              <div className="bg-white border border-amber-200 rounded-2xl p-4 mb-1">
+                <div className="text-xs font-black text-amber-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                  <Split size={14} /> 1 รุ่น : 1 ชุดประเมิน
+                </div>
+                {splitProgress ? (
+                  <>
+                    <div className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1.5">
+                      <Loader2 size={13} className="animate-spin" /> กำลังแตกชุด… {splitProgress.done}/{splitProgress.total} รุ่น
+                    </div>
+                    <div className="h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${(splitProgress.done / Math.max(1, splitProgress.total)) * 100}%` }} />
+                    </div>
+                  </>
+                ) : splitPlan.actions.length > 0 ? (
+                  <>
+                    <div className="text-[11px] font-bold text-slate-500 mb-2 leading-relaxed">
+                      ยังมี {splitPlan.actions.length} รุ่นใช้ชุดร่วมกับรุ่นอื่น
+                      {splitPlan.alreadyPerModel > 0 && ` (ครบแล้ว ${splitPlan.alreadyPerModel} รุ่น)`}
+                      {splitPlan.missing.length > 0 && ` · ${splitPlan.missing.length} รุ่นไม่มีชุด ต้องผูกเอง`}
+                    </div>
+                    <button
+                      onClick={handleSplitPerModel}
+                      title="สร้างสำเนาชุดประเมินให้ทุกรุ่นที่ยังใช้ชุดร่วมกัน — tier เดิมถูกแปลงเป็นค่าหักเดียวตามราคากลางของแต่ละรุ่น"
+                      className="w-full py-2.5 bg-amber-500 text-white text-sm font-black rounded-xl hover:bg-amber-600 transition flex items-center justify-center gap-2"
+                    >
+                      <Split size={16} /> แตกชุดรายรุ่น ({splitPlan.actions.length} รุ่น)
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} /> ทุกรุ่นมีชุดประเมินของตัวเองแล้ว
+                    {splitPlan.missing.length > 0 && <span className="text-red-500">· {splitPlan.missing.length} รุ่นไม่มีชุด</span>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto-apply แบต/ประกัน/ประเทศตามรุ่น — เฉพาะ iPhone ที่มีชุดรายรุ่นแล้ว */}
+            {models.length > 0 && (
+              <div className="bg-white border border-indigo-200 rounded-2xl p-4 mb-1">
+                <div className="text-xs font-black text-indigo-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                  <Sparkles size={14} /> แบต + ประกัน + ประเทศ ตามรุ่น
+                </div>
+                {genProgress ? (
+                  <>
+                    <div className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1.5">
+                      <Loader2 size={13} className="animate-spin" /> กำลังปรับ… {genProgress.done}/{genProgress.total} รุ่น
+                    </div>
+                    <div className="h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${(genProgress.done / Math.max(1, genProgress.total)) * 100}%` }} />
+                    </div>
+                  </>
+                ) : genPlan.actions.length > 0 ? (
+                  <>
+                    <div className="text-[11px] font-bold text-slate-500 mb-2 leading-relaxed">
+                      iPhone/iPad {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
+                      {genPlan.alreadyApplied > 0 && ` (ปรับแล้ว ${genPlan.alreadyApplied})`}
+                      {genPlan.sharedSkipped.length > 0 && ` · ${genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน`}
+                    </div>
+                    <button
+                      onClick={handleApplyGeneration}
+                      title="แทนที่หัวข้อแบต/ประกัน/ประเทศของชุดรายรุ่นด้วยชุดคำถามตามนโยบายรุ่น (iPhone: 17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม · iPad: ปี 2024+ ถาม % / ก่อนนั้น ดี-เสื่อม) — หัวข้ออื่นไม่ถูกแตะ"
+                      className="w-full py-2.5 bg-indigo-600 text-white text-sm font-black rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                    >
+                      <Sparkles size={16} /> ปรับตามรุ่น ({genPlan.actions.length} รุ่น)
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} /> iPhone/iPad ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
+                    {genPlan.sharedSkipped.length > 0 && <span className="text-amber-600">· {genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน</span>}
+                  </div>
+                )}
+              </div>
+            )}
             {conditionSets.map(set => (
               <div key={set.id} className={`p-4 rounded-2xl cursor-pointer border-2 transition-all group relative ${activeSetId === set.id ? 'bg-indigo-50 border-indigo-500' : 'bg-white border-transparent hover:border-slate-200'}`} onClick={() => setActiveSetId(set.id)}>
                 <div className={`font-black text-sm pr-6 ${activeSetId === set.id ? 'text-indigo-900' : 'text-slate-700'}`}>{set.name}</div>
