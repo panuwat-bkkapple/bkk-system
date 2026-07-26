@@ -406,6 +406,11 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'เครื่องงอ / ผิดรูป': 'Bent or deformed body',
   'ตัวเครื่องงอ ผิดรูป หรือบิดเบี้ยว': 'Body is bent, deformed, or warped',
   // Condition template — screen condition
+  'ต้องไม่มีตำหนิใดๆ บนจอภาพหรือกระจก': 'No blemishes at all on the display or glass',
+  'อาจมองเห็นได้เมื่อส่องไฟ': 'Visible only under direct light',
+  'มองเห็นชัดแม้ไม่ส่องไฟ': 'Clearly visible without shining a light',
+  'รอยจากการใช้งานปกติ มองเห็นเมื่อสะท้อนแสง': 'Normal-use marks, visible under reflection',
+  'ตัวเครื่องงอ ผิดรูป หรือฝาหลังแตกร้าว': 'Body is bent or deformed, or the back is cracked',
   'รอยหรือความเสียหายของกระจกหน้าจอ': 'Scratches or damage on the screen glass',
   'หน้าจอใส ไม่มีรอย ไม่มีตำหนิ': 'Clean screen with no scratches or blemishes',
   'รอยขนแมวเล็กน้อยบนหน้าจอ': 'Faint light scratches on the screen',
