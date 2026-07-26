@@ -23,7 +23,16 @@ describe('classifyIphoneGeneration', () => {
     ['iPhone XS Max', 'old'],
     ['iPhone X', 'old'],
     ['iPhone 8 Plus', 'old'],
-    ['iPad Pro 11" (2020)', null],
+    ['iPad Pro 11" (ชิป M4, 2024)', 'ipad_new'],
+    ['iPad Pro 13" (ชิป M5, 2025)', 'ipad_new'],
+    ['iPad Air 13" (ชิป M3, 2025)', 'ipad_new'],
+    ['iPad mini รุ่นที่ 7 (ชิป A17 Pro)', 'ipad_new'],
+    ['iPad Generation 11', 'ipad_new'],
+    ['iPad Generation 10', 'ipad_old'],
+    ['iPad Pro 12.9" (ชิป M2, 2022)', 'ipad_old'],
+    ['iPad Pro 11" (2020)', 'ipad_old'],
+    ['iPad Air (2013)', 'ipad_old'],
+    ['iPad mini 6 (2021)', 'ipad_old'],
     ['MacBook Air 13" (Intel, 2020)', null],
     ['Apple Watch Series 10', null],
     ['Apple Pencil Pro', null],
@@ -97,17 +106,21 @@ describe('planGenerationApply', () => {
     { id: 'm16a', name: 'iPhone 16', conditionSetId: 'shared' },
     { id: 'm16b', name: 'iPhone 16 Pro', conditionSetId: 'shared' },
     { id: 'mx', name: 'iPhone X' }, // no set
-    { id: 'ipad', name: 'iPad Air 4 (2020)', conditionSetId: 'set1x' },
+    { id: 'ipad', name: 'iPad Air 4 (2020)', conditionSetId: 'setIpad' },
+    { id: 'mac', name: 'MacBook Air 13" (ชิป M1, 2020)', conditionSetId: 'setMac' },
   ];
+  const ipadSet = { id: 'setIpad', name: 'iPad Air 4', groups: makeSet().groups };
 
-  it('plans per-model iPhone sets only; shared/non-iPhone/missing are reported', () => {
-    const plan = planGenerationApply(models, [perModelSet, sharedSet]);
-    expect(plan.actions.map((a) => a.modelId)).toEqual(['m15']);
+  it('plans per-model iPhone/iPad sets; shared/out-of-scope/missing are reported', () => {
+    const plan = planGenerationApply(models, [perModelSet, sharedSet, ipadSet]);
+    expect(plan.actions.map((a) => a.modelId)).toEqual(['m15', 'ipad']);
     expect(plan.actions[0].tier).toBe('mid');
+    expect(plan.actions[1].tier).toBe('ipad_old');
     expect(plan.tierCounts.mid).toBe(1);
+    expect(plan.tierCounts.ipad_old).toBe(1);
     expect(plan.sharedSkipped.map((s) => s.modelId)).toEqual(['m16a', 'm16b']);
     expect(plan.missing.map((s) => s.modelId)).toEqual(['mx']);
-    expect(plan.nonIphone).toBe(1);
+    expect(plan.outOfScope).toBe(1); // the MacBook
   });
 
   it('is idempotent: after applying, re-planning reports alreadyApplied', () => {

@@ -12,6 +12,8 @@ import { writeConditionSet } from './conditionSets';
  *   iPhone 14-15-> battery_mid    (แบต >= 85% ไม่หัก, ประกันไม่หัก)
  *   iPhone <=13 -> battery_old    (ดี/เสื่อม เกณฑ์ >= 80%, ประกันไม่หัก)
  *   (SE / X / XR / XS / 8 / 7 / 6 = ก่อนยุค 14 ทั้งหมด -> battery_old)
+ *   iPad ปี 2024 ขึ้นไป -> battery_ipad_new (มีเมนู Battery Health % ให้ถามช่วง)
+ *   iPad ก่อนปี 2024    -> battery_ipad_old (ไม่มีเมนู % -> ถามได้แค่ ดี/เสื่อม)
  *
  * The tool REPLACES the set's existing battery + warranty + region groups
  * (matched by title) with the template's three groups, inserted where the
@@ -21,13 +23,15 @@ import { writeConditionSet } from './conditionSets';
  * editing a shared set would change its sibling models too).
  */
 
-export type IphoneGeneration = 'latest' | 'recent' | 'mid' | 'old';
+export type IphoneGeneration = 'latest' | 'recent' | 'mid' | 'old' | 'ipad_new' | 'ipad_old';
 
 const GEN_TEMPLATE_KEY: Record<IphoneGeneration, string> = {
   latest: 'battery_latest',
   recent: 'battery_recent',
   mid: 'battery_mid',
   old: 'battery_old',
+  ipad_new: 'battery_ipad_new',
+  ipad_old: 'battery_ipad_old',
 };
 
 /** Short per-tier labels for plan summaries / confirm dialogs. */
@@ -36,6 +40,8 @@ export const GEN_LABELS: Record<IphoneGeneration, string> = {
   recent: 'iPhone 16',
   mid: 'iPhone 14-15',
   old: 'iPhone 13 ลงไป',
+  ipad_new: 'iPad ปี 2024 ขึ้นไป',
+  ipad_old: 'iPad ก่อนปี 2024',
 };
 
 // Groups the templates replace, matched by group TITLE. Battery matches both
@@ -52,21 +58,38 @@ const isReplacedTitle = (title: unknown): boolean =>
   REPLACED_TITLE_RES.some((re) => re.test(String(title || '')));
 
 /**
- * Which generation tier an iPhone model belongs to; null = not an iPhone
- * (never touched by this tool). Names without a number after "iPhone"
- * (SE / X / XR / XS) all predate the 14-era rules -> 'old'.
+ * Which generation tier a model belongs to; null = out of scope (never
+ * touched by this tool — Mac / Watch / accessories have no policy yet).
+ *
+ * iPhone: names without a number after "iPhone" (SE / X / XR / XS) all
+ * predate the 14-era rules -> 'old'.
+ *
+ * iPad: the dividing line is the Settings Battery Health (%) menu, which
+ * only 2024-and-newer iPads have (Pro M4/M5, Air M2+, mini A17 Pro,
+ * Gen 11) — detected from the year in the name, the M4+ chip, the A17 Pro
+ * mini, or Generation >= 11. Everything else can only answer good/degraded.
  */
 export function classifyIphoneGeneration(model: any): IphoneGeneration | null {
   const name = String(model?.name || '').trim();
-  if (!/^iphone/i.test(name)) return null;
-  // Letter suffix covers the e-line ("iPhone 17e", "iPhone 16e").
-  const m = name.match(/iphone\s+(\d{1,2})[a-z]?\b/i);
-  if (!m) return 'old';
-  const n = Number(m[1]);
-  if (n >= 17) return 'latest';
-  if (n === 16) return 'recent';
-  if (n >= 14) return 'mid';
-  return 'old';
+  if (/^iphone/i.test(name)) {
+    // Letter suffix covers the e-line ("iPhone 17e", "iPhone 16e").
+    const m = name.match(/iphone\s+(\d{1,2})[a-z]?\b/i);
+    if (!m) return 'old';
+    const n = Number(m[1]);
+    if (n >= 17) return 'latest';
+    if (n === 16) return 'recent';
+    if (n >= 14) return 'mid';
+    return 'old';
+  }
+  if (/^ipad/i.test(name)) {
+    const year = name.match(/\b(20\d{2})\b/);
+    if (year && Number(year[1]) >= 2024) return 'ipad_new';
+    if (/ชิป\s*M[4-9]/i.test(name) || /A17\s*Pro/i.test(name)) return 'ipad_new';
+    const gen = name.match(/generation\s+(\d{1,2})\b/i);
+    if (gen && Number(gen[1]) >= 11) return 'ipad_new';
+    return 'ipad_old';
+  }
+  return null;
 }
 
 /**
@@ -134,8 +157,8 @@ export interface GenerationApplyPlan {
   alreadyApplied: number;
   /** iPhones whose set is still shared by other models — split to 1:1 first. */
   sharedSkipped: { modelId: string; modelName: string; setId: string }[];
-  /** Models that are not iPhones — out of scope, untouched. */
-  nonIphone: number;
+  /** Models outside the policy (Mac / Watch / accessories) — untouched. */
+  outOfScope: number;
   /** iPhones with no resolvable set — need manual attention. */
   missing: { modelId: string; modelName: string }[];
   /** Action count per tier (for the confirm summary). */
@@ -154,12 +177,12 @@ export function planGenerationApply(models: any[], sets: any[]): GenerationApply
   }
 
   const plan: GenerationApplyPlan = {
-    actions: [], alreadyApplied: 0, sharedSkipped: [], nonIphone: 0, missing: [],
-    tierCounts: { latest: 0, recent: 0, mid: 0, old: 0 },
+    actions: [], alreadyApplied: 0, sharedSkipped: [], outOfScope: 0, missing: [],
+    tierCounts: { latest: 0, recent: 0, mid: 0, old: 0, ipad_new: 0, ipad_old: 0 },
   };
   for (const m of models || []) {
     const tier = classifyIphoneGeneration(m);
-    if (!tier) { plan.nonIphone++; continue; }
+    if (!tier) { plan.outOfScope++; continue; }
     const sid = modelSetId(m);
     const set = sid ? setById.get(sid) : undefined;
     if (!sid || !set) { plan.missing.push({ modelId: m?.id, modelName: m?.name || m?.id || '?' }); continue; }

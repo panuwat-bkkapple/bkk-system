@@ -74,7 +74,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
       .filter((t) => genPlan.tierCounts[t] > 0)
       .map((t) => `- ${GEN_LABELS[t]}: ${genPlan.tierCounts[t]} รุ่น`).join('\n');
     if (!confirm(
-      `ปรับหัวข้อ แบต + ประกัน + ประเทศที่ซื้อ ตามนโยบายรายรุ่นให้ iPhone ${genPlan.actions.length} รุ่น?\n\n`
+      `ปรับหัวข้อ แบต + ประกัน + ประเทศที่ซื้อ ตามนโยบายรายรุ่นให้ ${genPlan.actions.length} รุ่น (iPhone + iPad)?\n\n`
       + `${tierLine}\n\n`
       + `หัวข้อแบต/ประกัน/ประเทศเดิมของแต่ละชุดจะถูกแทนที่ด้วยชุดคำถามตามรุ่น (หัวข้ออื่นไม่ถูกแตะ) — ราคาประเมินจะเปลี่ยนตามนโยบายใหม่ทันที`
       + (genPlan.sharedSkipped.length > 0 ? `\n\nข้าม ${genPlan.sharedSkipped.length} รุ่นที่ยังใช้ชุดร่วมกับรุ่นอื่น — กด "แตกชุดรายรุ่น" ก่อน` : ''),
@@ -434,13 +434,13 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                 ) : genPlan.actions.length > 0 ? (
                   <>
                     <div className="text-[11px] font-bold text-slate-500 mb-2 leading-relaxed">
-                      iPhone {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
+                      iPhone/iPad {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
                       {genPlan.alreadyApplied > 0 && ` (ปรับแล้ว ${genPlan.alreadyApplied})`}
                       {genPlan.sharedSkipped.length > 0 && ` · ${genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน`}
                     </div>
                     <button
                       onClick={handleApplyGeneration}
-                      title="แทนที่หัวข้อแบต/ประกัน/ประเทศของชุดรายรุ่น iPhone ด้วยชุดคำถามตามนโยบายรุ่น (17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม) — หัวข้ออื่นไม่ถูกแตะ"
+                      title="แทนที่หัวข้อแบต/ประกัน/ประเทศของชุดรายรุ่นด้วยชุดคำถามตามนโยบายรุ่น (iPhone: 17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม · iPad: ปี 2024+ ถาม % / ก่อนนั้น ดี-เสื่อม) — หัวข้ออื่นไม่ถูกแตะ"
                       className="w-full py-2.5 bg-indigo-600 text-white text-sm font-black rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2"
                     >
                       <Sparkles size={16} /> ปรับตามรุ่น ({genPlan.actions.length} รุ่น)
@@ -448,7 +448,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                   </>
                 ) : (
                   <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
-                    <CheckCircle2 size={14} /> iPhone ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
+                    <CheckCircle2 size={14} /> iPhone/iPad ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
                     {genPlan.sharedSkipped.length > 0 && <span className="text-amber-600">· {genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน</span>}
                   </div>
                 )}

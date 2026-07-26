@@ -422,6 +422,10 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'มีประกัน': 'Under warranty',
   // Condition template — battery (per-model detailed % vs simple good/degraded)
   'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ': 'Check in Settings > Battery > Battery Health & Charging',
+  'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)': 'Check in Settings > Battery > Battery Health (available on 2024-and-newer iPads)',
+  'ใช้งานได้ปกติ แบตไม่หมดเร็วผิดปกติ ไม่บวม': 'Works normally; no unusually fast drain or swelling',
+  'เครื่องศูนย์ไทย': 'Thai model',
+  'ซื้อจากศูนย์ / ตัวแทนจำหน่ายในไทย': 'Purchased from an authorized Thai retailer',
   'แบตเตอรี่ยังเต็ม 100% เหมือนใหม่': 'Battery still at 100%, like new',
   'เสื่อมเล็กน้อยมาก แทบเท่าเครื่องใหม่': 'Barely worn, close to new',
   'เสื่อมเล็กน้อยตามการใช้งาน': 'Light wear from normal use',

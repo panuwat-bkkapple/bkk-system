@@ -113,6 +113,14 @@ const REGION_ZP_GROUP: SeedCondGroup = {
     { label: 'ติดล็อกเครือข่าย / ติดสัญญา (ไทยหรือต่างประเทศ)', description: 'ติดล็อกค่ายมือถือในไทย หรือติดสัญญา/แบล็กลิสต์จากต่างประเทศ ใช้ซิมไทยไม่ได้ตามปกติ', failBehavior: 'reject' },
   ],
 };
+// iPad: ส่วนใหญ่เป็นเครื่อง Wi-Fi ไม่มีประเด็น eSIM/ชัตเตอร์แบบ iPhone —
+// แยกแค่ศูนย์ไทย/เครื่องนอกพอ (ไม่ระบุรหัสท้ายเพราะต่างจากยุค iPhone)
+const REGION_SIMPLE_GROUP: SeedCondGroup = {
+  title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
+    { label: 'เครื่องศูนย์ไทย', description: 'ซื้อจากศูนย์ / ตัวแทนจำหน่ายในไทย', failBehavior: 'pass', deduct: 0 },
+    { label: 'เครื่องนอก / ต่างประเทศ', description: 'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย', failBehavior: 'deduct', pct: 10 },
+  ],
+};
 const REGION_TH_GROUP: SeedCondGroup = {
   title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
     { label: 'ศูนย์ไทย (TH/A)', description: 'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย TH/A', failBehavior: 'pass', deduct: 0 },
@@ -220,5 +228,34 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
     REGION_TH_GROUP,
+  ] },
+  // iPad 2 ระดับ — เส้นแบ่งคือเมนู Battery Health (%): มีเฉพาะ iPad ปี 2024
+  // ขึ้นไป (Pro M4/M5, Air M2/M3/M4, mini A17 Pro, Gen 11) รุ่นก่อนหน้านั้น
+  // ลูกค้าดูเปอร์เซ็นต์เองไม่ได้ → ถามได้แค่ ดี/เสื่อม. ประกันเก็บเป็นข้อมูล
+  // ไม่หัก (default — จูนรายรุ่นได้).
+  battery_ipad_new: { label: 'iPad แบต % + ประกัน (รุ่นปี 2024 ขึ้นไป)', items: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)', options: [
+      { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
+      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10 },
+      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+    ] },
+    { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
+      { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+      { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', deduct: 0 },
+      { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
+    ] },
+    REGION_SIMPLE_GROUP,
+  ] },
+  battery_ipad_old: { label: 'iPad แบตดี/เสื่อม + ประกัน (ก่อนปี 2024)', items: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
+      { label: 'แบตเตอรี่ดี', description: 'ใช้งานได้ปกติ แบตไม่หมดเร็วผิดปกติ ไม่บวม', deduct: 0 },
+      { label: 'แบตเตอรี่เสื่อม', description: 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ', pct: 10, failBehavior: 'deduct' },
+    ] },
+    { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
+      { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+      { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
+    ] },
+    REGION_SIMPLE_GROUP,
   ] },
 };
