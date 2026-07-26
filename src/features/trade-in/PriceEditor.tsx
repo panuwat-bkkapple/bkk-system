@@ -3,7 +3,8 @@
 import { getAuth } from 'firebase/auth';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive, Tag
+  Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive, Tag,
+  MoreHorizontal, ChevronDown
 } from 'lucide-react';
 import { ref, push, update, remove, onValue, get } from 'firebase/database';
 import { db, app } from '../../api/firebase';
@@ -18,6 +19,8 @@ import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal'
 import { CategoryBrandManagementModal } from './modals/CategoryBrandManagementModal';
 import { ProductEditorModal } from './modals/ProductEditorModal';
 import { ModelsTable } from './components/pricing/ModelsTable';
+import { CatalogInfoBanner, CatalogKpiCards } from './components/pricing/CatalogOverview';
+import { getModelReadiness } from './utils/modelReadiness';
 import { PriceListMobile } from './components/pricing/PriceListMobile';
 import { MobilePriceEditPage } from './components/pricing/MobilePriceEditPage';
 import { PriceAnomalyBanner } from './components/pricing/PriceAnomalyBanner';
@@ -52,6 +55,7 @@ export const PriceEditor = () => {
   const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [batchAdjust, setBatchAdjust] = useState<{ seriesName: string; models: any[] } | null>(null);
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
 
   // Seed guards — ensure the idempotent default seeding only fires once per mount.
   const seededCategoriesRef = useRef(false);
@@ -690,41 +694,107 @@ export const PriceEditor = () => {
     return matchCategory && matchBrand && matchSearch;
   });
 
+  // KPI นับจากทั้ง category ที่เลือก (ไม่สน brand/search filter)
+  const categoryModels = modelsData.filter(item => item.category === activeCategory);
+
+  // ตัวเลขบน chip ต่อ category: ready (เปิดรับซื้อ + config ครบ) / total
+  const categoryStats: Record<string, { total: number; ready: number }> = {};
+  for (const m of modelsData) {
+    const cat = m.category || '';
+    if (!categoryStats[cat]) categoryStats[cat] = { total: 0, ready: 0 };
+    categoryStats[cat].total++;
+    if (getModelReadiness(m, conditionSets).status === 'active') categoryStats[cat].ready++;
+  }
+
   return (
     <div className="h-full overflow-y-auto lg:h-auto lg:overflow-visible p-4 lg:p-6 max-w-[1600px] mx-auto lg:min-h-screen bg-slate-50/50">
 
-      {/* --- Top Navigation --- */}
-      <div className="bg-white rounded-t-2xl border-b border-slate-200 shadow-sm px-4 pt-4 flex gap-6 overflow-x-auto">
-        {categories.map(cat => (
-          <button key={cat.id} onClick={() => setActiveCategory(cat.name)} className={`flex items-center gap-2 pb-4 px-2 border-b-4 transition-all whitespace-nowrap ${activeCategory === cat.name ? 'border-blue-600 text-blue-600 font-black' : 'border-transparent text-slate-500 font-bold hover:text-slate-700'}`}>
-            {getCategoryIcon(cat.icon)} {cat.name}
+      {/* --- Page Header (breadcrumb + title + actions) --- */}
+      <div className="mb-1 text-xs font-bold text-slate-400">
+        Settings <span className="mx-1 text-slate-300">&rsaquo;</span> <span className="text-slate-600">Catalog</span>
+      </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-black text-slate-900">Catalog</h1>
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative">
+            <button
+              onClick={() => setIsMoreActionsOpen(v => !v)}
+              className="bg-white border text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition shadow-sm"
+            >
+              <MoreHorizontal size={16} /> More Actions
+              <ChevronDown size={14} className={`transition-transform ${isMoreActionsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isMoreActionsOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setIsMoreActionsOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 w-60">
+                  <button onClick={() => { setIsMoreActionsOpen(false); setIsCategoryModalOpen(true); }} className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-left">
+                    <LayoutGrid size={15} className="text-emerald-500" /> Manage Categories
+                  </button>
+                  <button onClick={() => { setIsMoreActionsOpen(false); setIsSubcategoryModalOpen(true); }} className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-left">
+                    <Layers size={15} className="text-violet-500" /> Subcategories
+                  </button>
+                  <button onClick={() => { setIsMoreActionsOpen(false); setIsSeriesModalOpen(true); }} className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-left">
+                    <FolderTree size={15} className="text-blue-500" /> Manage Series
+                  </button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button onClick={() => { setIsMoreActionsOpen(false); handleFillAliases(); }} disabled={fillingAliases} className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-left disabled:opacity-50">
+                    <Tag size={15} className="text-amber-500" /> {fillingAliases ? 'กำลังเติมชื่อเรียก...' : 'เติมชื่อเรียกอัตโนมัติ'}
+                  </button>
+                  <button onClick={() => { setIsMoreActionsOpen(false); handleImportDiscontinued(); }} disabled={importingDiscontinued} className="w-full px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-left disabled:opacity-50">
+                    <Archive size={15} className="text-slate-400" /> นำเข้ารุ่นงดรับซื้อ
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={() => setIsEngineModalOpen(true)} className="bg-white border text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition shadow-sm">
+            <Settings size={16} className="text-indigo-500" /> Condition Settings
           </button>
-        ))}
+          <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md">
+            <PlusCircle size={16} /> เพิ่มรุ่นใหม่
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white px-6 py-3 flex gap-6 border-b shadow-sm overflow-x-auto">
-        {brands.map(brand => (
-          <button key={brand} onClick={() => setActiveBrand(brand)} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeBrand === brand ? 'text-slate-900 underline decoration-2 underline-offset-8 decoration-blue-500' : 'text-slate-400 hover:text-slate-700'}`}>
-            {brand}
-          </button>
-        ))}
+      {/* --- Readiness rule banner + KPI --- */}
+      <CatalogInfoBanner />
+      <CatalogKpiCards models={categoryModels} conditionSets={conditionSets} />
+
+      {/* --- Categories card: chips (พร้อมตัวเลข ready/total) + brand filter --- */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-6">
+        <h2 className="text-sm font-black text-slate-700 mb-3">Categories</h2>
+        <div className="flex gap-2 flex-wrap">
+          {categories.map(cat => {
+            const stat = categoryStats[cat.name];
+            const isActiveTab = activeCategory === cat.name;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.name)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-bold transition-all whitespace-nowrap ${isActiveTab ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'}`}
+              >
+                {getCategoryIcon(cat.icon)} {cat.name}
+                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${isActiveTab ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  {stat ? `${stat.ready}/${stat.total}` : '0/0'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex gap-5 mt-4 pt-4 border-t border-slate-100 overflow-x-auto">
+          {brands.map(brand => (
+            <button key={brand} onClick={() => setActiveBrand(brand)} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeBrand === brand ? 'text-slate-900 underline decoration-2 underline-offset-8 decoration-blue-500' : 'text-slate-400 hover:text-slate-700'}`}>
+              {brand}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* --- Toolbar --- */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center my-6 gap-4">
-        <div className="relative w-full max-w-xl bg-white rounded-xl shadow-sm border px-4 py-3 flex items-center focus-within:border-blue-500 transition-all">
-          <Search size={20} className="text-slate-400 mr-3" />
-          <input type="text" placeholder="Search models or series..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm font-bold text-slate-700" />
-        </div>
-        <div className="flex gap-3 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
-          <button onClick={() => setIsEngineModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Settings size={18} className="text-indigo-500" /> Engine Settings</button>
-          <button onClick={() => setIsCategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><LayoutGrid size={18} className="text-emerald-500" /> Manage Categories</button>
-          <button onClick={() => setIsSubcategoryModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><Layers size={18} className="text-violet-500" /> Subcategories</button>
-          <button onClick={() => setIsSeriesModalOpen(true)} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm"><FolderTree size={18} className="text-blue-500" /> Manage Series</button>
-          <button onClick={handleFillAliases} disabled={fillingAliases} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm disabled:opacity-50"><Tag size={18} className="text-amber-500" /> {fillingAliases ? 'กำลังเติมชื่อเรียก...' : 'เติมชื่อเรียกอัตโนมัติ'}</button>
-          <button onClick={handleImportDiscontinued} disabled={importingDiscontinued} className="bg-white border text-slate-700 px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition whitespace-nowrap shadow-sm disabled:opacity-50"><Archive size={18} className="text-slate-400" /> นำเข้ารุ่นงดรับซื้อ</button>
-          <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md whitespace-nowrap"><PlusCircle size={18} /> เพิ่มรุ่นใหม่</button>
-        </div>
+      {/* --- Search --- */}
+      <div className="relative w-full max-w-xl bg-white rounded-xl shadow-sm border px-4 py-3 flex items-center focus-within:border-blue-500 transition-all mb-6">
+        <Search size={20} className="text-slate-400 mr-3" />
+        <input type="text" placeholder="Search by brand or model..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-transparent border-none outline-none text-sm font-bold text-slate-700" />
       </div>
 
       {/* --- Anomaly Banner --- */}
