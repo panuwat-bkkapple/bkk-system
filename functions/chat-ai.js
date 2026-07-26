@@ -1459,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-26.1";
+const LOGIC_VERSION = "2026-07-26.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-26", text: "ปิดทางลัดที่ทำให้ 'รอสักครู่ครับ' หลุดอีกรอบ (เคสจริง iPad Generation 9 — ห้องแชทค้างสถานะรอเจ้าหน้าที่จากคืนก่อน): เดิมถ้าห้องอยู่ในโหมดรอเจ้าหน้าที่แล้ว AI เรียกส่งต่อซ้ำ ระบบตีธง 'ส่งต่อแล้ว' เงียบๆ ซึ่งไปปิดด่านตรวจทุกด่านของข้อความรอบนั้น (ด่านห้ามให้รอ, ด่านขอเบอร์, ตัวตรวจคำตอบ) — ตอนนี้แยกธง 'ห้องรออยู่แล้ว' ออกจาก 'ส่งต่อจริงเทิร์นนี้' ด่านตรวจทำงานครบทุกข้อความโหมดรอ + เพิ่มด่านสุดท้ายก่อนส่งจริง: ข้อความที่ยังมีคำว่ารอจากทุกเส้นทาง (รวมคำแก้ของตัวตรวจ) จะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ" },
   { at: "2026-07-26", text: "คะแนน CSAT จากลูกค้ามีผลต่อเนื่องแล้ว: 1-2 ดาว = push แจ้งทีมทันที (สัญญาณกู้ความสัมพันธ์อายุสั้น) และถ้าลูกค้าเขียนคอมเมนต์ ระบบส่งเข้าคิวสอนที่คลังคำตอบ AI ให้อัตโนมัติ — เข้าคิวเฉยๆ ไม่ไหลเข้าสมองมาตินจนกว่าแอดมินกดสอน (fail-closed เหมือน feedback ฝั่งทีม), 3 ดาวขึ้นไป = เข้ารายงานอย่างเดียว" },
   { at: "2026-07-25", text: "อุดรูสุดท้ายของ 'รอสักครู่ครับ' (เคสจริง iPad Gen 10 — ยืนยันรุ่นแล้วแต่ AI ทิ้งลูกค้าไว้กับคำว่ารอ จนแอดมินต้องออกการ์ดเอง): เดิมตัวบังคับเช็คให้จบในเทิร์นเป็น best-effort ถ้าโมเดลยังติดโหมดรอ ข้อความเดิมหลุดได้ — ตอนนี้มีด่านท้ายแบบตายตัว: คำสัญญาให้รอที่รอดมาถึงปลายทางจะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ (ขอชื่อ+เบอร์+ถามสภาพ / โหมด Offer ขอเบอร์ / ถามความจุ+สภาพ) ไม่มีทางส่งคำว่า 'รอ' ปิดเทิร์นได้อีก" },
   { at: "2026-07-25", text: "เสนอคูปองเชิงรุกตั้งแต่ต้นบทสนทนา: ค้นเจอรุ่นปุ๊บระบบเช็คคูปองที่ดีที่สุดของรุ่นนั้นให้ทันที (ตัวคัดเดียวกับการ์ด — กรองโควตาเต็ม/หมดเขต/จำกัดรุ่น/คูปอง system อัตโนมัติ) มาตินใช้เป็นตัวชวนได้เลย ไม่ต้องรอถึงตอนออกการ์ด — ชื่อ/มูลค่ามาจากระบบเท่านั้น ห้ามแต่งเอง. หมายเหตุ: คูปองจะโผล่เมื่อแคมเปญยังมีโควตา (NEW300/TRADEUP300 ตอนนี้เต็ม 100/100 ต้องเติมที่หน้า /coupons)" },
@@ -2767,8 +2768,16 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       case "escalate_to_human": {
         // Already queued for a human (holding mode) — don't stack duplicate
         // system messages / pushes; the flag is set, staff were notified.
+        // Deliberately NOT state.escalated: that flag means "this turn's reply
+        // is a canned escalation string, skip the content guards" — but here
+        // the AI continues its NATURAL holding-mode reply, which needs every
+        // guard. Live bug (IMG_5131): convo sat in waiting_human from last
+        // night's escalation, the model redundantly called escalate on an
+        // offer-mode iPad, this shortcut flipped escalated=true silently (no
+        // gray bubble), and "รอสักครู่ครับ" shipped past the ENTIRE guard
+        // chain — wait-guard, deterministic tail, verifier, all skipped.
         if ((convo.status || "ai") === "waiting_human") {
-          state.escalated = true;
+          state.alreadyWaiting = true;
           return {
             ok: true,
             already_waiting: true,
@@ -3359,7 +3368,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
+      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -3653,10 +3662,10 @@ function registerChatAi({ dispatchAdminPush }) {
         );
 
         if (!finalText) {
-          finalText = state.escalated
+          finalText = state.escalated || state.alreadyWaiting
             ? "ส่งเรื่องถึงเจ้าหน้าที่เรียบร้อยแล้วครับ"
             : "ขออภัยครับ ผมไม่แน่ใจในคำตอบ ขอส่งต่อให้เจ้าหน้าที่ดูแลต่อครับ";
-          if (!state.escalated) {
+          if (!state.escalated && !state.alreadyWaiting) {
             await executeTool("escalate_to_human", {
               reason: "cannot_answer",
               summary: `AI ตอบไม่ได้: "${text.slice(0, 120)}"`,
@@ -3728,6 +3737,23 @@ function registerChatAi({ dispatchAdminPush }) {
           try {
             await db.ref(`inbox/${convoId}/ai_state/contact_prompted_at`).set(Date.now());
           } catch { /* next turn just asks again — safe */ }
+        };
+        // Deterministic wait-promise replacement — shared by the wait-guard
+        // tail AND the final pre-send assertion below the verifier: swap a
+        // dead-air "รอสักครู่" for the flow's real next step.
+        const overrideWaitPromise = async () => {
+          if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
+            // Offer mode with no callback number -> the offer-mode contact ask.
+            state.offerContactPromptedThisTurn = true;
+            finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+          } else if (contactGateWillBlock) {
+            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            await markContactAsked();
+          } else {
+            finalText = isEnglishText(text)
+              ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
+              : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
+          }
         };
         const announcedQuote = announcedQuoteIntent(finalText);
         // The recovery loop and the contact gate must never fight: on the
@@ -3876,18 +3902,7 @@ function registerChatAi({ dispatchAdminPush }) {
           // replace it with the flow's real next step.
           if (finalText && !state.escalated && !quoteOk && waitPromiseIntent(finalText)) {
             console.warn(`[${tag}] ${convoId} wait promise survived recovery — overriding with the next real step`);
-            if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
-              // Offer mode with no callback number -> the offer-mode contact ask.
-              state.offerContactPromptedThisTurn = true;
-              finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
-            } else if (contactGateWillBlock) {
-              finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
-              await markContactAsked();
-            } else {
-              finalText = isEnglishText(text)
-                ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
-                : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
-            }
+            await overrideWaitPromise();
           }
         }
 
@@ -4067,6 +4082,18 @@ function registerChatAi({ dispatchAdminPush }) {
               }
             }
           }
+        }
+
+        // Final pre-send assertion — no wait-promise reaches the customer
+        // from ANY path. The guards above run in draft order, but later
+        // rewrites (a verifier `corrected` text, a scrub fallback) are applied
+        // without re-checking, so a wait-promise can be REINTRODUCED after the
+        // wait-guard already passed. Real escalations are exempt ("รอสักครู่
+        // เจ้าหน้าที่กำลังมา" is a promise staff will actually keep — they
+        // were pushed this turn).
+        if (finalText && !state.escalated && !quoteOk && waitPromiseIntent(finalText)) {
+          console.warn(`[${tag}] ${convoId} wait promise at pre-send — final assertion override`);
+          await overrideWaitPromise();
         }
 
         // Pre-send superseded check — the customer may have typed MORE while
