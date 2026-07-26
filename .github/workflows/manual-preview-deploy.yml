@@ -1,0 +1,54 @@
+name: Manual Preview Deploy
+
+# Stopgap born from the 2026-07-26 GitHub incident where push/pull_request
+# events silently stopped creating workflow runs while workflow_dispatch kept
+# working: this gives an admin a hand-operated preview deploy for ANY branch.
+# Manual-only — it never triggers by itself, and is safe to keep around for
+# future incidents. Pick the branch in the "Use workflow from" selector; the
+# deployed preview URL is printed by the deploy step in the run log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Preview channel id (เช่น pr423)"
+        required: true
+        default: "manual"
+
+jobs:
+  manual-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 20, NOT the runner default (22.23+): firebase-tools hits an undici
+      # "Premature close" on the OAuth token fetch on newer Node -> "Failed to
+      # authenticate". Same pin as the other deploy workflows.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build project
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          VITE_FIREBASE_VAPID_KEY: ${{ secrets.VITE_FIREBASE_VAPID_KEY }}
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          projectId: bkk-apple-tradein
+          target: admin
+          channelId: ${{ github.event.inputs.channel }}
+          expires: 3d
