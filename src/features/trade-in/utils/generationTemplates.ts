@@ -48,11 +48,16 @@ export const GEN_LABELS: Record<IphoneGeneration, string> = {
 // the pricing group (สุขภาพแบตเตอรี่) and the old functional screen
 // (แบตเตอรี่ ปกติ/เสื่อม) on purpose — after apply there is exactly ONE
 // battery question per set, per the owner's policy (a worn battery deducts,
-// it no longer dead-ends the flow).
+// it no longer dead-ends the flow). The cosmetic screen/body patterns are
+// written to NEVER match the functional screening topics ("หน้าจอ + ทัชสกรีน",
+// "เปิดเครื่อง / ใช้งานทั่วไป") — those keep guarding broken devices out of the
+// flow; only the deduction groups (สภาพจอ.../สภาพตัวเครื่อง...) are swapped.
 const REPLACED_TITLE_RES = [
   /แบต|battery/i,
   /ประกัน|warranty/i,
   /ประเทศ|รหัสโมเดล|identifier/i,
+  /สภาพ(หน้า)?จอ|สภาพจอภาพ|screen condition/i,
+  /สภาพตัวเครื่อง|สภาพรอบตัวเครื่อง|บอดี้|ฝาหลัง|body condition/i,
 ];
 const isReplacedTitle = (title: unknown): boolean =>
   REPLACED_TITLE_RES.some((re) => re.test(String(title || '')));

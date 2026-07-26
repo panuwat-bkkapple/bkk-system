@@ -45,9 +45,9 @@ describe('classifyIphoneGeneration', () => {
 });
 
 describe('buildGenerationGroups', () => {
-  it('materializes battery + warranty + region groups with baked EN labels', () => {
+  it('materializes screen + body + battery + warranty + region groups with baked EN labels', () => {
     const groups = buildGenerationGroups('latest');
-    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
+    expect(groups.map((g: any) => g.title)).toEqual(['สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
     for (const g of groups) {
       expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
       for (const o of g.options) expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
@@ -55,6 +55,14 @@ describe('buildGenerationGroups', () => {
   });
   it('ids are deterministic so re-builds are byte-identical (idempotency)', () => {
     expect(JSON.stringify(buildGenerationGroups('recent'))).toBe(JSON.stringify(buildGenerationGroups('recent')));
+  });
+  it('cosmetic percentages tier inversely with model age (cheaper device, higher pct)', () => {
+    const screenLight = (tier: any) =>
+      buildGenerationGroups(tier).find((g: any) => g.title === 'สภาพจอภาพและกระจก')!.options[1].pct;
+    expect(screenLight('latest')).toBe(3);
+    expect(screenLight('recent')).toBe(4);
+    expect(screenLight('mid')).toBe(6);
+    expect(screenLight('old')).toBe(10);
   });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
@@ -80,21 +88,23 @@ const makeSet = () => ({
 describe('applyGenerationToGroups', () => {
   it('replaces battery/warranty/region groups in place, keeping the rest untouched', () => {
     const { groups, removedTitles } = applyGenerationToGroups(makeSet().groups, 'mid');
-    expect(removedTitles).toEqual(['แบตเตอรี่', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
-    // Inserted where the first removed group (index 1) used to be.
+    expect(removedTitles).toEqual(['แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
+    // Inserted where the first removed group (index 1) used to be — the old
+    // cosmetic screen group is replaced too, per the full-set redesign.
     expect(groups.map((g: any) => g.title)).toEqual([
       'เปิดเครื่อง / ใช้งานทั่วไป',
+      'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง',
       'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ',
-      'สภาพหน้าจอ', 'อุปกรณ์เสริมที่นำมาด้วย',
+      'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
     // Untouched groups keep their identity.
     expect(groups[0].id).toBe('g1');
-    expect(groups[4].id).toBe('g3');
+    expect(groups[groups.length - 1].id).toBe('g6');
   });
   it('appends when the set had no battery/warranty/region groups', () => {
-    const bare = [{ id: 'g1', title: 'สภาพหน้าจอ', options: [] }];
+    const bare = [{ id: 'g1', title: 'กล้องหน้า / กล้องหลัง', options: [] }];
     const { groups } = applyGenerationToGroups(bare, 'old');
-    expect(groups.map((g: any) => g.title)).toEqual(['สภาพหน้าจอ', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
+    expect(groups.map((g: any) => g.title)).toEqual(['กล้องหน้า / กล้องหลัง', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
   });
 });
 
