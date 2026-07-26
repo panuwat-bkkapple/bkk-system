@@ -3,6 +3,7 @@ import { ref, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   MessageSquare, Timer, ShieldCheck, ArrowRightLeft, RefreshCcw,
+  Star, ThumbsUp, GraduationCap, ClipboardCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
@@ -34,7 +35,10 @@ interface ConvoMetric {
   resolved: boolean;
   escalated: boolean;
   slaBreached: boolean;
+  csatScore: number | null; // service rating the customer left (1-5)
 }
+
+interface FeedbackRec { rating: 'good' | 'bad'; at: number; taught: boolean }
 
 const fmtSec = (s: number | null) =>
   s == null ? '—' : s < 60 ? `${Math.round(s)} วิ` : `${(s / 60).toFixed(1)} นาที`;
@@ -46,6 +50,7 @@ const dayKey = (ts: number) => {
 
 export function ChatAnalytics() {
   const [metrics, setMetrics] = useState<ConvoMetric[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackRec[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -102,10 +107,21 @@ export function ChatAnalytics() {
             resolved,
             escalated,
             slaBreached,
+            csatScore: v.csat && Number(v.csat.score) >= 1 ? Number(v.csat.score) : null,
           });
         }
         out.sort((a, b) => b.createdAt - a.createdAt);
         if (!cancelled) setMetrics(out);
+        // Per-answer thumbs feedback from the console (rate -> coach -> learn)
+        try {
+          const fbSnap = await get(ref(db, 'chat_feedback'));
+          const fb: FeedbackRec[] = fbSnap.exists()
+            ? Object.values(fbSnap.val() as Record<string, any>)
+                .filter((f) => f && (f.rating === 'good' || f.rating === 'bad'))
+                .map((f) => ({ rating: f.rating, at: Number(f.at) || 0, taught: f.taught === true }))
+            : [];
+          if (!cancelled) setFeedback(fb);
+        } catch { /* feedback stats are additive — never block the page */ }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -168,6 +184,46 @@ export function ChatAnalytics() {
     });
     return days.map((d) => ({ day: d.key, 'AI ปิดเอง': d.ai, 'เจ้าหน้าที่ปิด': d.admin }));
   }, [metrics]);
+
+  // คุณภาพคำตอบ + CSAT
+  const quality = useMemo(() => {
+    const scores = metrics.map((m) => m.csatScore).filter((x): x is number => x != null);
+    const resolvedCount = metrics.filter((m) => m.resolved).length;
+    const good = feedback.filter((f) => f.rating === 'good').length;
+    const bad = feedback.filter((f) => f.rating === 'bad').length;
+    const pendingTeach = feedback.filter((f) => f.rating === 'bad' && !f.taught).length;
+    return {
+      csatAvg: scores.length ? scores.reduce((x, y) => x + y, 0) / scores.length : null,
+      csatCount: scores.length,
+      csatResponseRate: resolvedCount ? (scores.length / resolvedCount) * 100 : null,
+      goodRate: good + bad > 0 ? (good / (good + bad)) * 100 : null,
+      rated: good + bad,
+      pendingTeach,
+    };
+  }, [metrics, feedback]);
+
+  const csatDist = useMemo(() => {
+    const dist = [1, 2, 3, 4, 5].map((n) => ({ score: `${n} ดาว`, 'จำนวนรีวิว': 0 }));
+    metrics.forEach((m) => {
+      if (m.csatScore != null && m.csatScore >= 1 && m.csatScore <= 5) dist[m.csatScore - 1]['จำนวนรีวิว'] += 1;
+    });
+    return dist;
+  }, [metrics]);
+
+  const feedbackTrend = useMemo(() => {
+    const days: { key: string; good: number; bad: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const ts = Date.now() - i * 86400000;
+      days.push({ key: dayKey(ts), good: 0, bad: 0 });
+    }
+    const byKey = new Map(days.map((d) => [d.key, d]));
+    feedback.forEach((f) => {
+      const d = byKey.get(dayKey(f.at));
+      if (!d) return;
+      if (f.rating === 'good') d.good += 1; else d.bad += 1;
+    });
+    return days.map((d) => ({ day: d.key, 'ตอบดี': d.good, 'ต้องสอน': d.bad }));
+  }, [feedback]);
 
   const recent = metrics.filter((m) => m.firstCustomerAt != null).slice(0, 25);
 
@@ -254,6 +310,72 @@ export function ChatAnalytics() {
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="AI ปิดเอง" fill="#1e3a8a" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="เจ้าหน้าที่ปิด" fill="#94a3b8" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* คุณภาพคำตอบ & CSAT */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard
+          icon={<Star size={16} />}
+          label="CSAT เฉลี่ย (ลูกค้าให้คะแนน)"
+          value={quality.csatAvg == null ? '—' : `${quality.csatAvg.toFixed(2)} / 5`}
+          sub={`จาก ${quality.csatCount} รีวิวหลังปิดจ็อบ`}
+          tone={quality.csatAvg != null && quality.csatAvg < 4 ? 'bad' : 'good'}
+        />
+        <KpiCard
+          icon={<ClipboardCheck size={16} />}
+          label="อัตราการให้คะแนน"
+          value={quality.csatResponseRate == null ? '—' : `${quality.csatResponseRate.toFixed(1)}%`}
+          sub="สัดส่วนแชทปิดจ็อบที่ลูกค้ากลับมาให้คะแนน"
+        />
+        <KpiCard
+          icon={<ThumbsUp size={16} />}
+          label="คำตอบ AI ที่ทีมรีวิวว่าดี"
+          value={quality.goodRate == null ? '—' : `${quality.goodRate.toFixed(1)}%`}
+          sub={`จากคำตอบที่ถูกรีวิว ${quality.rated} รายการ`}
+          tone={quality.goodRate != null && quality.goodRate < 80 ? 'bad' : 'good'}
+        />
+        <KpiCard
+          icon={<GraduationCap size={16} />}
+          label="คิวสอนค้าง"
+          value={String(quality.pendingTeach)}
+          sub="คำตอบที่กดไม่ดีแล้วยังไม่ได้สอน (จัดการที่คลังคำตอบ AI)"
+          tone={quality.pendingTeach > 0 ? 'bad' : 'good'}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="border border-slate-200 rounded-lg p-4">
+          <h2 className="text-sm font-bold text-slate-800">การกระจายคะแนน CSAT</h2>
+          <p className="text-[11px] text-slate-400 mb-3">คะแนนบริการจากลูกค้าหลังปิดจ็อบ (1-5 ดาว) ทั้งหมด</p>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={csatDist} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="score" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+                <Tooltip />
+                <Bar dataKey="จำนวนรีวิว" fill="#1e3a8a" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="border border-slate-200 rounded-lg p-4">
+          <h2 className="text-sm font-bold text-slate-800">รีวิวคำตอบ AI โดยทีมงาน</h2>
+          <p className="text-[11px] text-slate-400 mb-3">7 วันล่าสุด · ตอบดี เทียบ ต้องสอน (จากปุ่มให้คะแนนในหน้าแชท)</p>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={feedbackTrend} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="ตอบดี" stackId="fb" fill="#1e3a8a" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="ต้องสอน" stackId="fb" fill="#dc2626" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

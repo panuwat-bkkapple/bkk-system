@@ -8,7 +8,7 @@ import {
   Image as ImageIcon, Plus, X, Phone, User, Clock,
   CheckCheck, Check, ArrowLeft, Trash2, MoreVertical,
   Bot, UserCheck, RotateCcw, CheckCircle2, AlertTriangle, Globe, FileText, Pencil, Mail, MapPin, History,
-  Tag as TagIcon
+  Tag as TagIcon, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -77,6 +77,8 @@ interface Message {
   choices?: string[];
   timestamp: number;
   read: boolean;
+  // Admin's per-answer training feedback marker (full record in /chat_feedback)
+  feedback?: { rating: 'good' | 'bad'; at: number };
 }
 
 // Customer-context column (คอลัมน์ที่ 3) — profile mirror of users/{uid}
@@ -251,6 +253,9 @@ export const InboxPage = () => {
           choices: Array.isArray(val.choices) ? val.choices.filter((c: unknown) => typeof c === 'string' && c) : undefined,
           timestamp: val.timestamp || 0,
           read: val.read || false,
+          feedback: val.feedback && (val.feedback.rating === 'good' || val.feedback.rating === 'bad')
+            ? { rating: val.feedback.rating, at: Number(val.feedback.at) || 0 }
+            : undefined,
         }))
         .sort((a, b) => a.timestamp - b.timestamp);
       setMessages(list);
@@ -335,6 +340,38 @@ export const InboxPage = () => {
   const removeConvoTag = async (tagId: string) => {
     if (!selectedConvo) return;
     await remove(ref(db, `inbox/${selectedConvo}/tags/${tagId}`));
+  };
+
+  // ---- ให้คะแนนคำตอบมาติน (rate -> coach -> learn) ----
+  // 👍 บันทึกทันที; 👎 เปิดช่องคำแนะนำก่อนบันทึก. เขียน 2 ที่: marker บน
+  // ข้อความ (ให้ bubble โชว์สถานะ) + record เต็มที่ /chat_feedback (คิวสอน
+  // ใน /chat-kb + รายงานใน ChatAnalytics อ่านจากที่นั่น)
+  const [badNoteFor, setBadNoteFor] = useState<string | null>(null);
+  const [badNote, setBadNote] = useState('');
+  const rateAiMessage = async (msg: Message, rating: 'good' | 'bad', note?: string) => {
+    if (!selectedConvo) return;
+    const now = Date.now();
+    // คำถามลูกค้าล่าสุดก่อนหน้าข้อความ AI นี้ — บริบทของคิวสอน
+    const prevCustomer = [...messages]
+      .filter((m) => m.senderRole === 'customer' && m.timestamp < msg.timestamp)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    await push(ref(db, 'chat_feedback'), {
+      convo_id: selectedConvo,
+      message_id: msg.id,
+      ai_text: msg.text.slice(0, 2000),
+      customer_text: (prevCustomer?.text || '').slice(0, 1000),
+      rating,
+      ...(note && note.trim() ? { note: note.trim().slice(0, 1000) } : {}),
+      by_id: staffId,
+      by_name: staffName,
+      at: now,
+      taught: false,
+    });
+    await update(ref(db, `inbox/${selectedConvo}/messages/${msg.id}`), {
+      feedback: { rating, at: now },
+    });
+    setBadNoteFor(null);
+    setBadNote('');
   };
 
   // ---- AI copilot: วิเคราะห์บริบททั้งบทสนทนา + ร่างคำตอบให้แอดมินเลือก ----
@@ -1240,7 +1277,62 @@ export const InboxPage = () => {
                             ? <CheckCheck size={10} className="opacity-50" />
                             : <Check size={10} className="opacity-30" />
                         )}
+                        {isAi && (
+                          msg.feedback ? (
+                            <span className={`ml-1 flex items-center gap-0.5 text-[9px] font-bold ${msg.feedback.rating === 'good' ? 'text-emerald-600' : 'text-red-500'}`}>
+                              {msg.feedback.rating === 'good' ? <ThumbsUp size={10} /> : <ThumbsDown size={10} />}
+                              {msg.feedback.rating === 'good' ? 'ตอบดี' : 'ต้องสอน'}
+                            </span>
+                          ) : (
+                            <span className="ml-1 flex items-center gap-1">
+                              <button
+                                type="button"
+                                title="คำตอบนี้ดี"
+                                onClick={() => rateAiMessage(msg, 'good')}
+                                className="text-slate-400 hover:text-emerald-600 transition-colors"
+                              >
+                                <ThumbsUp size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                title="คำตอบนี้ไม่ดี — สอนมาติน"
+                                onClick={() => { setBadNoteFor(msg.id); setBadNote(''); }}
+                                className="text-slate-400 hover:text-red-500 transition-colors"
+                              >
+                                <ThumbsDown size={11} />
+                              </button>
+                            </span>
+                          )
+                        )}
                       </div>
+                      {isAi && badNoteFor === msg.id && !msg.feedback && (
+                        <div className="mt-2 space-y-1.5">
+                          <textarea
+                            value={badNote}
+                            onChange={(e) => setBadNote(e.target.value)}
+                            placeholder="คำแนะนำ: ที่ถูกควรตอบว่าอย่างไร"
+                            rows={2}
+                            maxLength={1000}
+                            className="w-full text-[11px] border border-red-200 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:border-red-400 bg-white"
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => rateAiMessage(msg, 'bad', badNote)}
+                              className="text-[10px] font-bold bg-red-500 text-white rounded-lg px-2.5 py-1"
+                            >
+                              บันทึกเข้าคิวสอน
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setBadNoteFor(null); setBadNote(''); }}
+                              className="text-[10px] font-bold text-slate-500 rounded-lg px-2 py-1"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
