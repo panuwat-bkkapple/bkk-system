@@ -45,6 +45,8 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'สภาพขอบและมุมตัวเครื่อง': 'Edges & corners',
   // Topics seen in the live iPhone condition set
   'หน้าจอ + ทัชสกรีน': 'Display + Touchscreen',
+  'การแสดงผล + ทัชสกรีน': 'Display + Touchscreen',
+  'ภาพขึ้นปกติ ทัชตอบสนองทุกจุด แม้กระจกจะมีรอยหรือแตก': 'Displays normally and touch responds everywhere, even if the glass is scratched or cracked',
   'การเชื่อมต่อ (ซิม / Wi-Fi / สัญญาณ)': 'Connectivity (SIM / Wi-Fi / Signal)',
   'กล้องหน้า + กล้องหลัง': 'Front + rear cameras',
   'ลำโพง + ไมโครโฟน': 'Speaker + microphone',

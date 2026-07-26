@@ -1,4 +1,4 @@
-import { CONDITION_TEMPLATES } from './assessmentSeedTemplates';
+import { CONDITION_TEMPLATES, FUNCTIONAL_TEMPLATES } from './assessmentSeedTemplates';
 import { fillEnFields } from './assessmentEnSeed';
 import { writeConditionSet } from './conditionSets';
 
@@ -15,12 +15,14 @@ import { writeConditionSet } from './conditionSets';
  *   iPad ปี 2024 ขึ้นไป -> battery_ipad_new (มีเมนู Battery Health % ให้ถามช่วง)
  *   iPad ก่อนปี 2024    -> battery_ipad_old (ไม่มีเมนู % -> ถามได้แค่ ดี/เสื่อม)
  *
- * The tool REPLACES the set's existing battery + warranty + region groups
- * (matched by title) with the template's three groups, inserted where the
- * first replaced group used to be — every other group (สภาพจอ/บอดี้/กล่อง/
- * ประวัติซ่อม ฯลฯ) is left untouched. Non-iPhone models are never touched,
- * and a model whose set is still SHARED is skipped (split to 1:1 first —
- * editing a shared set would change its sibling models too).
+ * The tool REPLACES two batches of a set's groups, each inserted where its
+ * first removed group used to be: (1) the functional screening topics,
+ * normalized from FUNCTIONAL_TEMPLATES (iphone/ipad, minus battery), and
+ * (2) the screen/body/battery/warranty/region deduction groups from the
+ * tier's pricing template. Every other group (กล่อง/อุปกรณ์, ประวัติซ่อม,
+ * custom topics) is left untouched. Non-iPhone/iPad models are never
+ * touched, and a model whose set is still SHARED is skipped (split to 1:1
+ * first — editing a shared set would change its sibling models too).
  */
 
 export type IphoneGeneration = 'latest' | 'recent' | 'mid' | 'old' | 'ipad_new' | 'ipad_old';
@@ -49,9 +51,9 @@ export const GEN_LABELS: Record<IphoneGeneration, string> = {
 // (แบตเตอรี่ ปกติ/เสื่อม) on purpose — after apply there is exactly ONE
 // battery question per set, per the owner's policy (a worn battery deducts,
 // it no longer dead-ends the flow). The cosmetic screen/body patterns are
-// written to NEVER match the functional screening topics ("หน้าจอ + ทัชสกรีน",
-// "เปิดเครื่อง / ใช้งานทั่วไป") — those keep guarding broken devices out of the
-// flow; only the deduction groups (สภาพจอ.../สภาพตัวเครื่อง...) are swapped.
+// written to NEVER match the functional screening topics ("การแสดงผล +
+// ทัชสกรีน", "เปิดเครื่อง / ใช้งานทั่วไป") — those are normalized separately
+// from FUNCTIONAL_TEMPLATES (see below), not from the pricing templates.
 const REPLACED_TITLE_RES = [
   /แบต|battery/i,
   /ประกัน|warranty/i,
@@ -61,6 +63,35 @@ const REPLACED_TITLE_RES = [
 ];
 const isReplacedTitle = (title: unknown): boolean =>
   REPLACED_TITLE_RES.some((re) => re.test(String(title || '')));
+
+// Functional screening groups are normalized from FUNCTIONAL_TEMPLATES too
+// (นโยบายเจ้าของร้าน ก.ค. 2026 — "ยกชุดตามแม่แบบมาตรฐาน"): sets cloned from
+// the old shared sets carried bare "ปกติ / ใช้งานได้" options with no
+// descriptions; the template versions have per-topic reject labels and
+// customer-facing descriptions on every option. A group counts as functional
+// screening when its `kind` says so, or (for sets predating the kind field)
+// its title matches a known screening topic. Battery is EXCLUDED here — it
+// belongs to REPLACED_TITLE_RES so each set keeps exactly ONE battery
+// question (the pricing one).
+const FUNCTIONAL_TITLE_RES = [
+  /เปิดเครื่อง/i,
+  /หน้าจอ \+ ทัชสกรีน|การแสดงผล \+ ทัชสกรีน/i,
+  /กล้องหน้า|กล้องหลัง/i,
+  /การเชื่อมต่อ|สัญญาณ|bluetooth/i,
+  /ลำโพง|ไมโครโฟน/i,
+  /สแกนใบหน้า|face id/i,
+];
+const isFunctionalScreening = (g: any): boolean => {
+  const title = String(g?.title || '');
+  if (/แบต|battery/i.test(title)) return false;
+  if (g?.kind === 'functional') return true;
+  return FUNCTIONAL_TITLE_RES.some((re) => re.test(title));
+};
+
+const FUNCTIONAL_TEMPLATE_KEY: Record<IphoneGeneration, 'iphone' | 'ipad'> = {
+  latest: 'iphone', recent: 'iphone', mid: 'iphone', old: 'iphone',
+  ipad_new: 'ipad', ipad_old: 'ipad',
+};
 
 /**
  * Which generation tier a model belongs to; null = out of scope (never
@@ -123,25 +154,65 @@ export function buildGenerationGroups(tier: IphoneGeneration): any[] {
   return fillEnFields(groups as any[]).groups;
 }
 
-/** Replace the battery/warranty/region groups of one set with a tier's template groups. */
+/**
+ * Materialize the functional-screening template (minus its battery group) the
+ * same way: deterministic ids per template key, EN baked in, and the exact
+ * option shape the Engine's own seed path writes (deduct: 0 + failBehavior).
+ */
+export function buildFunctionalScreeningGroups(tier: IphoneGeneration): any[] {
+  const key = FUNCTIONAL_TEMPLATE_KEY[tier];
+  const items = (FUNCTIONAL_TEMPLATES[key]?.items || []).filter((g) => !/แบต/.test(g.title));
+  const groups = items.map((g, i) => ({
+    id: `g_fn_${key}_${i}`,
+    title: g.title,
+    icon: g.icon,
+    description: g.description,
+    kind: 'functional',
+    options: g.options.map((o, j) => ({
+      id: `o_fn_${key}_${i}_${j}`,
+      label: o.label,
+      description: o.description,
+      deduct: 0,
+      failBehavior: o.failBehavior,
+    })),
+  }));
+  return fillEnFields(groups as any[]).groups;
+}
+
+/**
+ * Replace one set's functional-screening groups AND its
+ * battery/warranty/region/cosmetic groups with the tier's template groups.
+ * Each batch is inserted where its first removed group used to be, so the
+ * customer flow keeps its shape (screening first, then deduction topics);
+ * untouched groups (กล่อง/อุปกรณ์, ประวัติซ่อม, custom topics) stay put.
+ */
 export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration): {
   groups: any[];
   removedTitles: string[];
 } {
   const kept: any[] = [];
   const removedTitles: string[] = [];
-  let insertAt = -1;
+  let fnInsertAt = -1;
+  let priceInsertAt = -1;
   (existingGroups || []).forEach((g) => {
-    if (isReplacedTitle(g?.title)) {
-      if (insertAt === -1) insertAt = kept.length;
+    if (isFunctionalScreening(g)) {
+      if (fnInsertAt === -1) fnInsertAt = kept.length;
+      removedTitles.push(String(g?.title || ''));
+    } else if (isReplacedTitle(g?.title)) {
+      if (priceInsertAt === -1) priceInsertAt = kept.length;
       removedTitles.push(String(g?.title || ''));
     } else {
       kept.push(g);
     }
   });
-  const fresh = buildGenerationGroups(tier);
-  if (insertAt === -1) insertAt = kept.length;
-  kept.splice(insertAt, 0, ...fresh);
+  const freshFn = buildFunctionalScreeningGroups(tier);
+  const freshPrice = buildGenerationGroups(tier);
+  // Screening leads the flow when the set never had it; pricing appends.
+  if (fnInsertAt === -1) fnInsertAt = 0;
+  if (priceInsertAt === -1) priceInsertAt = kept.length;
+  if (priceInsertAt >= fnInsertAt) priceInsertAt += freshFn.length;
+  kept.splice(fnInsertAt, 0, ...freshFn);
+  kept.splice(priceInsertAt, 0, ...freshPrice);
   return { groups: kept, removedTitles };
 }
 

@@ -420,7 +420,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
             {models.length > 0 && (
               <div className="bg-white border border-indigo-200 rounded-2xl p-4 mb-1">
                 <div className="text-xs font-black text-indigo-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                  <Sparkles size={14} /> แบต + ประกัน + ประเทศ ตามรุ่น
+                  <Sparkles size={14} /> ชุดคำถามมาตรฐานตามรุ่น
                 </div>
                 {genProgress ? (
                   <>
@@ -440,7 +440,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                     </div>
                     <button
                       onClick={handleApplyGeneration}
-                      title="แทนที่หัวข้อแบต/ประกัน/ประเทศของชุดรายรุ่นด้วยชุดคำถามตามนโยบายรุ่น (iPhone: 17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม · iPad: ปี 2024+ ถาม % / ก่อนนั้น ดี-เสื่อม) — หัวข้ออื่นไม่ถูกแตะ"
+                      title="ยกหัวข้อคัดกรองการทำงาน (เปิดเครื่อง/การแสดงผล/กล้อง/สัญญาณ/ลำโพง) ตามแม่แบบมาตรฐาน + แทนที่หัวข้อ จอ/บอดี้/แบต/ประกัน/ประเทศ ตามนโยบายรุ่น (iPhone: 17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม · iPad: ปี 2024+ ถาม % / ก่อนนั้น ดี-เสื่อม) — หัวข้ออื่น (กล่อง/ประวัติซ่อม) ไม่ถูกแตะ"
                       className="w-full py-2.5 bg-indigo-600 text-white text-sm font-black rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2"
                     >
                       <Sparkles size={16} /> ปรับตามรุ่น ({genPlan.actions.length} รุ่น)
