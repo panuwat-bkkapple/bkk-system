@@ -945,13 +945,43 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   const rec = src.indexOf("wait-promise reply — forcing the check to finish this turn");
   const tail = src.indexOf("wait promise survived recovery — overriding with the next real step");
   check("deterministic tail exists after the recovery loop", tail > rec && rec > 0);
-  const tailBody = src.slice(tail, tail + 1600);
   check("tail re-checks the surviving draft", src.slice(rec, tail).includes("waitPromiseIntent(finalText)"));
-  check("offer mode with no phone -> offer contact ask", tailBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
-  check("contact gate pending -> contact-first ask", tailBody.includes("CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK"));
-  check("otherwise -> ask storage+condition, never wait", tailBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
+  check("tail delegates to the shared override", src.slice(tail, tail + 300).includes("await overrideWaitPromise()"));
+  const ov = src.indexOf("const overrideWaitPromise = async () => {");
+  check("shared override is declared before the tail", ov > 0 && ov < tail);
+  const ovBody = src.slice(ov, ov + 1600);
+  check("offer mode with no phone -> offer contact ask", ovBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
+  check("contact gate pending -> contact-first ask", ovBody.includes("CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK"));
+  check("otherwise -> ask storage+condition, never wait", ovBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
   check("the fallback lines are not themselves wait-promises", !__test.waitPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
   check("live #PSP1 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ ขอเช็คราคารับซื้อ iPad Generation 10 ในระบบให้ก่อนนะครับ รอสักครู่ครับ"));
+  check("live IMG_5131 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ รบกวนขอเช็คให้ก่อนนะครับว่าตอนนี้ร้านรับซื้อรุ่นนี้อยู่ไหม รอสักครู่ครับ"));
+}
+
+// --- holding mode must NOT disarm the guard chain (live case IMG_5131) -------
+// The convo sat in waiting_human from an earlier escalation; the model
+// redundantly called escalate_to_human on an offer-mode iPad and the
+// already_waiting shortcut flipped state.escalated=true SILENTLY (no system
+// message) — which skipped the wait guard, the deterministic tail, the offer
+// backstop AND the verifier, so "รอสักครู่ครับ" shipped unguarded.
+{
+  const aw = src.indexOf("already_waiting: true");
+  check("already_waiting shortcut exists", aw > 0);
+  const shortcut = src.slice(src.lastIndexOf("if ((convo.status ||", aw), aw);
+  check("already_waiting sets its own flag, NOT escalated", shortcut.includes("state.alreadyWaiting = true") && !shortcut.includes("state.escalated = true"));
+  check("state init carries alreadyWaiting", src.includes("escalatedThisTurn: false, alreadyWaiting: false"));
+  check("empty-text fallback honors holding mode", src.includes("state.escalated || state.alreadyWaiting") && src.includes("if (!state.escalated && !state.alreadyWaiting) {"));
+  // Final pre-send assertion: a wait-promise reintroduced AFTER the tail (a
+  // verifier `corrected` rewrite, a scrub fallback) is still replaced. It must
+  // sit after the verifier applies corrections and before writeAiMessage.
+  const assertAt = src.indexOf("wait promise at pre-send — final assertion override");
+  const corrected = src.indexOf("finalText = verdict.corrected.trim()");
+  const send = src.indexOf("await writeAiMessage(db, convoId, assistantName, finalText.slice(0, 2000));");
+  check("final assertion exists", assertAt > 0);
+  check("final assertion runs after verifier corrections", corrected > 0 && assertAt > corrected);
+  check("final assertion runs before the send", send > 0 && assertAt < send);
+  check("final assertion delegates to the shared override", src.slice(assertAt, assertAt + 300).includes("await overrideWaitPromise()"));
+  check("real escalations stay exempt from the assertion", src.slice(assertAt - 700, assertAt).includes("!state.escalated && !quoteOk && waitPromiseIntent(finalText)"));
 }
 
 // --- low customer CSAT -> push staff + queue the comment for teaching --------
