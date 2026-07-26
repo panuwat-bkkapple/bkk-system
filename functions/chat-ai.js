@@ -1459,8 +1459,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-25.3";
+const LOGIC_VERSION = "2026-07-26.1";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-26", text: "คะแนน CSAT จากลูกค้ามีผลต่อเนื่องแล้ว: 1-2 ดาว = push แจ้งทีมทันที (สัญญาณกู้ความสัมพันธ์อายุสั้น) และถ้าลูกค้าเขียนคอมเมนต์ ระบบส่งเข้าคิวสอนที่คลังคำตอบ AI ให้อัตโนมัติ — เข้าคิวเฉยๆ ไม่ไหลเข้าสมองมาตินจนกว่าแอดมินกดสอน (fail-closed เหมือน feedback ฝั่งทีม), 3 ดาวขึ้นไป = เข้ารายงานอย่างเดียว" },
   { at: "2026-07-25", text: "อุดรูสุดท้ายของ 'รอสักครู่ครับ' (เคสจริง iPad Gen 10 — ยืนยันรุ่นแล้วแต่ AI ทิ้งลูกค้าไว้กับคำว่ารอ จนแอดมินต้องออกการ์ดเอง): เดิมตัวบังคับเช็คให้จบในเทิร์นเป็น best-effort ถ้าโมเดลยังติดโหมดรอ ข้อความเดิมหลุดได้ — ตอนนี้มีด่านท้ายแบบตายตัว: คำสัญญาให้รอที่รอดมาถึงปลายทางจะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ (ขอชื่อ+เบอร์+ถามสภาพ / โหมด Offer ขอเบอร์ / ถามความจุ+สภาพ) ไม่มีทางส่งคำว่า 'รอ' ปิดเทิร์นได้อีก" },
   { at: "2026-07-25", text: "เสนอคูปองเชิงรุกตั้งแต่ต้นบทสนทนา: ค้นเจอรุ่นปุ๊บระบบเช็คคูปองที่ดีที่สุดของรุ่นนั้นให้ทันที (ตัวคัดเดียวกับการ์ด — กรองโควตาเต็ม/หมดเขต/จำกัดรุ่น/คูปอง system อัตโนมัติ) มาตินใช้เป็นตัวชวนได้เลย ไม่ต้องรอถึงตอนออกการ์ด — ชื่อ/มูลค่ามาจากระบบเท่านั้น ห้ามแต่งเอง. หมายเหตุ: คูปองจะโผล่เมื่อแคมเปญยังมีโควตา (NEW300/TRADEUP300 ตอนนี้เต็ม 100/100 ต้องเติมที่หน้า /coupons)" },
   { at: "2026-07-25", text: "ร่างคำตอบของ AI copilot (ปุ่มช่วยแอดมินในคอนโซล) ตามภาษาลูกค้าแล้ว — ลูกค้าคุยอังกฤษ ร่างเป็นอังกฤษ ส่วนสรุปบริบท/ชื่อร่างยังเป็นไทยให้แอดมินอ่าน (เคสจริง Kate Jackson คุยอังกฤษแต่ร่างออกมาเป็นไทย)" },
@@ -4310,7 +4311,62 @@ function registerChatAi({ dispatchAdminPush }) {
     }
   );
 
-  return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink };
+  // Customer left a service rating (inbox/{id}/csat — write-once from the
+  // widget after the job closes). A LOW score is a perishable signal: push
+  // staff immediately so someone can recover the relationship, and — when
+  // the customer wrote a comment — drop it into the teach queue
+  // (/chat_feedback) so the case can be turned into a KB answer. Enqueue
+  // only; nothing reaches the prompt until an admin teaches it (same
+  // fail-closed rule as the console's thumbs feedback). Good scores need
+  // no machinery — analytics reads them straight off the conversation.
+  // Name is project-unique per the {region}/{name} collision rule.
+  const onChatCsatSubmitted = onValueCreated(
+    { ref: "/inbox/{convoId}/csat", region: REGION },
+    async (event) => {
+      const tag = "onChatCsatSubmitted";
+      try {
+        const csat = event.data.val() || {};
+        const convoId = event.params.convoId;
+        const score = Number(csat.score) || 0;
+        if (score <= 0 || score > 5) return;
+        if (score >= 3) return; // 3 = neutral, 4-5 = good — report-only
+        const db = getDatabase();
+        const convoSnap = await db.ref(`inbox/${convoId}`).once("value");
+        const convo = convoSnap.val() || {};
+        const displayName = convo.customer_name || convo.name || "ลูกค้า";
+        const comment = String(csat.comment || "").trim();
+        await dispatchAdminPush(
+          buildInboxPushMessage(
+            convoId,
+            `ลูกค้าให้ ${score} ดาว: ${displayName}`,
+            comment || "ไม่มีคอมเมนต์ — เปิดแชทดูบทสนทนาเพื่อหาสาเหตุ"
+          ),
+          tag
+        );
+        if (comment) {
+          await db.ref("chat_feedback").push({
+            convo_id: convoId,
+            message_id: "",
+            ai_text: "",
+            customer_text: comment.slice(0, 1000),
+            rating: "bad",
+            source: "customer_csat",
+            csat_score: score,
+            by_id: "",
+            by_name: `ลูกค้า (${displayName})`,
+            at: Date.now(),
+            taught: false,
+          });
+        }
+        console.log(`[${tag}] ${convoId} low csat ${score} pushed${comment ? " + queued for teaching" : ""}`);
+      } catch (err) {
+        // Rating handling is best-effort — never let it break the csat write.
+        console.error(`[${tag}] failed:`, err && err.message);
+      }
+    }
+  );
+
+  return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink, onChatCsatSubmitted };
 }
 
 // __test = internal surface for the regression harness (functions/test/).

@@ -62,6 +62,8 @@ interface Conversation {
   // Staff-managed tags (inbox/{id}/tags/{pushId} = label) — added/removed in
   // the chat header, shown in the list, and filterable. Shared by the team.
   tags?: Record<string, string>;
+  // Service rating the customer left after resolve (write-once from the widget)
+  csat?: { score: number; comment?: string; at?: number };
 }
 
 interface Message {
@@ -219,6 +221,9 @@ export const InboxPage = () => {
         escalation: val.escalation,
         ai_state: val.ai_state,
         tags: val.tags,
+        csat: val.csat && Number(val.csat.score) >= 1
+          ? { score: Number(val.csat.score), comment: val.csat.comment, at: Number(val.csat.at) || 0 }
+          : undefined,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       setConversations(list);
@@ -886,6 +891,11 @@ export const InboxPage = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="font-bold text-sm text-slate-800 truncate">{convo.customer_name || convo.name}</span>
+                    {convo.csat && (
+                      <span className={`shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full ${convo.csat.score <= 2 ? 'bg-red-100 text-red-600' : convo.csat.score >= 4 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {'\u2605'} {convo.csat.score}
+                      </span>
+                    )}
                     <span className="text-[10px] text-slate-400 shrink-0 ml-2">
                       {formatTime(convo.lastMessageAt)}
                     </span>
@@ -1499,6 +1509,22 @@ export const InboxPage = () => {
               </button>
             )}
           </div>
+
+          {/* คะแนนบริการจากลูกค้า (CSAT หลังปิดจ็อบ) */}
+          {selectedConversation.csat && (
+            <div className={`p-4 border-b border-slate-100 ${selectedConversation.csat.score <= 2 ? 'bg-red-50/60' : ''}`}>
+              <p className="text-[10px] font-black text-slate-400 uppercase mb-1.5">คะแนนบริการจากลูกค้า</p>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-sm font-black ${selectedConversation.csat.score <= 2 ? 'text-red-600' : selectedConversation.csat.score >= 4 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {'★'.repeat(selectedConversation.csat.score)}{'☆'.repeat(5 - selectedConversation.csat.score)}
+                </span>
+                <span className="text-xs font-bold text-slate-600">{selectedConversation.csat.score}/5</span>
+              </div>
+              {selectedConversation.csat.comment && (
+                <p className="text-xs text-slate-600 mt-1.5 whitespace-pre-wrap">"{selectedConversation.csat.comment}"</p>
+              )}
+            </div>
+          )}
 
           {/* Escalation */}
           {selectedConversation.escalation?.summary && (
