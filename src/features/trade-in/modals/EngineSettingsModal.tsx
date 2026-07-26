@@ -3,13 +3,14 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import {
   X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
-  Copy, ChevronUp, ChevronDown, Languages, Split, Loader2, CheckCircle2
+  Copy, ChevronUp, ChevronDown, Languages, Split, Loader2, CheckCircle2, Sparkles
 } from 'lucide-react';
 import { ref, push, remove } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import toast from 'react-hot-toast';
 import { writeConditionSet } from '../utils/conditionSets';
 import { planPerModelSplit, executePerModelSplit } from '../utils/perModelConditionSets';
+import { planGenerationApply, executeGenerationApply, GEN_LABELS, type IphoneGeneration } from '../utils/generationTemplates';
 import { fillEnFields } from '../utils/assessmentEnSeed';
 import { FUNCTIONAL_TEMPLATES, CONDITION_TEMPLATES } from '../utils/assessmentSeedTemplates';
 import { ASSESSMENT_PRESETS } from '../utils/assessmentPresets';
@@ -56,6 +57,40 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     () => planPerModelSplit(models, conditionSets),
     [models, conditionSets],
   );
+
+  // ---- Auto-apply generation battery/warranty/region templates (iPhone) -----
+  // Runs AFTER the 1:1 split: only per-model sets are touched (shared sets are
+  // skipped and counted), so pressing it early is safe. Idempotent — a set that
+  // already carries its tier's template groups is skipped by the planner.
+  const [genProgress, setGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const genPlan = useMemo(
+    () => planGenerationApply(models, conditionSets),
+    [models, conditionSets],
+  );
+
+  const handleApplyGeneration = async () => {
+    if (genProgress || genPlan.actions.length === 0) return;
+    const tierLine = (Object.keys(GEN_LABELS) as IphoneGeneration[])
+      .filter((t) => genPlan.tierCounts[t] > 0)
+      .map((t) => `- ${GEN_LABELS[t]}: ${genPlan.tierCounts[t]} รุ่น`).join('\n');
+    if (!confirm(
+      `ปรับหัวข้อ แบต + ประกัน + ประเทศที่ซื้อ ตามนโยบายรายรุ่นให้ iPhone ${genPlan.actions.length} รุ่น?\n\n`
+      + `${tierLine}\n\n`
+      + `หัวข้อแบต/ประกัน/ประเทศเดิมของแต่ละชุดจะถูกแทนที่ด้วยชุดคำถามตามรุ่น (หัวข้ออื่นไม่ถูกแตะ) — ราคาประเมินจะเปลี่ยนตามนโยบายใหม่ทันที`
+      + (genPlan.sharedSkipped.length > 0 ? `\n\nข้าม ${genPlan.sharedSkipped.length} รุ่นที่ยังใช้ชุดร่วมกับรุ่นอื่น — กด "แตกชุดรายรุ่น" ก่อน` : ''),
+    )) return;
+    setGenProgress({ done: 0, total: genPlan.actions.length });
+    try {
+      const result = await executeGenerationApply(genPlan.actions, (done, total) => setGenProgress({ done, total }));
+      if (result.failed.length === 0) {
+        toast.success(`ปรับชุดคำถามตามรุ่นสำเร็จ ${result.done} รุ่น`);
+      } else {
+        toast.error(`สำเร็จ ${result.done} รุ่น, ล้มเหลว ${result.failed.length} รุ่น (${result.failed.slice(0, 3).map((f) => f.modelName).join(', ')}${result.failed.length > 3 ? ', …' : ''}) — กดซ้ำเพื่อทำเฉพาะที่ค้าง`);
+      }
+    } finally {
+      setGenProgress(null);
+    }
+  };
 
   const handleSplitPerModel = async () => {
     if (splitProgress || splitPlan.actions.length === 0) return;
@@ -376,6 +411,45 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                   <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
                     <CheckCircle2 size={14} /> ทุกรุ่นมีชุดประเมินของตัวเองแล้ว
                     {splitPlan.missing.length > 0 && <span className="text-red-500">· {splitPlan.missing.length} รุ่นไม่มีชุด</span>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto-apply แบต/ประกัน/ประเทศตามรุ่น — เฉพาะ iPhone ที่มีชุดรายรุ่นแล้ว */}
+            {models.length > 0 && (
+              <div className="bg-white border border-indigo-200 rounded-2xl p-4 mb-1">
+                <div className="text-xs font-black text-indigo-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                  <Sparkles size={14} /> แบต + ประกัน + ประเทศ ตามรุ่น
+                </div>
+                {genProgress ? (
+                  <>
+                    <div className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1.5">
+                      <Loader2 size={13} className="animate-spin" /> กำลังปรับ… {genProgress.done}/{genProgress.total} รุ่น
+                    </div>
+                    <div className="h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${(genProgress.done / Math.max(1, genProgress.total)) * 100}%` }} />
+                    </div>
+                  </>
+                ) : genPlan.actions.length > 0 ? (
+                  <>
+                    <div className="text-[11px] font-bold text-slate-500 mb-2 leading-relaxed">
+                      iPhone {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
+                      {genPlan.alreadyApplied > 0 && ` (ปรับแล้ว ${genPlan.alreadyApplied})`}
+                      {genPlan.sharedSkipped.length > 0 && ` · ${genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน`}
+                    </div>
+                    <button
+                      onClick={handleApplyGeneration}
+                      title="แทนที่หัวข้อแบต/ประกัน/ประเทศของชุดรายรุ่น iPhone ด้วยชุดคำถามตามนโยบายรุ่น (17 ละเอียด / 16 แบต ≥90 / 14-15 แบต ≥85 / ≤13 ดี-เสื่อม) — หัวข้ออื่นไม่ถูกแตะ"
+                      className="w-full py-2.5 bg-indigo-600 text-white text-sm font-black rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                    >
+                      <Sparkles size={16} /> ปรับตามรุ่น ({genPlan.actions.length} รุ่น)
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} /> iPhone ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
+                    {genPlan.sharedSkipped.length > 0 && <span className="text-amber-600">· {genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน</span>}
                   </div>
                 )}
               </div>
