@@ -94,6 +94,24 @@ export const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: SeedFu
 export type SeedCondOpt = { label: string; description: string; pct?: number; deduct?: number; failBehavior?: 'pass' | 'reject' | 'deduct' };
 export type SeedCondGroup = { title: string; icon: string; description: string; kind: 'cosmetic' | 'functional'; options: SeedCondOpt[] };
 
+// ประเทศที่ซื้อ / รหัสโมเดล — สองเวอร์ชันตามรุ่น: ตั้งแต่ iPhone 14 ขึ้นไป
+// ไม่มีรหัส TH/A แล้ว เครื่องศูนย์ไทยใช้ ZP/A แทน; iPhone 13 ลงไปศูนย์ไทยคือ
+// TH/A และ ZP/ZA นับเป็นเครื่องนอก. ใช้ประกอบใน template แบตรายรุ่นด้านล่าง.
+const REGION_ZP_GROUP: SeedCondGroup = {
+  title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
+    { label: 'ศูนย์ไทย (ZP/A)', description: 'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย ZP/A', failBehavior: 'pass', deduct: 0 },
+    { label: 'เครื่องนอก (LL / J / CH / อื่นๆ)', description: 'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย', failBehavior: 'deduct', pct: 20 },
+    { label: 'ล็อกเครือข่าย / ใช้ในไทยไม่ได้', description: 'เครื่องติดล็อกเครือข่ายผู้ให้บริการ ใช้ซิมไทยไม่ได้', failBehavior: 'reject' },
+  ],
+};
+const REGION_TH_GROUP: SeedCondGroup = {
+  title: 'ประเทศที่ซื้อ', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก (ดูจากรหัสรุ่นท้าย)', options: [
+    { label: 'ศูนย์ไทย (TH/A)', description: 'เครื่องศูนย์ไทย รหัสรุ่นลงท้าย TH/A', failBehavior: 'pass', deduct: 0 },
+    { label: 'เครื่องนอก (ZP / ZA / อื่นๆ)', description: 'เครื่องหิ้ว/นอก ใช้งานได้ปกติในไทย', failBehavior: 'deduct', pct: 20 },
+    { label: 'ล็อกเครือข่าย / ใช้ในไทยไม่ได้', description: 'เครื่องติดล็อกเครือข่ายผู้ให้บริการ ใช้ซิมไทยไม่ได้', failBehavior: 'reject' },
+  ],
+};
+
 export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCondGroup[] }> = {
   standard: { label: 'สภาพ + ประกัน + ประเทศ + ประวัติซ่อม', items: [
     { title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
@@ -124,7 +142,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
   ] },
-  // แบต + ประกัน 4 ระดับความละเอียดตามอายุรุ่น — สำหรับชุดประเมินรายรุ่น
+  // แบต + ประกัน + ประเทศที่ซื้อ 4 ระดับตามอายุรุ่น — สำหรับชุดประเมินรายรุ่น
   // (1 รุ่น : 1 ชุด). นโยบายเจ้าของร้าน (ก.ค. 2026):
   //   • รุ่นล่าสุด (iPhone 17 ทั้งซีรีส์) — แบต 100/98/95 มีผลจริงต่อราคาขายต่อ
   //     → ถาม % ช่วงละเอียด + ประกันหักตามระยะเวลาที่เหลือ
@@ -133,11 +151,14 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   //     เป็นข้อมูลอย่างเดียว ไม่หักทุกกรณี
   //   • รุ่น 2-3 ปี (iPhone 14-15) — เกณฑ์รับได้ = แบต >= 85%, หมดประกันไม่หัก
   //   • รุ่นเก่า (iPhone 11-13 ลงไป) — ถามแค่ ดี (>= 80%) / เสื่อม, ประกันไม่หัก
+  // รหัสโมเดลศูนย์ไทยเปลี่ยนที่ iPhone 14: ตั้งแต่ 14 ขึ้นไปไม่มีรหัส TH/A แล้ว —
+  // เครื่องศูนย์ไทยเป็น ZP/A แทน (REGION_ZP_GROUP) ส่วน 13 ลงไปศูนย์ไทยคือ TH/A
+  // และ ZP นับเป็นเครื่องนอก (REGION_TH_GROUP)
   // ค่าหักเป็น pct (สเกลตามราคา variant อัตโนมัติ) — เป็นแค่ค่าตั้งต้น แอดมิน
   // จูนต่อรายรุ่นได้. ทั้งแบตและประกันถูก exclude จากเกรด A/B/C/D อยู่แล้ว
   // (GRADE_EXCLUDE_RE ใน bkk-frontend-next conditionGrade.ts จับจากชื่อหัวข้อ
   // "แบต"/"ประกัน") — จึงหักราคาได้โดยเกรดสภาพไม่ตก ตามนโยบาย "แบต 98% ยังเกรด A".
-  battery_latest: { label: 'แบต % ละเอียด + ประกันละเอียด (รุ่นล่าสุด iPhone 17)', items: [
+  battery_latest: { label: 'แบต % ละเอียด + ประกันละเอียด + ZP/A (รุ่นล่าสุด iPhone 17)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 100%', description: 'แบตเตอรี่ยังเต็ม 100% เหมือนใหม่', deduct: 0 },
       { label: 'สุขภาพแบต 98-99%', description: 'เสื่อมเล็กน้อยมาก แทบเท่าเครื่องใหม่', pct: 1 },
@@ -151,8 +172,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', pct: 2 },
       { label: 'หมดประกันศูนย์แล้ว', description: 'พ้นระยะประกันศูนย์แล้ว', pct: 4 },
     ] },
+    REGION_ZP_GROUP,
   ] },
-  battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก (iPhone 16)', items: [
+  battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 16)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
       { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
@@ -164,8 +186,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
     ] },
+    REGION_ZP_GROUP,
   ] },
-  battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก (iPhone 14-15)', items: [
+  battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 85-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
       { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 8 },
@@ -175,8 +198,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
     ] },
+    REGION_ZP_GROUP,
   ] },
-  battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% (iPhone 11-13 ลงไป)', items: [
+  battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% + TH/A (iPhone 11-13 ลงไป)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'สุขภาพแบต 80% ขึ้นไป ไม่ขึ้น Service', deduct: 0 },
       { label: 'แบตเตอรี่เสื่อม', description: 'สุขภาพแบตต่ำกว่า 80% หรือขึ้นเตือน Service', pct: 10, failBehavior: 'deduct' },
@@ -185,5 +209,6 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
+    REGION_TH_GROUP,
   ] },
 };
