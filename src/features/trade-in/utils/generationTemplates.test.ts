@@ -70,12 +70,14 @@ describe('buildGenerationGroups', () => {
       buildGenerationGroups(tier)
         .find((g: any) => g.title === 'สภาพจอภาพและกระจก')!
         .options.find((o: any) => o.label === 'จอแตก/ร้าว');
-    expect(cracked('latest').pct).toBe(30);
-    expect(cracked('recent').pct).toBe(35);
-    expect(cracked('mid').pct).toBe(40);
-    expect(cracked('old').pct).toBe(50);
-    expect(cracked('ipad_new').pct).toBe(35);
-    expect(cracked('ipad_old').pct).toBe(50);
+    // Anchored to real Apple TH repair pricing (iPhone 17 screen = ฿12,499 on a
+    // ~฿22,000 device) + competitor benchmarks — see PR #436.
+    expect(cracked('latest').pct).toBe(55);
+    expect(cracked('recent').pct).toBe(60);
+    expect(cracked('mid').pct).toBe(65);
+    expect(cracked('old').pct).toBe(70);
+    expect(cracked('ipad_new').pct).toBe(60);
+    expect(cracked('ipad_old').pct).toBe(70);
     for (const tier of ['latest', 'recent', 'mid', 'old', 'ipad_new', 'ipad_old']) {
       expect(cracked(tier).failBehavior, tier).toBe('deduct');
     }
