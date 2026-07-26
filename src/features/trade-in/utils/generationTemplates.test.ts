@@ -64,6 +64,21 @@ describe('buildGenerationGroups', () => {
     expect(screenLight('mid')).toBe(6);
     expect(screenLight('old')).toBe(10);
   });
+  it('cracked-but-working screens deduct heavily per generation, never reject', () => {
+    const cracked = (tier: any) =>
+      buildGenerationGroups(tier)
+        .find((g: any) => g.title === 'สภาพจอภาพและกระจก')!
+        .options.find((o: any) => o.label === 'จอแตก/ร้าว');
+    expect(cracked('latest').pct).toBe(30);
+    expect(cracked('recent').pct).toBe(35);
+    expect(cracked('mid').pct).toBe(40);
+    expect(cracked('old').pct).toBe(50);
+    expect(cracked('ipad_new').pct).toBe(35);
+    expect(cracked('ipad_old').pct).toBe(50);
+    for (const tier of ['latest', 'recent', 'mid', 'old', 'ipad_new', 'ipad_old']) {
+      expect(cracked(tier).failBehavior, tier).toBe('deduct');
+    }
+  });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
       buildGenerationGroups(tier).find((g: any) => g.title === 'ประกัน')!.options;
