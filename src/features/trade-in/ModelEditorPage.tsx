@@ -347,7 +347,7 @@ export const ModelEditorPage: React.FC<ModelEditorPageProps> = ({
                 </label>
                 {!isAddingSeries ? (
                   <div className="flex gap-2">
-                    <select value={editingItem.series || ''} onChange={(e) => onEditingItemChange({ ...editingItem, series: e.target.value })} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-colors outline-none">
+                    <select value={editingItem.series || ''} onChange={(e) => onEditingItemChange({ ...editingItem, series: e.target.value })} className="w-full min-w-0 p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-blue-500 transition-colors outline-none">
                       <option value="">-- ไม่ระบุ --</option>
                       {(() => {
                         const filtered = availableSeries.filter(s => s.brand === editingItem.brand && s.category === editingItem.category);
@@ -494,7 +494,10 @@ export const ModelEditorPage: React.FC<ModelEditorPageProps> = ({
               <div>
                 <label className="text-xs font-black text-indigo-600 mb-2 block flex items-center gap-1"><ClipboardList size={14} /> Assign Condition Item</label>
                 <div className="flex gap-2">
-                  <select className="flex-1 p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingItem.conditionSetId} onChange={(e) => onEditingItemChange({ ...editingItem, conditionSetId: e.target.value })}>
+                  {/* min-w-0: select เป็น flex item — ถ้าไม่ใส่ browser จะไม่ยอมหด
+                      ต่ำกว่าความกว้างข้อความ option แล้วดันล้นออกนอก card เมื่อ
+                      ชื่อชุดประเมินยาว */}
+                  <select className="flex-1 min-w-0 p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-sm font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none" value={editingItem.conditionSetId} onChange={(e) => onEditingItemChange({ ...editingItem, conditionSetId: e.target.value })}>
                     <option value="" disabled>-- เลือกชุดประเมินสภาพที่ตรงกับสินค้านี้ --</option>
                     {conditionSets.map(set => (<option key={set.id} value={set.id}>{set.name}</option>))}
                   </select>
