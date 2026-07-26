@@ -876,7 +876,7 @@ check("offer backstop accepts English phone asks", src.includes("!/เบอร�
   check("URL mirrors checkout's own redirect", src.indexOf("https://www.bkkapple.com/track/${jobId}", fn) > fn);
   check("bilingual by checkout locale", src.indexOf('job.cust_locale === "en"', fn) > fn);
   check("failures never break order creation", src.indexOf("a failed chat note must never break order creation", fn) > fn);
-  check("exported from registerChatAi", src.includes("return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink };"));
+  check("exported from registerChatAi", src.includes("return { chatWidgetAiReply, getChatAiKnowledge, suggestAdminReplies, onJobCreatedChatTrackLink, onChatCsatSubmitted };"));
   // Guest checkout with no prior chat: the trigger SEEDS the conversation so
   // the link waits in the widget, with order contact info pre-verified.
   check("no-chat guests get a seeded conversation", src.includes("const isNewConvo = !convoSnap.exists();"));
@@ -952,6 +952,21 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("otherwise -> ask storage+condition, never wait", tailBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
   check("the fallback lines are not themselves wait-promises", !__test.waitPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
   check("live #PSP1 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ ขอเช็คราคารับซื้อ iPad Generation 10 ในระบบให้ก่อนนะครับ รอสักครู่ครับ"));
+}
+
+// --- low customer CSAT -> push staff + queue the comment for teaching --------
+{
+  const fn = src.indexOf("const onChatCsatSubmitted = onValueCreated(");
+  check("csat trigger exists", fn > 0);
+  const body = src.slice(fn, fn + 2600);
+  check("fires on the write-once csat node", body.includes('ref: "/inbox/{convoId}/csat"'));
+  check("neutral and good scores are report-only", body.includes("if (score >= 3) return;"));
+  check("low score pushes staff", body.includes("ลูกค้าให้ ${score} ดาว"));
+  check("only commented ratings enter the teach queue", body.includes("if (comment) {"));
+  check("queue entry is marked as customer-sourced", body.includes('source: "customer_csat"'));
+  check("queue entry starts untaught (fail-closed)", body.includes("taught: false"));
+  const idx = readFileSync(new URL("../index.js", import.meta.url), "utf8");
+  check("wired up in index.js", idx.includes("exports.onChatCsatSubmitted = chatAi.onChatCsatSubmitted;"));
 }
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);

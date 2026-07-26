@@ -326,7 +326,7 @@ export default function ChatKnowledgeGraph() {
   // คำตอบที่แอดมินกด "ไม่ดี" ในคอนโซลแชท (chat_feedback, rating bad, ยังไม่สอน)
   // → แปลงเป็น Q&A ในคลังได้ 2 คลิก. ทุกอย่างผ่านมือแอดมิน — feedback ดิบ
   // ไม่มีทางไหลเข้าพรอมป์เอง (กัน invented policy)
-  interface TeachItem { id: string; customer_text: string; ai_text: string; note?: string; by_name?: string; at: number }
+  interface TeachItem { id: string; customer_text: string; ai_text: string; note?: string; by_name?: string; at: number; source?: string; csat_score?: number }
   const [teachQueue, setTeachQueue] = useState<TeachItem[]>([]);
   const [teachOpen, setTeachOpen] = useState(false);
   const [teachDrafts, setTeachDrafts] = useState<Record<string, string>>({});
@@ -342,6 +342,8 @@ export default function ChatKnowledgeGraph() {
           note: v.note ? String(v.note) : undefined,
           by_name: v.by_name ? String(v.by_name) : undefined,
           at: Number(v.at) || 0,
+          source: v.source ? String(v.source) : undefined,
+          csat_score: Number(v.csat_score) || undefined,
         }))
         .sort((a, b) => b.at - a.at)
         .slice(0, 50);
@@ -574,8 +576,14 @@ export default function ChatKnowledgeGraph() {
           )}
           {teachQueue.map((item) => (
             <div key={item.id} className="bg-white rounded-xl border border-red-100 p-3 space-y-1.5">
-              <p className="text-[11px] text-slate-500"><span className="font-black text-slate-700">ลูกค้าถาม:</span> {item.customer_text || '—'}</p>
-              <p className="text-[11px] text-red-600"><span className="font-black">มาตินตอบ (ไม่ดี):</span> {item.ai_text.slice(0, 300)}</p>
+              {item.source === 'customer_csat' ? (
+                <p className="text-[11px] text-red-600"><span className="font-black">ลูกค้าให้ {item.csat_score || '?'} ดาว — คอมเมนต์:</span> <span className="text-slate-600">{item.customer_text || '—'}</span></p>
+              ) : (
+                <>
+                  <p className="text-[11px] text-slate-500"><span className="font-black text-slate-700">ลูกค้าถาม:</span> {item.customer_text || '—'}</p>
+                  <p className="text-[11px] text-red-600"><span className="font-black">มาตินตอบ (ไม่ดี):</span> {item.ai_text.slice(0, 300)}</p>
+                </>
+              )}
               <textarea
                 value={teachDrafts[item.id] || ''}
                 onChange={(e) => setTeachDrafts((d) => ({ ...d, [item.id]: e.target.value }))}

@@ -5384,6 +5384,9 @@ exports.suggestAdminReplies = chatAi.suggestAdminReplies;
 // Order created by a website-chat customer → post the /track link into their
 // chat thread (customer can always find it again; staff see it in-console).
 exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;
+// Low customer CSAT (1-2 stars) -> push staff now + queue the comment for
+// teaching in /chat-kb. Good scores are analytics-only.
+exports.onChatCsatSubmitted = chatAi.onChatCsatSubmitted;
 
 // ---------------------------------------------------------------------------
 // CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).
