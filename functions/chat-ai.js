@@ -783,6 +783,12 @@ function humanRequestIntent(text) {
 function claimsHumanForwarding(reply) {
   const r = String(reply || "").replace(/\s+/g, "");
   if (/ส่งเรื่อง(ต่อ)?(ถึง|ให้)|ส่งต่อ(ให้|เรื่อง|เคส)|(แจ้ง|ประสาน)(ทีมงาน|เจ้าหน้าที่|แอดมิน)|(เจ้าหน้าที่|แอดมิน|ทีมงาน)(จะ)?(เข้ามา(ตอบ|ดูแล|คุย)|ติดต่อกลับ|มาดูแล|รับเรื่องต่อ)/.test(r)) return true;
+  // Staff-will-check-and-report-back promises ("เดี๋ยวเจ้าหน้าที่จะเช็คให้และ
+  // แจ้งราคากลับครับ") — a forwarding claim in disguise: it only comes true
+  // if a real escalation queues the chat for staff. Missed by the patterns
+  // above (live case IMG_5131 turn 2) because "แจ้งราคากลับ" is not
+  // "ติดต่อกลับ".
+  if (/(เจ้าหน้าที่|แอดมิน|ทีมงาน)จะ(รีบ)?(เข้ามา)?(เช็ค|ตรวจสอบ|ประเมิน)|(แจ้ง|ติดต่อ|โทร)(ราคา|ผล|ยอด)?กลับ/.test(r)) return true;
   // English forwarding claims — same trap in the customer's language.
   const e = String(reply || "").toLowerCase();
   return /(forwarded|passed|escalated)\s+(this|your|the)?\s*(request|case|chat|question)?\s*to\s+(our\s+)?(staff|team|agent|admin)|(our\s+)?(staff|team|agent|admin)\s+will\s+(get\s+back|contact|reach|call)\s+(to\s+)?you/.test(e);
@@ -1283,6 +1289,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2.1 แยกผลลัพธ์ search_models 2 กรณีให้ถูก: (ก) ได้ "declined_model" กลับมา = ร้าน "งดรับซื้อ" รุ่นนั้นแล้ว (นโยบายประกาศหน้าเว็บ) → แจ้งลูกค้าสุภาพตรงๆ ว่า "ตอนนี้เรางดรับซื้อรุ่นนี้ครับ" เสนอช่วยประเมินรุ่นอื่นแทน ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา ห้าม escalate (เว้นแต่ลูกค้ายืนยันขอเป็นกรณีพิเศษ). (ข) ได้ results ว่าง + similar_models (ไม่พบรุ่นเลย/ยังไม่ตั้งราคา) → เป็นช่องว่างข้อมูล ให้บอกว่าขอเจ้าหน้าที่ยืนยันราคาแล้ว escalate. อย่าสลับ 2 กรณีนี้`,
     `2.1.1 ชื่อรุ่นกำกวม (เช่น "iPad 6" อาจหมายถึง iPad Gen 6 / iPad mini 6 / iPad Air รุ่นที่ 6): ถ้า search_models ตอบ ambiguous_model กลับมา = ชื่อนั้นตรงกับหลายรุ่น และมีรุ่นงดรับซื้อปนอยู่ — "ห้ามแจ้งงดรับซื้อ ห้ามเริ่มถามสภาพ ห้ามขอชื่อ/เบอร์" จนกว่าลูกค้ายืนยันรุ่น ให้ถามสั้นๆ ว่าหมายถึงรุ่นไหนพร้อมปุ่ม [ตัวเลือก] จากรายชื่อ candidates แล้วพอลูกค้าเลือก ค่อยเรียก search_models ใหม่ด้วยชื่อเต็มรุ่นนั้นแล้วเดินตามผล (งดรับซื้อ → ปฏิเสธสุภาพตามข้อ 2.1, มีราคา → เข้าขั้นตอนข้อ 6)`,
     `2.1.2 ห้ามจบข้อความด้วยการให้ลูกค้า "รอ" ระหว่างคุณไปเช็คอะไรก็ตามเด็ดขาด ("รอสักครู่ครับ", "กำลังเช็คให้ครับ", "ขอเช็คให้ก่อนนะครับ") — คุณตอบได้ครั้งเดียวต่อข้อความ ไม่มี "เดี๋ยวกลับมาบอก" การเช็คทุกอย่าง (ราคา รุ่น พื้นที่ โปร สภาพ) เสร็จได้ทันทีด้วย tool ในข้อความเดียวกัน: เรียก tool เดี๋ยวนั้นแล้วตอบผลลัพธ์จริงเลย. คำตอบจากคลังความรู้ที่มีสำนวน "เดี๋ยวผมเช็คให้" หมายถึงเช็คทันทีในข้อความเดียวกันนี้เท่านั้น ไม่ใช่จบข้อความแล้วให้ลูกค้ารอ`,
+    `2.1.3 ห้ามสัญญาว่า "เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ / จะติดต่อกลับ" ทั้งที่ยังไม่มีเบอร์โทรลูกค้า — สัญญาแบบนั้นทำจริงไม่ได้ (ไม่มีเบอร์ให้โทร) และห้ามใช้แทนการทำงาน: ถ้าระบบไม่มีราคา (โหมด Offer) สิ่งที่ต้องทำคือขอ ชื่อ + เบอร์โทร + รายละเอียดเครื่อง ในข้อความนั้นเลย แล้วค่อย escalate_to_human เมื่อได้ข้อมูลครบ — คำสัญญาติดต่อกลับพูดได้เฉพาะหลังมีเบอร์และส่งเรื่องเข้าคิวเจ้าหน้าที่แล้วจริงเท่านั้น`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
     `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
@@ -1459,8 +1466,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-26.2";
+const LOGIC_VERSION = "2026-07-26.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-26", text: "ห้ามสัญญา 'จะติดต่อกลับ/เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ' ทั้งที่ไม่มีเบอร์ลูกค้า (เคสจริง iPad Gen 9 ข้อความ 'เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ' ทั้งที่ยังไม่ได้ขอเบอร์): ระบบจับคำสัญญา callback แยกจากคำว่ารอแล้ว — ไม่มีเบอร์ = บังคับเปลี่ยนเป็นขอชื่อ+เบอร์+รายละเอียดเครื่องทันที, มีเบอร์แต่ยังไม่เข้าคิวเจ้าหน้าที่ = บังคับส่งเรื่องเข้าคิวจริงให้คำสัญญาเป็นจริง, ข้อความบังคับของระบบเอง (ที่ขอเบอร์แล้วค่อยสัญญา) ไม่โดนวนแก้ซ้ำ + เพิ่มกติกาใน persona ตรงๆ ว่าห้ามสัญญาติดต่อกลับก่อนได้เบอร์" },
   { at: "2026-07-26", text: "ปิดทางลัดที่ทำให้ 'รอสักครู่ครับ' หลุดอีกรอบ (เคสจริง iPad Generation 9 — ห้องแชทค้างสถานะรอเจ้าหน้าที่จากคืนก่อน): เดิมถ้าห้องอยู่ในโหมดรอเจ้าหน้าที่แล้ว AI เรียกส่งต่อซ้ำ ระบบตีธง 'ส่งต่อแล้ว' เงียบๆ ซึ่งไปปิดด่านตรวจทุกด่านของข้อความรอบนั้น (ด่านห้ามให้รอ, ด่านขอเบอร์, ตัวตรวจคำตอบ) — ตอนนี้แยกธง 'ห้องรออยู่แล้ว' ออกจาก 'ส่งต่อจริงเทิร์นนี้' ด่านตรวจทำงานครบทุกข้อความโหมดรอ + เพิ่มด่านสุดท้ายก่อนส่งจริง: ข้อความที่ยังมีคำว่ารอจากทุกเส้นทาง (รวมคำแก้ของตัวตรวจ) จะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ" },
   { at: "2026-07-26", text: "คะแนน CSAT จากลูกค้ามีผลต่อเนื่องแล้ว: 1-2 ดาว = push แจ้งทีมทันที (สัญญาณกู้ความสัมพันธ์อายุสั้น) และถ้าลูกค้าเขียนคอมเมนต์ ระบบส่งเข้าคิวสอนที่คลังคำตอบ AI ให้อัตโนมัติ — เข้าคิวเฉยๆ ไม่ไหลเข้าสมองมาตินจนกว่าแอดมินกดสอน (fail-closed เหมือน feedback ฝั่งทีม), 3 ดาวขึ้นไป = เข้ารายงานอย่างเดียว" },
   { at: "2026-07-25", text: "อุดรูสุดท้ายของ 'รอสักครู่ครับ' (เคสจริง iPad Gen 10 — ยืนยันรุ่นแล้วแต่ AI ทิ้งลูกค้าไว้กับคำว่ารอ จนแอดมินต้องออกการ์ดเอง): เดิมตัวบังคับเช็คให้จบในเทิร์นเป็น best-effort ถ้าโมเดลยังติดโหมดรอ ข้อความเดิมหลุดได้ — ตอนนี้มีด่านท้ายแบบตายตัว: คำสัญญาให้รอที่รอดมาถึงปลายทางจะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ (ขอชื่อ+เบอร์+ถามสภาพ / โหมด Offer ขอเบอร์ / ถามความจุ+สภาพ) ไม่มีทางส่งคำว่า 'รอ' ปิดเทิร์นได้อีก" },
@@ -1640,6 +1648,25 @@ function waitPromiseIntent(text) {
     /ขอ(?:เช็ค|ตรวจสอบ)[\s\S]{0,35}ให้ก่อนนะ/.test(t) ||
     /ขอเวลา(?:เช็ค|ตรวจสอบ|ประเมิน)/.test(t)
   );
+}
+
+// The reply COMMITS to a later callback — "เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้ง
+// ราคากลับครับ", "จะติดต่อกลับ", "will get back to you". Cousin of
+// waitPromiseIntent (which catches "wait HERE" phrasing); this one catches
+// "we'll come to YOU later". The guards enforce it only when we hold NO
+// callback number: with a phone on file plus a real staff queue the promise
+// is one the team can actually keep — without a number it is dead air (live
+// case IMG_5131: "เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ" shipped with
+// no phone, no queue — nobody could call anyone). Thai matched on the
+// whitespace-stripped string like claimsHumanForwarding. Requires "จะ" after
+// the staff word so factual past tense ("เจ้าหน้าที่ตรวจสอบแล้วพบว่า") never
+// false-positives.
+function callbackPromiseIntent(text) {
+  const r = String(text || "").replace(/\s+/g, "");
+  if (/(เจ้าหน้าที่|แอดมิน|ทีมงาน)จะ(รีบ)?(เข้ามา)?(เช็ค|ตรวจสอบ|ประเมิน|คำนวณ|ดูให้)/.test(r)) return true;
+  if (/(แจ้ง|ติดต่อ|โทร)(ราคา|ผล|ยอด)?กลับ/.test(r)) return true;
+  const e = String(text || "").toLowerCase();
+  return /(will|going to)\s+(check|verify|review|confirm)[\s\S]{0,50}(get back|let you know|call you|contact you)|get back to you|call you back|contact you (?:back|again|later)|follow up with you/.test(e);
 }
 
 // The draft narrates a quote (price talk / points at a card / promises to
@@ -3368,7 +3395,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
+      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, cannedFinal: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -3665,6 +3692,7 @@ function registerChatAi({ dispatchAdminPush }) {
           finalText = state.escalated || state.alreadyWaiting
             ? "ส่งเรื่องถึงเจ้าหน้าที่เรียบร้อยแล้วครับ"
             : "ขออภัยครับ ผมไม่แน่ใจในคำตอบ ขอส่งต่อให้เจ้าหน้าที่ดูแลต่อครับ";
+          state.cannedFinal = true;
           if (!state.escalated && !state.alreadyWaiting) {
             await executeTool("escalate_to_human", {
               reason: "cannot_answer",
@@ -3699,11 +3727,13 @@ function registerChatAi({ dispatchAdminPush }) {
             }
             finalText =
               "ขออภัยในความสับสนครับ ผมส่งเรื่องให้เจ้าหน้าที่ช่วยตรวจสอบรุ่นของคุณโดยตรงแล้ว เดี๋ยวรีบแจ้งผลกลับครับ";
+            state.cannedFinal = true;
           } else if (shouldOverrideDeclinedReply(finalText)) {
             console.warn(`[${tag}] ${convoId} declined model ${declinedModel} — normalising to a deterministic decline`);
             finalText =
               `ต้องขออภัยด้วยครับ ตอนนี้ทางร้านงดรับซื้อรุ่น ${declinedModel} แล้วครับ ` +
               `หากมีรุ่นอื่นที่อยากขาย แจ้งชื่อรุ่นมาได้เลย เดี๋ยวผมประเมินราคาให้ทันทีครับ`;
+            state.cannedFinal = true;
             // If the model wrongly escalated a delisted model THIS turn, pull
             // the conversation back to AI so it isn't parked waiting for staff
             // on something we simply don't buy. escalatedThisTurn (not
@@ -3754,7 +3784,17 @@ function registerChatAi({ dispatchAdminPush }) {
               ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
               : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
           }
+          state.cannedFinal = true;
         };
+        // A promise the customer would be left waiting on: "wait here" text,
+        // OR a callback commitment while we hold no number to call. savedPhone
+        // is read live — save_customer_info during a recovery round clears the
+        // condition mid-turn. OFFER_CONTACT_ASK's own conditional callback
+        // line ("ฝากเบอร์...เดี๋ยวทีมงานติดต่อกลับ") is fine BY DESIGN — every
+        // canned assignment sets state.cannedFinal, and the guards skip canned.
+        const hasCallbackNumber = () => !!(convo.customer_phone || state.savedPhone);
+        const deadPromise = (t) =>
+          waitPromiseIntent(t) || (callbackPromiseIntent(t) && !hasCallbackNumber());
         const announcedQuote = announcedQuoteIntent(finalText);
         // The recovery loop and the contact gate must never fight: on the
         // very first card (no phone, contact never asked) the gate refuses
@@ -3764,11 +3804,12 @@ function registerChatAi({ dispatchAdminPush }) {
         // ช่วยยืนยัน" on a priced model. When the gate would block, the right
         // move IS the gate's own instruction: ask contact + start the
         // condition questions, no card this turn.
-        if (finalText && !state.escalated && !quoteOk && announcedQuote && contactGateWillBlock) {
+        if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
           finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+          state.cannedFinal = true;
           await markContactAsked();
-        } else if (finalText && !state.escalated && !quoteOk && announcedQuote) {
+        } else if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote) {
           console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing quote recovery`);
           let gateBlockedInRecovery = false;
           try {
@@ -3823,6 +3864,7 @@ function registerChatAi({ dispatchAdminPush }) {
             }
             if (quoteOk) {
               finalText = "ออกใบเสนอราคาให้แล้วครับ กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลได้เลยครับ";
+              state.cannedFinal = true;
             }
           } catch (err) {
             console.error(`[${tag}] quote recovery failed:`, err && err.message);
@@ -3831,8 +3873,10 @@ function registerChatAi({ dispatchAdminPush }) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
             finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            state.cannedFinal = true;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
+            state.cannedFinal = true;
             if (!state.escalated) {
               await executeTool("escalate_to_human", {
                 reason: "quote_card_failed",
@@ -3845,9 +3889,11 @@ function registerChatAi({ dispatchAdminPush }) {
         // Wait-promise guard — the reply tells the customer to WAIT while the
         // check happens "in the background", then the turn ends and nothing
         // ever comes back (live: "ขอเช็คราคา iPad Generation 11 ให้ก่อนนะครับ
-        // รอสักครู่ครับ" -> silence). Force the check to finish NOW: run the
-        // needed tools in this same turn and answer with the real result.
-        if (finalText && !state.escalated && waitPromiseIntent(finalText)) {
+        // รอสักครู่ครับ" -> silence). Also catches callback commitments with
+        // no number on file ("เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ" —
+        // IMG_5131 turn 2). Force the check to finish NOW: run the needed
+        // tools in this same turn and answer with the real result.
+        if (finalText && !state.escalated && !state.cannedFinal && deadPromise(finalText)) {
           console.warn(`[${tag}] ${convoId} wait-promise reply — forcing the check to finish this turn`);
           try {
             const followup = [
@@ -3872,7 +3918,7 @@ function registerChatAi({ dispatchAdminPush }) {
                 .join("\n")
                 .trim();
               if (uses.length === 0) {
-                if (txt && !waitPromiseIntent(txt)) finalText = txt;
+                if (txt && !deadPromise(txt)) { finalText = txt; state.cannedFinal = false; }
                 break;
               }
               followup.push({ role: "assistant", content: cont.content });
@@ -3888,7 +3934,7 @@ function registerChatAi({ dispatchAdminPush }) {
                 });
               }
               followup.push({ role: "user", content: results });
-              if (txt && !waitPromiseIntent(txt)) finalText = txt;
+              if (txt && !deadPromise(txt)) { finalText = txt; state.cannedFinal = false; }
             }
           } catch (err) {
             console.error(`[${tag}] wait-promise recovery failed:`, err && err.message);
@@ -3900,7 +3946,7 @@ function registerChatAi({ dispatchAdminPush }) {
           // "ขอเช็คราคา...รอสักครู่ครับ" -> silence until the admin issued the
           // card by hand). A wait-promise must never survive to the customer:
           // replace it with the flow's real next step.
-          if (finalText && !state.escalated && !quoteOk && waitPromiseIntent(finalText)) {
+          if (finalText && !state.escalated && !quoteOk && deadPromise(finalText)) {
             console.warn(`[${tag}] ${convoId} wait promise survived recovery — overriding with the next real step`);
             await overrideWaitPromise();
           }
@@ -3914,7 +3960,11 @@ function registerChatAi({ dispatchAdminPush }) {
         // writes the system confirmation + pushes admins itself.
         if (finalText && !state.escalated) {
           const wantsHuman = humanRequestIntent(text);
-          const saidForwarded = claimsHumanForwarding(finalText);
+          // Canned finals are exempt from the forwarding check: OFFER_CONTACT_ASK
+          // deliberately says "ฝากเบอร์...เดี๋ยวทีมงานติดต่อกลับ" — forcing an
+          // empty-handed escalate on our own copy would queue staff a lead
+          // with nobody to call, the exact dead-end the offer gate prevents.
+          const saidForwarded = !state.cannedFinal && claimsHumanForwarding(finalText);
           if (wantsHuman || saidForwarded) {
             console.warn(
               `[${tag}] ${convoId} escalation requested/promised but not executed (wantsHuman=${wantsHuman} saidForwarded=${saidForwarded}) — forcing escalate`
@@ -3931,6 +3981,7 @@ function registerChatAi({ dispatchAdminPush }) {
               // Swap it for the contact ask the gate demanded.
               console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
               finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+              state.cannedFinal = true;
             }
           }
         }
@@ -3949,6 +4000,7 @@ function registerChatAi({ dispatchAdminPush }) {
         ) {
           console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
           finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+          state.cannedFinal = true;
         }
 
         // Deterministic price-leak scrub — contact-before-price is an owner
@@ -3987,11 +4039,13 @@ function registerChatAi({ dispatchAdminPush }) {
             finalText = scrubbed;
           } else if (contactGateWillBlock) {
             finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            state.cannedFinal = true;
             await markContactAsked();
           } else {
             finalText = isEnglishText(text)
               ? "Sure — the exact amount will be on your quote card. One more question about the device: any scratches or damage on the screen or body?"
               : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
+            state.cannedFinal = true;
           }
         }
 
@@ -4009,6 +4063,7 @@ function registerChatAi({ dispatchAdminPush }) {
               console.warn(`[${tag}] ${convoId} warranty-no-effect claim vs set WITH warranty group — correcting`);
               finalText =
                 `ขอเช็คให้ชัวร์ก่อนครับ รุ่นนี้สถานะประกันศูนย์มีผลกับราคาประเมินด้วยครับ ตอนนี้เครื่องของคุณอยู่ในเกณฑ์ไหนครับ เดี๋ยวผมอัปเดตใบเสนอราคาให้ตรงตามจริงเลยครับ [ตัวเลือก: ${wOpts.join(" | ")}]`;
+              state.cannedFinal = true;
             }
           }
         }
@@ -4040,12 +4095,15 @@ function registerChatAi({ dispatchAdminPush }) {
             finalText = cleaned;
           } else {
             finalText = "ขออภัยครับ ขอสรุปให้ใหม่แบบเข้าใจง่ายๆ นะครับ มีจุดไหนอยากให้ผมอธิบายเพิ่มหรือไปต่อขั้นถัดไปเลย บอกได้เลยครับ";
+            state.cannedFinal = true;
           }
         }
 
         // Verifier gate — vet a genuine AI reply before it reaches the customer.
-        // (Skip canned escalation replies; those are safe fixed strings.)
-        if (finalText && !state.escalated) {
+        // (Skip canned replies — escalation turns AND deterministic guard
+        // overrides; those are safe fixed strings we must not let an LLM
+        // paraphrase back into a broken promise.)
+        if (finalText && !state.escalated && !state.cannedFinal) {
           const verdict = await verifyReply({ apiKey, userText: text, reply: finalText });
           if (verdict.usage) {
             db.ref(`chat_ai_usage/${ymd}`).update({
@@ -4070,10 +4128,14 @@ function registerChatAi({ dispatchAdminPush }) {
               .set({ issue: verdict.issue, at: Date.now(), draft: finalText.slice(0, 500) })
               .catch(() => {});
             if (verdict.corrected && verdict.corrected.trim()) {
+              // LLM-authored text again — the final assertion below must
+              // re-check it, so it is NOT canned.
               finalText = verdict.corrected.trim();
+              state.cannedFinal = false;
             } else {
               // Cannot safely fix — hand to a human instead of sending a bad answer.
               finalText = "ขออภัยครับ ขอให้เจ้าหน้าที่ยืนยันข้อมูลส่วนนี้ให้ชัดเจนก่อน แล้วรีบแจ้งกลับนะครับ";
+              state.cannedFinal = true;
               if (!state.escalated) {
                 await executeTool("escalate_to_human", {
                   reason: "verifier_block",
@@ -4084,15 +4146,15 @@ function registerChatAi({ dispatchAdminPush }) {
           }
         }
 
-        // Final pre-send assertion — no wait-promise reaches the customer
-        // from ANY path. The guards above run in draft order, but later
-        // rewrites (a verifier `corrected` text, a scrub fallback) are applied
-        // without re-checking, so a wait-promise can be REINTRODUCED after the
-        // wait-guard already passed. Real escalations are exempt ("รอสักครู่
-        // เจ้าหน้าที่กำลังมา" is a promise staff will actually keep — they
-        // were pushed this turn).
-        if (finalText && !state.escalated && !quoteOk && waitPromiseIntent(finalText)) {
-          console.warn(`[${tag}] ${convoId} wait promise at pre-send — final assertion override`);
+        // Final pre-send assertion — no wait/callback promise reaches the
+        // customer from ANY path. The guards above run in draft order, but
+        // later rewrites (a verifier `corrected` text, a scrub rewrite) are
+        // applied without re-checking, so a dead promise can be REINTRODUCED
+        // after the wait-guard already passed. Real escalations are exempt
+        // ("รอสักครู่ เจ้าหน้าที่กำลังมา" is a promise staff will actually
+        // keep — they were pushed this turn); canned finals are our own copy.
+        if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && deadPromise(finalText)) {
+          console.warn(`[${tag}] ${convoId} dead promise at pre-send — final assertion override`);
           await overrideWaitPromise();
         }
 
@@ -4436,6 +4498,7 @@ module.exports = {
     priceLeakBeforeCard,
     announcedQuoteIntent,
     waitPromiseIntent,
+    callbackPromiseIntent,
     internalLeak,
     warrantyNoEffectClaim,
     searchFaq,

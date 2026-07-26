@@ -945,7 +945,8 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   const rec = src.indexOf("wait-promise reply — forcing the check to finish this turn");
   const tail = src.indexOf("wait promise survived recovery — overriding with the next real step");
   check("deterministic tail exists after the recovery loop", tail > rec && rec > 0);
-  check("tail re-checks the surviving draft", src.slice(rec, tail).includes("waitPromiseIntent(finalText)"));
+  check("tail re-checks the surviving draft", src.slice(rec, tail).includes("deadPromise(txt)"));
+  check("wait guard triggers on the combined dead-promise check", src.slice(rec - 900, rec).includes("!state.cannedFinal && deadPromise(finalText)"));
   check("tail delegates to the shared override", src.slice(tail, tail + 300).includes("await overrideWaitPromise()"));
   const ov = src.indexOf("const overrideWaitPromise = async () => {");
   check("shared override is declared before the tail", ov > 0 && ov < tail);
@@ -974,14 +975,44 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   // Final pre-send assertion: a wait-promise reintroduced AFTER the tail (a
   // verifier `corrected` rewrite, a scrub fallback) is still replaced. It must
   // sit after the verifier applies corrections and before writeAiMessage.
-  const assertAt = src.indexOf("wait promise at pre-send — final assertion override");
+  const assertAt = src.indexOf("dead promise at pre-send — final assertion override");
   const corrected = src.indexOf("finalText = verdict.corrected.trim()");
   const send = src.indexOf("await writeAiMessage(db, convoId, assistantName, finalText.slice(0, 2000));");
   check("final assertion exists", assertAt > 0);
   check("final assertion runs after verifier corrections", corrected > 0 && assertAt > corrected);
   check("final assertion runs before the send", send > 0 && assertAt < send);
   check("final assertion delegates to the shared override", src.slice(assertAt, assertAt + 300).includes("await overrideWaitPromise()"));
-  check("real escalations stay exempt from the assertion", src.slice(assertAt - 700, assertAt).includes("!state.escalated && !quoteOk && waitPromiseIntent(finalText)"));
+  check("real escalations and canned finals stay exempt from the assertion", src.slice(assertAt - 900, assertAt).includes("!state.escalated && !state.cannedFinal && !quoteOk && deadPromise(finalText)"));
+  check("verifier corrections lose canned status (re-checked)", /finalText = verdict\.corrected\.trim\(\);\s*\n\s*state\.cannedFinal = false;/.test(src));
+  check("verifier skips canned finals", src.includes("if (finalText && !state.escalated && !state.cannedFinal) {\n          const verdict = await verifyReply("));
+}
+
+// --- callback promises need a number to call (IMG_5131 turn 2) ---------------
+// "เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ" shipped with no phone on
+// file and no staff queue: not caught by waitPromiseIntent (no "wait here"
+// phrasing) nor claimsHumanForwarding ("แจ้งราคากลับ" is not "ติดต่อกลับ").
+// callbackPromiseIntent catches the class; deadPromise() enforces it only
+// when we hold no callback number; claimsHumanForwarding was extended so a
+// with-phone callback promise forces a REAL escalation (queue = promise kept).
+{
+  const t2 = "ขอเช็คราคารับซื้อ iPad Generation 9 ให้ก่อนนะครับ รบกวนแจ้งความจุ และเป็น Wi-Fi หรือ Wi-Fi + Cellular ด้วยครับ เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ";
+  check("IMG_5131 turn-2 reply is a callback promise", __test.callbackPromiseIntent(t2));
+  check("bare staff-will-check promise is caught", __test.callbackPromiseIntent("เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ"));
+  check("'จะติดต่อกลับ' is caught", __test.callbackPromiseIntent("ทีมงานจะติดต่อกลับครับ"));
+  check("EN callback promise is caught", __test.callbackPromiseIntent("Our team will call you back with the best offer."));
+  check("factual past tense is NOT a callback promise", !__test.callbackPromiseIntent("เจ้าหน้าที่ตรวจสอบแล้วพบว่าเครื่องอยู่ในเกณฑ์ปกติครับ"));
+  check("CONTACT_FIRST_ASK is NOT a callback promise", !__test.callbackPromiseIntent("ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ และขอถามสภาพเครื่องนิดนึงครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ"));
+  check("storage+condition fallback is NOT a callback promise", !__test.callbackPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
+  check("forwarding claim now covers staff-will-check phrasing", __test.claimsHumanForwarding("เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ"));
+  // Canned-final plumbing: our own deterministic copy (OFFER_CONTACT_ASK's
+  // conditional "ฝากเบอร์...เดี๋ยวทีมงานติดต่อกลับ") must not be re-mangled
+  // or force-escalated empty-handed.
+  check("overrideWaitPromise marks its output as canned", /state\.cannedFinal = true;\s*\n\s*};\s*\n\s*\/\/ A promise the customer/.test(src));
+  check("forwarding force-escalate skips canned finals", src.includes("const saidForwarded = !state.cannedFinal && claimsHumanForwarding(finalText);"));
+  check("state init carries cannedFinal", src.includes("alreadyWaiting: false, cannedFinal: false"));
+  check("recovery acceptance clears canned status", src.includes("if (txt && !deadPromise(txt)) { finalText = txt; state.cannedFinal = false; }"));
+  check("deadPromise enforces callback promises only without a number", src.includes("waitPromiseIntent(t) || (callbackPromiseIntent(t) && !hasCallbackNumber())"));
+  check("persona forbids callback promises before a phone number", sysNoCust.includes("ห้ามสัญญาว่า \"เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ / จะติดต่อกลับ\" ทั้งที่ยังไม่มีเบอร์โทรลูกค้า"));
 }
 
 // --- low customer CSAT -> push staff + queue the comment for teaching --------
