@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ref, get, set } from 'firebase/database';
+import { ref, get, set, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position,
@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 import { Link } from 'react-router-dom';
 import {
   Brain, Plus, Save, X, Trash2, ExternalLink, Tag, Coins, MapPin,
-  MessageSquareText, Power, GripVertical, LayoutGrid, Sparkles,
+  MessageSquareText, Power, GripVertical, LayoutGrid, Sparkles, GraduationCap,
 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 import { TRAINING_PACK } from '../../data/martinTrainingPack';
@@ -322,6 +322,71 @@ export default function ChatKnowledgeGraph() {
     markDirty();
   };
 
+  // ---- คิวสอนมาติน (rate -> coach -> learn) ----
+  // คำตอบที่แอดมินกด "ไม่ดี" ในคอนโซลแชท (chat_feedback, rating bad, ยังไม่สอน)
+  // → แปลงเป็น Q&A ในคลังได้ 2 คลิก. ทุกอย่างผ่านมือแอดมิน — feedback ดิบ
+  // ไม่มีทางไหลเข้าพรอมป์เอง (กัน invented policy)
+  interface TeachItem { id: string; customer_text: string; ai_text: string; note?: string; by_name?: string; at: number }
+  const [teachQueue, setTeachQueue] = useState<TeachItem[]>([]);
+  const [teachOpen, setTeachOpen] = useState(false);
+  const [teachDrafts, setTeachDrafts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    get(ref(db, 'chat_feedback')).then((snap) => {
+      if (!snap.exists()) return;
+      const list: TeachItem[] = Object.entries(snap.val() as Record<string, any>)
+        .filter(([, v]) => v && v.rating === 'bad' && v.taught !== true)
+        .map(([id, v]) => ({
+          id,
+          customer_text: String(v.customer_text || ''),
+          ai_text: String(v.ai_text || ''),
+          note: v.note ? String(v.note) : undefined,
+          by_name: v.by_name ? String(v.by_name) : undefined,
+          at: Number(v.at) || 0,
+        }))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 50);
+      setTeachQueue(list);
+      setTeachDrafts(Object.fromEntries(list.map((it) => [it.id, it.note || ''])));
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const TEACH_CAT_LABEL = 'สอนจากแชทจริง';
+  const teachToKb = (item: TeachItem) => {
+    const answer = (teachDrafts[item.id] || '').trim();
+    if (!answer) { toast.error('พิมพ์คำตอบที่ถูกต้องก่อน แล้วค่อยเพิ่มเข้าคลัง'); return; }
+    if (!item.customer_text.trim()) { toast.error('เคสนี้ไม่มีคำถามลูกค้า — ใช้ "เพิ่มหมวด" เขียนเองแทน'); return; }
+    const norm = (t: string) => String(t || '').replace(/\s+/g, '').toLowerCase();
+    const nextRecs = { ...recs };
+    let catId = Object.keys(nextRecs).find(
+      (k) => nextRecs[k].type === 'custom' && norm(nextRecs[k].label) === norm(TEACH_CAT_LABEL)
+    );
+    if (!catId) {
+      catId = uid();
+      const customCount = Object.values(nextRecs).filter((r) => r.type === 'custom').length;
+      nextRecs[catId] = { label: TEACH_CAT_LABEL, emoji: '🎓', type: 'custom', enabled: true, x: 560, y: -190 + customCount * 190, items: {} };
+      setNodes((ns) => [...ns, {
+        id: catId as string, type: 'kbcat', position: { x: 560, y: -190 + customCount * 190 }, deletable: true,
+        data: { label: TEACH_CAT_LABEL, emoji: '🎓', enabled: true, count: 0 },
+      }]);
+      setEdges((es) => [...es, { id: uid(), source: 'root', target: catId as string, style: { strokeWidth: 2 } }]);
+    }
+    const rec = nextRecs[catId];
+    const items = { ...(rec.items || {}) };
+    const order = Object.values(items).reduce((m, it) => Math.max(m, Number(it.order) || 0), 0) + 1;
+    items[uid()] = { q: item.customer_text.trim().slice(0, 500), a: answer.slice(0, 2000), order };
+    nextRecs[catId] = { ...rec, items };
+    setRecs(nextRecs);
+    setNodes((ns) => ns.map((n) => n.id === catId ? { ...n, data: { ...n.data, count: Object.keys(items).length } } : n));
+    markDirty();
+    update(ref(db, `chat_feedback/${item.id}`), { taught: true, taught_at: Date.now() }).catch(() => {});
+    setTeachQueue((q) => q.filter((x) => x.id !== item.id));
+    toast.success('เพิ่มเข้าคลังแล้ว — กด "บันทึก" เพื่อให้มาตินใช้งานจริง');
+  };
+  const dismissTeach = (item: TeachItem) => {
+    update(ref(db, `chat_feedback/${item.id}`), { taught: true, taught_at: Date.now(), dismissed: true }).catch(() => {});
+    setTeachQueue((q) => q.filter((x) => x.id !== item.id));
+  };
+
   // นำเข้าชุดเทรนเริ่มต้น (TRAINING_PACK): เพิ่มเฉพาะหมวด/คำตอบที่ยังไม่มี —
   // จับคู่หมวดด้วยชื่อ (ตัดช่องว่าง) และกันคำตอบซ้ำด้วยตัวคำถาม จึงกดซ้ำได้
   // ปลอดภัย ไม่ทับของที่แอดมินแก้เองแล้ว. ยังต้องกด "บันทึก" เพื่อคงถาวร
@@ -482,6 +547,9 @@ export default function ChatKnowledgeGraph() {
           <p className="text-[11px] text-slate-400 font-bold">ลากจัดผัง · ต่อเส้นหมวดแม่-ลูก · คลิกหมวดเพื่อตั้งคำตอบ — AI ใช้ตอบลูกค้าทันทีหลังบันทึก</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setTeachOpen((o) => !o)} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border text-xs font-black transition-colors ${teachQueue.length > 0 ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100' : 'border-slate-200 text-slate-500 bg-white hover:bg-slate-50'}`}>
+            <GraduationCap size={14} /> คิวสอน{teachQueue.length > 0 ? ` (${teachQueue.length})` : ''}
+          </button>
           <button onClick={importTrainingPack} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-xs font-black transition-colors">
             <Sparkles size={14} /> นำเข้าชุดเทรน
           </button>
@@ -497,6 +565,37 @@ export default function ChatKnowledgeGraph() {
           </button>
         </div>
       </div>
+
+      {/* คิวสอนมาติน — คำตอบที่โดนกด "ไม่ดี" รอถูกแปลงเป็น Q&A ในคลัง */}
+      {teachOpen && (
+        <div className="px-5 py-3 bg-red-50/60 border-b border-red-100 max-h-72 overflow-y-auto space-y-2">
+          {teachQueue.length === 0 && (
+            <p className="text-xs font-bold text-slate-500">ไม่มีคำตอบรอสอน — กด "ไม่ดี" ที่ข้อความมาตินในหน้าแชทเพื่อส่งเคสเข้าคิวนี้</p>
+          )}
+          {teachQueue.map((item) => (
+            <div key={item.id} className="bg-white rounded-xl border border-red-100 p-3 space-y-1.5">
+              <p className="text-[11px] text-slate-500"><span className="font-black text-slate-700">ลูกค้าถาม:</span> {item.customer_text || '—'}</p>
+              <p className="text-[11px] text-red-600"><span className="font-black">มาตินตอบ (ไม่ดี):</span> {item.ai_text.slice(0, 300)}</p>
+              <textarea
+                value={teachDrafts[item.id] || ''}
+                onChange={(e) => setTeachDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
+                placeholder="คำตอบที่ถูกต้อง (มาตินจะใช้ตอบคำถามแบบนี้ครั้งหน้า)"
+                rows={2}
+                className="w-full text-[12px] border border-slate-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:border-blue-400"
+              />
+              <div className="flex items-center gap-2">
+                <button onClick={() => teachToKb(item)} className="text-[11px] font-black bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700">
+                  เพิ่มเข้าคลัง
+                </button>
+                <button onClick={() => dismissTeach(item)} className="text-[11px] font-bold text-slate-500 rounded-lg px-2 py-1.5 hover:text-slate-700">
+                  ข้าม
+                </button>
+                {item.by_name && <span className="ml-auto text-[10px] text-slate-400">โดย {item.by_name}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Canvas + Panel */}
       <div className="flex-1 flex min-h-0">
