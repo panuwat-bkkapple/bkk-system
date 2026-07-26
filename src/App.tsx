@@ -102,6 +102,7 @@ export default function App() {
               <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
               <Route path="/mobile/finance" element={<MobileFinancePage />} />
               <Route path="/mobile/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
+              <Route path="/mobile/pricing/:modelId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
               <Route path="/mobile/appointments" element={<AppointmentCalendar />} />
               <Route path="/mobile/notifications" element={<MobileNotificationsPage />} />
             </Route>
@@ -133,6 +134,7 @@ export default function App() {
               <Route path="/traceability" element={<Traceability />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
               <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
+              <Route path="/pricing/:modelId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
               <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
               <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
               <Route path="/issued-coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedCoupons /> : <Navigate to="/" replace />} />

@@ -2,6 +2,7 @@
 
 import { getAuth } from 'firebase/auth';
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Search, PlusCircle, Settings, FolderTree, Layers, LayoutGrid, Archive, Tag,
   MoreHorizontal, ChevronDown
@@ -17,7 +18,7 @@ import { EngineSettingsModal } from './modals/EngineSettingsModal';
 import { SeriesManagementModal } from './modals/SeriesManagementModal';
 import { SubcategoryManagementModal } from './modals/SubcategoryManagementModal';
 import { CategoryBrandManagementModal } from './modals/CategoryBrandManagementModal';
-import { ProductEditorModal } from './modals/ProductEditorModal';
+import { ModelEditorPage } from './ModelEditorPage';
 import { ModelsTable } from './components/pricing/ModelsTable';
 import { CatalogInfoBanner, CatalogKpiCards } from './components/pricing/CatalogOverview';
 import { getModelReadiness } from './utils/modelReadiness';
@@ -35,6 +36,15 @@ import {
 } from './constants/accessorySeed';
 
 export const PriceEditor = () => {
+  // Route-driven editor: /pricing = list, /pricing/:modelId = หน้าแก้ไขรุ่น
+  // (modelId 'new' = เพิ่มรุ่นใหม่). Component เดียว mount ตัวเดียวคุมทั้งสอง
+  // มุมมอง — Firebase listeners จึงไม่ถูก re-subscribe ตอนสลับ list <-> detail
+  // (กติกา RTDB cost: ห้าม subscribe/unsubscribe ต่อหน้า)
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { modelId } = useParams<{ modelId: string }>();
+  const basePath = location.pathname.startsWith('/mobile') ? '/mobile/pricing' : '/pricing';
+
   const [activeCategory, setActiveCategory] = useState('Smart Watch');
   const [activeBrand, setActiveBrand] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,10 +56,10 @@ export const PriceEditor = () => {
   const [categoriesData, setCategoriesData] = useState<any[]>([]);
   const [brandsData, setBrandsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isMobileEditOpen, setIsMobileEditOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  // Snapshot ตอนเปิดหน้าแก้ไข — ใช้เทียบหา unsaved changes (dirty)
+  const editSnapshotRef = useRef<string>('');
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
   const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
   const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
@@ -527,8 +537,8 @@ export const PriceEditor = () => {
         }));
       }
 
-      setIsModalOpen(false);
-      setIsMobileEditOpen(false);
+      editSnapshotRef.current = JSON.stringify(editingItem);
+      navigate(basePath);
       toast.success('บันทึกข้อมูลและโครงสร้างใหม่เรียบร้อยครับ! 🚀');
     } catch (error) {
       toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ');
@@ -645,7 +655,9 @@ export const PriceEditor = () => {
     migrateVariantsToSchema(cloned);
 
     setEditingItem(cloned);
-    setIsModalOpen(true);
+    // สำเนา = ของใหม่ที่ยังไม่ save → ถือเป็น dirty ตั้งแต่เปิด (snapshot ว่าง)
+    editSnapshotRef.current = '';
+    navigate(`${basePath}/new`);
     toast.success('สำเนาสินค้าเรียบร้อย กรุณาตรวจสอบและบันทึกครับ');
   };
 
@@ -678,13 +690,49 @@ export const PriceEditor = () => {
     };
   };
 
-  // Single entry point for add/edit — routes to the mobile full-screen page or
-  // the desktop modal based on the current breakpoint. Both views share the same
-  // editingItem state + handleSaveModel, so there is one data/save path.
+  // Single entry point for add/edit — navigate ไป URL ของรุ่น (desktop = หน้า
+  // เต็มจอ ModelEditorPage, mobile = MobilePriceEditPage) ทั้งสอง view แชร์
+  // editingItem state + handleSaveModel เส้นทาง save เดียว
   const handleOpenModal = (item: any = null) => {
-    setEditingItem(item ? migrateEditingItem(item) : buildNewModel());
-    if (isMobile) setIsMobileEditOpen(true);
-    else setIsModalOpen(true);
+    const next = item ? migrateEditingItem(item) : buildNewModel();
+    setEditingItem(next);
+    editSnapshotRef.current = item ? JSON.stringify(next) : '';
+    navigate(item ? `${basePath}/${item.id}` : `${basePath}/new`);
+  };
+
+  // Deep-link / refresh: URL มี modelId แต่ยังไม่มี editingItem (หรือคนละตัว)
+  // → โหลดจาก modelsData เมื่อพร้อม. หาไม่เจอ (ถูกลบ/id ผิด) → เด้งกลับ list
+  useEffect(() => {
+    if (!modelId) {
+      if (editingItem) setEditingItem(null);
+      return;
+    }
+    if (editingItem && (modelId === 'new' || editingItem.id === modelId)) return;
+    if (modelId === 'new') {
+      const fresh = buildNewModel();
+      setEditingItem(fresh);
+      editSnapshotRef.current = '';
+      return;
+    }
+    if (loading) return;
+    const found = modelsData.find((m: any) => m.id === modelId);
+    if (found) {
+      const migrated = migrateEditingItem(found);
+      setEditingItem(migrated);
+      editSnapshotRef.current = JSON.stringify(migrated);
+    } else {
+      toast.error('ไม่พบรุ่นสินค้านี้ในระบบ');
+      navigate(basePath, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelId, loading, modelsData]);
+
+  const isEditorDirty = !!(modelId && editingItem)
+    && JSON.stringify(editingItem) !== editSnapshotRef.current;
+
+  const handleCloseEditor = () => {
+    if (isEditorDirty && !window.confirm('มีการแก้ไขที่ยังไม่บันทึก ต้องการออกโดยไม่บันทึกใช่หรือไม่?')) return;
+    navigate(basePath);
   };
 
   const filteredModels = modelsData.filter(item => {
@@ -706,6 +754,49 @@ export const PriceEditor = () => {
     if (getModelReadiness(m, conditionSets).status === 'active') categoryStats[cat].ready++;
   }
 
+  // ---- Editor view (URL มี modelId) — แทน modal เดิม ----
+  if (modelId) {
+    if (!editingItem) {
+      return (
+        <div className="min-h-[50vh] flex items-center justify-center text-slate-400 font-bold animate-pulse">
+          กำลังโหลดข้อมูลรุ่น...
+        </div>
+      );
+    }
+    if (isMobile) {
+      return (
+        <MobilePriceEditPage
+          editingItem={editingItem}
+          conditionSets={conditionSets}
+          coupons={coupons}
+          availableSeries={availableSeries}
+          categories={categoriesData}
+          brands={brandsData}
+          onSave={handleSaveModel}
+          onEditingItemChange={setEditingItem}
+          onClose={handleCloseEditor}
+        />
+      );
+    }
+    return (
+      <ModelEditorPage
+        editingItem={editingItem}
+        isNew={modelId === 'new'}
+        isDirty={isEditorDirty}
+        conditionSets={conditionSets}
+        availableSeries={availableSeries}
+        allModels={modelsData}
+        categories={categoriesData}
+        brands={brandsData}
+        categorySchemas={CATEGORY_SCHEMAS}
+        onSave={handleSaveModel}
+        onClose={handleCloseEditor}
+        onEditingItemChange={setEditingItem}
+      />
+    );
+  }
+
+  // ---- List view ----
   return (
     <div className="h-full overflow-y-auto lg:h-auto lg:overflow-visible p-4 lg:p-6 max-w-[1600px] mx-auto lg:min-h-screen bg-slate-50/50">
 
@@ -865,35 +956,6 @@ export const PriceEditor = () => {
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
       />
-
-      <ProductEditorModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        editingItem={editingItem}
-        conditionSets={conditionSets}
-        availableSeries={availableSeries}
-        allModels={modelsData}
-        categories={categoriesData}
-        brands={brandsData}
-        categorySchemas={CATEGORY_SCHEMAS}
-        onSave={handleSaveModel}
-        onEditingItemChange={setEditingItem}
-      />
-
-      {/* Mobile full-screen price editor — shares editingItem state + handleSaveModel */}
-      {isMobileEditOpen && (
-        <MobilePriceEditPage
-          editingItem={editingItem}
-          conditionSets={conditionSets}
-          coupons={coupons}
-          availableSeries={availableSeries}
-          categories={categoriesData}
-          brands={brandsData}
-          onSave={handleSaveModel}
-          onEditingItemChange={setEditingItem}
-          onClose={() => setIsMobileEditOpen(false)}
-        />
-      )}
 
       <BatchPriceAdjustModal
         isOpen={!!batchAdjust}

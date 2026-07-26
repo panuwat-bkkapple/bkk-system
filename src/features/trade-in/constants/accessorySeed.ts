@@ -41,7 +41,7 @@ const ACCESSORY_SEED_DEFS: AccessorySeedDef[] = [
 ];
 
 // ชุดประเมินกลางสำหรับอุปกรณ์เสริมทุกรุ่น (แนวทางระบบคือ 1 ชุด/1 รุ่น — แอดมิน
-// กด Clone จาก ProductEditorModal ได้ทีหลังถ้าอยากแยกค่าต่อรุ่น). ค่าหักใหญ่
+// กด Clone จากหน้าแก้ไขรุ่น (ModelEditorPage) ได้ทีหลังถ้าอยากแยกค่าต่อรุ่น). ค่าหักใหญ่
 // ใช้ pct เพื่อสเกลตามราคาของแต่ละรุ่น (Pencil ~800 ถึง Keyboard ~4,500).
 export const ACCESSORY_CONDITION_SET = {
   name: 'อุปกรณ์เสริม iPad — ชุดประเมินมาตรฐาน',
