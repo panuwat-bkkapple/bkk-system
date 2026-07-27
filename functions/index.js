@@ -17,6 +17,7 @@ const {
   buildCustomerStatusEmail,
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
+  buildCustomerOfferDecisionEmail,
 } = require("./email");
 
 initializeApp();
@@ -752,6 +753,7 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "final_price", "net_payout", "pickup_fee", "rider_fee_discount",
   "applied_coupon", "applied_rider_promo", "adjustments",
   "revise_reason", "price_revision", "accepted_at",
+  "customer_offer",
   "pickup_schedule", "appointment_date", "appointment_time",
   "pickup_date", "pickup_time", "tracking_number",
   "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
@@ -1103,6 +1105,11 @@ exports.onNewTicketCreated = onValueCreated(
         // ธงจาก validateAndCreateOrder ฝั่ง bkk-frontend-next) ต้องติดต่อกลับ
         // เพื่อเสนอราคา — หัวข้อ push แยกให้แอดมินรู้ว่างานนี้รอเสนอราคา
         const isOfferRequest = job.offer_request === true && !(Number(job.price) > 0);
+        // Make Offer — ลูกค้าเสนอราคาเองมากับออเดอร์ (jobs/{id}/customer_offer
+        // จาก validateAndCreateOrder). ใส่ตัวเลข เสนอ vs ประเมิน ลงใน push ให้
+        // CEO/MANAGER ตัดสินจากมือถือได้ทันที — ตอบเร็ว = ปิดดีลได้
+        const customerOffer =
+          job.customer_offer && Number(job.customer_offer.amount) > 0 ? job.customer_offer : null;
         const price = job.price
           ? `฿${Number(job.price).toLocaleString()}`
           : (isOfferRequest ? "(รอเสนอราคา)" : "");
@@ -1110,10 +1117,16 @@ exports.onNewTicketCreated = onValueCreated(
         const custName = job.cust_name || "";
         const isB2B = job.status === "New B2B Lead";
 
-        const title = isOfferRequest
+        const title = customerOffer
+          ? (customerOffer.status === "auto_accepted"
+            ? "💰 ลูกค้าเสนอราคา — Auto-Accept แล้ว"
+            : "💰 ลูกค้าเสนอราคา — รอตัดสิน!")
+          : isOfferRequest
           ? "💬 ลูกค้าขอใบเสนอราคา!"
           : (isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!");
-        const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
+        const body = customerOffer
+          ? `${model} เสนอ ฿${Number(customerOffer.amount).toLocaleString()} (ประเมิน ฿${Number(customerOffer.quote_at_offer).toLocaleString()}) ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim()
+          : `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
 
         console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
 
@@ -3135,6 +3148,95 @@ exports.onAdminOfferProposed = onValueWritten(
         "admin",
         new Set([a.by_uid])
       );
+    }
+  }
+);
+
+// =============================================================================
+// Make Offer (ลูกค้าเสนอราคาเอง) → แจ้งผลการตัดสินข้อเสนอ
+// -----------------------------------------------------------------------------
+// Trigger: jobs/{id}/customer_offer (เขียนโดย validateAndCreateOrder ตอนสร้าง
+// งาน, แอดมินตัดสินใน ticket UI, หรือลูกค้าตอบเคาน์เตอร์ผ่าน /api/jobs/action
+// ฝั่ง bkk-frontend-next). ทำ 2 อย่างเมื่อ status เปลี่ยน:
+//   (1) ลูกค้าตอบเคาน์เตอร์ (counter_accepted / counter_declined) → push แจ้ง
+//       CEO/MANAGER + ผู้ตัดสิน (role-targeted แบบเดียวกับ onAdminOfferProposed)
+//   (2) อีเมลแจ้งลูกค้าตาม allowlist OFFER_DECISION_COPY ใน email.js
+//       (auto_accepted / accepted / countered / declined / counter_accepted —
+//       pending กับ counter_declined ไม่ส่ง) — gate ด้วย settings/accounting
+//       order_emails_enabled ตัวเดียวกับ order emails, กันส่งซ้ำด้วย
+//       jobs/{id}/offer_email_sent/{status} (อยู่นอก customer_offer เพื่อไม่
+//       ให้การเขียน guard วน trigger ตัวเอง)
+// ชื่อ function เฉพาะเจาะจงตามกฎ {region}/{name} collision
+// =============================================================================
+exports.onCustomerOfferDecided = onValueWritten(
+  { ref: "/jobs/{jobId}/customer_offer", region: "asia-southeast1" },
+  async (event) => {
+    const jobId = event.params.jobId;
+    const after = event.data.after.val();
+    if (!after || !after.status) return;
+    const beforeStatus = event.data.before.val()?.status || null;
+    const status = after.status;
+    // edge-trigger เฉพาะตอน status เปลี่ยนจริง (เขียนฟิลด์ย่อยอื่นไม่นับ)
+    if (beforeStatus === status) return;
+
+    const db = getDatabase();
+
+    // (1) ลูกค้าตอบเคาน์เตอร์จากหน้า track → push หา CEO/MANAGER + ผู้ตัดสิน
+    if (status === "counter_accepted" || status === "counter_declined") {
+      const accepted = status === "counter_accepted";
+      try {
+        const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+        if (after.decided_by_uid) targets.add(after.decided_by_uid);
+        await dispatchAdminPush(
+          {
+            data: {
+              jobId,
+              type: "customer_offer",
+              event: accepted ? "counter_accepted" : "counter_declined",
+              title: accepted ? "✅ ลูกค้ารับราคาเคาน์เตอร์" : "ℹ️ ลูกค้าไม่รับเคาน์เตอร์ — ขายราคาประเมิน",
+              body: accepted
+                ? `ตกลงที่ ฿${Number(after.counter_amount || 0).toLocaleString()} (ลูกค้าเสนอ ฿${Number(after.amount || 0).toLocaleString()})`
+                : `งานเดินต่อที่ราคาประเมิน ฿${Number(after.quote_at_offer || 0).toLocaleString()}`,
+              click_action: "/tickets",
+            },
+            android: {
+              priority: "high",
+              notification: { channelId: "status_changes", priority: "high", defaultSound: true, tag: `customer-offer-${jobId}` },
+            },
+            apns: {
+              headers: { "apns-priority": "10", "apns-push-type": "alert" },
+              payload: { aps: { "mutable-content": 1, sound: "default" } },
+            },
+            webpush: { headers: { Urgency: "high", TTL: "86400" } },
+          },
+          "onCustomerOfferAnswer",
+          "admin",
+          targets
+        );
+      } catch (pushErr) {
+        console.error(`[customerOffer] push failed for ${jobId}:`, pushErr?.message || pushErr);
+      }
+    }
+
+    // (2) อีเมลแจ้งลูกค้า — allowlist + gate + กันส่งซ้ำ
+    try {
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+      const job = jobSnap.val();
+      if (!job || !job.cust_email) return;
+      if (job.offer_email_sent && job.offer_email_sent[status]) return;
+      applyAccounting(job, acct);
+      job.customer_offer = after;
+      const email = buildCustomerOfferDecisionEmail(job, after);
+      if (!email) return;
+      const res = await sendEmail(email);
+      if (!res || !res.skipped) {
+        await db.ref(`jobs/${jobId}/offer_email_sent/${status}`).set(Date.now());
+      }
+      console.log(`[customerOffer] ${jobId}: ${beforeStatus || "(new)"} -> ${status}, email ${res?.skipped ? "skipped" : "sent"}`);
+    } catch (emailErr) {
+      console.error(`[customerOffer] email failed for ${jobId}:`, emailErr?.message || emailErr);
     }
   }
 );

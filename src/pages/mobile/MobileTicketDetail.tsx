@@ -36,6 +36,7 @@ import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../uti
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
 import type { BranchRecord } from '../../utils/receiveMethod';
 import { isAwaitingOffer } from '../../utils/offerRequest';
+import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDecisionCard';
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 
@@ -288,6 +289,47 @@ export const MobileTicketDetail = () => {
   const makeLog = (action: string, details: string) => ({
     action, details, by: currentUser?.name || 'Admin', timestamp: Date.now()
   });
+
+  // Make Offer (ลูกค้าเสนอราคาเอง) — mirror ของ desktop
+  // B2CWorkspacePage.handleDecideCustomerOffer (สูตรเงิน + qc_log เดียวกัน).
+  // push/อีเมลแจ้งลูกค้า = cloud function onCustomerOfferDecided
+  const handleDecideCustomerOffer = async (decision: 'accept' | 'counter' | 'decline', counterAmount?: number, note?: string) => {
+    const offer = job.customer_offer;
+    if (!offer || offer.status !== 'pending') return;
+    if (!canReviewAdjustments(currentUser?.role)) { toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่ตัดสินข้อเสนอลูกค้าได้'); return; }
+    const now = Date.now();
+    const decidedBy = { decided_at: now, decided_by_uid: currentUser?.id || currentUser?.uid || null, decided_by_name: currentUser?.name || 'Admin' };
+    if (decision === 'accept') {
+      const p = Math.round(Number(offer.amount));
+      const net = Math.max(0, p - pickupFee + couponValue + adjustmentsSum);
+      const devs = Array.isArray(job.devices) ? [...job.devices] : [];
+      // อัปเดตเฉพาะ price ไม่แตะ estimated_price (invariant เดียวกับ buildUpdatedDevices ฝั่ง desktop)
+      if (devs.length === 1) devs[0] = { ...devs[0], price: p };
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'accepted', ...decidedBy },
+        final_price: p, net_payout: net, ...(devs.length === 1 ? { devices: devs } : {}),
+        qc_logs: [makeLog('Customer Offer Accepted', `รับข้อเสนอลูกค้า ฿${p.toLocaleString()} (จากราคาประเมิน ฿${Number(offer.quote_at_offer).toLocaleString()} · ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('รับข้อเสนอแล้ว — ระบบจะแจ้งลูกค้าอัตโนมัติ');
+    } else if (decision === 'counter') {
+      const c = Math.round(Number(counterAmount));
+      if (!(c > Number(offer.quote_at_offer) && c < Number(offer.amount))) { toast.warning('ราคาเคาน์เตอร์ต้องอยู่ระหว่างราคาประเมินกับราคาที่ลูกค้าเสนอ'); return; }
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'countered', counter_amount: c, ...(note ? { counter_reason: note } : {}), ...decidedBy },
+        qc_logs: [makeLog('Customer Offer Countered', `เคาน์เตอร์ข้อเสนอลูกค้า ฿${Number(offer.amount).toLocaleString()} → ฿${c.toLocaleString()} — รอลูกค้าตอบบนหน้า track`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('ส่งราคาเคาน์เตอร์แล้ว — รอลูกค้าตอบ');
+    } else {
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'declined', ...decidedBy },
+        qc_logs: [makeLog('Customer Offer Declined', `ยืนราคาประเมินเดิม ฿${Number(offer.quote_at_offer).toLocaleString()} (ลูกค้าเสนอ ฿${Number(offer.amount).toLocaleString()}) — งานเดินต่อที่ราคาประเมิน`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('ยืนราคาประเมินเดิม — ระบบจะแจ้งลูกค้าอัตโนมัติ');
+    }
+  };
 
   // Itemised ad-hoc adjustment (เช่น เพิ่มราคาจากการต่อรองในแชท หรือหักตำหนิ
   // ที่ไม่อยู่ในชุดประเมิน) — same write shape as desktop
@@ -883,6 +925,11 @@ export const MobileTicketDetail = () => {
                   สเปกนี้ยังไม่มีราคากลางในระบบ — โทรติดต่อลูกค้าเพื่อเสนอราคา แล้วบันทึกราคาที่ตกลงผ่านเมนู &ldquo;แก้ไขข้อมูลงาน&rdquo;
                 </p>
               </div>
+            )}
+            {/* Make Offer — ลูกค้าเสนอราคาเอง: CEO/MANAGER ตัดสิน รับ/เคาน์เตอร์/ยืนราคา
+                (เขียนเงินสูตรเดียวกับ desktop handleDecideCustomerOffer) */}
+            {job.customer_offer && !isCancelled && (
+              <CustomerOfferDecisionCard job={job} canReview={isPrivileged} onDecide={handleDecideCustomerOffer} light />
             )}
             <div className="space-y-2">
               {/* งานที่ขายพ่วงอุปกรณ์เสริม: basePrice คือยอดรวมก้อนเดียว (invariant เดิม)

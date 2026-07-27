@@ -53,6 +53,7 @@ const ChatKnowledgeGraph = lazy(() => import('./pages/admin/ChatKnowledgeGraph')
 const AiProfileSettings = lazy(() => import('./pages/admin/AiProfileSettings'));
 const StoreSettings = lazy(() => import('./pages/admin/StoreSettings'));
 const MembershipSettings = lazy(() => import('./pages/admin/MembershipSettings'));
+const CustomerOfferSettings = lazy(() => import('./pages/admin/CustomerOfferSettings'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
 const FinancialReport = lazy(() => import('./pages/admin/FinancialReport'));
 const GeneralLedger = lazy(() => import('./pages/admin/GeneralLedger'));
@@ -158,6 +159,7 @@ export default function App() {
                 <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
                 <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
                 <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
+                <Route path="/offer-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CustomerOfferSettings /> : <Navigate to="/" replace />} />
                 <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />
                 <Route path="/chat-kb" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatKnowledgeGraph /> : <Navigate to="/" replace />} />
                 <Route path="/ai-profile" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <AiProfileSettings /> : <Navigate to="/" replace />} />
