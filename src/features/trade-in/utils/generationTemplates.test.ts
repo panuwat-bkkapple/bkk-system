@@ -91,6 +91,17 @@ describe('buildGenerationGroups', () => {
     expect(worstBattery('mid')).toBe(15);
     expect(worstBattery('recent')).toBe(15);
   });
+  it('battery renders as a screening topic (kind functional, deduct bands coloured honestly)', () => {
+    for (const tier of ['latest', 'recent', 'mid', 'old', 'ipad_new', 'ipad_old']) {
+      const g = buildGenerationGroups(tier as any).find((x: any) => x.title === 'สุขภาพแบตเตอรี่')!;
+      expect(g.kind, tier).toBe('functional');
+      // Every deducting band carries failBehavior 'deduct'; none reject.
+      for (const o of g.options) {
+        if (o.pct > 0) expect(o.failBehavior, `${tier}:${o.label}`).toBe('deduct');
+        expect(o.failBehavior, `${tier}:${o.label}`).not.toBe('reject');
+      }
+    }
+  });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
       buildGenerationGroups(tier).find((g: any) => g.title === 'ประกัน')!.options;
