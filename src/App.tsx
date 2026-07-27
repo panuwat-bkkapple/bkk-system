@@ -10,6 +10,7 @@ import { Toaster } from 'react-hot-toast';
 // --- Static Imports (needed immediately) ---
 import { MobileLayout } from './pages/mobile/MobileLayout';
 import { ToastProvider } from './components/ui/ToastProvider';
+import { SettingsLayout } from './pages/settings/SettingsLayout';
 
 // --- Lazy-loaded Pages ---
 const TradeInDashboard = lazy(() => import('./features/trade-in/TradeInDashboard').then(m => ({ default: m.TradeInDashboard })));
@@ -25,6 +26,7 @@ const Accessories = lazy(() => import('./pages/inventory/Accessories').then(m =>
 const SalesHistory = lazy(() => import('./pages/sales/SalesHistory').then(m => ({ default: m.SalesHistory })));
 const Traceability = lazy(() => import('./pages/inventory/Traceability').then(m => ({ default: m.Traceability })));
 const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').then(m => ({ default: m.StaffManagement })));
+const SettingsHub = lazy(() => import('./pages/settings/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
 const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
 const DailyExpenses = lazy(() => import('./pages/finance/DailyExpenses').then(m => ({ default: m.DailyExpenses })));
@@ -133,27 +135,35 @@ export default function App() {
               <Route path="/customer-crm" element={<Navigate to="/crm" replace />} />
               <Route path="/traceability" element={<Traceability />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
+              {/* Catalog เป็นหน้า immersive เต็มความกว้าง — อยู่นอก SettingsLayout
+                  แต่ยังถูกลิงก์จากเมนู Settings (hub + sidebar) */}
               <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
               <Route path="/pricing/:modelId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
-              <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
-              <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
               <Route path="/issued-coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedCoupons /> : <Navigate to="/" replace />} />
-              <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
               <Route path="/issued-rider-fee-discounts" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedRiderFeeDiscounts /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
-              <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
-              <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
-              <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
               <Route path="/vat-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <VatReport /> : <Navigate to="/" replace />} />
               <Route path="/financial-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <FinancialReport /> : <Navigate to="/" replace />} />
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
-              <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />
-              <Route path="/chat-kb" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatKnowledgeGraph /> : <Navigate to="/" replace />} />
-              <Route path="/ai-profile" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <AiProfileSettings /> : <Navigate to="/" replace />} />
-              <Route path="/store-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StoreSettings /> : <Navigate to="/" replace />} />
               <Route path="/appointments" element={<AppointmentCalendar />} />
-              <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
+
+              {/* Settings hub + หน้าตั้งค่าทั้งหมด — ครอบด้วย SettingsLayout
+                  (เมนูซ้าย Company / Basic / Advanced). URL เดิมทุกตัวคงเดิม */}
+              <Route element={<SettingsLayout currentUser={currentUser} />}>
+                <Route path="/settings" element={<SettingsHub currentUser={currentUser} />} />
+                <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
+                <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
+                <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
+                <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
+                <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
+                <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
+                <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />
+                <Route path="/chat-kb" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatKnowledgeGraph /> : <Navigate to="/" replace />} />
+                <Route path="/ai-profile" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <AiProfileSettings /> : <Navigate to="/" replace />} />
+                <Route path="/store-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StoreSettings /> : <Navigate to="/" replace />} />
+                <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
+              </Route>
             </Route>
           </>
         ) : (

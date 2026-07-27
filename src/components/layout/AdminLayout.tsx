@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, Calculator, FileSpreadsheet, BookOpen, Bike, Gift, Share2, Bot
+  Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, FileSpreadsheet, BookOpen
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -158,14 +158,8 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <div className="space-y-1">
                 <NavButton collapsed={isCollapsed} to="/crm" icon={<Users size={18} />} label="ฐานข้อมูลลูกค้า (CRM)" />
                 <NavButton collapsed={isCollapsed} to="" href={CHAT_APP_URL} icon={<Inbox size={18} />} label="Inbox (แชท) ↗" badgeCount={unreadInbox} />
-                <NavButton collapsed={isCollapsed} to="/chat-settings" icon={<MessageSquareQuote size={18} />} label="ตั้งค่า Chat Widget (AI)" />
-                <NavButton collapsed={isCollapsed} to="/ai-profile" icon={<Bot size={18} />} label="โปรไฟล์ AI (Persona)" />
-                <NavButton collapsed={isCollapsed} to="/chat-kb" icon={<Share2 size={18} />} label="คลังคำตอบ AI (ใยความรู้)" />
                 <NavButton collapsed={isCollapsed} to="/warranty" icon={<ShieldAlert size={18} />} label="รับประกัน & เคลม (Claims)" />
-                <NavButton collapsed={isCollapsed} to="/coupons" icon={<Ticket size={18} />} label="จัดการแคมเปญคูปอง" />
-                <NavButton collapsed={isCollapsed} to="/membership-settings" icon={<Gift size={18} />} label="สมาชิก & สิทธิพิเศษ" />
                 <NavButton collapsed={isCollapsed} to="/issued-coupons" icon={<Receipt size={18} />} label="คูปองที่ออกให้ (Reconcile)" />
-                <NavButton collapsed={isCollapsed} to="/rider-fee-promos" icon={<Bike size={18} />} label="โปรโมชั่นส่วนลดค่าไรเดอร์" />
                 <NavButton collapsed={isCollapsed} to="/issued-rider-fee-discounts" icon={<Receipt size={18} />} label="ส่วนลดค่าไรเดอร์ที่ออกให้ (Reconcile)" />
                 <NavButton collapsed={isCollapsed} to="/reviews" icon={<MessageSquareQuote size={18} />} label="จัดการรีวิว (Reviews)" badgeCount={pendingReviews} />
                 <NavButton collapsed={isCollapsed} to="/appointments" icon={<CalendarDays size={18} />} label="ปฏิทินนัดหมาย" />
@@ -182,7 +176,6 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/general-ledger" icon={<BookOpen size={18} />} label="สมุดรายวัน & งบทดลอง" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/financial-report" icon={<TrendingUp size={18} />} label="รายงานการเงิน (P&L)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/vat-report" icon={<FileSpreadsheet size={18} />} label="รายงานภาษีขาย (ภ.พ.30)" />}
-              {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/accounting-settings" icon={<Calculator size={18} />} label="ตั้งค่าระบบบัญชี" />}
               <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
               {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
@@ -220,16 +213,15 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             </div>
           </div>
 
-          {/* Settings (CEO/Manager) */}
-          {hasAccess(['CEO', 'MANAGER']) && (
+          {/* Settings — เมนูตั้งค่าทั้งหมดยุบเข้า hub /settings (จัดกลุ่ม
+              Company / Basic / Advanced ใน SettingsLayout) เหลือทางลัด
+              Catalog ที่ใช้ประจำวันตัวเดียว */}
+          {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && (
             <div className="pt-4 border-t border-gray-100 mt-4">
               {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Settings</p>}
               <div className="space-y-1">
-                <NavButton collapsed={isCollapsed} to="/pricing" icon={<Settings size={18} />} label="Price Editor" />
-                <NavButton collapsed={isCollapsed} to="/store-settings" icon={<Store size={18} />} label="ข้อมูลร้าน (ค่ากลาง)" />
-                <NavButton collapsed={isCollapsed} to="/admin/branches" icon={<Store size={18} />} label="จัดการสาขา" />
-                {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/global-settings" icon={<Settings size={18} />} label="ตั้งค่าระบบส่วนกลาง" />}
-                {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/staff" icon={<Users size={18} />} label="จัดการพนักงาน (Staff)" />}
+                <NavButton collapsed={isCollapsed} to="/settings" icon={<Settings size={18} />} label="ตั้งค่าระบบ (Settings)" />
+                {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/pricing" icon={<Package size={18} />} label="Catalog (Price Editor)" />}
               </div>
             </div>
           )}
