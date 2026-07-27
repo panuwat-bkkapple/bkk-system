@@ -62,7 +62,6 @@ export const PriceEditor = () => {
   const editSnapshotRef = useRef<string>('');
   const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
   const [isSubcategoryModalOpen, setIsSubcategoryModalOpen] = useState(false);
-  const [isEngineModalOpen, setIsEngineModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [batchAdjust, setBatchAdjust] = useState<{ seriesName: string; models: any[] } | null>(null);
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
@@ -702,8 +701,9 @@ export const PriceEditor = () => {
 
   // Deep-link / refresh: URL มี modelId แต่ยังไม่มี editingItem (หรือคนละตัว)
   // → โหลดจาก modelsData เมื่อพร้อม. หาไม่เจอ (ถูกลบ/id ผิด) → เด้งกลับ list
+  // ('condition-sets' เป็นหน้า Engine ไม่ใช่รุ่นสินค้า — ข้าม)
   useEffect(() => {
-    if (!modelId) {
+    if (!modelId || modelId === 'condition-sets') {
       if (editingItem) setEditingItem(null);
       return;
     }
@@ -752,6 +752,17 @@ export const PriceEditor = () => {
     if (!categoryStats[cat]) categoryStats[cat] = { total: 0, ready: 0 };
     categoryStats[cat].total++;
     if (getModelReadiness(m, conditionSets).status === 'active') categoryStats[cat].ready++;
+  }
+
+  // ---- Condition Sets Engine (URL /pricing/condition-sets) — หน้าเต็มจอ ----
+  if (modelId === 'condition-sets') {
+    return (
+      <EngineSettingsModal
+        conditionSets={conditionSets}
+        models={modelsData}
+        onClose={() => navigate(basePath)}
+      />
+    );
   }
 
   // ---- Editor view (URL มี modelId) — แทน modal เดิม ----
@@ -839,7 +850,7 @@ export const PriceEditor = () => {
               </>
             )}
           </div>
-          <button onClick={() => setIsEngineModalOpen(true)} className="bg-white border text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition shadow-sm">
+          <button onClick={() => navigate(`${basePath}/condition-sets`)} className="bg-white border text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 transition shadow-sm">
             <Settings size={16} className="text-indigo-500" /> Condition Settings
           </button>
           <button onClick={() => handleOpenModal()} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 hover:bg-blue-700 transition shadow-md">
@@ -923,13 +934,6 @@ export const PriceEditor = () => {
           onToggleFeatured={handleToggleFeatured}
         />
       </div>
-
-      <EngineSettingsModal
-        conditionSets={conditionSets}
-        models={modelsData}
-        isOpen={isEngineModalOpen}
-        onClose={() => setIsEngineModalOpen(false)}
-      />
 
       <SubcategoryManagementModal
         subcategories={subcategories}
