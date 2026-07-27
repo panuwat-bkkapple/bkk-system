@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import {
-  X, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
+  ArrowLeft, Plus, PlusCircle, Trash2, ClipboardList, Save, LayoutGrid, Table2,
   Copy, ChevronUp, ChevronDown, Languages, Split, Loader2, CheckCircle2, Sparkles
 } from 'lucide-react';
 import { ref, push, remove } from 'firebase/database';
@@ -33,11 +33,14 @@ interface EngineSettingsModalProps {
   conditionSets: any[];
   /** แคตตาล็อกทั้งหมด — ใช้วางแผน/รันเครื่องมือแตกชุดรายรุ่น (1 รุ่น : 1 ชุด) */
   models?: any[];
-  isOpen: boolean;
+  /** กลับหน้า Catalog (/pricing) */
   onClose: () => void;
 }
 
-export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ conditionSets, models = [], isOpen, onClose }) => {
+// หน้าเต็มจอ (route /pricing/condition-sets) — เดิมเป็น modal overlay,
+// แปลงเป็น page เพื่อ deep-link/back ได้และเลิก scroll ซ้อนแบบเดียวกับ
+// ModelEditorPage. ชื่อ component คงเดิมเพื่อไม่ให้ reference อื่นแตก
+export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ conditionSets, models = [], onClose }) => {
   const [activeSetId, setActiveSetId] = useState<string | null>(conditionSets.length > 0 ? conditionSets[0].id : null);
   const [editingSet, setEditingSet] = useState<any>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -354,22 +357,32 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
     </select>
   );
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-[60] p-4 lg:p-10">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden">
-        <div className="px-8 py-5 border-b flex justify-between items-center bg-white shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><ClipboardList size={24} /></div>
-            <div>
-              <h3 className="font-black text-2xl text-slate-800">Condition Sets Engine</h3>
-              <p className="text-sm text-slate-500 font-bold">สร้างชุดคำถามประเมินสภาพ และผูกกับหมวดหมู่สินค้า</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-3 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-full transition"><X size={24} /></button>
-        </div>
+    <div className="min-h-screen bg-slate-50/50 p-4 lg:p-6 max-w-[1600px] mx-auto">
 
+      {/* Breadcrumb */}
+      <div className="mb-1 text-xs font-bold text-slate-400">
+        Settings <span className="mx-1 text-slate-300">&rsaquo;</span>
+        <button onClick={onClose} className="hover:text-indigo-600 transition">Catalog</button>
+        <span className="mx-1 text-slate-300">&rsaquo;</span>
+        <span className="text-slate-600">Condition Sets</span>
+      </div>
+
+      {/* Page header */}
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={onClose} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition shrink-0" title="กลับหน้า Catalog">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0"><ClipboardList size={24} /></div>
+        <div>
+          <h1 className="font-black text-2xl text-slate-900">Condition Sets Engine</h1>
+          <p className="text-sm text-slate-500 font-bold">สร้างชุดคำถามประเมินสภาพ และผูกกับหมวดหมู่สินค้า</p>
+        </div>
+      </div>
+
+      {/* Two-pane workspace — ความสูงผูกกับ viewport เพื่อให้ sidebar / editor /
+          AG Grid (table view) มี scroll อิสระของตัวเองเหมือนตอนเป็น modal */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden h-[calc(100vh-160px)] min-h-[480px] flex flex-col">
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar Left: List of Sets */}
           <div className="w-80 bg-slate-50 border-r p-6 flex flex-col gap-3 overflow-y-auto shrink-0">
@@ -783,7 +796,11 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                 </div>
                 )}
               </>
-            ) : <div className="flex-1 flex items-center justify-center text-slate-400 font-bold bg-slate-50/50">👈 เลือกหรือสร้างชุดประเมินจากเมนูด้านซ้าย</div>}
+            ) : (
+              <div className="flex-1 flex items-center justify-center gap-2 text-slate-400 font-bold bg-slate-50/50">
+                <ArrowLeft size={16} /> เลือกหรือสร้างชุดประเมินจากเมนูด้านซ้าย
+              </div>
+            )}
           </div>
         </div>
       </div>
