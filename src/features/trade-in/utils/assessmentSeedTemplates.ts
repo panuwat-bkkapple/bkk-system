@@ -210,10 +210,10 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   battery_latest: { label: 'แบต % ละเอียด + ประกันละเอียด + ZP/A (รุ่นล่าสุด iPhone 17)', items: [
     // เครื่องรุ่นล่าสุดยังใหม่ทั้งตลาด — ไม่มีเครื่องแบตต่ำจริง จึงถามแค่ 4 ช่วง
     // (ต่ำกว่า 90% เป็น catch-all หักหนัก ไม่ต้องมีขั้น 80s/เสื่อม)
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 100%', description: 'แบตเตอรี่ยังเต็ม 100% เหมือนใหม่', deduct: 0 },
-      { label: 'สุขภาพแบต 95-99%', description: 'เสื่อมเล็กน้อยตามการใช้งาน', pct: 2 },
-      { label: 'สุขภาพแบต 90-94%', description: 'เสื่อมตามการใช้งาน ยังใช้ได้ปกติ', pct: 6 },
+      { label: 'สุขภาพแบต 95-99%', description: 'เสื่อมเล็กน้อยตามการใช้งาน', pct: 2, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 90-94%', description: 'เสื่อมตามการใช้งาน ยังใช้ได้ปกติ', pct: 6, failBehavior: 'deduct' },
       { label: 'แบตต่ำกว่า 90%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 12, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(3, 8, 55),
@@ -226,10 +226,10 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 16)', items: [
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
-      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10 },
+      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10, failBehavior: 'deduct' },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(4, 10, 60),
@@ -242,9 +242,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 85-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 8 },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 8, failBehavior: 'deduct' },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(6, 14, 65),
@@ -256,7 +256,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% + TH/A (iPhone 11-13 ลงไป)', items: [
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'สุขภาพแบต 80% ขึ้นไป ไม่ขึ้น Service', deduct: 0 },
       // 20% ตามนโยบายราคา: รุ่นต่ำกว่า 20,000 หักแบตเสื่อม ~2,000-3,500 บาท
       // (ใกล้ค่าเปลี่ยนแบตจริง) — รุ่น 20,000-30,000 ใช้ 15% (tier 14-16)
@@ -275,10 +275,10 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   // ลูกค้าดูเปอร์เซ็นต์เองไม่ได้ → ถามได้แค่ ดี/เสื่อม. ประกันเก็บเป็นข้อมูล
   // ไม่หัก (default — จูนรายรุ่นได้).
   battery_ipad_new: { label: 'iPad แบต % + ประกัน (รุ่นปี 2024 ขึ้นไป)', items: [
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
-      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10 },
+      { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10, failBehavior: 'deduct' },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(4, 10, 60),
@@ -291,7 +291,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_SIMPLE_GROUP,
   ] },
   battery_ipad_old: { label: 'iPad แบตดี/เสื่อม + ประกัน (ก่อนปี 2024)', items: [
-    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'ใช้งานได้ปกติ แบตไม่หมดเร็วผิดปกติ ไม่บวม', deduct: 0 },
       { label: 'แบตเตอรี่เสื่อม', description: 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ', pct: 10, failBehavior: 'deduct' },
     ] },
