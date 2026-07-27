@@ -82,6 +82,15 @@ describe('buildGenerationGroups', () => {
       expect(cracked(tier).failBehavior, tier).toBe('deduct');
     }
   });
+  it('worn-battery deduct follows the price-band policy (<20k -> 20%, 20-30k -> 15%)', () => {
+    const worstBattery = (tier: any) => {
+      const opts = buildGenerationGroups(tier).find((g: any) => g.title === 'สุขภาพแบตเตอรี่')!.options;
+      return opts[opts.length - 1].pct;
+    };
+    expect(worstBattery('old')).toBe(20);
+    expect(worstBattery('mid')).toBe(15);
+    expect(worstBattery('recent')).toBe(15);
+  });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
       buildGenerationGroups(tier).find((g: any) => g.title === 'ประกัน')!.options;

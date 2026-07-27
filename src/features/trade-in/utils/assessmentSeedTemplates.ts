@@ -260,7 +260,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     BODY_GROUP(10, 15, 25, 60),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'สุขภาพแบต 80% ขึ้นไป ไม่ขึ้น Service', deduct: 0 },
-      { label: 'แบตเตอรี่เสื่อม', description: 'สุขภาพแบตต่ำกว่า 80% หรือขึ้นเตือน Service', pct: 10, failBehavior: 'deduct' },
+      // 20% ตามนโยบายราคา: รุ่นต่ำกว่า 20,000 หักแบตเสื่อม ~2,000-3,500 บาท
+      // (ใกล้ค่าเปลี่ยนแบตจริง) — รุ่น 20,000-30,000 ใช้ 15% (tier 14-16)
+      { label: 'แบตเตอรี่เสื่อม', description: 'สุขภาพแบตต่ำกว่า 80% หรือขึ้นเตือน Service', pct: 20, failBehavior: 'deduct' },
     ] },
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
