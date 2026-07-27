@@ -1024,6 +1024,42 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("persona forbids callback promises before a phone number", sysNoCust.includes("ห้ามสัญญาว่า \"เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ / จะติดต่อกลับ\" ทั้งที่ยังไม่มีเบอร์โทรลูกค้า"));
 }
 
+// --- exact-name pin breaks the ambiguity dead-loop (live case #PGA3) ---------
+// "iPhone 13" ties with 13 mini / Pro / Pro Max on token hits (the base name
+// is a substring of every sibling); mini is delisted, so declinedAmbiguity
+// fired on EVERY query in the family — including the disambiguation chip
+// "iPhone 13" itself. Customer clicked the chip, got asked again, typed
+// "ไอโฟน13ธรรมดาคะ", and the model finally declined the WRONG sibling.
+// exactModelPin resolves any query equal to one model's full name or alias.
+{
+  const P_CATALOG = [
+    { id: "b13", name: "iPhone 13", brand: "Apple", alias_th: "ไอโฟน 13", alias_en: "iPhone 13", category: "iPhone", is_active: true, variants: [] },
+    { id: "m13", name: "iPhone 13 mini", brand: "Apple", alias_th: "ไอโฟน 13 มินิ", alias_en: "iPhone 13 mini", category: "iPhone", is_active: false, variants: [] },
+    { id: "p13", name: "iPhone 13 Pro", brand: "Apple", alias_th: "ไอโฟน 13 โปร", alias_en: "iPhone 13 Pro", category: "iPhone", is_active: true, variants: [] },
+    { id: "pm13", name: "iPhone 13 Pro Max", brand: "Apple", alias_th: "ไอโฟน 13 โปรแม็กซ์", alias_en: "iPhone 13 Pro Max", category: "iPhone", is_active: true, variants: [] },
+    { id: "g6", name: "iPad Generation 6 (2018)", brand: "Apple", alias_th: "ไอแพด เจน 6 2018, ไอแพด Gen 6", alias_en: "iPad Generation 6 2018, iPad Gen 6", category: "iPad", is_active: false, variants: [] },
+    { id: "a11m2", name: 'iPad Air 11" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 11 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 11 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
+    { id: "a13m2", name: 'iPad Air 13" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 13 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 13 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
+  ];
+  const pin = (q) => { const r = __test.exactModelPin(P_CATALOG, q); return r ? r.id : null; };
+  check("chip answer 'iPhone 13' pins the base model", pin("iPhone 13") === "b13");
+  check("Thai alias pins the base model", pin("ไอโฟน 13") === "b13");
+  check("storage tail is stripped before pinning", pin("ไอโฟน13 256GB") === "b13");
+  check("'ธรรมดา' + polite particle pins the base model", pin("ไอโฟน13ธรรมดาคะ") === "b13");
+  check("explicit mini pins the (delisted) mini", pin("iPhone 13 mini") === "m13");
+  check("Thai 'โปรแม็กซ์' pins Pro Max", pin("ไอโฟน 13 โปรแม็กซ์") === "pm13");
+  check("nickname 'iPad 6' stays unpinned (confirm flow preserved)", pin("iPad 6") === null && pin("ไอแพด 6") === null);
+  check("comma-separated alias part pins Gen 6", pin("iPad Gen 6") === "g6");
+  check("shared alias across two models never pins", pin("ไอแพดแอร์ 6") === null);
+  // The old dead-loop, proven: without the pin the family is ambiguous even
+  // for the exact base name; with the pin search_models skips the ambiguity.
+  const sd = __test.rankModelsScored(P_CATALOG, "iPhone 13");
+  check("family still ties in raw scoring (why the loop existed)", !!__test.declinedAmbiguity(sd));
+  check("search skips ambiguity when pinned", src.includes("const amb = pin ? null : declinedAmbiguity(scoredDetailed);"));
+  check("pinned model leads the results", src.includes("const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;"));
+  check("pin note tells the model not to re-ask", src.includes("ห้ามถามแยกรุ่นซ้ำ"));
+}
+
 // --- low customer CSAT -> push staff + queue the comment for teaching --------
 {
   const fn = src.indexOf("const onChatCsatSubmitted = onValueCreated(");
