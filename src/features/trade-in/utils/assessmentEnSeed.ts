@@ -429,6 +429,8 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'เหลือประกันศูนย์ / AppleCare+': 'Apple warranty remaining / AppleCare+',
   'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+': 'Still under Apple warranty or covered by AppleCare+',
   'พ้นระยะประกันศูนย์แล้ว': 'Apple warranty period has ended',
+  'สถานะประกันของเครื่อง': 'Warranty status of the device',
+  'สุขภาพแบตเตอรี่ยังอยู่ในเกณฑ์ดี': 'Battery health is still in good range',
   'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน': 'Less than 6 months of Apple warranty remaining',
   'มีประกัน': 'Under warranty',
   // Condition template — battery (per-model detailed % vs simple good/degraded)
