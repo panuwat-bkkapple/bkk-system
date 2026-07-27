@@ -730,6 +730,10 @@ function normalizeForPin(s) {
   // "base model" word at the string level ("ไอโฟน13ธรรมดาคะ") before
   // tokenizing, or they glue onto the previous word as one token.
   t = t.replace(/(นะ)?(คะ|ค่ะ|ครับ|ค่า|จ้า|ฮะ|ฮ่ะ)\s*$/, " ").replace(/ธรรมดา/g, " ");
+  // Ordinal first-generation phrasing — Apple never puts "1" in the name
+  // ("iPad Air (2013)" IS iPad Air 1). Map to the numeral here; the
+  // trailing-" 1" fallback in exactModelPin does the rest.
+  t = t.replace(/รุ่นแรก|เจนแรก|ตัวแรก|โฉมแรก/g, " 1 ").replace(/\b(?:first|1st)\s*gen(?:eration)?\b/g, " 1 ");
   t = t
     .replace(/โปรแม็กซ์|โปรแมกซ์|โปรแม็ก|โปรแมก/g, " pro max ")
     .replace(/โปร/g, " pro ")
@@ -749,7 +753,7 @@ function normalizeForPin(s) {
     "gb", "tb", "กิ๊ก", "รุ่น", "ตัว", "เครื่อง", "ธรรมดา", "ปกติ", "regular", "standard", "base", "normal",
     "คะ", "ค่ะ", "ครับ", "ค่า", "จ้า", "นะ", "นะคะ", "นะครับ", "ชิป",
   ]);
-  return t
+  const toks = t
     .split(/\s+/)
     .filter(Boolean)
     .filter((tok) => {
@@ -761,20 +765,40 @@ function normalizeForPin(s) {
       // same key and fail the uniqueness test below — safely no pin.
       if (Number.isInteger(n) && n >= 32) return false;
       return true;
-    })
-    .join(" ");
+    });
+  // Chip designators ("ชิป M1" -> "m 1", "A18 Pro" -> "a 18") are qualifiers
+  // too: dropping them lets "iPad Air 5" match "iPad Air 5 (ชิป M1, 2022)".
+  // Models distinguished ONLY by chip (Air 11" M2 vs M3 vs M4) collapse to
+  // the same key and fail the uniqueness test — correctly no pin, still ask.
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    if ((toks[i] === "m" || toks[i] === "a") && i + 1 < toks.length && /^\d{1,2}$/.test(toks[i + 1])) {
+      i++;
+      continue;
+    }
+    out.push(toks[i]);
+  }
+  return out.join(" ");
 }
 function exactModelPin(list, rawQuery) {
   const q = normalizeForPin(rawQuery);
   if (!q) return null;
-  const matches = [];
-  for (const m of list) {
-    const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
-      .map(normalizeForPin)
-      .filter(Boolean);
-    if (keys.includes(q)) matches.push(m);
-  }
-  return matches.length === 1 ? matches[0] : null;
+  const findExact = (key) => {
+    const matches = [];
+    for (const m of list) {
+      const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+        .map(normalizeForPin)
+        .filter(Boolean);
+      if (keys.includes(key)) matches.push(m);
+    }
+    return matches.length === 1 ? matches[0] : null;
+  };
+  let hit = findExact(q);
+  // "<family> 1" = the unnumbered first-generation model ("iPad Air 1" /
+  // "iPad Air รุ่นแรก" -> "iPad Air (2013)") — live case #VYI2: the customer
+  // named the model precisely and still got the confirm-which-model chips.
+  if (!hit && / 1$/.test(q)) hit = findExact(q.replace(/ 1$/, ""));
+  return hit;
 }
 
 // Guard against the LLM quoting a cheaper sibling than the customer named.
@@ -1531,8 +1555,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-27.2";
+const LOGIC_VERSION = "2026-07-27.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-27", text: "เลิกบังคับยืนยันรุ่นทั้งที่ลูกค้าระบุชัดแล้ว (เคสจริง iPad Air รุ่นแรก: ลูกค้าบอกครบทั้งรุ่น/ความจุ/สภาพ แต่ยังโดนถามยืนยันพร้อมปุ่ม 5 รุ่น): ตัวปักรุ่นเข้าใจ 'รุ่นแรก/1st gen' แล้ว (ชื่อจริงของ Apple ไม่มีเลข 1 — iPad Air (2013) คือ Air 1) และมองข้าม suffix ชิปในชื่อ ('iPad Air 5' = iPad Air 5 (ชิป M1, 2022) ทันที) — รุ่นที่ต่างกันแค่ชิป (iPad Air 11\" M2/M3/M4) ยังถามยืนยันเหมือนเดิมเพราะจำเป็นจริง" },
   { at: "2026-07-27", text: "แก้ลูปถามแยกรุ่นไม่รู้จบ (เคสจริง iPhone 13: ถาม 'รุ่นไหนครับ' ซ้ำแม้ลูกค้ากดปุ่ม iPhone 13 แล้ว สุดท้ายไปแจ้งงดรับซื้อผิดรุ่นเป็น 13 mini): ต้นเหตุคือชื่อรุ่นธรรมดาเป็นส่วนหนึ่งของชื่อรุ่นพี่น้องทุกตัว คะแนนค้นหาจึงเสมอกันตลอดและระบบตีว่ากำกวมไม่มีทางออก — เพิ่มกติกา 'ชื่อตรงเป๊ะ = ปักรุ่นทันที': พิมพ์/กดปุ่มชื่อเต็มหรือชื่อเรียกของรุ่นไหน (รองรับไทย เช่น ไอโฟน 13, ตัดความจุ/คำว่าธรรมดา/คำลงท้ายให้เอง) ระบบยึดรุ่นนั้นเลย ไม่ถามซ้ำ — ชื่อเล่นกำกวมจริงอย่าง 'iPad 6' ยังถามยืนยันเหมือนเดิม" },
   { at: "2026-07-27", text: "อุดสำนวนหลบด่านจากเคสจริง MacBook Neo (รุ่นมีราคาในระบบ 15,000/17,000 แต่ AI ข้ามการค้นหาแล้วตอบ 'ขอเช็คในระบบก่อน...เดี๋ยวให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้'): ด่านจับเพิ่ม 'ขอเช็ค...ในระบบก่อน' และ 'ให้เจ้าหน้าที่ตรวจสอบ/เช็คแล้วแจ้ง...' — เจอแบบนี้ระบบบังคับให้เช็คจริงให้จบในข้อความเดียวกัน (ซึ่งจะเจอราคาแล้วเข้าขั้นตอนปกติ) + แก้กติกาเดิมที่ยังสั่งให้พูด 'ขอเจ้าหน้าที่ยืนยันราคา' ตอนไม่พบรุ่น ให้เป็นขอชื่อ+เบอร์+รายละเอียดแทน" },
   { at: "2026-07-26", text: "ห้ามสัญญา 'จะติดต่อกลับ/เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ' ทั้งที่ไม่มีเบอร์ลูกค้า (เคสจริง iPad Gen 9 ข้อความ 'เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ' ทั้งที่ยังไม่ได้ขอเบอร์): ระบบจับคำสัญญา callback แยกจากคำว่ารอแล้ว — ไม่มีเบอร์ = บังคับเปลี่ยนเป็นขอชื่อ+เบอร์+รายละเอียดเครื่องทันที, มีเบอร์แต่ยังไม่เข้าคิวเจ้าหน้าที่ = บังคับส่งเรื่องเข้าคิวจริงให้คำสัญญาเป็นจริง, ข้อความบังคับของระบบเอง (ที่ขอเบอร์แล้วค่อยสัญญา) ไม่โดนวนแก้ซ้ำ + เพิ่มกติกาใน persona ตรงๆ ว่าห้ามสัญญาติดต่อกลับก่อนได้เบอร์" },

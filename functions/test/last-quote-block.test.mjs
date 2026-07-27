@@ -1040,6 +1040,9 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
     { id: "g6", name: "iPad Generation 6 (2018)", brand: "Apple", alias_th: "ไอแพด เจน 6 2018, ไอแพด Gen 6", alias_en: "iPad Generation 6 2018, iPad Gen 6", category: "iPad", is_active: false, variants: [] },
     { id: "a11m2", name: 'iPad Air 11" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 11 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 11 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
     { id: "a13m2", name: 'iPad Air 13" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 13 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 13 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
+    { id: "a11m3", name: 'iPad Air 11" (ชิป M3, 2025)', brand: "Apple", alias_th: "ไอแพดแอร์ 11 M3 2025, ไอแพดแอร์ 7", alias_en: "iPad Air 11 M3 2025, iPad Air 7", category: "iPad", is_active: true, variants: [] },
+    { id: "air1", name: "iPad Air (2013)", brand: "Apple", alias_th: "ไอแพดแอร์ 2013", alias_en: "iPad Air 2013", category: "iPad", is_active: false, variants: [] },
+    { id: "air5", name: "iPad Air 5 (ชิป M1, 2022)", brand: "Apple", alias_th: "ไอแพดแอร์ 5 M1 2022", alias_en: "iPad Air 5 M1 2022", category: "iPad", is_active: true, variants: [] },
   ];
   const pin = (q) => { const r = __test.exactModelPin(P_CATALOG, q); return r ? r.id : null; };
   check("chip answer 'iPhone 13' pins the base model", pin("iPhone 13") === "b13");
@@ -1051,6 +1054,17 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("nickname 'iPad 6' stays unpinned (confirm flow preserved)", pin("iPad 6") === null && pin("ไอแพด 6") === null);
   check("comma-separated alias part pins Gen 6", pin("iPad Gen 6") === "g6");
   check("shared alias across two models never pins", pin("ไอแพดแอร์ 6") === null);
+  // Live case #VYI2: "iPad Air รุ่นแรก (iPad Air 1) ... จอมีรอยร้าว" — the
+  // customer named the model precisely, yet still got confirm-which-model
+  // chips: Apple's first-gen names carry no "1" ("iPad Air (2013)") and
+  // chip-suffixed names ("iPad Air 5 (ชิป M1, 2022)") never equaled the
+  // bare query. Ordinal + chip-designator normalization fix both.
+  check("'iPad Air 1' pins the unnumbered first gen", pin("iPad Air 1") === "air1");
+  check("'iPad Air รุ่นแรก' pins the first gen", pin("iPad Air รุ่นแรก") === "air1");
+  check("'iPad Air first gen' pins the first gen", pin("iPad Air first gen") === "air1");
+  check("bare official name pins the first gen", pin("iPad Air") === "air1");
+  check("chip suffix is transparent ('iPad Air 5' = M1 2022)", pin("iPad Air 5") === "air5");
+  check("chip-only siblings stay unpinned ('iPad Air 11' = M2 or M3)", pin("iPad Air 11") === null);
   // The old dead-loop, proven: without the pin the family is ambiguous even
   // for the exact base name; with the pin search_models skips the ambiguity.
   const sd = __test.rankModelsScored(P_CATALOG, "iPhone 13");
