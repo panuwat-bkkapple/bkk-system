@@ -712,6 +712,71 @@ function declinedAmbiguity(scoredDetailed) {
   return { declined, buyable };
 }
 
+// Exact-name pin — the tie-breaker declinedAmbiguity cannot provide. Live
+// dead-loop (#PGA3): "iPhone 13" ties with 13 mini / 13 Pro / 13 Pro Max on
+// token hits (the base name is a substring of every sibling), mini is
+// delisted, so EVERY query in the family — including the disambiguation
+// chip "iPhone 13" itself — returned ambiguous_model again: an endless
+// "รุ่นไหนครับ" loop the customer can never exit, until the model snapped
+// and declined the WRONG sibling. Rule: if the query, normalized (Thai
+// nicknames transliterated, storage sizes / "ธรรมดา" / polite particles
+// stripped), equals EXACTLY ONE model's full name or one of its
+// comma-separated aliases, that model is what the customer means — resolve
+// to it, never re-ask. Nickname-only queries ("iPad 6", "ไอแพด 6") match no
+// exact name/alias, so the deliberate iPad-6 confirmation flow stays.
+function normalizeForPin(s) {
+  let t = String(s || "").toLowerCase();
+  // Thai runs words together — strip trailing polite particles and the
+  // "base model" word at the string level ("ไอโฟน13ธรรมดาคะ") before
+  // tokenizing, or they glue onto the previous word as one token.
+  t = t.replace(/(นะ)?(คะ|ค่ะ|ครับ|ค่า|จ้า|ฮะ|ฮ่ะ)\s*$/, " ").replace(/ธรรมดา/g, " ");
+  t = t
+    .replace(/โปรแม็กซ์|โปรแมกซ์|โปรแม็ก|โปรแมก/g, " pro max ")
+    .replace(/โปร/g, " pro ")
+    .replace(/มินิ/g, " mini ")
+    .replace(/แม็กซ์|แมกซ์/g, " max ")
+    .replace(/อัลตร้า|อัลตรา/g, " ultra ")
+    .replace(/แอร์/g, " air ")
+    .replace(/เจน/g, " gen ")
+    .replace(/ไอโฟน/g, " iphone ")
+    .replace(/ไอแพด/g, " ipad ")
+    .replace(/แมคบุ๊ค|แมคบุ๊ก|แม็คบุ๊ค|แม็คบุ๊ก/g, " macbook ")
+    .replace(/promax/g, "pro max")
+    .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
+    .replace(/[^\w\s฀-๿]/g, " ");
+  const DROP = new Set([
+    "gb", "tb", "กิ๊ก", "รุ่น", "ตัว", "เครื่อง", "ธรรมดา", "ปกติ", "regular", "standard", "base", "normal",
+    "คะ", "ค่ะ", "ครับ", "ค่า", "จ้า", "นะ", "นะคะ", "นะครับ", "ชิป",
+  ]);
+  return t
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((tok) => {
+      if (DROP.has(tok)) return false;
+      const n = Number(tok);
+      // Storage sizes (32..2048) and years (2013+) are qualifiers, not model
+      // identity — symmetric on both query and name, so "iPad Air 4" matches
+      // "iPad Air 4 (2020)". Same-name-different-year models collapse to the
+      // same key and fail the uniqueness test below — safely no pin.
+      if (Number.isInteger(n) && n >= 32) return false;
+      return true;
+    })
+    .join(" ");
+}
+function exactModelPin(list, rawQuery) {
+  const q = normalizeForPin(rawQuery);
+  if (!q) return null;
+  const matches = [];
+  for (const m of list) {
+    const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+      .map(normalizeForPin)
+      .filter(Boolean);
+    if (keys.includes(q)) matches.push(m);
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
 // Guard against the LLM quoting a cheaper sibling than the customer named.
 // search_models returns Pro AND Pro Max together; the model sometimes passes the
 // base model_id ("iPhone 16 Pro") to create_quote_card even though the customer
@@ -1466,8 +1531,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-27.1";
+const LOGIC_VERSION = "2026-07-27.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-27", text: "แก้ลูปถามแยกรุ่นไม่รู้จบ (เคสจริง iPhone 13: ถาม 'รุ่นไหนครับ' ซ้ำแม้ลูกค้ากดปุ่ม iPhone 13 แล้ว สุดท้ายไปแจ้งงดรับซื้อผิดรุ่นเป็น 13 mini): ต้นเหตุคือชื่อรุ่นธรรมดาเป็นส่วนหนึ่งของชื่อรุ่นพี่น้องทุกตัว คะแนนค้นหาจึงเสมอกันตลอดและระบบตีว่ากำกวมไม่มีทางออก — เพิ่มกติกา 'ชื่อตรงเป๊ะ = ปักรุ่นทันที': พิมพ์/กดปุ่มชื่อเต็มหรือชื่อเรียกของรุ่นไหน (รองรับไทย เช่น ไอโฟน 13, ตัดความจุ/คำว่าธรรมดา/คำลงท้ายให้เอง) ระบบยึดรุ่นนั้นเลย ไม่ถามซ้ำ — ชื่อเล่นกำกวมจริงอย่าง 'iPad 6' ยังถามยืนยันเหมือนเดิม" },
   { at: "2026-07-27", text: "อุดสำนวนหลบด่านจากเคสจริง MacBook Neo (รุ่นมีราคาในระบบ 15,000/17,000 แต่ AI ข้ามการค้นหาแล้วตอบ 'ขอเช็คในระบบก่อน...เดี๋ยวให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้'): ด่านจับเพิ่ม 'ขอเช็ค...ในระบบก่อน' และ 'ให้เจ้าหน้าที่ตรวจสอบ/เช็คแล้วแจ้ง...' — เจอแบบนี้ระบบบังคับให้เช็คจริงให้จบในข้อความเดียวกัน (ซึ่งจะเจอราคาแล้วเข้าขั้นตอนปกติ) + แก้กติกาเดิมที่ยังสั่งให้พูด 'ขอเจ้าหน้าที่ยืนยันราคา' ตอนไม่พบรุ่น ให้เป็นขอชื่อ+เบอร์+รายละเอียดแทน" },
   { at: "2026-07-26", text: "ห้ามสัญญา 'จะติดต่อกลับ/เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ' ทั้งที่ไม่มีเบอร์ลูกค้า (เคสจริง iPad Gen 9 ข้อความ 'เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ' ทั้งที่ยังไม่ได้ขอเบอร์): ระบบจับคำสัญญา callback แยกจากคำว่ารอแล้ว — ไม่มีเบอร์ = บังคับเปลี่ยนเป็นขอชื่อ+เบอร์+รายละเอียดเครื่องทันที, มีเบอร์แต่ยังไม่เข้าคิวเจ้าหน้าที่ = บังคับส่งเรื่องเข้าคิวจริงให้คำสัญญาเป็นจริง, ข้อความบังคับของระบบเอง (ที่ขอเบอร์แล้วค่อยสัญญา) ไม่โดนวนแก้ซ้ำ + เพิ่มกติกาใน persona ตรงๆ ว่าห้ามสัญญาติดต่อกลับก่อนได้เบอร์" },
   { at: "2026-07-26", text: "ปิดทางลัดที่ทำให้ 'รอสักครู่ครับ' หลุดอีกรอบ (เคสจริง iPad Generation 9 — ห้องแชทค้างสถานะรอเจ้าหน้าที่จากคืนก่อน): เดิมถ้าห้องอยู่ในโหมดรอเจ้าหน้าที่แล้ว AI เรียกส่งต่อซ้ำ ระบบตีธง 'ส่งต่อแล้ว' เงียบๆ ซึ่งไปปิดด่านตรวจทุกด่านของข้อความรอบนั้น (ด่านห้ามให้รอ, ด่านขอเบอร์, ตัวตรวจคำตอบ) — ตอนนี้แยกธง 'ห้องรออยู่แล้ว' ออกจาก 'ส่งต่อจริงเทิร์นนี้' ด่านตรวจทำงานครบทุกข้อความโหมดรอ + เพิ่มด่านสุดท้ายก่อนส่งจริง: ข้อความที่ยังมีคำว่ารอจากทุกเส้นทาง (รวมคำแก้ของตัวตรวจ) จะถูกแทนด้วยก้าวถัดไปจริงของ flow เสมอ" },
@@ -1770,7 +1836,12 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       case "search_models": {
         const list = await loadModelsLight(db);
         const scoredDetailed = rankModelsScored(list, input.query);
-        const scored = scoredDetailed.map((x) => x.m);
+        // Exact-name pin: the query names one model precisely (full name or
+        // alias — which is what the disambiguation chips send back) — that
+        // model leads the results and the ambiguity question never re-fires.
+        const pin = exactModelPin(list, input.query);
+        const scoredRaw = scoredDetailed.map((x) => x.m);
+        const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;
         // Offer-mode memory for the escalate gate below: true when this turn's
         // search ended in "no listed price" (not in catalog, or deliberately
         // unpriced) — the two cases where rule 6 step 2(b) demands contact
@@ -1810,7 +1881,11 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // yet may mean mini 6 / Air 6, which we still buy. When delisted and
         // buyable models tie on the query, ask which model first — regardless
         // of which one happened to rank top.
-        const amb = declinedAmbiguity(scoredDetailed);
+        // A pinned query is by definition not ambiguous — and if the pinned
+        // model is delisted, the declined branch below fires for the RIGHT
+        // model (scored[0] = pin), e.g. an explicit "iPhone 13 mini" or the
+        // "iPad Generation 6 (2018)" chip.
+        const amb = pin ? null : declinedAmbiguity(scoredDetailed);
         if (amb) {
           const candidateNames = [...amb.declined, ...amb.buyable].map((m) => m.name);
           return {
@@ -1877,6 +1952,9 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             if (topPrice > 0) searchCoupon = await pickBestCouponForModel(db, buyable[0].id, topPrice);
           } catch { /* coupon hook is best-effort */ }
         }
+        const pinNote = pin
+          ? `ชื่อที่ค้นตรงกับรุ่น "${pin.name}" พอดี — ยึดรุ่นนี้ได้เลย ห้ามถามแยกรุ่นซ้ำ`
+          : null;
         const aliasNote = ipadAirGenAliasNote(input.query);
         const singleNote = buyable.length === 1 ? singleResultVariantNote(buyable[0]) : null;
         const baseNote = topUnpriced
@@ -1890,7 +1968,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           results: buyable,
           ...(topUnpriced ? { offer_mode: true } : {}),
           ...(searchCoupon ? { eligible_coupon: { name: searchCoupon.name, value: searchCoupon.computed_value } } : {}),
-          note: [aliasNote, singleNote, couponNote, baseNote].filter(Boolean).join(" | "),
+          note: [pinNote, aliasNote, singleNote, couponNote, baseNote].filter(Boolean).join(" | "),
         };
       }
 
@@ -4500,6 +4578,8 @@ module.exports = {
     rankModels,
     rankModelsScored,
     declinedAmbiguity,
+    exactModelPin,
+    normalizeForPin,
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
