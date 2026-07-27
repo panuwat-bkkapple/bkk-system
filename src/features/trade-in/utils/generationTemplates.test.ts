@@ -48,7 +48,7 @@ describe('classifyIphoneGeneration', () => {
 describe('buildGenerationGroups', () => {
   it('materializes screen + body + battery + warranty + region groups with baked EN labels', () => {
     const groups = buildGenerationGroups('latest');
-    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ']);
+    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม']);
     for (const g of groups) {
       expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
       for (const o of g.options) expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
@@ -163,7 +163,7 @@ describe('applyGenerationToGroups', () => {
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
       'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก',
-      'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ',
+      'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม',
       'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
     // Untouched groups keep their identity.
@@ -173,13 +173,30 @@ describe('applyGenerationToGroups', () => {
     const { groups } = applyGenerationToGroups(makeSet().groups, 'mid');
     expect(groups.filter((g: any) => /แบต/.test(g.title))).toHaveLength(1);
   });
+  it('a repair-history group mis-tagged kind functional is replaced, never dropped', () => {
+    const withRepair = [
+      ...makeSet().groups,
+      { id: 'g7', title: 'ประวัติการซ่อม', kind: 'functional', options: [{ id: 'o8', label: 'ไม่เคยซ่อม', deduct: 0 }] },
+    ];
+    const { groups } = applyGenerationToGroups(withRepair, 'mid');
+    expect(groups.filter((g: any) => g.title === 'ประวัติการซ่อม')).toHaveLength(1);
+    // The canonical replacement keeps the reject option for non-genuine repairs.
+    const repair = groups.find((g: any) => g.title === 'ประวัติการซ่อม')!;
+    expect(repair.options.some((o: any) => o.failBehavior === 'reject')).toBe(true);
+  });
+  it('box/accessories groups are never treated as screening even if kind functional', () => {
+    const withBox = makeSet().groups.map((g: any) =>
+      g.id === 'g6' ? { ...g, kind: 'functional' } : g);
+    const { groups } = applyGenerationToGroups(withBox, 'mid');
+    expect(groups[groups.length - 1].id).toBe('g6');
+  });
   it('prepends screening and appends deduction groups when the set had neither', () => {
     const bare = [{ id: 'g1', title: 'อุปกรณ์เสริมที่นำมาด้วย', options: [] }];
     const { groups } = applyGenerationToGroups(bare, 'old');
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
       'อุปกรณ์เสริมที่นำมาด้วย',
-      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ',
+      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม',
     ]);
   });
 });

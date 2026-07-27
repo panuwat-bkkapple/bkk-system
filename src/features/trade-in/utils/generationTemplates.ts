@@ -60,6 +60,7 @@ const REPLACED_TITLE_RES = [
   /ประเทศ|รหัสโมเดล|identifier/i,
   /สภาพ(หน้า)?จอ|สภาพจอภาพ|screen condition/i,
   /สภาพตัวเครื่อง|สภาพรอบตัวเครื่อง|บอดี้|ฝาหลัง|body condition/i,
+  /ประวัติ(การ)?ซ่อม|repair history/i,
 ];
 const isReplacedTitle = (title: unknown): boolean =>
   REPLACED_TITLE_RES.some((re) => re.test(String(title || '')));
@@ -83,7 +84,13 @@ const FUNCTIONAL_TITLE_RES = [
 ];
 const isFunctionalScreening = (g: any): boolean => {
   const title = String(g?.title || '');
-  if (/แบต|battery/i.test(title)) return false;
+  // Pricing-owned topics (battery/warranty/region/cosmetic/repair) are NEVER
+  // screening regardless of a stray kind flag on old data — a repair-history
+  // group stored with kind 'functional' once got swallowed by the screening
+  // replacement and vanished from the flow.
+  if (isReplacedTitle(title)) return false;
+  // Kept-as-is topics (box/accessories) — never replace those either.
+  if (/กล่อง|อุปกรณ์|accessor/i.test(title)) return false;
   if (g?.kind === 'functional') return true;
   return FUNCTIONAL_TITLE_RES.some((re) => re.test(title));
 };
