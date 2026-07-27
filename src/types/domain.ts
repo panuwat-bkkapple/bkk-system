@@ -391,7 +391,7 @@ export interface Job {
     amount: number;
     quote_at_offer: number;
     reason?: string;
-    status: 'pending' | 'auto_accepted' | 'accepted' | 'countered' | 'counter_accepted' | 'counter_declined' | 'declined';
+    status: 'pending' | 'auto_accepted' | 'accepted' | 'countered' | 'counter_accepted' | 'counter_declined' | 'declined' | 'expired';
     proposed_at: number;
     decided_at?: number;
     decided_by_uid?: string;
@@ -399,6 +399,7 @@ export interface Job {
     counter_amount?: number;
     counter_reason?: string;
     counter_decided_at?: number;
+    sla_reminded_at?: number;
   };
 
   // คูปอง & QC

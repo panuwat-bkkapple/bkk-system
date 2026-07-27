@@ -1002,6 +1002,12 @@ const OFFER_DECISION_COPY = {
     intro: (o) =>
       `ขอบคุณที่ตอบรับ — ราคาที่ตกลงกันคือ <strong>${formatTHB(o.counter_amount)}</strong> ยอดรับเงินของคำสั่งขายถูกปรับเรียบร้อยแล้ว`,
   },
+  expired: {
+    subject: (o) => `ข้อเสนอราคาถูกปิดอัตโนมัติ — ราคาประเมิน ${formatTHB(o.quote_at_offer)} ยังใช้ได้`,
+    heading: "ข้อเสนอราคาถูกปิดอัตโนมัติ",
+    intro: (o) =>
+      `ขออภัย ทีมงานไม่สามารถยืนยันข้อเสนอ ${formatTHB(o.amount)} ของคุณได้ภายในเวลาที่กำหนด ระบบจึงปิดข้อเสนอโดยอัตโนมัติ — ราคาประเมินเดิม <strong>${formatTHB(o.quote_at_offer)}</strong> ยังใช้ได้ และคำสั่งขายของคุณเดินหน้าต่อตามปกติ`,
+  },
 };
 
 /** Customer email for a Make-Offer decision, or null for states with no email. */

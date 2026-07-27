@@ -17,7 +17,8 @@
 
 export type CustomerOfferStatus =
   | 'pending' | 'auto_accepted' | 'accepted'
-  | 'countered' | 'counter_accepted' | 'counter_declined' | 'declined';
+  | 'countered' | 'counter_accepted' | 'counter_declined' | 'declined'
+  | 'expired'; // scheduler ปิดอัตโนมัติเมื่อ pending ค้างเกิน expiry_hours
 
 export interface CustomerOfferData {
   amount: number;
@@ -31,6 +32,8 @@ export interface CustomerOfferData {
   counter_amount?: number;
   counter_reason?: string;
   counter_decided_at?: number;
+  /** เวลาที่ scheduler push เตือน SLA ไปแล้ว (ครั้งเดียวต่อข้อเสนอ) */
+  sla_reminded_at?: number;
 }
 
 /** เพดานเริ่มต้น % ที่ลูกค้าเสนอเกินราคาประเมินได้ (mirror ฝั่งลูกค้า) */
@@ -65,4 +68,5 @@ export const OFFER_STATUS_LABEL_TH: Record<CustomerOfferStatus, string> = {
   counter_accepted: 'ลูกค้ารับเคาน์เตอร์',
   counter_declined: 'ลูกค้าไม่รับเคาน์เตอร์ (ขายราคาประเมิน)',
   declined: 'ยืนราคาประเมิน',
+  expired: 'หมดเวลาพิจารณา (ปิดอัตโนมัติ)',
 };
