@@ -254,8 +254,8 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'สุขภาพแบตเตอรี่ยังอยู่ในเกณฑ์ดี', deduct: 0 },
       { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5, failBehavior: 'deduct' },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10, failBehavior: 'deduct' },
-      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก แบตหมดเร็วกว่าปกติ', pct: 10, failBehavior: 'deduct' },
+      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมาก หรือขึ้นเตือน Service ใน Settings', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(4, 10, 60),
     BODY_GROUP(4, 8, 14, 45),
@@ -271,8 +271,8 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 85-100%', description: 'สุขภาพแบตเตอรี่ยังอยู่ในเกณฑ์ดี', deduct: 0 },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 8, failBehavior: 'deduct' },
-      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก แบตหมดเร็วกว่าปกติ', pct: 8, failBehavior: 'deduct' },
+      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมาก หรือขึ้นเตือน Service ใน Settings', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(6, 14, 65),
     BODY_GROUP(6, 10, 18, 50),
@@ -309,8 +309,8 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'สุขภาพแบตเตอรี่ยังอยู่ในเกณฑ์ดี', deduct: 0 },
       { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5, failBehavior: 'deduct' },
-      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10, failBehavior: 'deduct' },
-      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
+      { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก แบตหมดเร็วกว่าปกติ', pct: 10, failBehavior: 'deduct' },
+      { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมาก หรือขึ้นเตือน Service ใน Settings', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(4, 10, 60),
     BODY_GROUP(4, 8, 14, 45),

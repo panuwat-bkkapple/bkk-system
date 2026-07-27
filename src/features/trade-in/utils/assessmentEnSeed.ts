@@ -431,6 +431,8 @@ export const ASSESSMENT_EN_SEED: Record<string, string> = {
   'พ้นระยะประกันศูนย์แล้ว': 'Apple warranty period has ended',
   'สถานะประกันของเครื่อง': 'Warranty status of the device',
   'สุขภาพแบตเตอรี่ยังอยู่ในเกณฑ์ดี': 'Battery health is still in good range',
+  'เสื่อมมาก แบตหมดเร็วกว่าปกติ': 'Heavily worn; drains faster than normal',
+  'เสื่อมมาก หรือขึ้นเตือน Service ใน Settings': 'Heavily worn or shows a Service alert in Settings',
   'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน': 'Less than 6 months of Apple warranty remaining',
   'มีประกัน': 'Under warranty',
   // Condition template — battery (per-model detailed % vs simple good/degraded)
