@@ -208,8 +208,6 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   // (GRADE_EXCLUDE_RE ใน bkk-frontend-next conditionGrade.ts จับจากชื่อหัวข้อ
   // "แบต"/"ประกัน") — จึงหักราคาได้โดยเกรดสภาพไม่ตก ตามนโยบาย "แบต 98% ยังเกรด A".
   battery_latest: { label: 'แบต % ละเอียด + ประกันละเอียด + ZP/A (รุ่นล่าสุด iPhone 17)', items: [
-    SCREEN_GROUP(3, 8, 55),
-    BODY_GROUP(3, 6, 12, 40),
     // เครื่องรุ่นล่าสุดยังใหม่ทั้งตลาด — ไม่มีเครื่องแบตต่ำจริง จึงถามแค่ 4 ช่วง
     // (ต่ำกว่า 90% เป็น catch-all หักหนัก ไม่ต้องมีขั้น 80s/เสื่อม)
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
@@ -218,6 +216,8 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'สุขภาพแบต 90-94%', description: 'เสื่อมตามการใช้งาน ยังใช้ได้ปกติ', pct: 6 },
       { label: 'แบตต่ำกว่า 90%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 12, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(3, 8, 55),
+    BODY_GROUP(3, 6, 12, 40),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'เหลือประกันศูนย์มากกว่า 6 เดือน / AppleCare+', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', pct: 2 },
@@ -226,14 +226,14 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 16)', items: [
-    SCREEN_GROUP(4, 10, 60),
-    BODY_GROUP(4, 8, 14, 45),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
       { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
       { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10 },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(4, 10, 60),
+    BODY_GROUP(4, 8, 14, 45),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', deduct: 0 },
@@ -242,13 +242,13 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
-    SCREEN_GROUP(6, 14, 65),
-    BODY_GROUP(6, 10, 18, 50),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
       { label: 'สุขภาพแบต 85-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
       { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 8 },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(6, 14, 65),
+    BODY_GROUP(6, 10, 18, 50),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
@@ -256,14 +256,14 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_ZP_GROUP,
   ] },
   battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% + TH/A (iPhone 11-13 ลงไป)', items: [
-    SCREEN_GROUP(10, 20, 70),
-    BODY_GROUP(10, 15, 25, 60),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'สุขภาพแบต 80% ขึ้นไป ไม่ขึ้น Service', deduct: 0 },
       // 20% ตามนโยบายราคา: รุ่นต่ำกว่า 20,000 หักแบตเสื่อม ~2,000-3,500 บาท
       // (ใกล้ค่าเปลี่ยนแบตจริง) — รุ่น 20,000-30,000 ใช้ 15% (tier 14-16)
       { label: 'แบตเตอรี่เสื่อม', description: 'สุขภาพแบตต่ำกว่า 80% หรือขึ้นเตือน Service', pct: 20, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(10, 20, 70),
+    BODY_GROUP(10, 15, 25, 60),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
@@ -275,14 +275,14 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   // ลูกค้าดูเปอร์เซ็นต์เองไม่ได้ → ถามได้แค่ ดี/เสื่อม. ประกันเก็บเป็นข้อมูล
   // ไม่หัก (default — จูนรายรุ่นได้).
   battery_ipad_new: { label: 'iPad แบต % + ประกัน (รุ่นปี 2024 ขึ้นไป)', items: [
-    SCREEN_GROUP(4, 10, 60),
-    BODY_GROUP(4, 8, 14, 45),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่ (มีในรุ่นปี 2024 ขึ้นไป)', options: [
       { label: 'สุขภาพแบต 90-100%', description: 'เกณฑ์รับได้ของรุ่นนี้ ไม่หักราคา', deduct: 0 },
       { label: 'สุขภาพแบต 85-89%', description: 'เสื่อมค่อนข้างมาก เริ่มต้องชาร์จบ่อย', pct: 5 },
       { label: 'สุขภาพแบต 80-84%', description: 'เสื่อมมาก ควรเผื่อค่าเปลี่ยนแบตเตอรี่', pct: 10 },
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมากหรือขึ้นเตือน Service ควรเปลี่ยนแบตเตอรี่', pct: 15, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(4, 10, 60),
+    BODY_GROUP(4, 8, 14, 45),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', deduct: 0 },
@@ -291,12 +291,12 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_SIMPLE_GROUP,
   ] },
   battery_ipad_old: { label: 'iPad แบตดี/เสื่อม + ประกัน (ก่อนปี 2024)', items: [
-    SCREEN_GROUP(10, 20, 70),
-    BODY_GROUP(10, 15, 25, 60),
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'cosmetic', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
       { label: 'แบตเตอรี่ดี', description: 'ใช้งานได้ปกติ แบตไม่หมดเร็วผิดปกติ ไม่บวม', deduct: 0 },
       { label: 'แบตเตอรี่เสื่อม', description: 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ', pct: 10, failBehavior: 'deduct' },
     ] },
+    SCREEN_GROUP(10, 20, 70),
+    BODY_GROUP(10, 15, 25, 60),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง (ไม่มีผลต่อเกรดสภาพ)', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
