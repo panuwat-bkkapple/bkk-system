@@ -447,7 +447,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                 ) : genPlan.actions.length > 0 ? (
                   <>
                     <div className="text-[11px] font-bold text-slate-500 mb-2 leading-relaxed">
-                      iPhone/iPad {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
+                      iPhone/iPad/Mac {genPlan.actions.length} รุ่นยังไม่ใช้ชุดคำถามตามรุ่น
                       {genPlan.alreadyApplied > 0 && ` (ปรับแล้ว ${genPlan.alreadyApplied})`}
                       {genPlan.sharedSkipped.length > 0 && ` · ${genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน`}
                     </div>
@@ -461,7 +461,7 @@ export const EngineSettingsModal: React.FC<EngineSettingsModalProps> = ({ condit
                   </>
                 ) : (
                   <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1.5">
-                    <CheckCircle2 size={14} /> iPhone/iPad ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
+                    <CheckCircle2 size={14} /> iPhone/iPad/Mac ทุกรุ่นใช้ชุดคำถามตามรุ่นแล้ว
                     {genPlan.sharedSkipped.length > 0 && <span className="text-amber-600">· {genPlan.sharedSkipped.length} รุ่นรอแตกชุดก่อน</span>}
                   </div>
                 )}
