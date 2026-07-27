@@ -112,7 +112,7 @@ export default function CustomerOfferSettings() {
           <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-100 flex gap-2">
             <Info size={14} className="text-amber-500 shrink-0 mt-0.5" />
             <p className="text-[11px] font-bold text-amber-700 leading-relaxed">
-              ค่านี้เป็น<span className="underline">ความลับ</span> — เก็บที่ settings ซึ่งลูกค้าอ่านไม่ได้ ห้ามนำไปแสดงบนเว็บลูกค้าหรือย้ายไปเก็บบน /models (สาธารณะ) เด็ดขาด มิฉะนั้นลูกค้าจะเสนอชนเพดานทุกครั้ง · เพดานที่ลูกค้า &ldquo;เห็น&rdquo; (กรอบเสนอสูงสุด, default {DEFAULT_OFFER_MAX_PCT}%) ตั้งแยกรายรุ่นที่หน้าแก้ไขรุ่น
+              ค่านี้เป็น<span className="underline">ความลับ</span> — เก็บที่ settings ซึ่งลูกค้าอ่านไม่ได้ ห้ามนำไปแสดงบนเว็บลูกค้าหรือย้ายไปเก็บบน /models (สาธารณะ) เด็ดขาด มิฉะนั้นลูกค้าจะเสนอชนเพดานทุกครั้ง · เพดานกรอบเสนอสูงสุด (default {DEFAULT_OFFER_MAX_PCT}%) ตั้งแยกรายรุ่นที่หน้าแก้ไขรุ่น — ฝั่งลูกค้าก็ไม่โชว์ตัวเลขนี้เช่นกัน ใช้เป็นกรอบ validate เงียบๆ เท่านั้น
             </p>
           </div>
         </div>
