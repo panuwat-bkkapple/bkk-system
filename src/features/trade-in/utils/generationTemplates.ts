@@ -14,18 +14,22 @@ import { writeConditionSet } from './conditionSets';
  *   (SE / X / XR / XS / 8 / 7 / 6 = ก่อนยุค 14 ทั้งหมด -> battery_old)
  *   iPad ปี 2024 ขึ้นไป -> battery_ipad_new (มีเมนู Battery Health % ให้ถามช่วง)
  *   iPad ก่อนปี 2024    -> battery_ipad_old (ไม่มีเมนู % -> ถามได้แค่ ดี/เสื่อม)
+ *   MacBook M3+        -> mac_new   | MacBook M1-M2 -> mac_mid | MacBook Intel -> mac_intel
+ *   iMac -> mac_imac (มีจอ ไม่มีแบต) | Mac mini/Studio/Pro -> mac_desktop (ไม่มีจอ/แบต)
  *
  * The tool REPLACES two batches of a set's groups, each inserted where its
  * first removed group used to be: (1) the functional screening topics,
  * normalized from FUNCTIONAL_TEMPLATES (iphone/ipad, minus battery), and
  * (2) the screen/body/battery/warranty/region deduction groups from the
  * tier's pricing template. Every other group (กล่อง/อุปกรณ์, ประวัติซ่อม,
- * custom topics) is left untouched. Non-iPhone/iPad models are never
+ * custom topics) is left untouched. Models outside the policy (Watch / accessories) are never
  * touched, and a model whose set is still SHARED is skipped (split to 1:1
  * first — editing a shared set would change its sibling models too).
  */
 
-export type IphoneGeneration = 'latest' | 'recent' | 'mid' | 'old' | 'ipad_new' | 'ipad_old';
+export type IphoneGeneration =
+  | 'latest' | 'recent' | 'mid' | 'old' | 'ipad_new' | 'ipad_old'
+  | 'mac_new' | 'mac_mid' | 'mac_intel' | 'mac_imac' | 'mac_desktop';
 
 const GEN_TEMPLATE_KEY: Record<IphoneGeneration, string> = {
   latest: 'battery_latest',
@@ -34,6 +38,11 @@ const GEN_TEMPLATE_KEY: Record<IphoneGeneration, string> = {
   old: 'battery_old',
   ipad_new: 'battery_ipad_new',
   ipad_old: 'battery_ipad_old',
+  mac_new: 'mac_new',
+  mac_mid: 'mac_mid',
+  mac_intel: 'mac_intel',
+  mac_imac: 'mac_imac',
+  mac_desktop: 'mac_desktop',
 };
 
 /** Short per-tier labels for plan summaries / confirm dialogs. */
@@ -44,6 +53,11 @@ export const GEN_LABELS: Record<IphoneGeneration, string> = {
   old: 'iPhone 13 ลงไป',
   ipad_new: 'iPad ปี 2024 ขึ้นไป',
   ipad_old: 'iPad ก่อนปี 2024',
+  mac_new: 'MacBook ชิป M3 ขึ้นไป',
+  mac_mid: 'MacBook ชิป M1-M2',
+  mac_intel: 'MacBook Intel',
+  mac_imac: 'iMac',
+  mac_desktop: 'Mac mini / Studio / Pro',
 };
 
 // Groups the templates replace, matched by group TITLE. Battery matches both
@@ -77,11 +91,15 @@ const isReplacedTitle = (title: unknown): boolean =>
 // question (the pricing one).
 const FUNCTIONAL_TITLE_RES = [
   /เปิดเครื่อง/i,
-  /หน้าจอ \+ ทัชสกรีน|การแสดงผล \+ ทัชสกรีน/i,
+  /หน้าจอ \+ ทัชสกรีน|การแสดงผล \+ ทัชสกรีน|หน้าจอแสดงผล/i,
   /กล้องหน้า|กล้องหลัง/i,
   /การเชื่อมต่อ|สัญญาณ|bluetooth/i,
   /ลำโพง|ไมโครโฟน/i,
   /สแกนใบหน้า|face id/i,
+  // Mac topics (คีย์บอร์ดถูกดักโดย isReplacedTitle ก่อนเสมอเมื่ออยู่ในหัวข้อ
+  // "ประเทศที่ซื้อ + คีย์บอร์ด" — เช็ค isReplacedTitle มาก่อนใน isFunctionalScreening)
+  /คีย์บอร์ด|แทร็คแพด|trackpad|keyboard/i,
+  /พอร์ต|\bport/i,
 ];
 const isFunctionalScreening = (g: any): boolean => {
   const title = String(g?.title || '');
@@ -94,14 +112,16 @@ const isFunctionalScreening = (g: any): boolean => {
   return FUNCTIONAL_TITLE_RES.some((re) => re.test(title));
 };
 
-const FUNCTIONAL_TEMPLATE_KEY: Record<IphoneGeneration, 'iphone' | 'ipad'> = {
+const FUNCTIONAL_TEMPLATE_KEY: Record<IphoneGeneration, 'iphone' | 'ipad' | 'mac' | 'mac_imac' | 'mac_desktop'> = {
   latest: 'iphone', recent: 'iphone', mid: 'iphone', old: 'iphone',
   ipad_new: 'ipad', ipad_old: 'ipad',
+  mac_new: 'mac', mac_mid: 'mac', mac_intel: 'mac',
+  mac_imac: 'mac_imac', mac_desktop: 'mac_desktop',
 };
 
 /**
  * Which generation tier a model belongs to; null = out of scope (never
- * touched by this tool — Mac / Watch / accessories have no policy yet).
+ * touched by this tool — Watch / accessories have no policy yet).
  *
  * iPhone: names without a number after "iPhone" (SE / X / XR / XS) all
  * predate the 14-era rules -> 'old'.
@@ -131,6 +151,28 @@ export function classifyIphoneGeneration(model: any): IphoneGeneration | null {
     if (gen && Number(gen[1]) >= 11) return 'ipad_new';
     return 'ipad_old';
   }
+  // Mac — ชิปอาจอยู่ในชื่อรุ่น ("MacBook Air M2") หรือใน attribute
+  // `processor` ของ variant ("Apple M2", "Intel Core i5") จึงรวมข้อความ
+  // ทั้งสองแหล่งก่อน match. desktop (mini/Studio/Pro) กับ iMac แยก tier
+  // ของตัวเอง (ไม่มีแบต/จอในตัว) — เช็ค MacBook ก่อนกัน "Mac Pro" ชนกับ
+  // "MacBook Pro".
+  if (/^imac/i.test(name)) return 'mac_imac';
+  if (/^macbook/i.test(name)) {
+    const chipText = [
+      name,
+      ...(Array.isArray(model?.variants)
+        ? model.variants.map((v: any) => String(v?.attributes?.processor || v?.processor || ''))
+        : []),
+    ].join(' ');
+    const chip = chipText.match(/\bM([1-9])\b/i);
+    if (chip) return Number(chip[1]) >= 3 ? 'mac_new' : 'mac_mid';
+    if (/intel|core\s*i[3579]/i.test(chipText)) return 'mac_intel';
+    // ไม่รู้ชิป: ปี 2021 ขึ้นไปคือยุค Apple Silicon, ก่อนหน้านั้นถือเป็น Intel
+    const year = name.match(/\b(20\d{2})\b/);
+    if (year && Number(year[1]) >= 2021) return 'mac_mid';
+    return 'mac_intel';
+  }
+  if (/^mac\s*(mini|studio|pro)\b/i.test(name)) return 'mac_desktop';
   return null;
 }
 
@@ -239,7 +281,7 @@ export interface GenerationApplyPlan {
   alreadyApplied: number;
   /** iPhones whose set is still shared by other models — split to 1:1 first. */
   sharedSkipped: { modelId: string; modelName: string; setId: string }[];
-  /** Models outside the policy (Mac / Watch / accessories) — untouched. */
+  /** Models outside the policy (Watch / accessories) — untouched. */
   outOfScope: number;
   /** iPhones with no resolvable set — need manual attention. */
   missing: { modelId: string; modelName: string }[];
@@ -260,7 +302,10 @@ export function planGenerationApply(models: any[], sets: any[]): GenerationApply
 
   const plan: GenerationApplyPlan = {
     actions: [], alreadyApplied: 0, sharedSkipped: [], outOfScope: 0, missing: [],
-    tierCounts: { latest: 0, recent: 0, mid: 0, old: 0, ipad_new: 0, ipad_old: 0 },
+    tierCounts: {
+      latest: 0, recent: 0, mid: 0, old: 0, ipad_new: 0, ipad_old: 0,
+      mac_new: 0, mac_mid: 0, mac_intel: 0, mac_imac: 0, mac_desktop: 0,
+    },
   };
   for (const m of models || []) {
     const tier = classifyIphoneGeneration(m);
