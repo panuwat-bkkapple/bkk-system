@@ -511,7 +511,7 @@ export const ModelEditorPage: React.FC<ModelEditorPageProps> = ({
                       onChange={(e) => onEditingItemChange({ ...editingItem, offerMaxPct: Number(e.target.value) || undefined })}
                       className="w-full p-2.5 bg-white rounded-lg border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium">ลูกค้าเห็นกรอบนี้ตอนเสนอราคา — เพดานรับอัตโนมัติ (Auto-Accept) ตั้งแยกที่หน้าตั้งค่า Make Offer เพราะเป็นค่าลับที่ลูกค้าห้ามเห็น</p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">กรอบตรวจรับข้อเสนอเงียบๆ — ลูกค้า &ldquo;ไม่เห็น&rdquo; ตัวเลขนี้ (โมดอลไม่โชว์เพดาน กันเสนอชนเพดานทุกครั้ง) เกินกรอบ = ระบบปฏิเสธตอน checkout · เพดานรับอัตโนมัติ (Auto-Accept) ตั้งแยกที่หน้าตั้งค่า Make Offer</p>
                   </div>
                 )}
               </div>
