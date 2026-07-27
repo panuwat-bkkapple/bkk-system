@@ -48,7 +48,7 @@ describe('classifyIphoneGeneration', () => {
 describe('buildGenerationGroups', () => {
   it('materializes screen + body + battery + warranty + region groups with baked EN labels', () => {
     const groups = buildGenerationGroups('latest');
-    expect(groups.map((g: any) => g.title)).toEqual(['สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ']);
+    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ']);
     for (const g of groups) {
       expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
       for (const o of g.options) expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
@@ -151,8 +151,8 @@ describe('applyGenerationToGroups', () => {
     expect(removedTitles).toEqual(['เปิดเครื่อง / ใช้งานทั่วไป', 'แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
-      'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง',
-      'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ',
+      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก',
+      'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ',
       'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
     // Untouched groups keep their identity.
@@ -168,7 +168,7 @@ describe('applyGenerationToGroups', () => {
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
       'อุปกรณ์เสริมที่นำมาด้วย',
-      'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'สุขภาพแบตเตอรี่', 'ประกัน', 'ประเทศที่ซื้อ',
+      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ',
     ]);
   });
 });
