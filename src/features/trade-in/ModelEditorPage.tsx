@@ -491,6 +491,30 @@ export const ModelEditorPage: React.FC<ModelEditorPageProps> = ({
                   <span className="text-sm font-bold text-slate-700">ส่งพัสดุ (Mail-in)</span>
                 </label>
               </div>
+
+              {/* Make Offer — ลูกค้าเสนอราคาเองจากหน้าสรุปประเมิน (opt-in รายรุ่น) */}
+              <label className="text-xs font-bold text-slate-500 block -mb-2">เสนอราคาเอง (Make Offer)</label>
+              <div className="space-y-3 bg-amber-50/60 p-4 rounded-xl border border-amber-100">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={editingItem.allowCustomerOffer === true} onChange={(e) => onEditingItemChange({ ...editingItem, allowCustomerOffer: e.target.checked })} className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500" />
+                  <span className="text-sm font-bold text-slate-700">เปิดให้ลูกค้าเสนอราคาเองสำหรับรุ่นนี้</span>
+                </label>
+                {editingItem.allowCustomerOffer === true && (
+                  <div className="ml-7 pt-1">
+                    <label className="text-[11px] font-bold text-slate-500 mb-1 block">เพดานเสนอเกินราคาประเมิน (%)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      placeholder="ไม่กรอก = 15%"
+                      value={editingItem.offerMaxPct || ''}
+                      onChange={(e) => onEditingItemChange({ ...editingItem, offerMaxPct: Number(e.target.value) || undefined })}
+                      className="w-full p-2.5 bg-white rounded-lg border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">ลูกค้าเห็นกรอบนี้ตอนเสนอราคา — เพดานรับอัตโนมัติ (Auto-Accept) ตั้งแยกที่หน้าตั้งค่า Make Offer เพราะเป็นค่าลับที่ลูกค้าห้ามเห็น</p>
+                  </div>
+                )}
+              </div>
               <div>
                 <label className="text-xs font-black text-indigo-600 mb-2 block flex items-center gap-1"><ClipboardList size={14} /> Assign Condition Item</label>
                 <div className="flex gap-2">

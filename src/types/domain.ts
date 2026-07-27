@@ -383,6 +383,25 @@ export interface Job {
     applied_value: number;
   } | null;
 
+  // Make Offer (ลูกค้าเสนอราคาเอง) — metadata จาก validateAndCreateOrder;
+  // ตัดสินโดยแอดมิน (CEO/MANAGER) ใน ticket UI หรือ auto-accept ตอนสร้างงาน.
+  // helper: src/utils/customerOffer.ts — เงินจะเปลี่ยนเฉพาะตอนรับข้อเสนอ
+  // (เขียน final_price + net_payout ผ่านสูตรกลางเดิม)
+  customer_offer?: {
+    amount: number;
+    quote_at_offer: number;
+    reason?: string;
+    status: 'pending' | 'auto_accepted' | 'accepted' | 'countered' | 'counter_accepted' | 'counter_declined' | 'declined' | 'expired';
+    proposed_at: number;
+    decided_at?: number;
+    decided_by_uid?: string;
+    decided_by_name?: string;
+    counter_amount?: number;
+    counter_reason?: string;
+    counter_decided_at?: number;
+    sla_reminded_at?: number;
+  };
+
   // คูปอง & QC
   /** คูปองที่ใช้ */
   applied_coupon?: AppliedCoupon;
@@ -826,6 +845,14 @@ export interface PricingModel {
   mailIn: boolean;
   /** จำกัดระยะรับถึงที่ (กม.) — ถ้า > 0 และระยะเกินค่านี้ จะปิด Pickup เหลือ Store-in/Mail-in. 0/undefined = ไม่จำกัด */
   maxPickupDistanceKm?: number;
+  /** Make Offer — เปิดให้ลูกค้าเสนอราคาเองจากหน้าสรุปประเมิน (opt-in รายรุ่น,
+   *  default ปิด). ฝั่งเว็บลูกค้า + validateAndCreateOrder อ่านธงนี้ (fail-closed).
+   *  เพดานลับ auto-accept อยู่ที่ settings/customer_offer ไม่อยู่บน model
+   *  (เพราะ /models.json อ่านได้สาธารณะ) */
+  allowCustomerOffer?: boolean;
+  /** เพดาน % ที่ลูกค้าเสนอเกินราคาประเมินได้ (โชว์ให้ลูกค้าเห็นเป็นกรอบ) —
+   *  ไม่กรอก = default 15% (DEFAULT_OFFER_MAX_PCT ใน utils/customerOffer.ts) */
+  offerMaxPct?: number;
   conditionSetId: string;
   /** ตัวคูณส่วนลดสภาพตามสภาพคล่องของรุ่น (default 1.0; >1 = หักหนักขึ้น, <1 = หักเบาลง) */
   liquidityFactor?: number;

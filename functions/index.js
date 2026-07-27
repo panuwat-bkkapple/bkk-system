@@ -17,6 +17,7 @@ const {
   buildCustomerStatusEmail,
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
+  buildCustomerOfferDecisionEmail,
 } = require("./email");
 
 initializeApp();
@@ -752,6 +753,7 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "final_price", "net_payout", "pickup_fee", "rider_fee_discount",
   "applied_coupon", "applied_rider_promo", "adjustments",
   "revise_reason", "price_revision", "accepted_at",
+  "customer_offer",
   "pickup_schedule", "appointment_date", "appointment_time",
   "pickup_date", "pickup_time", "tracking_number",
   "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
@@ -1103,6 +1105,11 @@ exports.onNewTicketCreated = onValueCreated(
         // ธงจาก validateAndCreateOrder ฝั่ง bkk-frontend-next) ต้องติดต่อกลับ
         // เพื่อเสนอราคา — หัวข้อ push แยกให้แอดมินรู้ว่างานนี้รอเสนอราคา
         const isOfferRequest = job.offer_request === true && !(Number(job.price) > 0);
+        // Make Offer — ลูกค้าเสนอราคาเองมากับออเดอร์ (jobs/{id}/customer_offer
+        // จาก validateAndCreateOrder). ใส่ตัวเลข เสนอ vs ประเมิน ลงใน push ให้
+        // CEO/MANAGER ตัดสินจากมือถือได้ทันที — ตอบเร็ว = ปิดดีลได้
+        const customerOffer =
+          job.customer_offer && Number(job.customer_offer.amount) > 0 ? job.customer_offer : null;
         const price = job.price
           ? `฿${Number(job.price).toLocaleString()}`
           : (isOfferRequest ? "(รอเสนอราคา)" : "");
@@ -1110,10 +1117,16 @@ exports.onNewTicketCreated = onValueCreated(
         const custName = job.cust_name || "";
         const isB2B = job.status === "New B2B Lead";
 
-        const title = isOfferRequest
+        const title = customerOffer
+          ? (customerOffer.status === "auto_accepted"
+            ? "💰 ลูกค้าเสนอราคา — Auto-Accept แล้ว"
+            : "💰 ลูกค้าเสนอราคา — รอตัดสิน!")
+          : isOfferRequest
           ? "💬 ลูกค้าขอใบเสนอราคา!"
           : (isB2B ? "📦 New B2B Ticket!" : "📱 Ticket ใหม่เข้ามา!");
-        const body = `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
+        const body = customerOffer
+          ? `${model} เสนอ ฿${Number(customerOffer.amount).toLocaleString()} (ประเมิน ฿${Number(customerOffer.quote_at_offer).toLocaleString()}) ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim()
+          : `${model} ${price} ${custName ? `- ${custName}` : ""} ${method ? `(${method})` : ""}`.trim();
 
         console.log(`[onNewTicket] Job ${jobId}: status="${job.status}", model="${model}"`);
 
@@ -3136,6 +3149,252 @@ exports.onAdminOfferProposed = onValueWritten(
         new Set([a.by_uid])
       );
     }
+  }
+);
+
+// =============================================================================
+// Make Offer (ลูกค้าเสนอราคาเอง) → แจ้งผลการตัดสินข้อเสนอ
+// -----------------------------------------------------------------------------
+// Trigger: jobs/{id}/customer_offer (เขียนโดย validateAndCreateOrder ตอนสร้าง
+// งาน, แอดมินตัดสินใน ticket UI, หรือลูกค้าตอบเคาน์เตอร์ผ่าน /api/jobs/action
+// ฝั่ง bkk-frontend-next). ทำ 2 อย่างเมื่อ status เปลี่ยน:
+//   (1) ลูกค้าตอบเคาน์เตอร์ (counter_accepted / counter_declined) → push แจ้ง
+//       CEO/MANAGER + ผู้ตัดสิน (role-targeted แบบเดียวกับ onAdminOfferProposed)
+//   (2) อีเมลแจ้งลูกค้าตาม allowlist OFFER_DECISION_COPY ใน email.js
+//       (auto_accepted / accepted / countered / declined / counter_accepted —
+//       pending กับ counter_declined ไม่ส่ง) — gate ด้วย settings/accounting
+//       order_emails_enabled ตัวเดียวกับ order emails, กันส่งซ้ำด้วย
+//       jobs/{id}/offer_email_sent/{status} (อยู่นอก customer_offer เพื่อไม่
+//       ให้การเขียน guard วน trigger ตัวเอง)
+// ชื่อ function เฉพาะเจาะจงตามกฎ {region}/{name} collision
+// =============================================================================
+exports.onCustomerOfferDecided = onValueWritten(
+  { ref: "/jobs/{jobId}/customer_offer", region: "asia-southeast1" },
+  async (event) => {
+    const jobId = event.params.jobId;
+    const after = event.data.after.val();
+    if (!after || !after.status) return;
+    const beforeStatus = event.data.before.val()?.status || null;
+    const status = after.status;
+    // edge-trigger เฉพาะตอน status เปลี่ยนจริง (เขียนฟิลด์ย่อยอื่นไม่นับ)
+    if (beforeStatus === status) return;
+
+    const db = getDatabase();
+
+    // (1) ลูกค้าตอบเคาน์เตอร์จากหน้า track → push หา CEO/MANAGER + ผู้ตัดสิน
+    if (status === "counter_accepted" || status === "counter_declined") {
+      const accepted = status === "counter_accepted";
+      try {
+        const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+        if (after.decided_by_uid) targets.add(after.decided_by_uid);
+        await dispatchAdminPush(
+          {
+            data: {
+              jobId,
+              type: "customer_offer",
+              event: accepted ? "counter_accepted" : "counter_declined",
+              title: accepted ? "✅ ลูกค้ารับราคาเคาน์เตอร์" : "ℹ️ ลูกค้าไม่รับเคาน์เตอร์ — ขายราคาประเมิน",
+              body: accepted
+                ? `ตกลงที่ ฿${Number(after.counter_amount || 0).toLocaleString()} (ลูกค้าเสนอ ฿${Number(after.amount || 0).toLocaleString()})`
+                : `งานเดินต่อที่ราคาประเมิน ฿${Number(after.quote_at_offer || 0).toLocaleString()}`,
+              click_action: "/tickets",
+            },
+            android: {
+              priority: "high",
+              notification: { channelId: "status_changes", priority: "high", defaultSound: true, tag: `customer-offer-${jobId}` },
+            },
+            apns: {
+              headers: { "apns-priority": "10", "apns-push-type": "alert" },
+              payload: { aps: { "mutable-content": 1, sound: "default" } },
+            },
+            webpush: { headers: { Urgency: "high", TTL: "86400" } },
+          },
+          "onCustomerOfferAnswer",
+          "admin",
+          targets
+        );
+      } catch (pushErr) {
+        console.error(`[customerOffer] push failed for ${jobId}:`, pushErr?.message || pushErr);
+      }
+    }
+
+    // (2) inbox ในเว็บลูกค้า (/notifications, query ด้วย target_uid — shape
+    // เดียวกับที่ rider app เขียนใน useJobActions.sendCustomerNotification)
+    // เขียนเฉพาะ state ที่ลูกค้าควรรู้ — counter_accepted/counter_declined
+    // ลูกค้าเป็นคนกดเองไม่ต้องแจ้งซ้ำ. best-effort, ไม่มี guard ซ้ำ (edge-
+    // triggered จาก status เปลี่ยนอยู่แล้ว dup ได้เฉพาะ retry ซึ่งไม่อันตราย)
+    const INBOX_COPY = {
+      auto_accepted: (o) => ({
+        type: "success",
+        title: "ข้อเสนอราคาได้รับการยืนยันทันที",
+        message: `เรารับข้อเสนอ ฿${Number(o.amount).toLocaleString()} ของคุณแล้ว ยอดรับเงินถูกปรับตามข้อเสนอ`,
+      }),
+      accepted: (o) => ({
+        type: "success",
+        title: "ข้อเสนอราคาได้รับการยืนยัน",
+        message: `ทีมงานรับข้อเสนอ ฿${Number(o.amount).toLocaleString()} ของคุณแล้ว ยอดรับเงินถูกปรับตามข้อเสนอ`,
+      }),
+      countered: (o) => ({
+        type: "order_status",
+        title: "ทีมงานเสนอราคากลับ — รอการตอบรับจากคุณ",
+        message: `เราเสนอราคาที่ดีที่สุดที่ให้ได้คือ ฿${Number(o.counter_amount || 0).toLocaleString()} กดเพื่อรับหรือไม่รับข้อเสนอ`,
+      }),
+      declined: (o) => ({
+        type: "order_status",
+        title: "ทีมงานยืนยันราคาประเมินเดิม",
+        message: `ราคาประเมิน ฿${Number(o.quote_at_offer).toLocaleString()} คือราคาที่ดีที่สุดสำหรับสภาพเครื่องนี้ — คำสั่งขายเดินหน้าต่อตามปกติ`,
+      }),
+      expired: (o) => ({
+        type: "order_status",
+        title: "ข้อเสนอราคาถูกปิดอัตโนมัติ",
+        message: `ขออภัยที่ไม่สามารถยืนยันข้อเสนอได้ทันเวลา — ราคาประเมิน ฿${Number(o.quote_at_offer).toLocaleString()} ยังใช้ได้ คำสั่งขายเดินหน้าต่อตามปกติ`,
+      }),
+    };
+    let jobForEmail = null;
+    try {
+      const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+      jobForEmail = jobSnap.val();
+      const inboxBuilder = INBOX_COPY[status];
+      if (jobForEmail && jobForEmail.uid && inboxBuilder) {
+        const entry = inboxBuilder(after);
+        await db.ref("notifications").push({
+          target_uid: jobForEmail.uid,
+          target_role: "customer",
+          type: entry.type,
+          title: entry.title,
+          message: entry.message,
+          job_id: jobId,
+          link: `/track/${jobId}`,
+          timestamp: Date.now(),
+          read: false,
+        });
+      }
+    } catch (inboxErr) {
+      console.error(`[customerOffer] inbox write failed for ${jobId}:`, inboxErr?.message || inboxErr);
+    }
+
+    // (3) อีเมลแจ้งลูกค้า — allowlist + gate + กันส่งซ้ำ
+    try {
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      const job = jobForEmail;
+      if (!job || !job.cust_email) return;
+      if (job.offer_email_sent && job.offer_email_sent[status]) return;
+      applyAccounting(job, acct);
+      job.customer_offer = after;
+      const email = buildCustomerOfferDecisionEmail(job, after);
+      if (!email) return;
+      const res = await sendEmail(email);
+      if (!res || !res.skipped) {
+        await db.ref(`jobs/${jobId}/offer_email_sent/${status}`).set(Date.now());
+      }
+      console.log(`[customerOffer] ${jobId}: ${beforeStatus || "(new)"} -> ${status}, email ${res?.skipped ? "skipped" : "sent"}`);
+    } catch (emailErr) {
+      console.error(`[customerOffer] email failed for ${jobId}:`, emailErr?.message || emailErr);
+    }
+  }
+);
+
+// =============================================================================
+// Make Offer — scheduler ดูแลข้อเสนอที่ค้าง pending
+// -----------------------------------------------------------------------------
+// รันทุก 30 นาที ทำ 2 อย่าง (config ที่ settings/customer_offer):
+//   (1) SLA reminder: pending ค้างเกิน sla_hours → push เตือน CEO/MANAGER ครั้งเดียว
+//       (mark customer_offer/sla_reminded_at — เขียนใต้ customer_offer จะวน trigger
+//       onCustomerOfferDecided แต่ status ไม่เปลี่ยน → early return, ไม่มีผลข้างเคียง)
+//   (2) Expiry: pending ค้างเกิน expiry_hours → status 'expired' (ปิดอัตโนมัติ —
+//       ราคาประเมินเดิมยังยืน งานเดินต่อ) → onCustomerOfferDecided ส่งอีเมล+inbox
+//       ให้ลูกค้าเองจากการเปลี่ยน status นี้
+// RTDB cost: ใช้ fetchJobsByStatuses (query ตาม .indexOn: status) เฉพาะ status
+// ต้นไปป์ไลน์ที่ pending offer อยู่ได้จริง — ห้ามกวาด /jobs ทั้งก้อน (กฎบิล)
+// =============================================================================
+const OFFER_PENDING_STATUSES = [
+  "New Lead", "Active Lead", "Active Leads", "Following Up",
+  "Appointment Set", "Waiting Drop-off", "Awaiting Shipping",
+];
+
+exports.checkPendingCustomerOffers = onSchedule(
+  {
+    schedule: "every 30 minutes",
+    region: "asia-southeast1",
+    timeZone: "Asia/Bangkok",
+  },
+  async () => {
+    const db = getDatabase();
+    const cfg = (await db.ref("settings/customer_offer").once("value")).val() || {};
+    const slaHours = Number(cfg.sla_hours) > 0 ? Number(cfg.sla_hours) : 0;
+    const expiryHours = Number(cfg.expiry_hours) > 0 ? Number(cfg.expiry_hours) : 0;
+    if (slaHours === 0 && expiryHours === 0) return; // ทั้งคู่ปิด = ไม่ต้อง scan
+
+    const now = Date.now();
+    const jobs = await fetchJobsByStatuses(db, OFFER_PENDING_STATUSES);
+    let reminded = 0;
+    let expired = 0;
+
+    for (const [id, job] of jobs) {
+      const offer = job?.customer_offer;
+      if (!offer || offer.status !== "pending" || !(Number(offer.proposed_at) > 0)) continue;
+      const ageMs = now - Number(offer.proposed_at);
+
+      // (2) expiry ก่อน — ข้อเสนอที่หมดอายุไม่ต้องเตือน SLA ซ้ำ
+      if (expiryHours > 0 && ageMs > expiryHours * 60 * 60 * 1000) {
+        const qcLogs = Array.isArray(job.qc_logs) ? job.qc_logs : Object.values(job.qc_logs || {});
+        await db.ref(`jobs/${id}`).update({
+          customer_offer: {
+            ...offer,
+            status: "expired",
+            decided_at: now,
+            decided_by_name: "ระบบ (หมดเวลาพิจารณา)",
+          },
+          qc_logs: [{
+            action: "Customer Offer Expired",
+            by: "System",
+            timestamp: now,
+            details: `ข้อเสนอลูกค้า ฿${Number(offer.amount).toLocaleString()} ค้างเกิน ${expiryHours} ชม. — ปิดอัตโนมัติ งานเดินต่อที่ราคาประเมิน ฿${Number(offer.quote_at_offer).toLocaleString()}`,
+          }, ...qcLogs],
+          updated_at: now,
+        });
+        expired++;
+        continue;
+      }
+
+      // (1) SLA reminder ครั้งเดียวต่อข้อเสนอ
+      if (slaHours > 0 && !offer.sla_reminded_at && ageMs > slaHours * 60 * 60 * 1000) {
+        try {
+          const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+          await dispatchAdminPush(
+            {
+              data: {
+                jobId: id,
+                type: "customer_offer",
+                event: "sla_reminder",
+                title: "⏰ ข้อเสนอลูกค้าค้างเกิน SLA",
+                body: `${job.model || ""} เสนอ ฿${Number(offer.amount).toLocaleString()} (ประเมิน ฿${Number(offer.quote_at_offer).toLocaleString()}) รอมาแล้ว ${Math.floor(ageMs / 3600000)} ชม. — รีบตัดสินก่อนดีลเย็น`,
+                click_action: "/tickets",
+              },
+              android: {
+                priority: "high",
+                notification: { channelId: "status_changes", priority: "high", defaultSound: true, tag: `offer-sla-${id}` },
+              },
+              apns: {
+                headers: { "apns-priority": "10", "apns-push-type": "alert" },
+                payload: { aps: { "mutable-content": 1, sound: "default" } },
+              },
+              webpush: { headers: { Urgency: "high", TTL: "86400" } },
+            },
+            "offerSlaReminder",
+            "admin",
+            targets
+          );
+          await db.ref(`jobs/${id}/customer_offer/sla_reminded_at`).set(now);
+          reminded++;
+        } catch (e) {
+          console.error(`[checkPendingCustomerOffers] reminder failed for ${id}:`, e?.message || e);
+        }
+      }
+    }
+
+    console.log(`[checkPendingCustomerOffers] scanned ${jobs.size} jobs — expired ${expired}, reminded ${reminded}`);
   }
 );
 

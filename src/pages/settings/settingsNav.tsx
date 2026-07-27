@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
-  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2
+  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins
 } from 'lucide-react';
 
 // Single source of truth ของโครงเมนูตั้งค่า (Reusely-style 3 กลุ่ม):
@@ -47,6 +47,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { path: '/pricing/condition-sets', label: 'Condition Sets', description: 'ชุดคำถามประเมินสภาพและค่าหักเงินของแต่ละรุ่น', icon: <ClipboardList size={18} />, roles: ['CEO', 'MANAGER'], fullWidth: true },
       { path: '/coupons', label: 'แคมเปญคูปอง (Offers)', description: 'สร้าง/แก้คูปองส่วนลด เงื่อนไขรุ่น และโควตา', icon: <Ticket size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/rider-fee-promos', label: 'โปรส่วนลดค่าไรเดอร์', description: 'โปรโมชั่นลดค่าบริการรับเครื่องถึงบ้าน', icon: <Bike size={18} />, roles: ['CEO', 'MANAGER'] },
+      { path: '/offer-settings', label: 'เสนอราคาเอง (Make Offer)', description: 'Master switch + เพดานรับอัตโนมัติ ของระบบลูกค้าเสนอราคา', icon: <HandCoins size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/membership-settings', label: 'สมาชิก & สิทธิพิเศษ', description: 'การ์ดสิทธิประโยชน์สมาชิกที่โชว์ตอน checkout', icon: <Gift size={18} />, roles: ['CEO', 'MANAGER'] },
     ],
   },
