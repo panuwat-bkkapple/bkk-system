@@ -161,6 +161,18 @@ const REGION_TH_GROUP: SeedCondGroup = {
   ],
 };
 
+// ประวัติการซ่อม — ใช้ร่วมทุก tier (kind cosmetic ตามเหตุผลใน comment ด้านบน:
+// reject โชว์ที่สรุปท้าย flow ไม่ dead-end กลางทาง). อยู่ใน template รุ่นด้วย
+// เพื่อ normalize ชุดเก่าที่ field kind เพี้ยน (เคยถูกมาร์ค functional แล้วโดน
+// ตัว normalize คัดกรองกลืนหายไปรอบหนึ่ง — ดู PR #442)
+const REPAIR_GROUP: SeedCondGroup = {
+  title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
+    { label: 'ไม่เคยซ่อม', description: 'เครื่องเดิมจากโรงงาน ไม่เคยเปิดซ่อม', failBehavior: 'pass', deduct: 0 },
+    { label: 'เคยซ่อมศูนย์ / อะไหล่แท้', description: 'เคยเข้าศูนย์ Apple เปลี่ยนอะไหล่แท้', failBehavior: 'deduct', deduct: 0 },
+    { label: 'ซ่อมนอกศูนย์ / อะไหล่เทียบ (ไม่แท้)', description: 'เคยซ่อมร้านนอก หรือเปลี่ยนอะไหล่เทียบ/ไม่แท้', failBehavior: 'reject' },
+  ],
+};
+
 export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCondGroup[] }> = {
   standard: { label: 'สภาพ + ประกัน + ประเทศ + ประวัติซ่อม', items: [
     { title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
@@ -224,6 +236,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกันศูนย์แล้ว', description: 'พ้นระยะประกันศูนย์แล้ว', pct: 4 },
     ] },
     REGION_ZP_GROUP,
+    REPAIR_GROUP,
   ] },
   battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 16)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
@@ -240,6 +253,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
     ] },
     REGION_ZP_GROUP,
+    REPAIR_GROUP,
   ] },
   battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
@@ -254,6 +268,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
     ] },
     REGION_ZP_GROUP,
+    REPAIR_GROUP,
   ] },
   battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% + TH/A (iPhone 11-13 ลงไป)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
@@ -269,6 +284,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
     REGION_TH_GROUP,
+    REPAIR_GROUP,
   ] },
   // iPad 2 ระดับ — เส้นแบ่งคือเมนู Battery Health (%): มีเฉพาะ iPad ปี 2024
   // ขึ้นไป (Pro M4/M5, Air M2/M3/M4, mini A17 Pro, Gen 11) รุ่นก่อนหน้านั้น
@@ -289,6 +305,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว ไม่หักราคาสำหรับรุ่นนี้', deduct: 0 },
     ] },
     REGION_SIMPLE_GROUP,
+    REPAIR_GROUP,
   ] },
   battery_ipad_old: { label: 'iPad แบตดี/เสื่อม + ประกัน (ก่อนปี 2024)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
@@ -302,5 +319,6 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
     ] },
     REGION_SIMPLE_GROUP,
+    REPAIR_GROUP,
   ] },
 };
