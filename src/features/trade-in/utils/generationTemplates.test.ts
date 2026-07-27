@@ -48,7 +48,7 @@ describe('classifyIphoneGeneration', () => {
 describe('buildGenerationGroups', () => {
   it('materializes screen + body + battery + warranty + region groups with baked EN labels', () => {
     const groups = buildGenerationGroups('latest');
-    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม']);
+    expect(groups.map((g: any) => g.title)).toEqual(['สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม', 'อุปกรณ์เสริมที่นำมาด้วย']);
     for (const g of groups) {
       expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
       for (const o of g.options) expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
@@ -157,17 +157,23 @@ describe('buildFunctionalScreeningGroups', () => {
 });
 
 describe('applyGenerationToGroups', () => {
-  it('normalizes screening + replaces deduction groups in place, keeping the rest untouched', () => {
+  it('normalizes screening + replaces every standard topic in place', () => {
     const { groups, removedTitles } = applyGenerationToGroups(makeSet().groups, 'mid');
-    expect(removedTitles).toEqual(['เปิดเครื่อง / ใช้งานทั่วไป', 'แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)']);
+    expect(removedTitles).toEqual(['เปิดเครื่อง / ใช้งานทั่วไป', 'แบตเตอรี่', 'สภาพหน้าจอ', 'สถานะการรับประกัน (Warranty)', 'รหัสโมเดล (Model Identifier)', 'อุปกรณ์เสริมที่นำมาด้วย']);
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
       'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก',
       'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม',
       'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
-    // Untouched groups keep their identity.
-    expect(groups[groups.length - 1].id).toBe('g6');
+  });
+  it('keeps custom topics untouched in place', () => {
+    const withCustom = [
+      ...makeSet().groups,
+      { id: 'g9', title: 'สภาพเลนส์กล้องพิเศษ', options: [{ id: 'o9', label: 'ปกติ', deduct: 0 }] },
+    ];
+    const { groups } = applyGenerationToGroups(withCustom, 'mid');
+    expect(groups[groups.length - 1].id).toBe('g9');
   });
   it('the old functional battery screen is folded into the single pricing battery group', () => {
     const { groups } = applyGenerationToGroups(makeSet().groups, 'mid');
@@ -184,19 +190,21 @@ describe('applyGenerationToGroups', () => {
     const repair = groups.find((g: any) => g.title === 'ประวัติการซ่อม')!;
     expect(repair.options.some((o: any) => o.failBehavior === 'reject')).toBe(true);
   });
-  it('box/accessories groups are never treated as screening even if kind functional', () => {
+  it('a box group mis-tagged kind functional is replaced by the canonical box topic, never dropped', () => {
     const withBox = makeSet().groups.map((g: any) =>
       g.id === 'g6' ? { ...g, kind: 'functional' } : g);
     const { groups } = applyGenerationToGroups(withBox, 'mid');
-    expect(groups[groups.length - 1].id).toBe('g6');
+    const boxes = groups.filter((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย');
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].options.map((o: any) => o.label)).toContain('ครบกล่อง (เครื่อง+สาย+กล่อง)');
   });
   it('prepends screening and appends deduction groups when the set had neither', () => {
-    const bare = [{ id: 'g1', title: 'อุปกรณ์เสริมที่นำมาด้วย', options: [] }];
+    const bare = [{ id: 'g1', title: 'กันรอยติดมาให้', options: [] }];
     const { groups } = applyGenerationToGroups(bare, 'old');
     expect(groups.map((g: any) => g.title)).toEqual([
       ...IPHONE_SCREENING_TITLES,
-      'อุปกรณ์เสริมที่นำมาด้วย',
-      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม',
+      'กันรอยติดมาให้',
+      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม', 'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
   });
 });
