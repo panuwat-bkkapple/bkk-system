@@ -1065,12 +1065,40 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("bare official name pins the first gen", pin("iPad Air") === "air1");
   check("chip suffix is transparent ('iPad Air 5' = M1 2022)", pin("iPad Air 5") === "air5");
   check("chip-only siblings stay unpinned ('iPad Air 11' = M2 or M3)", pin("iPad Air 11") === null);
+  // Live case #CIF1: "Macbook Air M1 256GB" got declined as "MacBook Air 11"
+  // (Intel, 2013)". Three stacked failures: the pin's old chip-DROP ate the
+  // customer's M1; the "1" split off "M1" substring-matched 11/13/2013 so
+  // every Intel Air tied; and the top-5 truncation (shortest names = all
+  // delisted Intels) hid the buyable M1 from the ambiguity check, which then
+  // concluded unambiguous-declined. Chip tokens are now kept (merged as
+  // "m1"), the subset rule pins chip-qualified queries, numeric tokens match
+  // whole name tokens only, and the ambiguity window widened to 12.
+  const MB_CATALOG = [
+    { id: "mba11i13", name: 'MacBook Air 11" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2013", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba11i14", name: 'MacBook Air 11" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2014", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba11i15", name: 'MacBook Air 11" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2015", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i13", name: 'MacBook Air 13" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2013", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i14", name: 'MacBook Air 13" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2014", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i15", name: 'MacBook Air 13" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2015", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mbam1", name: 'MacBook Air 13" (ชิป M1, 2020)', brand: "Apple", alias_th: "แมคบุ๊คแอร์ 13 M1 2020", alias_en: "MacBook Air 13 M1 2020", category: "Mac / Laptop", is_active: true, variants: [] },
+    { id: "mbam2_13", name: 'MacBook Air 13" (ชิป M2, 2022)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 M2 2022", category: "Mac / Laptop", is_active: true, variants: [] },
+    { id: "mbam2_15", name: 'MacBook Air 15" (ชิป M2, 2023)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 15 M2 2023", category: "Mac / Laptop", is_active: true, variants: [] },
+  ];
+  const mpin = (q) => { const r = __test.exactModelPin(MB_CATALOG, q); return r ? r.id : null; };
+  check("'Macbook Air M1 256GB' pins the M1 2020", mpin("Macbook Air M1 256GB") === "mbam1");
+  check("'MacBook Air M1' pins the M1 2020", mpin("MacBook Air M1") === "mbam1");
+  check("'MacBook Air M2' stays unpinned (13 vs 15)", mpin("MacBook Air M2") === null);
+  check("bare 'MacBook Air' stays unpinned", mpin("MacBook Air") === null);
+  const mbsd = __test.rankModelsScored(MB_CATALOG, "Macbook Air M1 256GB");
+  check("M1 2020 outranks the Intels (no fake '1' hits)", mbsd[0].m.id === "mbam1" && mbsd[0].hits > mbsd[1].hits);
+  const mbAmb = __test.declinedAmbiguity(__test.rankModelsScored(MB_CATALOG, "MacBook Air"));
+  check("bare 'MacBook Air' is ambiguous, never a straight decline", !!mbAmb && mbAmb.buyable.length > 0);
   // The old dead-loop, proven: without the pin the family is ambiguous even
   // for the exact base name; with the pin search_models skips the ambiguity.
   const sd = __test.rankModelsScored(P_CATALOG, "iPhone 13");
   check("family still ties in raw scoring (why the loop existed)", !!__test.declinedAmbiguity(sd));
   check("search skips ambiguity when pinned", src.includes("const amb = pin ? null : declinedAmbiguity(scoredDetailed);"));
-  check("pinned model leads the results", src.includes("const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;"));
+  check("pinned model leads the results (capped at 5)", src.includes("const scored = (pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw).slice(0, 5);"));
   check("pin note tells the model not to re-ask", src.includes("ห้ามถามแยกรุ่นซ้ำ"));
 }
 
