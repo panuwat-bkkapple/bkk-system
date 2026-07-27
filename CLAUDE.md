@@ -46,6 +46,7 @@
 - **Cloud Functions:** `/functions/index.js` (new ticket, chat, status change notifications)
 - **Push Hook:** `/src/hooks/useAdminPushNotifications.ts`
 - **Service Worker:** `/public/firebase-messaging-sw.js` (hardcoded Firebase config ไม่ใช้ env)
+- **Settings Hub:** `/settings` (`src/pages/settings/SettingsHub.tsx` การ์ดจัดกลุ่ม + `SettingsLayout.tsx` เมนูซ้าย Company/Basic/Advanced ครอบหน้าตั้งค่า) — โครงเมนู+role ทั้งหมดอยู่ที่ `src/pages/settings/settingsNav.tsx` ที่เดียว: เพิ่มหน้าตั้งค่าใหม่ = เพิ่ม entry ที่นั่น + route ใน App.tsx (ใต้ `<SettingsLayout>` ถ้าไม่ใช่หน้า immersive; `/pricing` เป็น immersive อยู่นอก layout). URL ตั้งค่าเดิมทุกตัวคงเดิม
 - **Ticket Creation:** `/src/features/trade-in/TradeInDashboard.tsx`
 - **Instant Sell:** `/src/features/trade-in/components/InstantSellModal.tsx`
 - **PriceEditor:** `/src/features/trade-in/PriceEditor.tsx`

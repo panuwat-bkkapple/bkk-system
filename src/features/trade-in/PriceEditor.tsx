@@ -813,7 +813,8 @@ export const PriceEditor = () => {
 
       {/* --- Page Header (breadcrumb + title + actions) --- */}
       <div className="mb-1 text-xs font-bold text-slate-400">
-        Settings <span className="mx-1 text-slate-300">&rsaquo;</span> <span className="text-slate-600">Catalog</span>
+        <button onClick={() => navigate('/settings')} className="hover:text-blue-600 transition">Settings</button>
+        <span className="mx-1 text-slate-300">&rsaquo;</span> <span className="text-slate-600">Catalog</span>
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-black text-slate-900">Catalog</h1>
