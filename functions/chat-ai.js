@@ -601,7 +601,7 @@ function ipadAirGenAliasNote(query) {
   return `ลูกค้าเรียก "iPad Air ${m[1]}" = ชื่อในระบบคือ iPad Air 11"/13" (ชิป ${chip}) — เป็นรุ่นเดียวกัน อย่าบอกว่าไม่พบรุ่น ให้เดินขั้นตอนตามปกติ และถามลูกค้าว่าเป็นจอ 11 นิ้วหรือ 13 นิ้ว`;
 }
 
-function rankModels(list, rawQuery) {
+function rankModels(list, rawQuery, limit = 5) {
   const q = String(rawQuery || "")
     .toLowerCase()
     .trim()
@@ -657,7 +657,11 @@ function rankModels(list, rawQuery) {
       // token so "iPad Air 6" can satisfy the strict version match.
       const genAlias = ipadAirGenToken(nameLower);
       if (genAlias && !nameTokens.includes(genAlias)) nameTokens.push(genAlias);
-      const hits = tokens.filter((t) => hay.includes(t)).length;
+      // Numeric tokens must match a WHOLE name token — substring matching let
+      // the "1" left over from splitting "M1" hit every name containing 11 /
+      // 13 / 2013, so "Macbook Air M1" scored the delisted Intel Airs level
+      // with (then above) the M1 2020 the customer meant (live case #CIF1).
+      const hits = tokens.filter((t) => (/^\d+$/.test(t) ? nameTokens.includes(t) : hay.includes(t))).length;
       const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
       const meaningfulOk =
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
@@ -669,7 +673,7 @@ function rankModels(list, rawQuery) {
     })
     .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk && x.sublineOk && x.eOk)
     .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
-    .slice(0, 5)
+    .slice(0, limit)
     .map((x) => x.m);
 }
 
@@ -677,7 +681,13 @@ function rankModels(list, rawQuery) {
 // PINNED match ("ipad gen 6" → Gen 6 outscores siblings) apart from an
 // AMBIGUOUS nickname ("ipad 6" → Gen 6 / mini 6 / Air 6 all tie).
 function rankModelsScored(list, rawQuery) {
-  const names = rankModels(list, rawQuery);
+  // Wider window than the tool result: the ambiguity check must SEE every
+  // tied sibling. With the default 5, a family of 11 MacBook Airs tying on
+  // hits got truncated by name-length — the 5 shortest names were all
+  // delisted Intels, the buyable M1 fell off the list, and the "tie between
+  // declined and buyable" test wrongly concluded unambiguous-declined
+  // (live case #CIF1: "Macbook Air M1" declined as an Intel 11").
+  const names = rankModels(list, rawQuery, 12);
   if (names.length === 0) return [];
   const q = String(rawQuery || "")
     .toLowerCase()
@@ -690,7 +700,16 @@ function rankModelsScored(list, rawQuery) {
     .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
   return names.map((m) => {
     const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
-    return { m, hits: tokens.filter((t) => hay.includes(t)).length };
+    // Same numeric-token rule as rankModels: whole-token match only, so the
+    // "1" split off "M1" cannot inflate 11"/13"/2013 siblings into a fake
+    // tie (or a fake win) inside the ambiguity scoring.
+    const nameTokens = hay
+      .replace(/[^a-z0-9฀-๿]+/g, " ")
+      .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
+      .split(/\s+/)
+      .filter(Boolean);
+    return { m, hits: tokens.filter((t) => (/^\d+$/.test(t) ? nameTokens.includes(t) : hay.includes(t))).length };
   });
 }
 
@@ -766,13 +785,17 @@ function normalizeForPin(s) {
       if (Number.isInteger(n) && n >= 32) return false;
       return true;
     });
-  // Chip designators ("ชิป M1" -> "m 1", "A18 Pro" -> "a 18") are qualifiers
-  // too: dropping them lets "iPad Air 5" match "iPad Air 5 (ชิป M1, 2022)".
-  // Models distinguished ONLY by chip (Air 11" M2 vs M3 vs M4) collapse to
-  // the same key and fail the uniqueness test — correctly no pin, still ask.
+  // Chip designators get re-glued into ONE token ("ชิป M1" -> "m 1" -> "m1")
+  // — NOT dropped: for Apple Silicon the chip IS the model identity (live
+  // case #CIF1: "Macbook Air M1 256GB" lost its M1 to the old drop rule and
+  // the customer got declined as an Intel 11"). The subset rule in
+  // exactModelPin makes the chip optional when it is redundant ("iPad Air 5"
+  // still pins the only Air 5) and decisive when it is not ("MacBook Air M1"
+  // pins the M1 2020; "iPad Air 11" with M2/M3/M4 siblings stays unpinned).
   const out = [];
   for (let i = 0; i < toks.length; i++) {
     if ((toks[i] === "m" || toks[i] === "a") && i + 1 < toks.length && /^\d{1,2}$/.test(toks[i + 1])) {
+      out.push(toks[i] + toks[i + 1]);
       i++;
       continue;
     }
@@ -798,6 +821,24 @@ function exactModelPin(list, rawQuery) {
   // "iPad Air รุ่นแรก" -> "iPad Air (2013)") — live case #VYI2: the customer
   // named the model precisely and still got the confirm-which-model chips.
   if (!hit && / 1$/.test(q)) hit = findExact(q.replace(/ 1$/, ""));
+  // Unique token-subset: every query token appears in EXACTLY ONE model's
+  // key (customers omit qualifiers the name carries — "MacBook Air M1" has
+  // no screen size, "iPad Air 5" has no chip). Uniqueness does the safety
+  // work: "iPad 6" ⊆ Gen 6 AND mini 6 AND Air-6-alias -> no pin, still ask;
+  // "iPhone 13" ⊆ the whole family -> resolved by the EXACT rule above.
+  if (!hit) {
+    const qToks = q.split(" ");
+    const owners = [];
+    for (const m of list) {
+      const keySets = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+        .map(normalizeForPin)
+        .filter(Boolean)
+        .map((k) => new Set(k.split(" ")));
+      if (keySets.some((ks) => qToks.every((t) => ks.has(t)))) owners.push(m);
+      if (owners.length > 1) break;
+    }
+    if (owners.length === 1) hit = owners[0];
+  }
   return hit;
 }
 
@@ -1555,8 +1596,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-27.3";
+const LOGIC_VERSION = "2026-07-27.4";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-27", text: "แก้ปฏิเสธผิดรุ่นตระกูล MacBook Air (เคสจริง: ลูกค้าพิมพ์ 'Macbook Air M1 256GB' แต่โดนแจ้งงดรับซื้อ MacBook Air 11\" Intel 2013): บั๊กซ้อน 3 ชั้น — ระบบเคยทิ้งคำว่า M1 ทั้งที่เป็นตัวระบุรุ่นหลักของเครื่อง Apple Silicon, เลข 1 ที่แตกจาก M1 ไปนับคะแนนมั่วกับ 11/13/2013, และตัวเช็คกำกวมมองเห็นแค่ 5 ชื่อแรก (สั้นสุด = Intel งดรับซื้อล้วน) จนสรุปผิดว่าไม่กำกวม — ตอนนี้ 'MacBook Air M1' ปักรุ่น M1 2020 ทันที, ตัวเลขนับคะแนนแบบตรงทั้งคำเท่านั้น, ตัวเช็คกำกวมมองกว้างขึ้นเป็น 12 ชื่อ. โบนัส: 'MacBook Neo' ก็ปักรุ่นตรงได้แล้ว, 'MacBook Air M2' ยังถาม 13 หรือ 15 นิ้วตามจริง" },
   { at: "2026-07-27", text: "เลิกบังคับยืนยันรุ่นทั้งที่ลูกค้าระบุชัดแล้ว (เคสจริง iPad Air รุ่นแรก: ลูกค้าบอกครบทั้งรุ่น/ความจุ/สภาพ แต่ยังโดนถามยืนยันพร้อมปุ่ม 5 รุ่น): ตัวปักรุ่นเข้าใจ 'รุ่นแรก/1st gen' แล้ว (ชื่อจริงของ Apple ไม่มีเลข 1 — iPad Air (2013) คือ Air 1) และมองข้าม suffix ชิปในชื่อ ('iPad Air 5' = iPad Air 5 (ชิป M1, 2022) ทันที) — รุ่นที่ต่างกันแค่ชิป (iPad Air 11\" M2/M3/M4) ยังถามยืนยันเหมือนเดิมเพราะจำเป็นจริง" },
   { at: "2026-07-27", text: "แก้ลูปถามแยกรุ่นไม่รู้จบ (เคสจริง iPhone 13: ถาม 'รุ่นไหนครับ' ซ้ำแม้ลูกค้ากดปุ่ม iPhone 13 แล้ว สุดท้ายไปแจ้งงดรับซื้อผิดรุ่นเป็น 13 mini): ต้นเหตุคือชื่อรุ่นธรรมดาเป็นส่วนหนึ่งของชื่อรุ่นพี่น้องทุกตัว คะแนนค้นหาจึงเสมอกันตลอดและระบบตีว่ากำกวมไม่มีทางออก — เพิ่มกติกา 'ชื่อตรงเป๊ะ = ปักรุ่นทันที': พิมพ์/กดปุ่มชื่อเต็มหรือชื่อเรียกของรุ่นไหน (รองรับไทย เช่น ไอโฟน 13, ตัดความจุ/คำว่าธรรมดา/คำลงท้ายให้เอง) ระบบยึดรุ่นนั้นเลย ไม่ถามซ้ำ — ชื่อเล่นกำกวมจริงอย่าง 'iPad 6' ยังถามยืนยันเหมือนเดิม" },
   { at: "2026-07-27", text: "อุดสำนวนหลบด่านจากเคสจริง MacBook Neo (รุ่นมีราคาในระบบ 15,000/17,000 แต่ AI ข้ามการค้นหาแล้วตอบ 'ขอเช็คในระบบก่อน...เดี๋ยวให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้'): ด่านจับเพิ่ม 'ขอเช็ค...ในระบบก่อน' และ 'ให้เจ้าหน้าที่ตรวจสอบ/เช็คแล้วแจ้ง...' — เจอแบบนี้ระบบบังคับให้เช็คจริงให้จบในข้อความเดียวกัน (ซึ่งจะเจอราคาแล้วเข้าขั้นตอนปกติ) + แก้กติกาเดิมที่ยังสั่งให้พูด 'ขอเจ้าหน้าที่ยืนยันราคา' ตอนไม่พบรุ่น ให้เป็นขอชื่อ+เบอร์+รายละเอียดแทน" },
@@ -1865,8 +1907,10 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // alias — which is what the disambiguation chips send back) — that
         // model leads the results and the ambiguity question never re-fires.
         const pin = exactModelPin(list, input.query);
+        // scoredDetailed is a WIDE window (12) so declinedAmbiguity sees every
+        // tied sibling; the tool result itself stays capped at 5.
         const scoredRaw = scoredDetailed.map((x) => x.m);
-        const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;
+        const scored = (pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw).slice(0, 5);
         // Offer-mode memory for the escalate gate below: true when this turn's
         // search ended in "no listed price" (not in catalog, or deliberately
         // unpriced) — the two cases where rule 6 step 2(b) demands contact
