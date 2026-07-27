@@ -173,6 +173,17 @@ const REPAIR_GROUP: SeedCondGroup = {
   ],
 };
 
+// กล่อง / อุปกรณ์ที่นำมาด้วย — ใช้ร่วมทุก tier (default ไม่หัก แอดมินจูนได้).
+// อยู่ใน template ด้วยเหตุผลเดียวกับ REPAIR_GROUP: ชุดเก่าบางชุดไม่มีหัวข้อนี้
+// หรือเก็บด้วย kind เพี้ยนจนเคยถูกตัว normalize กลืนหาย
+const BOX_GROUP: SeedCondGroup = {
+  title: 'อุปกรณ์เสริมที่นำมาด้วย', icon: 'box', kind: 'cosmetic', description: 'อุปกรณ์ที่ให้มาพร้อมเครื่อง', options: [
+    { label: 'ครบกล่อง (เครื่อง+สาย+กล่อง)', description: 'กล่องตรงเครื่อง อุปกรณ์แท้ครบ', failBehavior: 'pass', deduct: 0 },
+    { label: 'ขาดกล่อง (มีเครื่อง+สายชาร์จ)', description: 'มีเครื่องและสายชาร์จ แต่ไม่มีกล่อง', failBehavior: 'deduct', deduct: 0 },
+    { label: 'เครื่องเปล่า (ไม่มีสาย/กล่อง)', description: 'มีเฉพาะตัวเครื่อง ไม่มีสายชาร์จและกล่อง', failBehavior: 'deduct', deduct: 0 },
+  ],
+};
+
 export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCondGroup[] }> = {
   standard: { label: 'สภาพ + ประกัน + ประเทศ + ประวัติซ่อม', items: [
     { title: 'ประวัติการซ่อม', icon: 'help', kind: 'cosmetic', description: 'เครื่องเคยเปิดซ่อมหรือเปลี่ยนอะไหล่มาหรือไม่', options: [
@@ -237,6 +248,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_ZP_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
   battery_recent: { label: 'แบต ≥90% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 16)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
@@ -254,6 +266,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_ZP_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
   battery_mid: { label: 'แบต ≥85% ไม่หัก + ประกันไม่หัก + ZP/A (iPhone 14-15)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูจาก ตั้งค่า > แบตเตอรี่ > สุขภาพแบตเตอรี่และการชาร์จ', options: [
@@ -269,6 +282,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_ZP_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
   battery_old: { label: 'แบตดี/เสื่อม เกณฑ์ ≥80% + TH/A (iPhone 11-13 ลงไป)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
@@ -285,6 +299,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_TH_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
   // iPad 2 ระดับ — เส้นแบ่งคือเมนู Battery Health (%): มีเฉพาะ iPad ปี 2024
   // ขึ้นไป (Pro M4/M5, Air M2/M3/M4, mini A17 Pro, Gen 11) รุ่นก่อนหน้านั้น
@@ -306,6 +321,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_SIMPLE_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
   battery_ipad_old: { label: 'iPad แบตดี/เสื่อม + ประกัน (ก่อนปี 2024)', items: [
     { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'แบตเตอรี่ยังดีหรือเสื่อม ไม่ต้องระบุเปอร์เซ็นต์', options: [
@@ -320,5 +336,6 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     ] },
     REGION_SIMPLE_GROUP,
     REPAIR_GROUP,
+    BOX_GROUP,
   ] },
 };
