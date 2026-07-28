@@ -835,7 +835,7 @@ check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iph
   check("offer-mode backstop exists after the guard", backstop > guard);
   check("backstop keys on the gate having fired this turn", src.indexOf("state.offerContactPromptedThisTurn &&", backstop) > backstop);
   check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์|phone/i.test(finalText)", backstop) > backstop);
-  check("backstop overrides with the canned contact ask", src.indexOf("OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;", backstop) > backstop);
+  check("backstop overrides with the canned contact ask", src.indexOf("offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));", backstop) > backstop);
   check("OFFER_CONTACT_ASK asks for name+phone+device details", /const OFFER_CONTACT_ASK\s*=\s*\n?\s*"[^"]*เบอร์โทร[^"]*ความจุ/.test(src));
 }
 
@@ -952,7 +952,7 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("shared override is declared before the tail", ov > 0 && ov < tail);
   const ovBody = src.slice(ov, ov + 1600);
   check("offer mode with no phone -> offer contact ask", ovBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
-  check("contact gate pending -> contact-first ask", ovBody.includes("CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK"));
+  check("contact gate pending -> contact-first ask", ovBody.includes("contactFirstAskText(en, sealed)"));
   check("otherwise -> ask storage+condition, never wait", ovBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
   check("the fallback lines are not themselves wait-promises", !__test.waitPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
   check("live #PSP1 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ ขอเช็คราคารับซื้อ iPad Generation 10 ในระบบให้ก่อนนะครับ รอสักครู่ครับ"));
@@ -1100,6 +1100,31 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("search skips ambiguity when pinned", src.includes("const amb = pin ? null : declinedAmbiguity(scoredDetailed);"));
   check("pinned model leads the results (capped at 5)", src.includes("const scored = (pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw).slice(0, 5);"));
   check("pin note tells the model not to re-ask", src.includes("ห้ามถามแยกรุ่นซ้ำ"));
+}
+
+// --- sealed brand-new devices skip the used-condition question ---------------
+// Live case #NE52: "Air 11 มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง" got the
+// canned contact-ask ending with "จอหรือตัวเครื่องมีรอยไหม" — a nonsense
+// question for a sealed unit. Every canned guard text now swaps its trailing
+// question to receipt/proof-of-purchase when the customer says sealed.
+{
+  const ne52 = "Air 11 มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง";
+  check("IMG #NE52 message reads as sealed-new", __test.brandNewSealedIntent(ne52));
+  check("'ซีลอยู่' reads as sealed-new", __test.brandNewSealedIntent("มือหนึ่ง ซีลอยู่ครับ"));
+  check("EN 'brand new sealed' reads as sealed-new", __test.brandNewSealedIntent("selling a brand new sealed iPad"));
+  check("'มือ 1' alone is NOT sealed (still has condition)", !__test.brandNewSealedIntent("iPad มือ 1 ใช้มาสองเดือนครับ"));
+  check("used-device text is NOT sealed", !__test.brandNewSealedIntent("มือสอง สภาพดี จอมีรอยนิดหน่อย"));
+  const sealedAsk = __test.contactFirstAskText(false, true);
+  check("sealed contact-ask asks for the receipt", sealedAsk.includes("ใบเสร็จ") && !/มีรอยหรือความเสียหาย/.test(sealedAsk));
+  check("sealed contact-ask still asks name+phone", sealedAsk.includes("เบอร์โทร"));
+  check("normal contact-ask unchanged", __test.contactFirstAskText(false, false).includes("จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ"));
+  const sealedOffer = __test.offerContactAskText(false, true);
+  check("sealed offer-ask asks receipt not condition", sealedOffer.includes("ใบเสร็จ") && !sealedOffer.includes("สภาพเครื่อง"));
+  check("sealed offer-ask keeps phone + callback framing", sealedOffer.includes("เบอร์โทร") && sealedOffer.includes("ติดต่อกลับ"));
+  check("normal offer-ask unchanged", __test.offerContactAskText(false, false) === "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ");
+  check("sealed canned texts are not dead promises themselves", !__test.waitPromiseIntent(sealedAsk) && !__test.waitPromiseIntent(sealedOffer));
+  check("override tail has a sealed branch", src.includes("รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ"));
+  check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
 }
 
 // --- low customer CSAT -> push staff + queue the comment for teaching --------
