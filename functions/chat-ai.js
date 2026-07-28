@@ -1596,8 +1596,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-28.1";
+const LOGIC_VERSION = "2026-07-28.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-28", text: "มาตินรอให้ลูกค้าพิมพ์จบก่อนตอบ (จังหวะแบบมนุษย์): widget ส่งสัญญาณ 'กำลังพิมพ์' และระบบจะรอจนแป้นพิมพ์เงียบ (เพดาน ~20 วิ) ค่อยเริ่มคิด — ลูกค้าพิมพ์รัวหลาย bubble จะได้คำตอบเดียวที่เห็นครบทุกข้อความ ไม่ใช่ตอบแทรกทีละท่อน + เพิ่มไอคอนกำลังพิมพ์สองทาง: แอดมินพิมพ์ในคอนโซล ลูกค้าเห็นจุดกำลังพิมพ์เหมือนตอน AI พิมพ์, ลูกค้าพิมพ์ แอดมินเห็น 'ลูกค้ากำลังพิมพ์…' ในคอนโซล" },
   { at: "2026-07-28", text: "ข้อความบังคับของระบบอ่านบริบทเครื่องซีลแล้ว (เคสจริง iPad Air 11\" M4 มือ 1: ลูกค้าบอก 'ยังไม่ได้แกะกล่อง' แต่ข้อความขอเบอร์ยังปิดท้ายด้วยคำถามรอยขีดข่วน): เมื่อลูกค้าระบุว่าเครื่องมือ 1 ยังไม่แกะซีล ข้อความบังคับทุกจุด (ขอชื่อ+เบอร์, โหมด Offer, ด่านกันราคาหลุด) สลับคำถามท้ายเป็น 'มีใบเสร็จ/หลักฐานการซื้อไหม' แทนคำถามสภาพมือสอง + เพิ่มกติกาใน persona ตรงๆ: เครื่องซีลข้ามชุดคำถามสภาพทั้งหมด ถามแค่ใบเสร็จกับความจุแล้วออกการ์ดเลย" },
   { at: "2026-07-27", text: "แก้ปฏิเสธผิดรุ่นตระกูล MacBook Air (เคสจริง: ลูกค้าพิมพ์ 'Macbook Air M1 256GB' แต่โดนแจ้งงดรับซื้อ MacBook Air 11\" Intel 2013): บั๊กซ้อน 3 ชั้น — ระบบเคยทิ้งคำว่า M1 ทั้งที่เป็นตัวระบุรุ่นหลักของเครื่อง Apple Silicon, เลข 1 ที่แตกจาก M1 ไปนับคะแนนมั่วกับ 11/13/2013, และตัวเช็คกำกวมมองเห็นแค่ 5 ชื่อแรก (สั้นสุด = Intel งดรับซื้อล้วน) จนสรุปผิดว่าไม่กำกวม — ตอนนี้ 'MacBook Air M1' ปักรุ่น M1 2020 ทันที, ตัวเลขนับคะแนนแบบตรงทั้งคำเท่านั้น, ตัวเช็คกำกวมมองกว้างขึ้นเป็น 12 ชื่อ. โบนัส: 'MacBook Neo' ก็ปักรุ่นตรงได้แล้ว, 'MacBook Air M2' ยังถาม 13 หรือ 15 นิ้วตามจริง" },
   { at: "2026-07-27", text: "เลิกบังคับยืนยันรุ่นทั้งที่ลูกค้าระบุชัดแล้ว (เคสจริง iPad Air รุ่นแรก: ลูกค้าบอกครบทั้งรุ่น/ความจุ/สภาพ แต่ยังโดนถามยืนยันพร้อมปุ่ม 5 รุ่น): ตัวปักรุ่นเข้าใจ 'รุ่นแรก/1st gen' แล้ว (ชื่อจริงของ Apple ไม่มีเลข 1 — iPad Air (2013) คือ Air 1) และมองข้าม suffix ชิปในชื่อ ('iPad Air 5' = iPad Air 5 (ชิป M1, 2022) ทันที) — รุ่นที่ต่างกันแค่ชิป (iPad Air 11\" M2/M3/M4) ยังถามยืนยันเหมือนเดิมเพราะจำเป็นจริง" },
@@ -3584,6 +3585,34 @@ function registerChatAi({ dispatchAdminPush }) {
           tag
         );
       }
+
+      // ---- Human pacing: wait for the keyboard to go quiet ----
+      // Humans don't answer while the other side is still typing. The widget
+      // heartbeats inbox/{id}/typing/customer (~2.5s while typing); wait for
+      // it to go stale — plus a short settle window that catches rapid-fire
+      // bubbles from widgets without the heartbeat (old cached builds) —
+      // BEFORE showing "กำลังพิมพ์" or spending tokens. If a newer bubble
+      // lands meanwhile, THAT invocation owns the reply (it re-reads the full
+      // history) and this one exits silently — same contract as the pre-send
+      // superseded check, just earlier and cheaper. Cap ~22s against the
+      // 120s function budget.
+      const pauseMs = (ms) => new Promise((r) => setTimeout(r, ms));
+      try {
+        const pacingStart = Date.now();
+        await pauseMs(2000);
+        for (;;) {
+          const newest = await latestCustomerMsgId(db, convoId);
+          if (newest && newest !== msgId) {
+            console.log(`[${tag}] ${convoId} newer bubble arrived while pacing — yielding to it`);
+            return;
+          }
+          const tSnap = await db.ref(`inbox/${convoId}/typing/customer`).once("value");
+          const typingAt = Number(tSnap.val() || 0);
+          if (!typingAt || Date.now() - typingAt > 4000) break;
+          if (Date.now() - pacingStart > 20000) break;
+          await pauseMs(2000);
+        }
+      } catch { /* pacing is best-effort — never blocks the reply */ }
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
