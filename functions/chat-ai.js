@@ -803,6 +803,46 @@ function normalizeForPin(s) {
   }
   return out.join(" ");
 }
+// Owner's rule (live case #YDD2, "macbook pro 2012"): a customer naming a
+// YEAR the shop no longer buys must get the polite decline IMMEDIATELY —
+// never a which-model question whose every chip is itself a delisted model
+// (the chips bottomed out at 2013 anyway; 2012 isn't even in the catalog).
+// Data-driven, no hardcoded cutoff: (1) the year matches only delisted
+// models -> decline that year; (2) the year predates every BUYABLE model's
+// year in the match set -> decline "รุ่นปี Y". A year that matches a buyable
+// model (MacBook Pro 2024 = M4) or a family that carries no years at all
+// (iPad Generation N) falls through to the normal flow untouched.
+function modelFamilyLabel(m) {
+  return String(m.name)
+    .replace(/\s*\(.*\)\s*$/, "")
+    .replace(/\s*\d{1,2}(?:\.\d)?["″].*$/, "")
+    .trim();
+}
+function yearOnlyDecline(scored, rawQuery) {
+  const qy = String(rawQuery || "").match(/(?:^|\D)((?:19|20)\d{2})(?:\D|$)/);
+  if (!qy || !scored.length) return null;
+  const y = Number(qy[1]);
+  const yearOf = (m) => {
+    const r = String(m.name).match(/(?:19|20)\d{2}/);
+    return r ? Number(r[0]) : null;
+  };
+  const exact = scored.filter((m) => yearOf(m) === y);
+  if (exact.length) {
+    if (exact.every((m) => m.is_active === false)) {
+      return { label: exact.length === 1 ? exact[0].name : `${modelFamilyLabel(exact[0])} ปี ${y}` };
+    }
+    return null; // that year exists and something is buyable — normal flow
+  }
+  const buyableYears = scored
+    .filter((m) => m.is_active !== false)
+    .map(yearOf)
+    .filter((v) => v != null);
+  if (buyableYears.length && y < Math.min(...buyableYears)) {
+    return { label: `${modelFamilyLabel(scored[0])} ปี ${y}` };
+  }
+  return null;
+}
+
 function exactModelPin(list, rawQuery) {
   const q = normalizeForPin(rawQuery);
   if (!q) return null;
@@ -1596,8 +1636,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-28.2";
+const LOGIC_VERSION = "2026-07-28.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-28", text: "รุ่นปีเก่าที่งดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนปุ่มให้เลือก (เคสจริง 'macbook pro 2012': ระบบชวนเลือกจาก 8 รุ่นที่ล้วนงดรับซื้อ ทั้งที่เจ้าของสอนไว้แล้วว่าปีเก่ากว่าที่รับ = งดทันที): กติกาใหม่อิงข้อมูลจริงไม่ hardcode ปี — ลูกค้าระบุปีที่ (ก) ตรงเฉพาะรุ่นงดรับซื้อ หรือ (ข) เก่ากว่าทุกรุ่นที่ยังรับในตระกูลนั้น → แจ้งงดรับซื้อทันที + แก้ด่านสำรอง: ตอนรุ่นยังกำกวม ('ipad 6') ข้อความบังคับจะถามยืนยันรุ่นพร้อมปุ่มตัวเลือกจริง ไม่ใช่ขอชื่อ+เบอร์ก่อนรู้รุ่น (ผิดกติกา 2.1.1 ที่เจอในแชทจริง)" },
   { at: "2026-07-28", text: "มาตินรอให้ลูกค้าพิมพ์จบก่อนตอบ (จังหวะแบบมนุษย์): widget ส่งสัญญาณ 'กำลังพิมพ์' และระบบจะรอจนแป้นพิมพ์เงียบ (เพดาน ~20 วิ) ค่อยเริ่มคิด — ลูกค้าพิมพ์รัวหลาย bubble จะได้คำตอบเดียวที่เห็นครบทุกข้อความ ไม่ใช่ตอบแทรกทีละท่อน + เพิ่มไอคอนกำลังพิมพ์สองทาง: แอดมินพิมพ์ในคอนโซล ลูกค้าเห็นจุดกำลังพิมพ์เหมือนตอน AI พิมพ์, ลูกค้าพิมพ์ แอดมินเห็น 'ลูกค้ากำลังพิมพ์…' ในคอนโซล" },
   { at: "2026-07-28", text: "ข้อความบังคับของระบบอ่านบริบทเครื่องซีลแล้ว (เคสจริง iPad Air 11\" M4 มือ 1: ลูกค้าบอก 'ยังไม่ได้แกะกล่อง' แต่ข้อความขอเบอร์ยังปิดท้ายด้วยคำถามรอยขีดข่วน): เมื่อลูกค้าระบุว่าเครื่องมือ 1 ยังไม่แกะซีล ข้อความบังคับทุกจุด (ขอชื่อ+เบอร์, โหมด Offer, ด่านกันราคาหลุด) สลับคำถามท้ายเป็น 'มีใบเสร็จ/หลักฐานการซื้อไหม' แทนคำถามสภาพมือสอง + เพิ่มกติกาใน persona ตรงๆ: เครื่องซีลข้ามชุดคำถามสภาพทั้งหมด ถามแค่ใบเสร็จกับความจุแล้วออกการ์ดเลย" },
   { at: "2026-07-27", text: "แก้ปฏิเสธผิดรุ่นตระกูล MacBook Air (เคสจริง: ลูกค้าพิมพ์ 'Macbook Air M1 256GB' แต่โดนแจ้งงดรับซื้อ MacBook Air 11\" Intel 2013): บั๊กซ้อน 3 ชั้น — ระบบเคยทิ้งคำว่า M1 ทั้งที่เป็นตัวระบุรุ่นหลักของเครื่อง Apple Silicon, เลข 1 ที่แตกจาก M1 ไปนับคะแนนมั่วกับ 11/13/2013, และตัวเช็คกำกวมมองเห็นแค่ 5 ชื่อแรก (สั้นสุด = Intel งดรับซื้อล้วน) จนสรุปผิดว่าไม่กำกวม — ตอนนี้ 'MacBook Air M1' ปักรุ่น M1 2020 ทันที, ตัวเลขนับคะแนนแบบตรงทั้งคำเท่านั้น, ตัวเช็คกำกวมมองกว้างขึ้นเป็น 12 ชื่อ. โบนัส: 'MacBook Neo' ก็ปักรุ่นตรงได้แล้ว, 'MacBook Air M2' ยังถาม 13 หรือ 15 นิ้วตามจริง" },
@@ -1951,6 +1992,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // info BEFORE escalating. Reset every search so a later priced search
         // clears it.
         state.lastSearchNoPrice = false;
+        state.ambCandidates = [];
         if (scored.length === 0) {
           state.lastSearchNoPrice = true;
           // Never let the model conclude "we don't buy this" from an empty
@@ -1984,6 +2026,17 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // yet may mean mini 6 / Air 6, which we still buy. When delisted and
         // buyable models tie on the query, ask which model first — regardless
         // of which one happened to rank top.
+        // Year-only decline (owner's rule): "macbook pro 2012" = a year the
+        // shop no longer buys — decline politely NOW instead of asking the
+        // customer to pick among chips that are all delisted themselves.
+        const yd = pin ? null : yearOnlyDecline(scoredRaw, input.query);
+        if (yd) {
+          return {
+            results: [],
+            declined_model: yd.label,
+            note: `ลูกค้าระบุปีที่ร้าน "งดรับซื้อ" แล้ว (${yd.label}) — นโยบายร้าน: รุ่นปีเก่ากว่าที่ยังแสดงราคารับซื้อ = งดรับซื้อทั้งหมด. แจ้งลูกค้าสุภาพตรงๆ ทันที ห้ามถามให้เลือกปี/รุ่นซ้ำ ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา เสนอช่วยประเมินรุ่นอื่นที่ใหม่กว่าแทนได้`,
+          };
+        }
         // A pinned query is by definition not ambiguous — and if the pinned
         // model is delisted, the declined branch below fires for the RIGHT
         // model (scored[0] = pin), e.g. an explicit "iPhone 13 mini" or the
@@ -1991,6 +2044,11 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const amb = pin ? null : declinedAmbiguity(scoredDetailed);
         if (amb) {
           const candidateNames = [...amb.declined, ...amb.buyable].map((m) => m.name);
+          // Same-turn memory for the guard overrides below: while the model
+          // is unresolved, a canned CONTACT ask is the WRONG replacement —
+          // rule 2.1.1 forbids asking name/phone before the model is
+          // confirmed. The overrides re-ask the which-model question instead.
+          state.ambCandidates = candidateNames.slice(0, 6);
           return {
             results: [],
             ambiguous_model: true,
@@ -3616,7 +3674,7 @@ function registerChatAi({ dispatchAdminPush }) {
 
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, cannedFinal: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
+      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, cannedFinal: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false, ambCandidates: [] };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -3995,7 +4053,15 @@ function registerChatAi({ dispatchAdminPush }) {
         const overrideWaitPromise = async () => {
           const en = isEnglishText(text);
           const sealed = brandNewSealedIntent(text);
-          if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
+          if (state.ambCandidates && state.ambCandidates.length >= 2) {
+            // Model still ambiguous this turn (live case #YDD2 "ipad 6": the
+            // override shipped the contact ask while the model was never
+            // confirmed — rule 2.1.1 says confirm the model FIRST). Re-ask
+            // the which-model question with the real candidates as chips.
+            finalText = en
+              ? `Just to be sure — which model do you mean exactly? [ตัวเลือก: ${state.ambCandidates.join(" | ")}]`
+              : `ขอยืนยันรุ่นให้ชัดก่อนนะครับ หมายถึงรุ่นไหนครับ [ตัวเลือก: ${state.ambCandidates.join(" | ")}]`;
+          } else if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
             // Offer mode with no callback number -> the offer-mode contact ask.
             state.offerContactPromptedThisTurn = true;
             finalText = offerContactAskText(en, sealed);
@@ -4722,6 +4788,8 @@ module.exports = {
     declinedAmbiguity,
     exactModelPin,
     normalizeForPin,
+    yearOnlyDecline,
+    modelFamilyLabel,
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,

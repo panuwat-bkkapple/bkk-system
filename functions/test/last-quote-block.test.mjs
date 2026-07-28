@@ -950,7 +950,7 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("tail delegates to the shared override", src.slice(tail, tail + 300).includes("await overrideWaitPromise()"));
   const ov = src.indexOf("const overrideWaitPromise = async () => {");
   check("shared override is declared before the tail", ov > 0 && ov < tail);
-  const ovBody = src.slice(ov, ov + 1600);
+  const ovBody = src.slice(ov, ov + 2800);
   check("offer mode with no phone -> offer contact ask", ovBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
   check("contact gate pending -> contact-first ask", ovBody.includes("contactFirstAskText(en, sealed)"));
   check("otherwise -> ask storage+condition, never wait", ovBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
@@ -1125,6 +1125,39 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("sealed canned texts are not dead promises themselves", !__test.waitPromiseIntent(sealedAsk) && !__test.waitPromiseIntent(sealedOffer));
   check("override tail has a sealed branch", src.includes("รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ"));
   check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
+}
+
+// --- year-only decline: old years never become a which-model quiz ------------
+// Live case #YDD2 "macbook pro 2012": every tied candidate was itself a
+// delisted Intel, yet the customer got 8 chips to choose from (bottoming at
+// 2013 — 2012 is not even in the catalog). Owner's rule: a year older than
+// anything we still buy = decline immediately. Data-driven, no hardcoded
+// cutoff year.
+{
+  const YCAT = [
+    { id: "i13", name: 'MacBook Pro 13" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i14", name: 'MacBook Pro 13" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i15x", name: 'MacBook Pro 15" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i19", name: 'MacBook Pro 13" (Intel, 2019)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "m4", name: 'MacBook Pro 14" (ชิป M4, 2024)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: true, variants: [] },
+  ];
+  const yd = (q) => __test.yearOnlyDecline(YCAT, q);
+  check("2012 (older than everything) declines with a year label", yd("macbook pro 2012")?.label === "MacBook Pro ปี 2012");
+  check("2013 (exists, all delisted) declines", !!yd("macbook pro 2013"));
+  check("2019 delisted single model declines with its real name", yd("macbook pro 2019")?.label === 'MacBook Pro 13" (Intel, 2019)');
+  check("2024 (buyable year) stays in the normal flow", yd("macbook pro 2024") === null);
+  check("no year in the query -> no year decline", yd("macbook pro") === null);
+  check("family label strips size and parens", __test.modelFamilyLabel(YCAT[0]) === "MacBook Pro");
+  const ydAt = src.indexOf("const yd = pin ? null : yearOnlyDecline(scoredRaw, input.query);");
+  const ambAt = src.indexOf("const amb = pin ? null : declinedAmbiguity(scoredDetailed);");
+  check("year decline runs before the ambiguity quiz", ydAt > 0 && ambAt > 0 && ydAt < ambAt);
+  check("year decline note forbids re-asking", src.includes("ห้ามถามให้เลือกปี/รุ่นซ้ำ"));
+  // Ambiguous-turn override: the canned replacement must re-ask WHICH MODEL,
+  // never ask name/phone while the model is unconfirmed (rule 2.1.1 —
+  // live case "ipad 6" got the contact ask instead of the chips).
+  check("amb candidates remembered for the guards", src.includes("state.ambCandidates = candidateNames.slice(0, 6);"));
+  check("override re-asks which model first", src.includes("ขอยืนยันรุ่นให้ชัดก่อนนะครับ หมายถึงรุ่นไหนครับ [ตัวเลือก: ${state.ambCandidates.join(\" | \")}]"));
+  check("amb branch outranks the contact branches", /state\.ambCandidates && state\.ambCandidates\.length >= 2/.test(src));
 }
 
 // --- human pacing: wait for the customer's keyboard to go quiet --------------
