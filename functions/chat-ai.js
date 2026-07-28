@@ -1426,7 +1426,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาสำคัญ: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
+    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาสำคัญ: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว. เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด (รอย แบต ซ่อม) ถามแค่ "มีใบเสร็จหรือหลักฐานการซื้อไหม" กับความจุ/รุ่นย่อยที่ยังไม่รู้ แล้วออกการ์ดได้เลย — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
     `6.1 ลูกค้าเอ่ยชื่อรุ่น (ถามราคา/ถามว่า "รับไหม"/บอกจะขาย): ห้ามตอบ "รับ/ไม่รับ" จากความจำเด็ดขาด ต้อง search_models ด้วยชื่อรุ่นก่อนทุกครั้ง แล้วตอบตามผล (ข้อ 6). ถ้าเป็นรุ่นที่มีราคา ให้บอกว่ารับซื้อรุ่นนี้แน่นอน แล้วเริ่มขั้นที่ 3 ของข้อ 6 ต่อในข้อความเดียวกันทันที (ขอชื่อ/เบอร์ + คำถามสภาพเรื่องแรกพร้อมปุ่ม [ตัวเลือก]) "โดยไม่ประกาศตัวเลขราคา" ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
     `6.3 ห้ามถามสภาพเกิน 1 รอบเด็ดขาด (กฎเหล็กที่พลาดบ่อย): พอลูกค้าตอบสภาพรอบแรกแล้ว — ไม่ว่าจะตอบครบหรือไม่ครบ คลุมเครือ ("สภาพดี" "ปกติ") หรือขอราคาเลย — ห้ามถามย้อนเพื่อ "ขอยืนยันอีกนิด/รอยอยู่ตรงไหน" ซ้ำอีกเด็ดขาด ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี. ถ้าลูกค้าตอบเพิ่มมาทีหลัง (เช่น "ตัวเรือน") ก็ยิ่งต้องออกการ์ดเลย ห้ามถามต่อ — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว. ข้อยกเว้น 2 อย่างที่ "ถามต่อได้อีก 1 คำถาม" ก่อนออกการ์ด (เพราะกระทบราคาหลักพัน-หมื่น): (ก) ลูกค้าบอกว่าเคยซ่อม/เปลี่ยนอะไหล่ → ถามว่าอะไหล่แท้/ทั่วไป (ข้อ 6.8) (ข) ยังไม่รู้ว่าศูนย์ไทยหรือเครื่องนอก → ถามข้อ 6.9 — 2 ข้อนี้ไม่นับเป็น "ถามซ้ำ"`,
@@ -1596,8 +1596,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-27.4";
+const LOGIC_VERSION = "2026-07-28.1";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-28", text: "ข้อความบังคับของระบบอ่านบริบทเครื่องซีลแล้ว (เคสจริง iPad Air 11\" M4 มือ 1: ลูกค้าบอก 'ยังไม่ได้แกะกล่อง' แต่ข้อความขอเบอร์ยังปิดท้ายด้วยคำถามรอยขีดข่วน): เมื่อลูกค้าระบุว่าเครื่องมือ 1 ยังไม่แกะซีล ข้อความบังคับทุกจุด (ขอชื่อ+เบอร์, โหมด Offer, ด่านกันราคาหลุด) สลับคำถามท้ายเป็น 'มีใบเสร็จ/หลักฐานการซื้อไหม' แทนคำถามสภาพมือสอง + เพิ่มกติกาใน persona ตรงๆ: เครื่องซีลข้ามชุดคำถามสภาพทั้งหมด ถามแค่ใบเสร็จกับความจุแล้วออกการ์ดเลย" },
   { at: "2026-07-27", text: "แก้ปฏิเสธผิดรุ่นตระกูล MacBook Air (เคสจริง: ลูกค้าพิมพ์ 'Macbook Air M1 256GB' แต่โดนแจ้งงดรับซื้อ MacBook Air 11\" Intel 2013): บั๊กซ้อน 3 ชั้น — ระบบเคยทิ้งคำว่า M1 ทั้งที่เป็นตัวระบุรุ่นหลักของเครื่อง Apple Silicon, เลข 1 ที่แตกจาก M1 ไปนับคะแนนมั่วกับ 11/13/2013, และตัวเช็คกำกวมมองเห็นแค่ 5 ชื่อแรก (สั้นสุด = Intel งดรับซื้อล้วน) จนสรุปผิดว่าไม่กำกวม — ตอนนี้ 'MacBook Air M1' ปักรุ่น M1 2020 ทันที, ตัวเลขนับคะแนนแบบตรงทั้งคำเท่านั้น, ตัวเช็คกำกวมมองกว้างขึ้นเป็น 12 ชื่อ. โบนัส: 'MacBook Neo' ก็ปักรุ่นตรงได้แล้ว, 'MacBook Air M2' ยังถาม 13 หรือ 15 นิ้วตามจริง" },
   { at: "2026-07-27", text: "เลิกบังคับยืนยันรุ่นทั้งที่ลูกค้าระบุชัดแล้ว (เคสจริง iPad Air รุ่นแรก: ลูกค้าบอกครบทั้งรุ่น/ความจุ/สภาพ แต่ยังโดนถามยืนยันพร้อมปุ่ม 5 รุ่น): ตัวปักรุ่นเข้าใจ 'รุ่นแรก/1st gen' แล้ว (ชื่อจริงของ Apple ไม่มีเลข 1 — iPad Air (2013) คือ Air 1) และมองข้าม suffix ชิปในชื่อ ('iPad Air 5' = iPad Air 5 (ชิป M1, 2022) ทันที) — รุ่นที่ต่างกันแค่ชิป (iPad Air 11\" M2/M3/M4) ยังถามยืนยันเหมือนเดิมเพราะจำเป็นจริง" },
   { at: "2026-07-27", text: "แก้ลูปถามแยกรุ่นไม่รู้จบ (เคสจริง iPhone 13: ถาม 'รุ่นไหนครับ' ซ้ำแม้ลูกค้ากดปุ่ม iPhone 13 แล้ว สุดท้ายไปแจ้งงดรับซื้อผิดรุ่นเป็น 13 mini): ต้นเหตุคือชื่อรุ่นธรรมดาเป็นส่วนหนึ่งของชื่อรุ่นพี่น้องทุกตัว คะแนนค้นหาจึงเสมอกันตลอดและระบบตีว่ากำกวมไม่มีทางออก — เพิ่มกติกา 'ชื่อตรงเป๊ะ = ปักรุ่นทันที': พิมพ์/กดปุ่มชื่อเต็มหรือชื่อเรียกของรุ่นไหน (รองรับไทย เช่น ไอโฟน 13, ตัดความจุ/คำว่าธรรมดา/คำลงท้ายให้เอง) ระบบยึดรุ่นนั้นเลย ไม่ถามซ้ำ — ชื่อเล่นกำกวมจริงอย่าง 'iPad 6' ยังถามยืนยันเหมือนเดิม" },
@@ -1732,6 +1733,38 @@ const OFFER_CONTACT_ASK =
   "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
 const OFFER_CONTACT_ASK_EN =
   "For this model our team makes a direct offer with our best price. Could you leave your name, phone number, and a few details about the device (storage and condition)? Our team will call you back with the best offer.";
+
+// The customer says the device is BRAND NEW AND SEALED — used-condition
+// questions ("จอมีรอยไหม") are nonsense for it. Live case #NE52: "Air 11
+// มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง" got the canned contact-ask
+// ending with the scratch question in the very next message. Requires a
+// sealed/unopened signal — "มือ 1" alone is NOT enough (a first-hand device
+// in use still has condition to assess).
+function brandNewSealedIntent(text) {
+  const t = String(text || "").toLowerCase().replace(/\s+/g, "");
+  return (
+    /ยังไม่(ได้)?(แกะ|เปิด)(กล่อง|ซีล|เครื่อง)?/.test(t) ||
+    /ไม่เคย(แกะ|เปิด)/.test(t) ||
+    /ซีลอยู่|ในซีล|ติดซีล/.test(t) ||
+    /brandnew|sealed|unopened|bnib|newinbox/.test(t)
+  );
+}
+
+// Context-aware canned contact asks: same contact-first / offer-mode copy,
+// but a sealed device swaps the trailing condition question for the
+// receipt / proof-of-purchase question the real flow needs.
+function contactFirstAskText(en, sealedNew) {
+  if (!sealedNew) return en ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+  return en
+    ? "Sure, let me put a quote together for you — the exact amount will be on your quote card. Could I get your name and phone number so our staff can look after your quote? And since the device is brand new and sealed, just one thing: do you have the receipt or proof of purchase?"
+    : "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ ส่วนเครื่องที่ยังไม่แกะซีลไม่ต้องเช็คสภาพครับ ขอทราบแค่มีใบเสร็จหรือหลักฐานการซื้อไหมครับ";
+}
+function offerContactAskText(en, sealedNew) {
+  if (!sealedNew) return en ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+  return en
+    ? "For this model our team makes a direct offer with our best price. Could you leave your name, phone number, the storage size, and whether you have the receipt or proof of purchase? Our team will call you back with the best offer."
+    : "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร ความจุที่จะขาย และแจ้งว่ามีใบเสร็จหรือหลักฐานการซื้อไหมครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
+}
 
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
@@ -3931,15 +3964,21 @@ function registerChatAi({ dispatchAdminPush }) {
         // tail AND the final pre-send assertion below the verifier: swap a
         // dead-air "รอสักครู่" for the flow's real next step.
         const overrideWaitPromise = async () => {
+          const en = isEnglishText(text);
+          const sealed = brandNewSealedIntent(text);
           if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
             // Offer mode with no callback number -> the offer-mode contact ask.
             state.offerContactPromptedThisTurn = true;
-            finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+            finalText = offerContactAskText(en, sealed);
           } else if (contactGateWillBlock) {
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(en, sealed);
             await markContactAsked();
+          } else if (sealed) {
+            finalText = en
+              ? "Sure — could you tell me the storage size, and do you have the receipt or proof of purchase? I will put your quote together right away."
+              : "ได้เลยครับ รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
           } else {
-            finalText = isEnglishText(text)
+            finalText = en
               ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
               : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
           }
@@ -3965,7 +4004,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // condition questions, no card this turn.
         if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
-          finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+          finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
           state.cannedFinal = true;
           await markContactAsked();
         } else if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote) {
@@ -4031,7 +4070,7 @@ function registerChatAi({ dispatchAdminPush }) {
           if (!quoteOk && gateBlockedInRecovery) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
             state.cannedFinal = true;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
@@ -4139,7 +4178,7 @@ function registerChatAi({ dispatchAdminPush }) {
               // queued for staff, so the "เดี๋ยวแจ้งกลับ" draft is now a lie.
               // Swap it for the contact ask the gate demanded.
               console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
-              finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+              finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
               state.cannedFinal = true;
             }
           }
@@ -4158,7 +4197,7 @@ function registerChatAi({ dispatchAdminPush }) {
           !/เบอร์|phone/i.test(finalText)
         ) {
           console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
-          finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+          finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
           state.cannedFinal = true;
         }
 
@@ -4197,9 +4236,14 @@ function registerChatAi({ dispatchAdminPush }) {
           if (scrubbed && !priceLeakBeforeCard(scrubbed)) {
             finalText = scrubbed;
           } else if (contactGateWillBlock) {
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
             state.cannedFinal = true;
             await markContactAsked();
+          } else if (brandNewSealedIntent(text)) {
+            finalText = isEnglishText(text)
+              ? "Sure — the exact amount will be on your quote card. One more thing: do you have the receipt or proof of purchase?"
+              : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามต่อครับ — มีใบเสร็จหรือหลักฐานการซื้อไหมครับ";
+            state.cannedFinal = true;
           } else {
             finalText = isEnglishText(text)
               ? "Sure — the exact amount will be on your quote card. One more question about the device: any scratches or damage on the screen or body?"
@@ -4660,6 +4704,9 @@ module.exports = {
     announcedQuoteIntent,
     waitPromiseIntent,
     callbackPromiseIntent,
+    brandNewSealedIntent,
+    contactFirstAskText,
+    offerContactAskText,
     internalLeak,
     warrantyNoEffectClaim,
     searchFaq,
