@@ -1127,6 +1127,25 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
 }
 
+// --- human pacing: wait for the customer's keyboard to go quiet --------------
+// The AI used to answer bubble #1 immediately while the customer was still
+// typing bubbles #2-3 — interleaved replies. Now: a settle delay + the
+// widget's typing/customer heartbeat hold the turn until typing stops; if a
+// newer bubble lands while waiting, that invocation owns the reply and this
+// one yields BEFORE spending tokens (the pre-send superseded check remains
+// as the late-arrival net).
+{
+  const pacing = src.indexOf("---- Human pacing");
+  const typingSet = src.indexOf("update({ ai_typing: true })");
+  check("pacing block exists", pacing > 0);
+  check("pacing runs BEFORE the typing indicator + LLM work", typingSet > 0 && pacing < typingSet);
+  const body = src.slice(pacing, pacing + 1600);
+  check("pacing reads the widget heartbeat", body.includes("typing/customer"));
+  check("pacing yields to a newer bubble", body.includes("newer bubble arrived while pacing — yielding"));
+  check("pacing is capped (never eats the function budget)", body.includes("pacingStart > 20000"));
+  check("pacing failure never blocks the reply", body.includes("pacing is best-effort"));
+}
+
 // --- low customer CSAT -> push staff + queue the comment for teaching --------
 {
   const fn = src.indexOf("const onChatCsatSubmitted = onValueCreated(");
