@@ -5363,6 +5363,9 @@ exports.createDiagnosticSession = diagnostics.createDiagnosticSession;
 exports.claimDiagnosticSession = diagnostics.claimDiagnosticSession;
 exports.finalizeDiagnosticSession = diagnostics.finalizeDiagnosticSession;
 exports.cleanupDiagnosticSessions = diagnostics.cleanupDiagnosticSessions;
+// Self-assessments: customer runs the SOP at home, a rider attaches it later.
+exports.createSelfAssessment = diagnostics.createSelfAssessment;
+exports.claimSelfAssessment = diagnostics.claimSelfAssessment;
 
 // =============================================================================
 // AI-first website chat widget — responder + escalation (see ./chat-ai.js)

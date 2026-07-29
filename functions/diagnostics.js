@@ -294,6 +294,113 @@ exports.claimDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (reque
 });
 
 // =============================================================================
+// computeMismatches — the only place a diagnostic result is turned into
+// evidence against what the customer said when they sold the device.
+//
+// Shared by finalizeDiagnosticSession (staff-run session) and
+// claimSelfAssessment (customer ran it at home, rider attached it later) so a
+// rule added here applies to both channels. Money is never touched: these rows
+// feed the amendment flow, where a human decides.
+// =============================================================================
+function computeMismatches(results, values, device) {
+  const conditions = Array.isArray(device.customer_conditions)
+    ? device.customer_conditions
+    : device.customer_conditions
+      ? Object.values(device.customer_conditions)
+      : [];
+  const mismatches = [];
+
+  for (const [stepId, result] of Object.entries(results)) {
+    if (result !== "fail") continue;
+    const keywords = STEP_CONDITION_KEYWORDS[stepId] || [];
+    const matched = conditions.find((c) => {
+      if (!c || c.isNegative) return false; // customer already declared a defect
+      const text = `${c.title || ""} ${c.value || ""}`.toLowerCase();
+      return keywords.some((k) => text.includes(k));
+    });
+    if (matched) {
+      mismatches.push({
+        step_id: stepId,
+        step_label: STEP_LABEL_TH[stepId] || stepId,
+        customer_said: `${matched.title || ""}: ${matched.value || ""}`.trim(),
+        diagnostic_result: "fail",
+      });
+    }
+  }
+
+  // --- Wrong device ---
+  // The native app reads the model and storage tier off the hardware, so a
+  // failed device_identity step means the phone in the customer's hand is not
+  // the phone on the ticket. That has no matching "condition" the customer
+  // ticked at checkout, so the keyword pass above can never surface it — and
+  // without this block the single most valuable signal the app produces would
+  // stop at a red cross on a card that staff can scroll past.
+  const identity = values.device_identity;
+  if (results.device_identity === "fail" && identity && typeof identity === "object") {
+    const detected = [identity.model_name, identity.capacity_gb ? `${identity.capacity_gb}GB` : null]
+      .filter(Boolean)
+      .join(" ");
+    const claimed = String(identity.ticket_label || device.model || device.model_name || "").trim();
+    mismatches.push({
+      step_id: "device_identity",
+      step_label: STEP_LABEL_TH.device_identity,
+      customer_said: claimed,
+      diagnostic_result: "device_mismatch",
+      reason: `เครื่องจริงอ่านได้เป็น ${detected || identity.hw_machine || "ไม่ทราบรุ่น"} ` +
+        `แต่ใบงานระบุ ${claimed || "ไม่ระบุ"} — ตรวจสอบก่อนรับเครื่อง`,
+    });
+  }
+
+  // --- Battery Health criteria ---
+  // Two red flags, checked server-side so no client can skip them:
+  //   1) reported % below the range the customer claimed at checkout
+  //   2) hard floor: below 80% is always flagged, claim or no claim
+  // Flags land in `mismatches` (evidence for the amendment flow) — they
+  // never touch money directly.
+  const BATTERY_FLOOR_PCT = 80;
+  const reportedPct = Number(values.battery_guided && values.battery_guided.reported_pct);
+  if (Number.isFinite(reportedPct) && reportedPct > 0) {
+    const battCond = conditions.find((c) => {
+      if (!c) return false;
+      return /แบต|battery/i.test(`${c.title || ""} ${c.value || ""}`);
+    });
+    let claimedMin = null;
+    let claimedLabel = "";
+    if (battCond) {
+      claimedLabel = `${battCond.title || ""}: ${battCond.value || ""}`.trim();
+      const v = String(battCond.value || "");
+      // "85% ขึ้นไป" -> 85, "80-84%" -> 80; "ต่ำกว่า 80%" = already-low claim, no minimum
+      if (!/ต่ำกว่า|น้อยกว่า|below|under/i.test(v)) {
+        const nums = (v.match(/\d{2,3}/g) || []).map(Number).filter((n) => n >= 50 && n <= 100);
+        if (nums.length) claimedMin = Math.min(...nums);
+      }
+    }
+    const belowClaim = claimedMin !== null && reportedPct < claimedMin;
+    const belowFloor = reportedPct < BATTERY_FLOOR_PCT;
+    if (belowClaim || belowFloor) {
+      let reason;
+      if (belowClaim && belowFloor) {
+        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel}) และต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
+      } else if (belowClaim) {
+        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel})`;
+      } else {
+        reason = `Battery Health ${reportedPct}% ต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
+      }
+      mismatches.push({
+        step_id: "battery_guided",
+        step_label: STEP_LABEL_TH.battery_guided,
+        customer_said: claimedLabel,
+        diagnostic_result: "battery_below_threshold",
+        reason,
+      });
+    }
+  }
+
+
+  return mismatches;
+}
+
+// =============================================================================
 // finalizeDiagnosticSession — closes the session, recomputes the summary from
 // what's actually in the DB (never trusts a client-sent tally), compares
 // against what the customer reported at checkout, and stamps the snapshot
@@ -352,74 +459,7 @@ exports.finalizeDiagnosticSession = onCall({ region: DIAGNOS_REGION }, async (re
   }
 
   // --- Mismatches vs what the customer reported at checkout ---
-  const conditions = Array.isArray(device.customer_conditions)
-    ? device.customer_conditions
-    : device.customer_conditions
-      ? Object.values(device.customer_conditions)
-      : [];
-  const mismatches = [];
-  for (const [stepId, result] of Object.entries(results)) {
-    if (result !== "fail") continue;
-    const keywords = STEP_CONDITION_KEYWORDS[stepId] || [];
-    const matched = conditions.find((c) => {
-      if (!c || c.isNegative) return false; // customer already declared a defect
-      const text = `${c.title || ""} ${c.value || ""}`.toLowerCase();
-      return keywords.some((k) => text.includes(k));
-    });
-    if (matched) {
-      mismatches.push({
-        step_id: stepId,
-        step_label: STEP_LABEL_TH[stepId] || stepId,
-        customer_said: `${matched.title || ""}: ${matched.value || ""}`.trim(),
-        diagnostic_result: "fail",
-      });
-    }
-  }
-
-  // --- Battery Health criteria ---
-  // Two red flags, checked server-side so no client can skip them:
-  //   1) reported % below the range the customer claimed at checkout
-  //   2) hard floor: below 80% is always flagged, claim or no claim
-  // Flags land in `mismatches` (evidence for the amendment flow) — they
-  // never touch money directly.
-  const BATTERY_FLOOR_PCT = 80;
-  const reportedPct = Number(values.battery_guided && values.battery_guided.reported_pct);
-  if (Number.isFinite(reportedPct) && reportedPct > 0) {
-    const battCond = conditions.find((c) => {
-      if (!c) return false;
-      return /แบต|battery/i.test(`${c.title || ""} ${c.value || ""}`);
-    });
-    let claimedMin = null;
-    let claimedLabel = "";
-    if (battCond) {
-      claimedLabel = `${battCond.title || ""}: ${battCond.value || ""}`.trim();
-      const v = String(battCond.value || "");
-      // "85% ขึ้นไป" -> 85, "80-84%" -> 80; "ต่ำกว่า 80%" = already-low claim, no minimum
-      if (!/ต่ำกว่า|น้อยกว่า|below|under/i.test(v)) {
-        const nums = (v.match(/\d{2,3}/g) || []).map(Number).filter((n) => n >= 50 && n <= 100);
-        if (nums.length) claimedMin = Math.min(...nums);
-      }
-    }
-    const belowClaim = claimedMin !== null && reportedPct < claimedMin;
-    const belowFloor = reportedPct < BATTERY_FLOOR_PCT;
-    if (belowClaim || belowFloor) {
-      let reason;
-      if (belowClaim && belowFloor) {
-        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel}) และต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
-      } else if (belowClaim) {
-        reason = `Battery Health กรอกจริง ${reportedPct}% ต่ำกว่าที่แจ้งตอนขาย (${claimedLabel})`;
-      } else {
-        reason = `Battery Health ${reportedPct}% ต่ำกว่าเกณฑ์ ${BATTERY_FLOOR_PCT}%`;
-      }
-      mismatches.push({
-        step_id: "battery_guided",
-        step_label: STEP_LABEL_TH.battery_guided,
-        customer_said: claimedLabel,
-        diagnostic_result: "battery_below_threshold",
-        reason,
-      });
-    }
-  }
+  const mismatches = computeMismatches(results, values, device);
 
   const now = nowMs();
   const summary = { pass, fail, skipped };
@@ -485,3 +525,260 @@ exports.cleanupDiagnosticSessions = onSchedule(
     }
   }
 );
+
+// =============================================================================
+// Self-assessments — a customer running the SOP on their own phone, at home,
+// with nobody from BKK involved.
+//
+// The session flow above needs a rider or an admin to open it first, which
+// meant the app was useless until someone was standing in front of you. A
+// self-assessment has no job, no staff and no price attached: it records what
+// the twelve steps found and hands back a short code. A rider later attaches
+// it to a real job with claimSelfAssessment, and only then does anything
+// touch a ticket.
+//
+// The quote the customer saw is stored alongside, unmodified, so a dispute
+// about "the app said X" can be settled by looking at what the app actually
+// said. It is a Grade A ceiling, never an offer.
+// =============================================================================
+
+const SELF_ASSESSMENT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SELF_ASSESSMENT_PATH = "self_assessments";
+
+/** Six digits: short enough to read aloud down a phone line, which is how it
+ *  will actually be used half the time. Leading zeros kept — it is a string. */
+function randomClaimCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+}
+
+/** Codes are only unique among assessments still waiting to be claimed, so the
+ *  space never fills up. Requires `.indexOn: ["code"]` on the node. */
+async function allocateClaimCode(db) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = randomClaimCode();
+    const snap = await db
+      .ref(SELF_ASSESSMENT_PATH)
+      .orderByChild("code")
+      .equalTo(code)
+      .once("value");
+    let taken = false;
+    snap.forEach((child) => {
+      const v = child.val() || {};
+      if (v.status === "open" && nowMs() < (v.expires_at || 0)) taken = true;
+    });
+    if (!taken) return code;
+  }
+  throw new HttpsError("resource-exhausted", "ออกรหัสอ้างอิงไม่สำเร็จ ลองใหม่อีกครั้ง");
+}
+
+/** Keeps only the step ids the server knows, with only the three legal
+ *  outcomes. A client that invents a step or a verdict is ignored rather than
+ *  trusted. */
+function sanitizeStepResults(rawResults, rawValues) {
+  const results = {};
+  const values = {};
+  let pass = 0, fail = 0, skipped = 0;
+  const src = rawResults && typeof rawResults === "object" ? rawResults : {};
+  const vals = rawValues && typeof rawValues === "object" ? rawValues : {};
+  for (const stepId of STEP_IDS) {
+    const result = src[stepId];
+    if (!["pass", "fail", "skipped"].includes(result)) continue;
+    results[stepId] = result;
+    if (result === "pass") pass += 1;
+    else if (result === "fail") fail += 1;
+    else skipped += 1;
+    if (vals[stepId] !== undefined && vals[stepId] !== null) values[stepId] = vals[stepId];
+  }
+  return { results, values, summary: { pass, fail, skipped } };
+}
+
+exports.createSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request) => {
+  // Anonymous auth is enough — the app signs in anonymously exactly like the
+  // web wizard does. The uid is what lets the same device read its own record
+  // back for the tracking tab.
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+
+  const data = request.data || {};
+  const device = data.device && typeof data.device === "object" ? data.device : null;
+  if (!device || typeof device.machine !== "string" || !device.machine) {
+    throw new HttpsError("invalid-argument", "ต้องระบุข้อมูลเครื่อง");
+  }
+
+  const { results, values, summary } = sanitizeStepResults(data.results, data.values);
+  if (Object.keys(results).length === 0) {
+    throw new HttpsError("invalid-argument", "ไม่พบผลการทดสอบ");
+  }
+
+  const db = getDatabase();
+  const now = nowMs();
+  const code = await allocateClaimCode(db);
+
+  const baseUrlSnap = await db.ref("settings/diagnos/base_url").once("value");
+  const baseUrl = (typeof baseUrlSnap.val() === "string" && baseUrlSnap.val()) || DIAGNOS_BASE_URL;
+
+  const ref = db.ref(SELF_ASSESSMENT_PATH).push();
+  const id = ref.key;
+
+  await ref.set({
+    uid: request.auth.uid,
+    status: "open",
+    code,
+    created_at: now,
+    expires_at: now + SELF_ASSESSMENT_TTL_MS,
+    device: {
+      machine: String(device.machine).slice(0, 40),
+      model_name: String(device.model_name || "").slice(0, 80),
+      capacity_gb: Number.isFinite(Number(device.capacity_gb)) ? Number(device.capacity_gb) : null,
+      ios_version: String(device.ios_version || "").slice(0, 20),
+      // Stable per vendor+device. Lets a rider be told "this is not the phone
+      // that was tested" without us holding anything that identifies a person.
+      vendor_id: String(device.vendor_id || "").slice(0, 64),
+    },
+    // Exactly what the customer was shown, kept for dispute resolution.
+    quote: data.quote && typeof data.quote === "object" ? {
+      grade_a_price: Number(data.quote.grade_a_price) || null,
+      model_name: String(data.quote.model_name || "").slice(0, 80),
+      captured_at: now,
+    } : null,
+    results,
+    values,
+    summary,
+  });
+
+  return {
+    ok: true,
+    id,
+    code,
+    url: `${baseUrl}/diagnos/a/${id}#c=${code}`,
+    expiresAt: now + SELF_ASSESSMENT_TTL_MS,
+  };
+});
+
+exports.claimSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  const { code, assessmentId, jobId, deviceIndex } = request.data || {};
+  if (!jobId || typeof jobId !== "string") {
+    throw new HttpsError("invalid-argument", "ต้องระบุใบงาน");
+  }
+  const devIdx = Number.isInteger(deviceIndex) ? deviceIndex : 0;
+
+  const db = getDatabase();
+
+  const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+  if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบงาน");
+  const job = jobSnap.val();
+
+  let actor;
+  if (job.rider_id === request.auth.uid) {
+    const riderSnap = await db.ref(`riders/${request.auth.uid}`).once("value");
+    actor = { role: "RIDER", name: (riderSnap.val() && riderSnap.val().name) || job.rider_name || "Rider" };
+  } else if (await requireAdmin(db, request.auth.uid)) {
+    const adminSnap = await db.ref(`admins/${request.auth.uid}`).once("value");
+    actor = { role: "ADMIN", name: adminSnap.val().name || adminSnap.val().display_name || "Admin" };
+  } else {
+    throw new HttpsError("permission-denied", "เฉพาะไรเดอร์ของงานนี้หรือแอดมิน");
+  }
+
+  // Look up by id when we have one, otherwise by the code the customer read
+  // out. Both paths end at the same record.
+  let id = typeof assessmentId === "string" && assessmentId ? assessmentId : null;
+  let assessment = null;
+  if (id) {
+    const snap = await db.ref(`${SELF_ASSESSMENT_PATH}/${id}`).once("value");
+    if (snap.exists()) assessment = snap.val();
+  } else if (typeof code === "string" && /^\d{6}$/.test(code)) {
+    const snap = await db
+      .ref(SELF_ASSESSMENT_PATH)
+      .orderByChild("code")
+      .equalTo(code)
+      .once("value");
+    snap.forEach((child) => {
+      const v = child.val() || {};
+      if (!assessment && v.status === "open" && nowMs() < (v.expires_at || 0)) {
+        id = child.key;
+        assessment = v;
+      }
+    });
+  } else {
+    throw new HttpsError("invalid-argument", "ต้องระบุรหัสอ้างอิง 6 หลัก");
+  }
+
+  if (!assessment) throw new HttpsError("not-found", "ไม่พบผลการประเมิน หรือรหัสหมดอายุแล้ว");
+  if (assessment.status === "claimed") {
+    throw new HttpsError(
+      "failed-precondition",
+      `ผลนี้ถูกผูกกับงาน ${assessment.job_id || "อื่น"} ไปแล้ว`
+    );
+  }
+  if (nowMs() > (assessment.expires_at || 0)) {
+    throw new HttpsError("failed-precondition", "ผลการประเมินหมดอายุแล้ว — ให้ลูกค้าตรวจใหม่");
+  }
+
+  const devices = devicesList(job);
+  const device = devices[devIdx] || {};
+
+  // Same evidence rules as a staff-run session, including the wrong-device
+  // check — the assessment carries the model the hardware reported, so the
+  // ticket comparison happens here rather than on the customer's screen.
+  const results = assessment.results || {};
+  const values = assessment.values || {};
+  const identity = values.device_identity;
+  if (identity && typeof identity === "object" && !identity.ticket_label) {
+    identity.ticket_label = device.model || device.model_name || "";
+    const detected = String(identity.model_name || "").toLowerCase();
+    const claimed = String(identity.ticket_label).toLowerCase();
+    if (detected && claimed && !claimed.includes(detected)) {
+      results.device_identity = "fail";
+      identity.model_match = "mismatch";
+    }
+  }
+
+  const summary = { pass: 0, fail: 0, skipped: 0 };
+  for (const result of Object.values(results)) {
+    if (result === "pass") summary.pass += 1;
+    else if (result === "fail") summary.fail += 1;
+    else if (result === "skipped") summary.skipped += 1;
+  }
+
+  const mismatches = computeMismatches(results, values, device);
+  const now = nowMs();
+
+  const snapshot = {
+    session_id: id,
+    // Distinct from customer/staff so the report card can say "ลูกค้าตรวจเอง
+    // ที่บ้าน" rather than implying a rider watched it happen.
+    mode: "self",
+    performed_by: `Customer (self) · ผูกโดย ${actor.role === "RIDER" ? "Rider" : "Admin"}: ${actor.name}`,
+    submitted_at: now,
+    assessed_at: assessment.created_at || null,
+    results,
+    values,
+    summary,
+    mismatches,
+    device_info: assessment.device || null,
+    quote_shown: assessment.quote || null,
+  };
+
+  await db.ref().update({
+    [`${SELF_ASSESSMENT_PATH}/${id}/status`]: "claimed",
+    [`${SELF_ASSESSMENT_PATH}/${id}/claimed_at`]: now,
+    [`${SELF_ASSESSMENT_PATH}/${id}/job_id`]: jobId,
+    [`${SELF_ASSESSMENT_PATH}/${id}/claimed_by`]: {
+      uid: request.auth.uid,
+      role: actor.role,
+      name: actor.name,
+    },
+    [`jobs/${jobId}/devices/${devIdx}/diagnostics`]: snapshot,
+    [`jobs/${jobId}/qc_logs`]: prependQcLog(job, {
+      action: "Diagnos Self-Assessment Linked",
+      by: `${actor.role === "RIDER" ? "Rider" : "Admin"}: ${actor.name}`,
+      timestamp: now,
+      details:
+        `ผูกผลที่ลูกค้าตรวจเอง (รหัส ${assessment.code}) เข้ากับเครื่องที่ ${devIdx + 1}: ` +
+        `${summary.pass} ผ่าน / ${summary.fail} ไม่ผ่าน / ${summary.skipped} ข้าม` +
+        (mismatches.length ? ` — พบ ${mismatches.length} จุดขัดกับที่ลูกค้าแจ้ง` : ""),
+    }),
+  });
+
+  return { ok: true, assessmentId: id, summary, mismatches, device: assessment.device || null };
+});
