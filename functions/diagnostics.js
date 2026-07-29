@@ -24,6 +24,9 @@ const SESSION_TTL_MS = 30 * 60 * 1000; // QR expires 30 min after creation
 const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // purge sessions after 7 days
 const DIAGNOS_BASE_URL = process.env.DIAGNOS_BASE_URL || "https://www.bkkapple.com";
 
+// Superset of every client's list, as the design spec requires. `buttons` and
+// `charging_port` only ever arrive from the native app — no browser can read a
+// volume key press or prove a cable is delivering power.
 const STEP_IDS = [
   "device_identity",
   "find_my",
@@ -35,6 +38,8 @@ const STEP_IDS = [
   "gps",
   "motion",
   "haptic_guided",
+  "buttons",
+  "charging_port",
   "battery_guided",
   "faceid_guided",
 ];
@@ -50,6 +55,8 @@ const STEP_LABEL_TH = {
   gps: "GPS",
   motion: "เซ็นเซอร์การเคลื่อนไหว",
   haptic_guided: "ระบบสั่น",
+  buttons: "ปุ่มกด",
+  charging_port: "พอร์ตชาร์จ",
   battery_guided: "Battery Health",
   faceid_guided: "Face ID / Touch ID",
 };
@@ -68,6 +75,8 @@ const STEP_CONDITION_KEYWORDS = {
   gps: ["gps", "จีพีเอส"],
   motion: ["เซ็นเซอร์", "gyro", "ไจโร"],
   haptic_guided: ["สั่น", "vibrat", "haptic"],
+  buttons: ["ปุ่ม", "button", "วอลุ่ม", "volume"],
+  charging_port: ["ชาร์จ", "charg", "พอร์ต", "port", "รูชาร์จ"],
   battery_guided: ["แบต", "battery"],
   faceid_guided: ["face id", "touch id", "สแกนใบหน้า", "สแกนนิ้ว"],
   find_my: ["icloud", "find my", "ค้นหา"],

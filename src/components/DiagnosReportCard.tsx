@@ -36,6 +36,8 @@ const STEP_LABEL: Record<string, string> = {
   gps: 'GPS',
   motion: 'เซ็นเซอร์',
   haptic_guided: 'ระบบสั่น',
+  buttons: 'ปุ่มกด',
+  charging_port: 'พอร์ตชาร์จ',
   battery_guided: 'แบตเตอรี่',
   faceid_guided: 'Face ID',
 };
@@ -62,6 +64,17 @@ function valueDetail(stepId: string, v: any): string {
       if (v.flash === 'fail') parts.push('แฟลชไม่ติด');
       return parts.join(' · ');
     }
+    case 'buttons': {
+      const parts: string[] = [];
+      if (v.volume_detected === false) parts.push('ปุ่มเสียงไม่ตอบสนอง');
+      if (v.side_button === 'fail') parts.push('ปุ่มด้านข้างกดไม่ติด');
+      if (v.extra_buttons === 'fail') parts.push('ปุ่มอื่นกดไม่ติด');
+      return parts.join(' · ');
+    }
+    case 'charging_port':
+      if (v.charging_detected === true) return 'เสียบแล้วชาร์จเข้า';
+      if (v.charging_detected === false) return 'เสียบแล้วไม่ชาร์จ';
+      return '';
     case 'find_my':
       if (v.status === 'off') return 'ปิดแล้ว';
       if (v.status === 'on_can_disable') return 'เปิดอยู่ ปิดเองได้';

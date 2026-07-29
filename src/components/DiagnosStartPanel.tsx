@@ -12,7 +12,10 @@ import QRCode from 'qrcode';
 import { Activity, Copy, Loader2, QrCode as QrIcon, RefreshCcw } from 'lucide-react';
 import { app, db } from '../api/firebase';
 
-const STEP_TOTAL = 12;
+// No fixed denominator on purpose: the web wizard runs twelve steps and the
+// native app runs fourteen (it adds `buttons` and `charging_port`, which a
+// browser cannot perform). Showing "x/12" would read as stalled on a native
+// run and "x/14" as unreachable on a web one.
 
 interface Props {
   job: any;
@@ -89,7 +92,7 @@ export default function DiagnosStartPanel({ job, deviceIndex }: Props) {
         </p>
         {active && (
           <span className="text-[10px] font-bold text-blue-600">
-            {live?.claimed_by ? `กำลังทดสอบ ${doneCount}/${STEP_TOTAL}` : 'รอสแกน QR'}
+            {live?.claimed_by ? `กำลังทดสอบ — เสร็จแล้ว ${doneCount} ขั้น` : 'รอสแกน QR'}
           </span>
         )}
         {live?.status === 'submitted' && (
