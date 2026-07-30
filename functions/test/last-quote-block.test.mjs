@@ -1180,6 +1180,16 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check('attach is wired into the handler turn', src.includes('const vision = await attachCustomerImages(messages, history);'));
   check('cost bounds are explicit', /VISION_RECENT_MESSAGES = 8/.test(src) && /VISION_MAX_IMAGES = 2/.test(src));
   check('persona says photos ARE visible', sysNoCust.includes('ลูกค้าส่งรูปได้และ "คุณดูรูปได้จริง"'));
+  // Identification workflow: the live follow-up was "รูปอ่านได้ แต่ระบุรุ่นไม่ได้".
+  // A box front carries no model name, so the model must reason from visible
+  // hardware traits, VALIDATE against the catalog (never assert from memory),
+  // and ask for the side sticker for what a box front genuinely cannot show.
+  check('persona: infer traits then validate via search_models', sysNoCust.includes('เรียก search_models ด้วยชื่อนั้น') && sysNoCust.includes('ห้ามฟันธงชื่อรุ่นจากความจำโดยไม่เทียบกับระบบ'));
+  check('persona: offer catalog candidates as chips', sysNoCust.includes('เสนอเป็นปุ่มตัวเลือกจากชื่อรุ่นจริงในผลค้นหา'));
+  check('persona: never guess storage or Pro vs Pro Max', sysNoCust.includes('ขนาด Pro กับ Pro Max'));
+  check('persona: ask for the side sticker', sysNoCust.includes('รูปสติกเกอร์ข้างกล่อง'));
+  check('persona: part-number suffix maps to origin', sysNoCust.includes('TH/A = ศูนย์ไทย') && sysNoCust.includes('ห้ามเอาไปหักราคาเอง'));
+  check('the attached photo prompt carries the workflow', src.includes('ทำตามข้อ 2.4.1'));
   check('persona keeps prices tool-only for photos', sysNoCust.includes('ห้ามเอาตัวเลขบนใบเสร็จ/กล่อง/ป้ายราคามาเป็นราคารับซื้อ'));
   check('persona requires confirming what the photo shows', sysNoCust.includes('บอกลูกค้าแล้วขอยืนยัน'));
 }
