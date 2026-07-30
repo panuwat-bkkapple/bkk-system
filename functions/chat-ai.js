@@ -601,7 +601,7 @@ function ipadAirGenAliasNote(query) {
   return `ลูกค้าเรียก "iPad Air ${m[1]}" = ชื่อในระบบคือ iPad Air 11"/13" (ชิป ${chip}) — เป็นรุ่นเดียวกัน อย่าบอกว่าไม่พบรุ่น ให้เดินขั้นตอนตามปกติ และถามลูกค้าว่าเป็นจอ 11 นิ้วหรือ 13 นิ้ว`;
 }
 
-function rankModels(list, rawQuery) {
+function rankModels(list, rawQuery, limit = 5) {
   const q = String(rawQuery || "")
     .toLowerCase()
     .trim()
@@ -657,7 +657,11 @@ function rankModels(list, rawQuery) {
       // token so "iPad Air 6" can satisfy the strict version match.
       const genAlias = ipadAirGenToken(nameLower);
       if (genAlias && !nameTokens.includes(genAlias)) nameTokens.push(genAlias);
-      const hits = tokens.filter((t) => hay.includes(t)).length;
+      // Numeric tokens must match a WHOLE name token — substring matching let
+      // the "1" left over from splitting "M1" hit every name containing 11 /
+      // 13 / 2013, so "Macbook Air M1" scored the delisted Intel Airs level
+      // with (then above) the M1 2020 the customer meant (live case #CIF1).
+      const hits = tokens.filter((t) => (/^\d+$/.test(t) ? nameTokens.includes(t) : hay.includes(t))).length;
       const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
       const meaningfulOk =
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
@@ -669,7 +673,7 @@ function rankModels(list, rawQuery) {
     })
     .filter((x) => x.hits > 0 && x.versionOk && x.meaningfulOk && x.familyOk && x.sublineOk && x.eOk)
     .sort((a, b) => b.hits - a.hits || a.m.name.length - b.m.name.length)
-    .slice(0, 5)
+    .slice(0, limit)
     .map((x) => x.m);
 }
 
@@ -677,7 +681,13 @@ function rankModels(list, rawQuery) {
 // PINNED match ("ipad gen 6" → Gen 6 outscores siblings) apart from an
 // AMBIGUOUS nickname ("ipad 6" → Gen 6 / mini 6 / Air 6 all tie).
 function rankModelsScored(list, rawQuery) {
-  const names = rankModels(list, rawQuery);
+  // Wider window than the tool result: the ambiguity check must SEE every
+  // tied sibling. With the default 5, a family of 11 MacBook Airs tying on
+  // hits got truncated by name-length — the 5 shortest names were all
+  // delisted Intels, the buyable M1 fell off the list, and the "tie between
+  // declined and buyable" test wrongly concluded unambiguous-declined
+  // (live case #CIF1: "Macbook Air M1" declined as an Intel 11").
+  const names = rankModels(list, rawQuery, 12);
   if (names.length === 0) return [];
   const q = String(rawQuery || "")
     .toLowerCase()
@@ -690,8 +700,70 @@ function rankModelsScored(list, rawQuery) {
     .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
   return names.map((m) => {
     const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
-    return { m, hits: tokens.filter((t) => hay.includes(t)).length };
+    // Same numeric-token rule as rankModels: whole-token match only, so the
+    // "1" split off "M1" cannot inflate 11"/13"/2013 siblings into a fake
+    // tie (or a fake win) inside the ambiguity scoring.
+    const nameTokens = hay
+      .replace(/[^a-z0-9฀-๿]+/g, " ")
+      .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
+      .split(/\s+/)
+      .filter(Boolean);
+    return { m, hits: tokens.filter((t) => (/^\d+$/.test(t) ? nameTokens.includes(t) : hay.includes(t))).length };
   });
+}
+
+// A customer message that carries a phone number is a reply to the contact
+// ask, so its words are a NAME, not device facts. Live bug (#WFQ1): the
+// customer typed "0655610223 จีน" (จีน = their nickname) answering "ขอชื่อกับ
+// เบอร์โทร"; the model read จีน as CH (China) origin, silently picked the
+// "เครื่องนอกมีข้อจำกัด (LL / J / CH / KH)" option worth -25%, and the card
+// came out 21,375 instead of 28,500 — the owner had to quote by hand.
+// 9+ consecutive digits (spaces/dashes ignored) = a phone or IMEI; neither is
+// condition evidence.
+function looksLikeContactReply(text) {
+  return /\d(?:[\s-]?\d){8,}/.test(String(text || ""));
+}
+
+// Topic vocabulary per condition group, keyed off the group TITLE (ids differ
+// per condition set). Thai has no word boundaries, so matching label tokens
+// against customer speech is unreliable — a curated topic list is. Unknown
+// group titles return null = "cannot judge", and the caller then allows the
+// answer (permissive fallback: never block a deduction we don't understand).
+const CONDITION_TOPIC_WORDS = [
+  { test: /แบต|battery/i, words: ["แบต", "battery", "สุขภาพ", "%", "เปอร์เซ", "ประสิทธิภาพ"] },
+  { test: /จอ|กระจก|แสดงผล/i, words: ["จอ", "กระจก", "รอย", "ร้าว", "แตก", "ขีดข่วน", "ขนแมว", "screen", "หน้าจอ", "สภาพ"] },
+  { test: /ตัวเครื่อง|ฝาหลัง|บอดี|body/i, words: ["ตัวเครื่อง", "ฝาหลัง", "บอดี", "รอย", "บุบ", "บิ่น", "งอ", "ถลอก", "เคส", "สีลอก", "ขนแมว", "สภาพ"] },
+  { test: /ประกัน|warranty/i, words: ["ประกัน", "warranty", "แอปเปิ", "applecare", "หมดประกัน"] },
+  { test: /ประเทศ|ที่ซื้อ|เครื่องศูนย|origin/i, words: [
+    "ศูนย์ไทย", "เครื่องศูนย", "เครื่องนอก", "เครื่องหิ้ว", "หิ้ว", "ประเทศ", "นำเข้า", "global", "โกลบอล",
+    "zp", "th/a", "ll", "ch", "kh", "sg", "my", "vn", "ja",
+    "จีน", "ญี่ปุ่น", "อเมริกา", "มะกัน", "สิงคโปร", "มาเลย", "ฮ่องกง", "เกาหลี", "ดูไบ", "เวียดนาม",
+  ] },
+  { test: /ซ่อม|อะไหล่|repair/i, words: ["ซ่อม", "อะไหล่", "เปลี่ยนจอ", "เปลี่ยนแบต", "repair", "เคลม", "ศูนย์"] },
+  { test: /อุปกรณ์|กล่อง|accessor/i, words: ["กล่อง", "สายชาร์จ", "สาย", "อุปกรณ์", "ครบกล่อง", "หัวชาร์จ", "ที่ชาร์จ"] },
+  { test: /เปิดเครื่อง|ใช้งานทั่วไป|ทัช|กล้อง|ลำโพง|ไมโครโฟน|เชื่อมต่อ|ซิม|สัญญาณ/i, words: [
+    "เปิดไม่ติด", "เปิดติด", "ดับเอง", "ค้าง", "รีสตาร์", "ทัช", "กล้อง", "ลำโพง", "ไมค์", "ไมโครโฟน",
+    "สัญญาณ", "wifi", "wi-fi", "ซิม", "โทรออก", "ปกติ", "ใช้งานได้",
+  ] },
+];
+function conditionTopicWords(groupTitle) {
+  const t = String(groupTitle || "");
+  const hit = CONDITION_TOPIC_WORDS.find((r) => r.test.test(t));
+  return hit ? hit.words : null;
+}
+
+// Would applying this group's answer be a GUESS? True when the topic never
+// came up: not in the customer's own words (contact replies excluded) and
+// never asked by the assistant either. Only consulted for answers that COST
+// the customer money (or would decline the device) — a best-case answer needs
+// no provenance.
+function conditionAnswerUnsupported({ groupTitle, evidenceText, assistantText }) {
+  const words = conditionTopicWords(groupTitle);
+  if (!words) return false; // unknown group — do not block
+  const ev = String(evidenceText || "").toLowerCase();
+  const ai = String(assistantText || "").toLowerCase();
+  return !words.some((w) => ev.includes(w.toLowerCase()) || ai.includes(w.toLowerCase()));
 }
 
 // Owner's rule for delisted models behind an ambiguous nickname: "iPad 6"
@@ -730,6 +802,10 @@ function normalizeForPin(s) {
   // "base model" word at the string level ("ไอโฟน13ธรรมดาคะ") before
   // tokenizing, or they glue onto the previous word as one token.
   t = t.replace(/(นะ)?(คะ|ค่ะ|ครับ|ค่า|จ้า|ฮะ|ฮ่ะ)\s*$/, " ").replace(/ธรรมดา/g, " ");
+  // Ordinal first-generation phrasing — Apple never puts "1" in the name
+  // ("iPad Air (2013)" IS iPad Air 1). Map to the numeral here; the
+  // trailing-" 1" fallback in exactModelPin does the rest.
+  t = t.replace(/รุ่นแรก|เจนแรก|ตัวแรก|โฉมแรก/g, " 1 ").replace(/\b(?:first|1st)\s*gen(?:eration)?\b/g, " 1 ");
   t = t
     .replace(/โปรแม็กซ์|โปรแมกซ์|โปรแม็ก|โปรแมก/g, " pro max ")
     .replace(/โปร/g, " pro ")
@@ -749,7 +825,7 @@ function normalizeForPin(s) {
     "gb", "tb", "กิ๊ก", "รุ่น", "ตัว", "เครื่อง", "ธรรมดา", "ปกติ", "regular", "standard", "base", "normal",
     "คะ", "ค่ะ", "ครับ", "ค่า", "จ้า", "นะ", "นะคะ", "นะครับ", "ชิป",
   ]);
-  return t
+  const toks = t
     .split(/\s+/)
     .filter(Boolean)
     .filter((tok) => {
@@ -761,20 +837,102 @@ function normalizeForPin(s) {
       // same key and fail the uniqueness test below — safely no pin.
       if (Number.isInteger(n) && n >= 32) return false;
       return true;
-    })
-    .join(" ");
+    });
+  // Chip designators get re-glued into ONE token ("ชิป M1" -> "m 1" -> "m1")
+  // — NOT dropped: for Apple Silicon the chip IS the model identity (live
+  // case #CIF1: "Macbook Air M1 256GB" lost its M1 to the old drop rule and
+  // the customer got declined as an Intel 11"). The subset rule in
+  // exactModelPin makes the chip optional when it is redundant ("iPad Air 5"
+  // still pins the only Air 5) and decisive when it is not ("MacBook Air M1"
+  // pins the M1 2020; "iPad Air 11" with M2/M3/M4 siblings stays unpinned).
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    if ((toks[i] === "m" || toks[i] === "a") && i + 1 < toks.length && /^\d{1,2}$/.test(toks[i + 1])) {
+      out.push(toks[i] + toks[i + 1]);
+      i++;
+      continue;
+    }
+    out.push(toks[i]);
+  }
+  return out.join(" ");
 }
+// Owner's rule (live case #YDD2, "macbook pro 2012"): a customer naming a
+// YEAR the shop no longer buys must get the polite decline IMMEDIATELY —
+// never a which-model question whose every chip is itself a delisted model
+// (the chips bottomed out at 2013 anyway; 2012 isn't even in the catalog).
+// Data-driven, no hardcoded cutoff: (1) the year matches only delisted
+// models -> decline that year; (2) the year predates every BUYABLE model's
+// year in the match set -> decline "รุ่นปี Y". A year that matches a buyable
+// model (MacBook Pro 2024 = M4) or a family that carries no years at all
+// (iPad Generation N) falls through to the normal flow untouched.
+function modelFamilyLabel(m) {
+  return String(m.name)
+    .replace(/\s*\(.*\)\s*$/, "")
+    .replace(/\s*\d{1,2}(?:\.\d)?["″].*$/, "")
+    .trim();
+}
+function yearOnlyDecline(scored, rawQuery) {
+  const qy = String(rawQuery || "").match(/(?:^|\D)((?:19|20)\d{2})(?:\D|$)/);
+  if (!qy || !scored.length) return null;
+  const y = Number(qy[1]);
+  const yearOf = (m) => {
+    const r = String(m.name).match(/(?:19|20)\d{2}/);
+    return r ? Number(r[0]) : null;
+  };
+  const exact = scored.filter((m) => yearOf(m) === y);
+  if (exact.length) {
+    if (exact.every((m) => m.is_active === false)) {
+      return { label: exact.length === 1 ? exact[0].name : `${modelFamilyLabel(exact[0])} ปี ${y}` };
+    }
+    return null; // that year exists and something is buyable — normal flow
+  }
+  const buyableYears = scored
+    .filter((m) => m.is_active !== false)
+    .map(yearOf)
+    .filter((v) => v != null);
+  if (buyableYears.length && y < Math.min(...buyableYears)) {
+    return { label: `${modelFamilyLabel(scored[0])} ปี ${y}` };
+  }
+  return null;
+}
+
 function exactModelPin(list, rawQuery) {
   const q = normalizeForPin(rawQuery);
   if (!q) return null;
-  const matches = [];
-  for (const m of list) {
-    const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
-      .map(normalizeForPin)
-      .filter(Boolean);
-    if (keys.includes(q)) matches.push(m);
+  const findExact = (key) => {
+    const matches = [];
+    for (const m of list) {
+      const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+        .map(normalizeForPin)
+        .filter(Boolean);
+      if (keys.includes(key)) matches.push(m);
+    }
+    return matches.length === 1 ? matches[0] : null;
+  };
+  let hit = findExact(q);
+  // "<family> 1" = the unnumbered first-generation model ("iPad Air 1" /
+  // "iPad Air รุ่นแรก" -> "iPad Air (2013)") — live case #VYI2: the customer
+  // named the model precisely and still got the confirm-which-model chips.
+  if (!hit && / 1$/.test(q)) hit = findExact(q.replace(/ 1$/, ""));
+  // Unique token-subset: every query token appears in EXACTLY ONE model's
+  // key (customers omit qualifiers the name carries — "MacBook Air M1" has
+  // no screen size, "iPad Air 5" has no chip). Uniqueness does the safety
+  // work: "iPad 6" ⊆ Gen 6 AND mini 6 AND Air-6-alias -> no pin, still ask;
+  // "iPhone 13" ⊆ the whole family -> resolved by the EXACT rule above.
+  if (!hit) {
+    const qToks = q.split(" ");
+    const owners = [];
+    for (const m of list) {
+      const keySets = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+        .map(normalizeForPin)
+        .filter(Boolean)
+        .map((k) => new Set(k.split(" ")));
+      if (keySets.some((ks) => qToks.every((t) => ks.has(t)))) owners.push(m);
+      if (owners.length > 1) break;
+    }
+    if (owners.length === 1) hit = owners[0];
   }
-  return matches.length === 1 ? matches[0] : null;
+  return hit;
 }
 
 // Guard against the LLM quoting a cheaper sibling than the customer named.
@@ -1357,11 +1515,13 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2.1.3 ห้ามสัญญาว่า "เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ / จะติดต่อกลับ" ทั้งที่ยังไม่มีเบอร์โทรลูกค้า — สัญญาแบบนั้นทำจริงไม่ได้ (ไม่มีเบอร์ให้โทร) และห้ามใช้แทนการทำงาน: ถ้าระบบไม่มีราคา (โหมด Offer) สิ่งที่ต้องทำคือขอ ชื่อ + เบอร์โทร + รายละเอียดเครื่อง ในข้อความนั้นเลย แล้วค่อย escalate_to_human เมื่อได้ข้อมูลครบ — คำสัญญาติดต่อกลับพูดได้เฉพาะหลังมีเบอร์และส่งเรื่องเข้าคิวเจ้าหน้าที่แล้วจริงเท่านั้น`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
     `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
+    `2.4 ลูกค้าส่งรูปได้และ "คุณดูรูปได้จริง" — ข้อความไหนที่ลูกค้าแนบรูป ระบบจะส่งรูปนั้นมาให้คุณในเทิร์นนั้นด้วย ห้ามพูดว่าดูรูปไม่ได้เด็ดขาด. ใช้รูปเพื่อ: ระบุรุ่น, อ่านความจุ/เลขซีเรียล/เลข part number จากสติกเกอร์, ดูสภาพรอย/ตำหนิเบื้องต้น, ดูว่าซีลยังไม่แกะ. ข้อจำกัดที่ห้ามข้าม: (ก) ราคารับซื้อมาจาก tool เท่านั้น — ห้ามเอาตัวเลขบนใบเสร็จ/กล่อง/ป้ายราคามาเป็นราคารับซื้อหรือใช้ตั้งราคาเด็ดขาด (ข) สิ่งที่เห็นจากรูปให้ "บอกลูกค้าแล้วขอยืนยัน" ก่อน — ห้ามเอาที่เห็นจากรูปไปกรอกเป็นคำตอบสภาพเครื่องเพื่อหักราคาเองทันที (ระบบจะไม่หักให้อยู่ดีตามกฎข้อ 6 กติกาเหล็ก) (ค) รูปไม่ชัด/ไม่ใช่รูปเครื่อง ให้บอกตรงๆ ว่าเห็นอะไรและขอรูปมุมที่ต้องการ (ง) ห้ามเดาสิ่งที่รูปไม่ได้แสดงและเดาไม่ได้จริงๆ เช่น สุขภาพแบต ประวัติซ่อม ประกัน — ต้องถามลูกค้า`,
+    `2.4.1 วิธีระบุรุ่นจากรูป (ห้ามยอมแพ้ทันทีว่า "ในรูปไม่เห็นชื่อรุ่น"): ขั้นที่ 1 อ่านลักษณะที่เห็นให้ครบก่อน — จำนวนเลนส์กล้อง, รูปทรงโมดูลกล้อง (เกาะสี่เหลี่ยม/แถบยาวเต็มความกว้าง/เลนส์เรียงแนวตั้ง), วัสดุและสี, ทรงขอบเครื่อง, ดีไซน์กล่อง, ข้อความ/สติกเกอร์ที่พออ่านได้. ขั้นที่ 2 แปลงลักษณะเหล่านั้นเป็น "ชื่อรุ่นที่เป็นไปได้" แล้ว **เรียก search_models ด้วยชื่อนั้น** เพื่อเทียบกับสินค้าที่ร้านมีจริง — ห้ามฟันธงชื่อรุ่นจากความจำโดยไม่เทียบกับระบบ. ขั้นที่ 3 ถ้าเหลือ 2-4 รุ่นที่เป็นไปได้ ให้เสนอเป็นปุ่มตัวเลือกจากชื่อรุ่นจริงในผลค้นหา (ตามข้อ 2.3) ให้ลูกค้ากดยืนยันรุ่น — ถ้ามั่นใจรุ่นเดียวให้ถามยืนยันสั้นๆ ว่า "จากรูปน่าจะเป็น <ชื่อรุ่นจากระบบ> ใช่ไหมครับ". ขั้นที่ 4 สิ่งที่รูปกล่องด้านหน้าบอกไม่ได้เลยคือ **ความจุ** และ **ขนาด Pro กับ Pro Max (ต่างกันแค่ขนาดตัวเครื่อง)** — อย่าเดา ให้ขอ "รูปสติกเกอร์ข้างกล่อง" ซึ่งมีชื่อรุ่น ความจุ part number (เช่น MU7A3TH/A) และซีเรียลครบในรูปเดียว หรือให้ลูกค้าพิมพ์บอกก็ได้. ขั้นที่ 5 ถ้าอ่าน part number ได้ ตัวอักษรท้ายบอกประเทศที่ขาย (TH/A = ศูนย์ไทย, ZP = เอเชีย/สิงคโปร์-ฮ่องกง, LL = อเมริกา, J = ญี่ปุ่น, CH = จีน) — ใช้ "ถามยืนยันกับลูกค้า" ได้ แต่ยังต้องให้ลูกค้ายืนยันก่อนเสมอตามข้อ 2.4(ข) ห้ามเอาไปหักราคาเอง`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาสำคัญ: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
+    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาเหล็ก: ห้ามเดา/กรอกคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด — ส่งใน answers ได้เฉพาะข้อที่ลูกค้าบอกมาจริงหรือกดปุ่มเลือกมาจริงเท่านั้น (เคสจริง: ลูกค้าพิมพ์ชื่อเล่นว่า "จีน" พร้อมเบอร์ ระบบเดาเป็นเครื่องนอกจีนแล้วหักราคา 25% ลูกค้าเกือบเสียราคาไป 7,000 บาท) ข้อที่ไม่รู้ให้ไม่ต้องส่ง ระบบจะถือว่าสภาพปกติเอง. อีกกติกา: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว. เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด (รอย แบต ซ่อม) ถามแค่ "มีใบเสร็จหรือหลักฐานการซื้อไหม" กับความจุ/รุ่นย่อยที่ยังไม่รู้ แล้วออกการ์ดได้เลย — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
     `6.1 ลูกค้าเอ่ยชื่อรุ่น (ถามราคา/ถามว่า "รับไหม"/บอกจะขาย): ห้ามตอบ "รับ/ไม่รับ" จากความจำเด็ดขาด ต้อง search_models ด้วยชื่อรุ่นก่อนทุกครั้ง แล้วตอบตามผล (ข้อ 6). ถ้าเป็นรุ่นที่มีราคา ให้บอกว่ารับซื้อรุ่นนี้แน่นอน แล้วเริ่มขั้นที่ 3 ของข้อ 6 ต่อในข้อความเดียวกันทันที (ขอชื่อ/เบอร์ + คำถามสภาพเรื่องแรกพร้อมปุ่ม [ตัวเลือก]) "โดยไม่ประกาศตัวเลขราคา" ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
     `6.3 ห้ามถามสภาพเกิน 1 รอบเด็ดขาด (กฎเหล็กที่พลาดบ่อย): พอลูกค้าตอบสภาพรอบแรกแล้ว — ไม่ว่าจะตอบครบหรือไม่ครบ คลุมเครือ ("สภาพดี" "ปกติ") หรือขอราคาเลย — ห้ามถามย้อนเพื่อ "ขอยืนยันอีกนิด/รอยอยู่ตรงไหน" ซ้ำอีกเด็ดขาด ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี. ถ้าลูกค้าตอบเพิ่มมาทีหลัง (เช่น "ตัวเรือน") ก็ยิ่งต้องออกการ์ดเลย ห้ามถามต่อ — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว. ข้อยกเว้น 2 อย่างที่ "ถามต่อได้อีก 1 คำถาม" ก่อนออกการ์ด (เพราะกระทบราคาหลักพัน-หมื่น): (ก) ลูกค้าบอกว่าเคยซ่อม/เปลี่ยนอะไหล่ → ถามว่าอะไหล่แท้/ทั่วไป (ข้อ 6.8) (ข) ยังไม่รู้ว่าศูนย์ไทยหรือเครื่องนอก → ถามข้อ 6.9 — 2 ข้อนี้ไม่นับเป็น "ถามซ้ำ"`,
@@ -1531,8 +1691,17 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-27.2";
+const LOGIC_VERSION = "2026-07-30.3";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-30", text: "มาตินระบุรุ่นจากรูปได้เอง ไม่ใช่แค่บอกว่า \"ในรูปไม่เห็นชื่อรุ่น\" แล้วจบ: ขั้นตอนใหม่คือ อ่านลักษณะที่เห็น (จำนวนเลนส์ ทรงโมดูลกล้อง สี ดีไซน์กล่อง) → เดารุ่นที่เป็นไปได้ → **เรียกค้นหาในระบบเทียบกับรุ่นที่ร้านมีจริง** → เสนอเป็นปุ่มให้ลูกค้ากดยืนยัน (ห้ามฟันธงจากความจำโดยไม่เทียบระบบ). สิ่งที่รูปกล่องบอกไม่ได้จริงๆ คือความจุ และการแยก Pro กับ Pro Max (ต่างกันแค่ขนาด) — กติกาใหม่ให้ขอ \"รูปสติกเกอร์ข้างกล่อง\" ซึ่งมีรุ่น+ความจุ+part number+ซีเรียลครบในรูปเดียว และถ้าอ่าน part number ได้ ตัวท้าย (TH/A ศูนย์ไทย, ZP เอเชีย, LL อเมริกา, J ญี่ปุ่น, CH จีน) ใช้ถามยืนยันเรื่องเครื่องศูนย์/เครื่องนอกได้ทันที (ยังต้องให้ลูกค้ายืนยันก่อนหักราคาเหมือนเดิม)" },
+  { at: "2026-07-30", text: "มาตินดูรูปที่ลูกค้าส่งได้จริงแล้ว (เดิมตอบว่า \"ผมไม่สามารถดูรูปภาพที่ส่งมาได้\" ทั้งที่รูปกล่อง+ใบกำกับภาษีบอกรุ่น/ความจุ/ที่มาเครื่องครบในใบเดียว): รูปที่ลูกค้าแนบจะถูกส่งเข้าโมเดลพร้อมข้อความในเทิร์นนั้น ใช้อ่านชื่อรุ่น/ความจุจากกล่องหรือใบเสร็จ, อ่านเลขซีเรียล/IMEI, ดูสภาพรอยเบื้องต้น, ดูว่าซีลแกะแล้วหรือยัง. เพดานที่วางไว้กันค่าใช้จ่าย: แนบเฉพาะรูปล่าสุด (สูงสุด 2 ใบ จาก 8 ข้อความท้าย) ไม่ลากรูปเก่าไปทุกเทิร์น + cache ไม่ให้โหลดซ้ำ + โหลดไม่สำเร็จก็ตอบจากข้อความได้เหมือนเดิม. กฎเหล็กที่ยังคุมอยู่: ราคารับซื้อมาจากระบบเท่านั้น ห้ามอ่านราคาจากใบเสร็จ/กล่องมาใช้ และสิ่งที่เห็นจากรูปต้องให้ลูกค้ายืนยันก่อน ห้ามเอาไปหักราคาเอง" },
+  { at: "2026-07-30", text: "ปิดช่องที่ทำให้ราคาในการ์ดต่ำกว่าความจริง (เคสจริง iPhone 16 Pro Max 256GB: ราคาจริง 28,500 แต่การ์ดออก 21,375): ลูกค้าพิมพ์ \"0655610223 จีน\" ตอบคำถามขอชื่อ+เบอร์ — คำว่า \"จีน\" คือชื่อเล่นลูกค้า แต่ AI ตีความเป็นเครื่องนอกจีน (CH) แล้วหักราคา 25% เอง ทั้งที่ไม่มีใครถามเรื่องประเทศเลย. ตอนนี้ระบบบังคับว่า \"ทุกการหักราคาต้องมีที่มา\": ถ้า AI ส่งคำตอบสภาพเครื่องที่หักเงิน โดยเรื่องนั้นลูกค้าไม่เคยพูดและไม่มีใครถาม ระบบจะไม่หัก (คิดเป็นสภาพปกติ + ระบุบนการ์ดว่าเป็นค่าประเมิน) และเตือน AI ให้ไปถามลูกค้าก่อน. ข้อความที่มีเบอร์โทรไม่ถูกใช้เป็นหลักฐานสภาพเครื่องอีก (ชื่อคนมักมาคู่กับเบอร์)" },
+  { at: "2026-07-28", text: "แชทส่งรูปได้ทั้งสองทาง + สถานะ 'อ่านแล้ว' ทำงานจริงทั้งสองฝั่ง (เดิมพังทั้งคู่): (1) รูปของแอดมินอัปโหลดลง path ที่ storage rules ไม่อนุญาต = ล้มเหลวทุกครั้ง และ widget ก็ไม่มีตัวแสดงรูป — ตอนนี้แอดมินส่งรูปให้ลูกค้าเห็นได้ และลูกค้ามีปุ่มแนบรูปในแชทแล้ว (จำกัด 8MB เฉพาะไฟล์ภาพ) (2) 'อ่านแล้ว' ฝั่งลูกค้าไม่เคยขึ้นในแชทที่ AI ดูแล เพราะมีแต่แอดมินเปิดอ่านที่ตีธงได้ — ตอนนี้มาตินตอบ = ตีธงอ่านแล้วให้ด้วย, และฝั่งแอดมินเห็นติ๊กคู่เมื่อลูกค้าเปิดอ่านจริง (เพิ่ม rule ให้ลูกค้าเขียนได้แค่ธง read เท่านั้น)" },
+  { at: "2026-07-28", text: "รุ่นปีเก่าที่งดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนปุ่มให้เลือก (เคสจริง 'macbook pro 2012': ระบบชวนเลือกจาก 8 รุ่นที่ล้วนงดรับซื้อ ทั้งที่เจ้าของสอนไว้แล้วว่าปีเก่ากว่าที่รับ = งดทันที): กติกาใหม่อิงข้อมูลจริงไม่ hardcode ปี — ลูกค้าระบุปีที่ (ก) ตรงเฉพาะรุ่นงดรับซื้อ หรือ (ข) เก่ากว่าทุกรุ่นที่ยังรับในตระกูลนั้น → แจ้งงดรับซื้อทันที + แก้ด่านสำรอง: ตอนรุ่นยังกำกวม ('ipad 6') ข้อความบังคับจะถามยืนยันรุ่นพร้อมปุ่มตัวเลือกจริง ไม่ใช่ขอชื่อ+เบอร์ก่อนรู้รุ่น (ผิดกติกา 2.1.1 ที่เจอในแชทจริง)" },
+  { at: "2026-07-28", text: "มาตินรอให้ลูกค้าพิมพ์จบก่อนตอบ (จังหวะแบบมนุษย์): widget ส่งสัญญาณ 'กำลังพิมพ์' และระบบจะรอจนแป้นพิมพ์เงียบ (เพดาน ~20 วิ) ค่อยเริ่มคิด — ลูกค้าพิมพ์รัวหลาย bubble จะได้คำตอบเดียวที่เห็นครบทุกข้อความ ไม่ใช่ตอบแทรกทีละท่อน + เพิ่มไอคอนกำลังพิมพ์สองทาง: แอดมินพิมพ์ในคอนโซล ลูกค้าเห็นจุดกำลังพิมพ์เหมือนตอน AI พิมพ์, ลูกค้าพิมพ์ แอดมินเห็น 'ลูกค้ากำลังพิมพ์…' ในคอนโซล" },
+  { at: "2026-07-28", text: "ข้อความบังคับของระบบอ่านบริบทเครื่องซีลแล้ว (เคสจริง iPad Air 11\" M4 มือ 1: ลูกค้าบอก 'ยังไม่ได้แกะกล่อง' แต่ข้อความขอเบอร์ยังปิดท้ายด้วยคำถามรอยขีดข่วน): เมื่อลูกค้าระบุว่าเครื่องมือ 1 ยังไม่แกะซีล ข้อความบังคับทุกจุด (ขอชื่อ+เบอร์, โหมด Offer, ด่านกันราคาหลุด) สลับคำถามท้ายเป็น 'มีใบเสร็จ/หลักฐานการซื้อไหม' แทนคำถามสภาพมือสอง + เพิ่มกติกาใน persona ตรงๆ: เครื่องซีลข้ามชุดคำถามสภาพทั้งหมด ถามแค่ใบเสร็จกับความจุแล้วออกการ์ดเลย" },
+  { at: "2026-07-27", text: "แก้ปฏิเสธผิดรุ่นตระกูล MacBook Air (เคสจริง: ลูกค้าพิมพ์ 'Macbook Air M1 256GB' แต่โดนแจ้งงดรับซื้อ MacBook Air 11\" Intel 2013): บั๊กซ้อน 3 ชั้น — ระบบเคยทิ้งคำว่า M1 ทั้งที่เป็นตัวระบุรุ่นหลักของเครื่อง Apple Silicon, เลข 1 ที่แตกจาก M1 ไปนับคะแนนมั่วกับ 11/13/2013, และตัวเช็คกำกวมมองเห็นแค่ 5 ชื่อแรก (สั้นสุด = Intel งดรับซื้อล้วน) จนสรุปผิดว่าไม่กำกวม — ตอนนี้ 'MacBook Air M1' ปักรุ่น M1 2020 ทันที, ตัวเลขนับคะแนนแบบตรงทั้งคำเท่านั้น, ตัวเช็คกำกวมมองกว้างขึ้นเป็น 12 ชื่อ. โบนัส: 'MacBook Neo' ก็ปักรุ่นตรงได้แล้ว, 'MacBook Air M2' ยังถาม 13 หรือ 15 นิ้วตามจริง" },
+  { at: "2026-07-27", text: "เลิกบังคับยืนยันรุ่นทั้งที่ลูกค้าระบุชัดแล้ว (เคสจริง iPad Air รุ่นแรก: ลูกค้าบอกครบทั้งรุ่น/ความจุ/สภาพ แต่ยังโดนถามยืนยันพร้อมปุ่ม 5 รุ่น): ตัวปักรุ่นเข้าใจ 'รุ่นแรก/1st gen' แล้ว (ชื่อจริงของ Apple ไม่มีเลข 1 — iPad Air (2013) คือ Air 1) และมองข้าม suffix ชิปในชื่อ ('iPad Air 5' = iPad Air 5 (ชิป M1, 2022) ทันที) — รุ่นที่ต่างกันแค่ชิป (iPad Air 11\" M2/M3/M4) ยังถามยืนยันเหมือนเดิมเพราะจำเป็นจริง" },
   { at: "2026-07-27", text: "แก้ลูปถามแยกรุ่นไม่รู้จบ (เคสจริง iPhone 13: ถาม 'รุ่นไหนครับ' ซ้ำแม้ลูกค้ากดปุ่ม iPhone 13 แล้ว สุดท้ายไปแจ้งงดรับซื้อผิดรุ่นเป็น 13 mini): ต้นเหตุคือชื่อรุ่นธรรมดาเป็นส่วนหนึ่งของชื่อรุ่นพี่น้องทุกตัว คะแนนค้นหาจึงเสมอกันตลอดและระบบตีว่ากำกวมไม่มีทางออก — เพิ่มกติกา 'ชื่อตรงเป๊ะ = ปักรุ่นทันที': พิมพ์/กดปุ่มชื่อเต็มหรือชื่อเรียกของรุ่นไหน (รองรับไทย เช่น ไอโฟน 13, ตัดความจุ/คำว่าธรรมดา/คำลงท้ายให้เอง) ระบบยึดรุ่นนั้นเลย ไม่ถามซ้ำ — ชื่อเล่นกำกวมจริงอย่าง 'iPad 6' ยังถามยืนยันเหมือนเดิม" },
   { at: "2026-07-27", text: "อุดสำนวนหลบด่านจากเคสจริง MacBook Neo (รุ่นมีราคาในระบบ 15,000/17,000 แต่ AI ข้ามการค้นหาแล้วตอบ 'ขอเช็คในระบบก่อน...เดี๋ยวให้เจ้าหน้าที่ตรวจสอบและแจ้งราคาให้'): ด่านจับเพิ่ม 'ขอเช็ค...ในระบบก่อน' และ 'ให้เจ้าหน้าที่ตรวจสอบ/เช็คแล้วแจ้ง...' — เจอแบบนี้ระบบบังคับให้เช็คจริงให้จบในข้อความเดียวกัน (ซึ่งจะเจอราคาแล้วเข้าขั้นตอนปกติ) + แก้กติกาเดิมที่ยังสั่งให้พูด 'ขอเจ้าหน้าที่ยืนยันราคา' ตอนไม่พบรุ่น ให้เป็นขอชื่อ+เบอร์+รายละเอียดแทน" },
   { at: "2026-07-26", text: "ห้ามสัญญา 'จะติดต่อกลับ/เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ' ทั้งที่ไม่มีเบอร์ลูกค้า (เคสจริง iPad Gen 9 ข้อความ 'เดี๋ยวเจ้าหน้าที่จะเช็คให้และแจ้งราคากลับครับ' ทั้งที่ยังไม่ได้ขอเบอร์): ระบบจับคำสัญญา callback แยกจากคำว่ารอแล้ว — ไม่มีเบอร์ = บังคับเปลี่ยนเป็นขอชื่อ+เบอร์+รายละเอียดเครื่องทันที, มีเบอร์แต่ยังไม่เข้าคิวเจ้าหน้าที่ = บังคับส่งเรื่องเข้าคิวจริงให้คำสัญญาเป็นจริง, ข้อความบังคับของระบบเอง (ที่ขอเบอร์แล้วค่อยสัญญา) ไม่โดนวนแก้ซ้ำ + เพิ่มกติกาใน persona ตรงๆ ว่าห้ามสัญญาติดต่อกลับก่อนได้เบอร์" },
@@ -1665,6 +1834,38 @@ const OFFER_CONTACT_ASK =
   "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
 const OFFER_CONTACT_ASK_EN =
   "For this model our team makes a direct offer with our best price. Could you leave your name, phone number, and a few details about the device (storage and condition)? Our team will call you back with the best offer.";
+
+// The customer says the device is BRAND NEW AND SEALED — used-condition
+// questions ("จอมีรอยไหม") are nonsense for it. Live case #NE52: "Air 11
+// มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง" got the canned contact-ask
+// ending with the scratch question in the very next message. Requires a
+// sealed/unopened signal — "มือ 1" alone is NOT enough (a first-hand device
+// in use still has condition to assess).
+function brandNewSealedIntent(text) {
+  const t = String(text || "").toLowerCase().replace(/\s+/g, "");
+  return (
+    /ยังไม่(ได้)?(แกะ|เปิด)(กล่อง|ซีล|เครื่อง)?/.test(t) ||
+    /ไม่เคย(แกะ|เปิด)/.test(t) ||
+    /ซีลอยู่|ในซีล|ติดซีล/.test(t) ||
+    /brandnew|sealed|unopened|bnib|newinbox/.test(t)
+  );
+}
+
+// Context-aware canned contact asks: same contact-first / offer-mode copy,
+// but a sealed device swaps the trailing condition question for the
+// receipt / proof-of-purchase question the real flow needs.
+function contactFirstAskText(en, sealedNew) {
+  if (!sealedNew) return en ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+  return en
+    ? "Sure, let me put a quote together for you — the exact amount will be on your quote card. Could I get your name and phone number so our staff can look after your quote? And since the device is brand new and sealed, just one thing: do you have the receipt or proof of purchase?"
+    : "ได้เลยครับ เดี๋ยวผมประเมินราคาให้ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาครับ ขอชื่อและเบอร์โทรติดต่อไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคาของคุณหน่อยครับ ส่วนเครื่องที่ยังไม่แกะซีลไม่ต้องเช็คสภาพครับ ขอทราบแค่มีใบเสร็จหรือหลักฐานการซื้อไหมครับ";
+}
+function offerContactAskText(en, sealedNew) {
+  if (!sealedNew) return en ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+  return en
+    ? "For this model our team makes a direct offer with our best price. Could you leave your name, phone number, the storage size, and whether you have the receipt or proof of purchase? Our team will call you back with the best offer."
+    : "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร ความจุที่จะขาย และแจ้งว่ามีใบเสร็จหรือหลักฐานการซื้อไหมครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
+}
 
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
@@ -1812,6 +2013,19 @@ async function writeAiMessage(db, convoId, assistantName, rawText) {
     lastMessageAt: now,
     customer_unread: ServerValue.increment(1),
   });
+  // Read receipt for the customer: replying IS reading. Only a staffer
+  // opening the thread in the console used to set read=true, so in
+  // AI-handled chats (the vast majority) the customer's "อ่านแล้ว" never
+  // appeared at all. One bounded query + one multi-path update per reply.
+  try {
+    const recent = await db.ref(`inbox/${convoId}/messages`).orderByKey().limitToLast(12).once("value");
+    const flips = {};
+    recent.forEach((s) => {
+      const v = s.val() || {};
+      if (v.senderRole === "customer" && v.read !== true) flips[`${s.key}/read`] = true;
+    });
+    if (Object.keys(flips).length) await db.ref(`inbox/${convoId}/messages`).update(flips);
+  } catch { /* read receipts are cosmetic — never block a reply */ }
 }
 
 async function writeSystemMessage(db, convoId, text) {
@@ -1830,7 +2044,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -1840,14 +2054,17 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // alias — which is what the disambiguation chips send back) — that
         // model leads the results and the ambiguity question never re-fires.
         const pin = exactModelPin(list, input.query);
+        // scoredDetailed is a WIDE window (12) so declinedAmbiguity sees every
+        // tied sibling; the tool result itself stays capped at 5.
         const scoredRaw = scoredDetailed.map((x) => x.m);
-        const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;
+        const scored = (pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw).slice(0, 5);
         // Offer-mode memory for the escalate gate below: true when this turn's
         // search ended in "no listed price" (not in catalog, or deliberately
         // unpriced) — the two cases where rule 6 step 2(b) demands contact
         // info BEFORE escalating. Reset every search so a later priced search
         // clears it.
         state.lastSearchNoPrice = false;
+        state.ambCandidates = [];
         if (scored.length === 0) {
           state.lastSearchNoPrice = true;
           // Never let the model conclude "we don't buy this" from an empty
@@ -1881,6 +2098,17 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // yet may mean mini 6 / Air 6, which we still buy. When delisted and
         // buyable models tie on the query, ask which model first — regardless
         // of which one happened to rank top.
+        // Year-only decline (owner's rule): "macbook pro 2012" = a year the
+        // shop no longer buys — decline politely NOW instead of asking the
+        // customer to pick among chips that are all delisted themselves.
+        const yd = pin ? null : yearOnlyDecline(scoredRaw, input.query);
+        if (yd) {
+          return {
+            results: [],
+            declined_model: yd.label,
+            note: `ลูกค้าระบุปีที่ร้าน "งดรับซื้อ" แล้ว (${yd.label}) — นโยบายร้าน: รุ่นปีเก่ากว่าที่ยังแสดงราคารับซื้อ = งดรับซื้อทั้งหมด. แจ้งลูกค้าสุภาพตรงๆ ทันที ห้ามถามให้เลือกปี/รุ่นซ้ำ ห้ามสัญญาว่าเจ้าหน้าที่จะให้ราคา เสนอช่วยประเมินรุ่นอื่นที่ใหม่กว่าแทนได้`,
+          };
+        }
         // A pinned query is by definition not ambiguous — and if the pinned
         // model is delisted, the declined branch below fires for the RIGHT
         // model (scored[0] = pin), e.g. an explicit "iPhone 13 mini" or the
@@ -1888,6 +2116,11 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const amb = pin ? null : declinedAmbiguity(scoredDetailed);
         if (amb) {
           const candidateNames = [...amb.declined, ...amb.buyable].map((m) => m.name);
+          // Same-turn memory for the guard overrides below: while the model
+          // is unresolved, a canned CONTACT ask is the WRONG replacement —
+          // rule 2.1.1 forbids asking name/phone before the model is
+          // confirmed. The overrides re-ask the which-model question instead.
+          state.ambCandidates = candidateNames.slice(0, 6);
           return {
             results: [],
             ambiguous_model: true,
@@ -2263,6 +2496,8 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               };
         }
         const assumedGroups = [];
+        // Condition answers the guard refused (guessed, never discussed).
+        const unsupportedAnswers = [];
         const lines = [];
         const customerConditions = [];
         const rawConditions = {};
@@ -2331,6 +2566,34 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             const optId = answers[group.id];
             let opt = optId != null ? options.find((o) => o.id === optId) : null;
             let assumed = false;
+            // PROVENANCE GUARD — a deduction must trace back to something the
+            // customer actually said. The model may only pass answers it was
+            // told; when it passes a costly answer for a topic that never came
+            // up (nobody asked, nobody mentioned it), that is a guess and it
+            // takes money off the customer's quote. Live bug (#WFQ1): "จีน" —
+            // the customer's NAME, sent with their phone number — became
+            // "เครื่องนอก CH" and cut an iPhone 16 Pro Max 256GB from 28,500
+            // to 21,375. Dropping the answer falls through to the best-case
+            // default below, which the card already marks as an assumption.
+            // Answers confirmed on an earlier card are never re-judged.
+            if (
+              opt &&
+              (prevQuote && prevQuote.answers ? prevQuote.answers[group.id] !== opt.id : true) &&
+              (resolveOptionDeduction(opt, basePrice, model.liquidityFactor) > 0 ||
+                opt.failBehavior === "reject" ||
+                opt.defect === true) &&
+              conditionAnswerUnsupported({
+                groupTitle: group.title || group.name || "",
+                evidenceText: conditionEvidence,
+                assistantText,
+              })
+            ) {
+              console.warn(
+                `[chatAi] ${convoId} dropped unsupported condition answer: "${group.title || group.id}" = "${opt.label || opt.id}" (never asked, never mentioned)`
+              );
+              unsupportedAnswers.push(group.title || group.name || group.id);
+              opt = null;
+            }
             if (opt && (opt.failBehavior === "reject" || (opt.defect === true && !acceptDefective))) {
               // The customer's own answer means "we do not buy this device" —
               // never issue a full-price card for it (the 0-baht tiers on these
@@ -2481,6 +2744,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           ok: true,
           estimated_price: estimated,
           assumed_groups: assumedGroups,
+          ...(unsupportedAnswers.length > 0 ? { rejected_guessed_answers: unsupportedAnswers } : {}),
           ...(prevQuote
             ? {
                 amended_from_previous: true,
@@ -2505,6 +2769,9 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               : "") +
             (assumedGroups.length > 0
               ? " (ส่วนที่ไม่ได้ถามระบบประเมินตามสภาพปกติแล้ว บอกลูกค้าสั้นๆ ว่าถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง)"
+              : "") +
+            (unsupportedAnswers.length > 0
+              ? ` [คำเตือนระบบ] คุณส่งคำตอบสภาพเครื่องที่ลูกค้าไม่เคยบอกและไม่มีใครถามมาด้วย (${unsupportedAnswers.join(", ")}) ระบบไม่นำมาหักราคา — ห้ามเดาคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด ถ้าต้องรู้ให้ถามลูกค้าก่อน`
               : ""),
         };
       }
@@ -3276,6 +3543,85 @@ function buildClaudeHistory(messageList) {
 }
 
 // ---------------------------------------------------------------------------
+// Customer photos -> vision blocks
+// ---------------------------------------------------------------------------
+// A trade-in customer's photo is the densest input we get: the retail box
+// shows model + storage, the receipt shows purchase date and origin, and the
+// device itself shows the scratches we would otherwise have to interview them
+// about. Before this, the widget's photos never reached the model and it
+// answered "ผมไม่สามารถดูรูปภาพที่ส่งมาได้" — a dead end on the highest-intent
+// message a customer can send.
+const VISION_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const VISION_MAX_BYTES = 4 * 1024 * 1024; // API ceiling is 5MB base64; ours land ~300-500KB
+const VISION_FETCH_TIMEOUT_MS = 6000;
+// Only photos from the tail of the window are attached: a photo stays in the
+// payload (and is billed) on EVERY later turn otherwise. Two images from the
+// last handful of messages keeps "the customer just sent this" working without
+// dragging old attachments through the whole conversation.
+const VISION_RECENT_MESSAGES = 8;
+const VISION_MAX_IMAGES = 2;
+// Cloud Function instances are reused, so the same photo would be downloaded
+// again on every turn of the conversation. Small bounded cache, keyed by URL.
+const visionCache = new Map();
+const VISION_CACHE_MAX = 24;
+
+async function fetchImageAsBlock(url) {
+  const cached = visionCache.get(url);
+  if (cached) return cached;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const type = String(res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!VISION_MEDIA_TYPES.has(type)) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length || buf.length > VISION_MAX_BYTES) return null;
+    const block = { type: "image", source: { type: "base64", media_type: type, data: buf.toString("base64") } };
+    if (visionCache.size >= VISION_CACHE_MAX) visionCache.delete(visionCache.keys().next().value);
+    visionCache.set(url, block);
+    return block;
+  } catch {
+    return null; // network/timeout/abort — the turn continues text-only
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Attach the customer's recent photos to the LAST user turn (Claude reads
+// images in the turn they appear in). Never throws: a failed download just
+// means the model answers from text, exactly as it did before.
+async function attachCustomerImages(messages, messageList) {
+  const recent = messageList.slice(-VISION_RECENT_MESSAGES);
+  const urls = [];
+  for (const m of recent) {
+    if (!m || m.senderRole !== "customer") continue;
+    const u = typeof m.imageUrl === "string" ? m.imageUrl.trim() : "";
+    if (u && !urls.includes(u)) urls.push(u);
+  }
+  if (urls.length === 0) return { messages, attached: 0 };
+  const lastUser = [...messages].reverse().find((t) => t.role === "user");
+  if (!lastUser) return { messages, attached: 0 };
+  const blocks = (await Promise.all(urls.slice(-VISION_MAX_IMAGES).map(fetchImageAsBlock))).filter(Boolean);
+  if (blocks.length === 0) return { messages, attached: 0 };
+  const text = typeof lastUser.content === "string" ? lastUser.content : "";
+  lastUser.content = [
+    ...blocks,
+    {
+      type: "text",
+      text:
+        `${text}\n[ระบบ] รูปด้านบนเป็นรูปที่ลูกค้าส่งมาในแชทนี้ — ใช้ระบุรุ่น/ความจุ/เลขซีเรียล/สภาพเครื่องได้ ` +
+        `ทำตามข้อ 2.4.1: อ่านลักษณะที่เห็น (จำนวนเลนส์ ทรงโมดูลกล้อง สี ดีไซน์กล่อง สติกเกอร์) แล้วเรียก search_models ` +
+        `ด้วยชื่อรุ่นที่คาดไว้เพื่อเทียบกับสินค้าที่ร้านมีจริง ก่อนถามยืนยันรุ่นกับลูกค้า (เสนอเป็นปุ่มถ้าเหลือหลายรุ่น) ` +
+        `ถ้ารูปไม่โชว์ความจุหรือแยก Pro/Pro Max ไม่ได้ ให้ขอรูปสติกเกอร์ข้างกล่องซึ่งมีรุ่น+ความจุ+part number ครบ. ` +
+        `ราคารับซื้อต้องมาจาก search_models / create_quote_card เท่านั้น ห้ามใช้ตัวเลขบนใบเสร็จหรือกล่องเป็นราคารับซื้อ ` +
+        `และสิ่งที่เห็นจากรูปให้บอกลูกค้าแล้วขอให้ยืนยันก่อนคิดเป็นค่าหักราคา`.trim(),
+    },
+  ];
+  return { messages, attached: blocks.length };
+}
+
+// ---------------------------------------------------------------------------
 // The trigger
 // ---------------------------------------------------------------------------
 
@@ -3483,9 +3829,37 @@ function registerChatAi({ dispatchAdminPush }) {
         );
       }
 
+      // ---- Human pacing: wait for the keyboard to go quiet ----
+      // Humans don't answer while the other side is still typing. The widget
+      // heartbeats inbox/{id}/typing/customer (~2.5s while typing); wait for
+      // it to go stale — plus a short settle window that catches rapid-fire
+      // bubbles from widgets without the heartbeat (old cached builds) —
+      // BEFORE showing "กำลังพิมพ์" or spending tokens. If a newer bubble
+      // lands meanwhile, THAT invocation owns the reply (it re-reads the full
+      // history) and this one exits silently — same contract as the pre-send
+      // superseded check, just earlier and cheaper. Cap ~22s against the
+      // 120s function budget.
+      const pauseMs = (ms) => new Promise((r) => setTimeout(r, ms));
+      try {
+        const pacingStart = Date.now();
+        await pauseMs(2000);
+        for (;;) {
+          const newest = await latestCustomerMsgId(db, convoId);
+          if (newest && newest !== msgId) {
+            console.log(`[${tag}] ${convoId} newer bubble arrived while pacing — yielding to it`);
+            return;
+          }
+          const tSnap = await db.ref(`inbox/${convoId}/typing/customer`).once("value");
+          const typingAt = Number(tSnap.val() || 0);
+          if (!typingAt || Date.now() - typingAt > 4000) break;
+          if (Date.now() - pacingStart > 20000) break;
+          await pauseMs(2000);
+        }
+      } catch { /* pacing is best-effort — never blocks the reply */ }
+
       // ---- AI turn ----
       await db.ref(`inbox/${convoId}`).update({ ai_typing: true });
-      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, cannedFinal: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false };
+      const state = { escalated: false, escalatedThisTurn: false, alreadyWaiting: false, cannedFinal: false, savedPhone: "", contactGatePromptedThisTurn: false, lastSearchModelIds: [], lastSearchNoPrice: false, offerContactPromptedThisTurn: false, ambCandidates: [] };
       try {
         const inHours = isBusinessHours(pub);
 
@@ -3622,10 +3996,32 @@ function registerChatAi({ dispatchAdminPush }) {
           .filter((m) => m.senderRole === "customer")
           .map((m) => String(m.text || ""))
           .join(" \n ");
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text });
+        // Provenance inputs for the condition-answer guard in
+        // create_quote_card: what the CUSTOMER actually said (contact replies
+        // stripped — see looksLikeContactReply) and what the assistant asked.
+        const conditionEvidence = history
+          .filter((m) => m.senderRole === "customer" && !looksLikeContactReply(m.text))
+          .map((m) => String(m.text || ""))
+          .join(" \n ");
+        const assistantText = history
+          .filter((m) => m.senderRole === "ai" || m.senderRole === "admin")
+          .map((m) => String(m.text || ""))
+          .join(" \n ");
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
+        // Customer photos ride along on the last user turn. Best-effort by
+        // design: a download failure degrades to the old text-only behaviour
+        // instead of failing the turn.
+        try {
+          const vision = await attachCustomerImages(messages, history);
+          if (vision.attached > 0) {
+            console.log(`[${tag}] ${convoId} attached ${vision.attached} customer photo(s) to the model turn`);
+          }
+        } catch (err) {
+          console.warn(`[${tag}] ${convoId} photo attach failed:`, err && err.message);
+        }
 
         let finalText = "";
         // Text the model wrote alongside tool calls in earlier rounds — used
@@ -3862,15 +4258,29 @@ function registerChatAi({ dispatchAdminPush }) {
         // tail AND the final pre-send assertion below the verifier: swap a
         // dead-air "รอสักครู่" for the flow's real next step.
         const overrideWaitPromise = async () => {
-          if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
+          const en = isEnglishText(text);
+          const sealed = brandNewSealedIntent(text);
+          if (state.ambCandidates && state.ambCandidates.length >= 2) {
+            // Model still ambiguous this turn (live case #YDD2 "ipad 6": the
+            // override shipped the contact ask while the model was never
+            // confirmed — rule 2.1.1 says confirm the model FIRST). Re-ask
+            // the which-model question with the real candidates as chips.
+            finalText = en
+              ? `Just to be sure — which model do you mean exactly? [ตัวเลือก: ${state.ambCandidates.join(" | ")}]`
+              : `ขอยืนยันรุ่นให้ชัดก่อนนะครับ หมายถึงรุ่นไหนครับ [ตัวเลือก: ${state.ambCandidates.join(" | ")}]`;
+          } else if (state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)) {
             // Offer mode with no callback number -> the offer-mode contact ask.
             state.offerContactPromptedThisTurn = true;
-            finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+            finalText = offerContactAskText(en, sealed);
           } else if (contactGateWillBlock) {
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(en, sealed);
             await markContactAsked();
+          } else if (sealed) {
+            finalText = en
+              ? "Sure — could you tell me the storage size, and do you have the receipt or proof of purchase? I will put your quote together right away."
+              : "ได้เลยครับ รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
           } else {
-            finalText = isEnglishText(text)
+            finalText = en
               ? "Sure — could you tell me the storage size and the overall condition of the device? I will put your quote together right away."
               : "ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ";
           }
@@ -3896,7 +4306,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // condition questions, no card this turn.
         if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
-          finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+          finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
           state.cannedFinal = true;
           await markContactAsked();
         } else if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote) {
@@ -3962,7 +4372,7 @@ function registerChatAi({ dispatchAdminPush }) {
           if (!quoteOk && gateBlockedInRecovery) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
             state.cannedFinal = true;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
@@ -4070,7 +4480,7 @@ function registerChatAi({ dispatchAdminPush }) {
               // queued for staff, so the "เดี๋ยวแจ้งกลับ" draft is now a lie.
               // Swap it for the contact ask the gate demanded.
               console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
-              finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+              finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
               state.cannedFinal = true;
             }
           }
@@ -4089,7 +4499,7 @@ function registerChatAi({ dispatchAdminPush }) {
           !/เบอร์|phone/i.test(finalText)
         ) {
           console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
-          finalText = isEnglishText(text) ? OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;
+          finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
           state.cannedFinal = true;
         }
 
@@ -4128,9 +4538,14 @@ function registerChatAi({ dispatchAdminPush }) {
           if (scrubbed && !priceLeakBeforeCard(scrubbed)) {
             finalText = scrubbed;
           } else if (contactGateWillBlock) {
-            finalText = isEnglishText(text) ? CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK;
+            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
             state.cannedFinal = true;
             await markContactAsked();
+          } else if (brandNewSealedIntent(text)) {
+            finalText = isEnglishText(text)
+              ? "Sure — the exact amount will be on your quote card. One more thing: do you have the receipt or proof of purchase?"
+              : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามต่อครับ — มีใบเสร็จหรือหลักฐานการซื้อไหมครับ";
+            state.cannedFinal = true;
           } else {
             finalText = isEnglishText(text)
               ? "Sure — the exact amount will be on your quote card. One more question about the device: any scratches or damage on the screen or body?"
@@ -4580,6 +4995,12 @@ module.exports = {
     declinedAmbiguity,
     exactModelPin,
     normalizeForPin,
+    yearOnlyDecline,
+    modelFamilyLabel,
+    looksLikeContactReply,
+    attachCustomerImages,
+    conditionTopicWords,
+    conditionAnswerUnsupported,
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
@@ -4591,6 +5012,9 @@ module.exports = {
     announcedQuoteIntent,
     waitPromiseIntent,
     callbackPromiseIntent,
+    brandNewSealedIntent,
+    contactFirstAskText,
+    offerContactAskText,
     internalLeak,
     warrantyNoEffectClaim,
     searchFaq,

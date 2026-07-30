@@ -13,6 +13,7 @@ import { parseTimeRange, existingApptDate as getApptDate, buildPickupSchedule } 
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '@/utils/receiveMethod';
 import type { BranchRecord } from '@/utils/receiveMethod';
 import { isAwaitingOffer } from '@/utils/offerRequest';
+import { CustomerOfferDecisionCard } from './CustomerOfferDecisionCard';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 import { canReviewAdjustments } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
@@ -36,6 +37,7 @@ interface PricingSidebarHandlers {
   handleReviewAdjustment: (id: string, approve: boolean) => Promise<void>;
   handleEditRiderDiscount: (newValue: number) => Promise<void>;
   handleRemoveRiderDiscount: () => Promise<void>;
+  handleDecideCustomerOffer: (decision: 'accept' | 'counter' | 'decline', counterAmount?: number, note?: string) => Promise<void>;
 }
 
 interface CouponState {
@@ -92,7 +94,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
     handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
     setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId,
     handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment,
-    handleEditRiderDiscount, handleRemoveRiderDiscount
+    handleEditRiderDiscount, handleRemoveRiderDiscount, handleDecideCustomerOffer
   } = handlers;
   const canReview = canReviewAdjustments(currentUserRole);
   const [adjLabel, setAdjLabel] = useState('');
@@ -285,6 +287,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 สเปกนี้ยังไม่มีราคากลางในระบบ — โทรติดต่อลูกค้าเพื่อเสนอราคา แล้วบันทึกราคาที่ตกลงลงในงานนี้
               </p>
             </div>
+          )}
+          {/* Make Offer — ลูกค้าเสนอราคาเอง: CEO/MANAGER ตัดสิน รับ/เคาน์เตอร์/ยืนราคา */}
+          {job.customer_offer && !isCancelled && (
+            <CustomerOfferDecisionCard job={job} canReview={canReview} onDecide={handleDecideCustomerOffer} />
           )}
           <div className="space-y-3 mb-6 pb-6 border-b border-white/10">
             {job.initial_customer_price && job.initial_customer_price !== basePrice && (

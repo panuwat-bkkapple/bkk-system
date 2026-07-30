@@ -835,7 +835,7 @@ check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iph
   check("offer-mode backstop exists after the guard", backstop > guard);
   check("backstop keys on the gate having fired this turn", src.indexOf("state.offerContactPromptedThisTurn &&", backstop) > backstop);
   check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์|phone/i.test(finalText)", backstop) > backstop);
-  check("backstop overrides with the canned contact ask", src.indexOf("OFFER_CONTACT_ASK_EN : OFFER_CONTACT_ASK;", backstop) > backstop);
+  check("backstop overrides with the canned contact ask", src.indexOf("offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));", backstop) > backstop);
   check("OFFER_CONTACT_ASK asks for name+phone+device details", /const OFFER_CONTACT_ASK\s*=\s*\n?\s*"[^"]*เบอร์โทร[^"]*ความจุ/.test(src));
 }
 
@@ -950,9 +950,9 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("tail delegates to the shared override", src.slice(tail, tail + 300).includes("await overrideWaitPromise()"));
   const ov = src.indexOf("const overrideWaitPromise = async () => {");
   check("shared override is declared before the tail", ov > 0 && ov < tail);
-  const ovBody = src.slice(ov, ov + 1600);
+  const ovBody = src.slice(ov, ov + 2800);
   check("offer mode with no phone -> offer contact ask", ovBody.includes("state.lastSearchNoPrice && !(convo.customer_phone || state.savedPhone)"));
-  check("contact gate pending -> contact-first ask", ovBody.includes("CONTACT_FIRST_ASK_EN : CONTACT_FIRST_ASK"));
+  check("contact gate pending -> contact-first ask", ovBody.includes("contactFirstAskText(en, sealed)"));
   check("otherwise -> ask storage+condition, never wait", ovBody.includes("รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ"));
   check("the fallback lines are not themselves wait-promises", !__test.waitPromiseIntent("ได้เลยครับ รบกวนบอกความจุกับสภาพเครื่องคร่าวๆ หน่อยครับ เดี๋ยวผมประเมินราคาให้ทันทีเลยครับ"));
   check("live #PSP1 reply would be caught", __test.waitPromiseIntent("ขอบคุณครับ ขอเช็คราคารับซื้อ iPad Generation 10 ในระบบให้ก่อนนะครับ รอสักครู่ครับ"));
@@ -1040,6 +1040,9 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
     { id: "g6", name: "iPad Generation 6 (2018)", brand: "Apple", alias_th: "ไอแพด เจน 6 2018, ไอแพด Gen 6", alias_en: "iPad Generation 6 2018, iPad Gen 6", category: "iPad", is_active: false, variants: [] },
     { id: "a11m2", name: 'iPad Air 11" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 11 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 11 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
     { id: "a13m2", name: 'iPad Air 13" (ชิป M2, 2024)', brand: "Apple", alias_th: "ไอแพดแอร์ 13 M2 2024, ไอแพดแอร์ 6", alias_en: "iPad Air 13 M2 2024, iPad Air 6", category: "iPad", is_active: true, variants: [] },
+    { id: "a11m3", name: 'iPad Air 11" (ชิป M3, 2025)', brand: "Apple", alias_th: "ไอแพดแอร์ 11 M3 2025, ไอแพดแอร์ 7", alias_en: "iPad Air 11 M3 2025, iPad Air 7", category: "iPad", is_active: true, variants: [] },
+    { id: "air1", name: "iPad Air (2013)", brand: "Apple", alias_th: "ไอแพดแอร์ 2013", alias_en: "iPad Air 2013", category: "iPad", is_active: false, variants: [] },
+    { id: "air5", name: "iPad Air 5 (ชิป M1, 2022)", brand: "Apple", alias_th: "ไอแพดแอร์ 5 M1 2022", alias_en: "iPad Air 5 M1 2022", category: "iPad", is_active: true, variants: [] },
   ];
   const pin = (q) => { const r = __test.exactModelPin(P_CATALOG, q); return r ? r.id : null; };
   check("chip answer 'iPhone 13' pins the base model", pin("iPhone 13") === "b13");
@@ -1051,13 +1054,240 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("nickname 'iPad 6' stays unpinned (confirm flow preserved)", pin("iPad 6") === null && pin("ไอแพด 6") === null);
   check("comma-separated alias part pins Gen 6", pin("iPad Gen 6") === "g6");
   check("shared alias across two models never pins", pin("ไอแพดแอร์ 6") === null);
+  // Live case #VYI2: "iPad Air รุ่นแรก (iPad Air 1) ... จอมีรอยร้าว" — the
+  // customer named the model precisely, yet still got confirm-which-model
+  // chips: Apple's first-gen names carry no "1" ("iPad Air (2013)") and
+  // chip-suffixed names ("iPad Air 5 (ชิป M1, 2022)") never equaled the
+  // bare query. Ordinal + chip-designator normalization fix both.
+  check("'iPad Air 1' pins the unnumbered first gen", pin("iPad Air 1") === "air1");
+  check("'iPad Air รุ่นแรก' pins the first gen", pin("iPad Air รุ่นแรก") === "air1");
+  check("'iPad Air first gen' pins the first gen", pin("iPad Air first gen") === "air1");
+  check("bare official name pins the first gen", pin("iPad Air") === "air1");
+  check("chip suffix is transparent ('iPad Air 5' = M1 2022)", pin("iPad Air 5") === "air5");
+  check("chip-only siblings stay unpinned ('iPad Air 11' = M2 or M3)", pin("iPad Air 11") === null);
+  // Live case #CIF1: "Macbook Air M1 256GB" got declined as "MacBook Air 11"
+  // (Intel, 2013)". Three stacked failures: the pin's old chip-DROP ate the
+  // customer's M1; the "1" split off "M1" substring-matched 11/13/2013 so
+  // every Intel Air tied; and the top-5 truncation (shortest names = all
+  // delisted Intels) hid the buyable M1 from the ambiguity check, which then
+  // concluded unambiguous-declined. Chip tokens are now kept (merged as
+  // "m1"), the subset rule pins chip-qualified queries, numeric tokens match
+  // whole name tokens only, and the ambiguity window widened to 12.
+  const MB_CATALOG = [
+    { id: "mba11i13", name: 'MacBook Air 11" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2013", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba11i14", name: 'MacBook Air 11" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2014", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba11i15", name: 'MacBook Air 11" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 11 Intel 2015", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i13", name: 'MacBook Air 13" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2013", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i14", name: 'MacBook Air 13" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2014", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mba13i15", name: 'MacBook Air 13" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 Intel 2015", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "mbam1", name: 'MacBook Air 13" (ชิป M1, 2020)', brand: "Apple", alias_th: "แมคบุ๊คแอร์ 13 M1 2020", alias_en: "MacBook Air 13 M1 2020", category: "Mac / Laptop", is_active: true, variants: [] },
+    { id: "mbam2_13", name: 'MacBook Air 13" (ชิป M2, 2022)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 13 M2 2022", category: "Mac / Laptop", is_active: true, variants: [] },
+    { id: "mbam2_15", name: 'MacBook Air 15" (ชิป M2, 2023)', brand: "Apple", alias_th: "", alias_en: "MacBook Air 15 M2 2023", category: "Mac / Laptop", is_active: true, variants: [] },
+  ];
+  const mpin = (q) => { const r = __test.exactModelPin(MB_CATALOG, q); return r ? r.id : null; };
+  check("'Macbook Air M1 256GB' pins the M1 2020", mpin("Macbook Air M1 256GB") === "mbam1");
+  check("'MacBook Air M1' pins the M1 2020", mpin("MacBook Air M1") === "mbam1");
+  check("'MacBook Air M2' stays unpinned (13 vs 15)", mpin("MacBook Air M2") === null);
+  check("bare 'MacBook Air' stays unpinned", mpin("MacBook Air") === null);
+  const mbsd = __test.rankModelsScored(MB_CATALOG, "Macbook Air M1 256GB");
+  check("M1 2020 outranks the Intels (no fake '1' hits)", mbsd[0].m.id === "mbam1" && mbsd[0].hits > mbsd[1].hits);
+  const mbAmb = __test.declinedAmbiguity(__test.rankModelsScored(MB_CATALOG, "MacBook Air"));
+  check("bare 'MacBook Air' is ambiguous, never a straight decline", !!mbAmb && mbAmb.buyable.length > 0);
   // The old dead-loop, proven: without the pin the family is ambiguous even
   // for the exact base name; with the pin search_models skips the ambiguity.
   const sd = __test.rankModelsScored(P_CATALOG, "iPhone 13");
   check("family still ties in raw scoring (why the loop existed)", !!__test.declinedAmbiguity(sd));
   check("search skips ambiguity when pinned", src.includes("const amb = pin ? null : declinedAmbiguity(scoredDetailed);"));
-  check("pinned model leads the results", src.includes("const scored = pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw;"));
+  check("pinned model leads the results (capped at 5)", src.includes("const scored = (pin ? [pin, ...scoredRaw.filter((m) => m.id !== pin.id)] : scoredRaw).slice(0, 5);"));
   check("pin note tells the model not to re-ask", src.includes("ห้ามถามแยกรุ่นซ้ำ"));
+}
+
+// --- sealed brand-new devices skip the used-condition question ---------------
+// Live case #NE52: "Air 11 มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง" got the
+// canned contact-ask ending with "จอหรือตัวเครื่องมีรอยไหม" — a nonsense
+// question for a sealed unit. Every canned guard text now swaps its trailing
+// question to receipt/proof-of-purchase when the customer says sealed.
+{
+  const ne52 = "Air 11 มือ 1 รับซื้อเท่าไหร่ครับ ยังไม่ได้แกะกล่อง";
+  check("IMG #NE52 message reads as sealed-new", __test.brandNewSealedIntent(ne52));
+  check("'ซีลอยู่' reads as sealed-new", __test.brandNewSealedIntent("มือหนึ่ง ซีลอยู่ครับ"));
+  check("EN 'brand new sealed' reads as sealed-new", __test.brandNewSealedIntent("selling a brand new sealed iPad"));
+  check("'มือ 1' alone is NOT sealed (still has condition)", !__test.brandNewSealedIntent("iPad มือ 1 ใช้มาสองเดือนครับ"));
+  check("used-device text is NOT sealed", !__test.brandNewSealedIntent("มือสอง สภาพดี จอมีรอยนิดหน่อย"));
+  const sealedAsk = __test.contactFirstAskText(false, true);
+  check("sealed contact-ask asks for the receipt", sealedAsk.includes("ใบเสร็จ") && !/มีรอยหรือความเสียหาย/.test(sealedAsk));
+  check("sealed contact-ask still asks name+phone", sealedAsk.includes("เบอร์โทร"));
+  check("normal contact-ask unchanged", __test.contactFirstAskText(false, false).includes("จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ"));
+  const sealedOffer = __test.offerContactAskText(false, true);
+  check("sealed offer-ask asks receipt not condition", sealedOffer.includes("ใบเสร็จ") && !sealedOffer.includes("สภาพเครื่อง"));
+  check("sealed offer-ask keeps phone + callback framing", sealedOffer.includes("เบอร์โทร") && sealedOffer.includes("ติดต่อกลับ"));
+  check("normal offer-ask unchanged", __test.offerContactAskText(false, false) === "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร แล้วก็ความจุกับสภาพเครื่องคร่าวๆ ไว้ตรงนี้ได้เลยครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ");
+  check("sealed canned texts are not dead promises themselves", !__test.waitPromiseIntent(sealedAsk) && !__test.waitPromiseIntent(sealedOffer));
+  check("override tail has a sealed branch", src.includes("รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ"));
+  check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
+}
+
+// --- Martin can actually see customer photos ---------------------------------
+// Live gap: the customer sent a retail box + tax invoice (model, storage and
+// origin in one shot) and got "ผมไม่สามารถดูรูปภาพที่ส่งมาได้" — a dead end on
+// the highest-intent message in the funnel. Photos now ride on the last user
+// turn as vision blocks, with cost + failure bounds.
+{
+  const realFetch = globalThis.fetch;
+  const jpeg = Buffer.from('ffd8ffe000104a46494600010100000100010000ffd9', 'hex');
+  let calls = 0;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => 'image/jpeg' },
+    arrayBuffer: async () => jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.length),
+  });
+  const history = [
+    { senderRole: 'customer', text: 'สวัสดีครับ' },
+    { senderRole: 'ai', text: 'ยินดีครับ' },
+    { senderRole: 'customer', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/a.jpg?token=1' },
+  ];
+  const msgs = [
+    { role: 'user', content: 'สวัสดีครับ' },
+    { role: 'assistant', content: 'ยินดีครับ' },
+    { role: 'user', content: 'ส่งรูปภาพ' },
+  ];
+  const r1 = await __test.attachCustomerImages(msgs, history);
+  const last = msgs[msgs.length - 1];
+  check('a customer photo is attached', r1.attached === 1);
+  check('it lands on the last USER turn as image+text blocks', Array.isArray(last.content) && last.content[0].type === 'image' && last.content[1].type === 'text');
+  check('the block is a valid base64 source', last.content[0].source.type === 'base64' && last.content[0].source.media_type === 'image/jpeg' && last.content[0].source.data.length > 0);
+  check('the original message text survives', last.content[1].text.includes('ส่งรูปภาพ'));
+  check('the money guardrail rides with the photo', last.content[1].text.includes('ห้ามใช้ตัวเลขบนใบเสร็จ'));
+  calls = 0;
+  globalThis.fetch = async () => { calls++; return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.length) }; };
+  await __test.attachCustomerImages([{ role: 'user', content: 'ส่งรูปภาพ' }], history);
+  check('the same photo is cached, not re-downloaded every turn', calls === 0);
+  const r2 = await __test.attachCustomerImages([{ role: 'user', content: 'hi' }], [{ senderRole: 'customer', text: 'hi' }]);
+  check('a text-only conversation is left untouched', r2.attached === 0);
+  const r3 = await __test.attachCustomerImages(
+    [{ role: 'user', content: 'hi' }],
+    [{ senderRole: 'admin', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/staff.jpg' }, { senderRole: 'customer', text: 'hi' }],
+  );
+  check('staff photos are NOT billed into the model turn', r3.attached === 0);
+  globalThis.fetch = async () => { throw new Error('network down'); };
+  const msgsFail = [{ role: 'user', content: 'ส่งรูปภาพ' }];
+  const r4 = await __test.attachCustomerImages(msgsFail, [{ senderRole: 'customer', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/down.jpg' }]);
+  check('a download failure degrades to text-only', r4.attached === 0 && typeof msgsFail[0].content === 'string');
+  globalThis.fetch = async () => ({ ok: true, headers: { get: () => 'application/pdf' }, arrayBuffer: async () => jpeg.buffer });
+  const r5 = await __test.attachCustomerImages([{ role: 'user', content: 'x' }], [{ senderRole: 'customer', text: 'x', imageUrl: 'https://firebasestorage.googleapis.com/doc.pdf' }]);
+  check('non-image media types are refused', r5.attached === 0);
+  globalThis.fetch = realFetch;
+  check('attach is wired into the handler turn', src.includes('const vision = await attachCustomerImages(messages, history);'));
+  check('cost bounds are explicit', /VISION_RECENT_MESSAGES = 8/.test(src) && /VISION_MAX_IMAGES = 2/.test(src));
+  check('persona says photos ARE visible', sysNoCust.includes('ลูกค้าส่งรูปได้และ "คุณดูรูปได้จริง"'));
+  // Identification workflow: the live follow-up was "รูปอ่านได้ แต่ระบุรุ่นไม่ได้".
+  // A box front carries no model name, so the model must reason from visible
+  // hardware traits, VALIDATE against the catalog (never assert from memory),
+  // and ask for the side sticker for what a box front genuinely cannot show.
+  check('persona: infer traits then validate via search_models', sysNoCust.includes('เรียก search_models ด้วยชื่อนั้น') && sysNoCust.includes('ห้ามฟันธงชื่อรุ่นจากความจำโดยไม่เทียบกับระบบ'));
+  check('persona: offer catalog candidates as chips', sysNoCust.includes('เสนอเป็นปุ่มตัวเลือกจากชื่อรุ่นจริงในผลค้นหา'));
+  check('persona: never guess storage or Pro vs Pro Max', sysNoCust.includes('ขนาด Pro กับ Pro Max'));
+  check('persona: ask for the side sticker', sysNoCust.includes('รูปสติกเกอร์ข้างกล่อง'));
+  check('persona: part-number suffix maps to origin', sysNoCust.includes('TH/A = ศูนย์ไทย') && sysNoCust.includes('ห้ามเอาไปหักราคาเอง'));
+  check('the attached photo prompt carries the workflow', src.includes('ทำตามข้อ 2.4.1'));
+  check('persona keeps prices tool-only for photos', sysNoCust.includes('ห้ามเอาตัวเลขบนใบเสร็จ/กล่อง/ป้ายราคามาเป็นราคารับซื้อ'));
+  check('persona requires confirming what the photo shows', sysNoCust.includes('บอกลูกค้าแล้วขอยืนยัน'));
+}
+
+// --- every deduction must trace back to something the customer said ---------
+// Live bug #WFQ1: iPhone 16 Pro Max 256GB is 28,500 in the catalog, but the
+// card came out 21,375 — exactly -25%, and the only 25% option in that
+// condition set is "เครื่องนอกมีข้อจำกัด (LL / J / CH / KH)". The customer had
+// typed "0655610223 จีน" answering "ขอชื่อกับเบอร์โทร": จีน was their
+// nickname, the model read it as CH/China origin. Nobody ever asked about
+// country. The owner had to quote 29,000 by hand.
+{
+  const COUNTRY = "ประเทศที่ซื้อ";
+  const BATTERY = "สุขภาพแบตเตอรี่";
+  const unsup = (groupTitle, evidenceText, assistantText = "") =>
+    __test.conditionAnswerUnsupported({ groupTitle, evidenceText, assistantText });
+  check("a phone-bearing message is a contact reply", __test.looksLikeContactReply("0655610223 จีน"));
+  check("phone with dashes/spaces still detected", __test.looksLikeContactReply("065 561 0223 จีน") && __test.looksLikeContactReply("065-561-0223"));
+  check("battery percent is NOT a phone", !__test.looksLikeContactReply("แบต 89%"));
+  check("storage size is NOT a phone", !__test.looksLikeContactReply("256GB"));
+  // The live turn: evidence excludes the contact reply, so จีน is invisible.
+  check(
+    "#WFQ1 country deduction is refused (nobody asked, nobody said)",
+    unsup(COUNTRY, "iPhone 16 Pro Max \n 256GB", "ก่อนออกใบเสนอราคาให้ รบกวนขอชื่อกับเบอร์โทร"),
+  );
+  // Genuine deductions must survive — under-quoting loses the deal, but
+  // over-quoting loses margin, so both directions matter.
+  check("customer stating 'เครื่องนอก LL' keeps the deduction", !unsup(COUNTRY, "เครื่องนอก LL ครับ"));
+  check("customer stating 'ซื้อมาจากจีน' keeps the deduction", !unsup(COUNTRY, "ซื้อมาจากจีนครับ"));
+  check("AI having asked about origin keeps the deduction", !unsup(COUNTRY, "ไม่แน่ใจ", "เครื่องศูนย์ไทย (TH/A) หรือเครื่องนอกครับ"));
+  check("battery answer after the AI asked keeps the deduction", !unsup(BATTERY, "85%", "สุขภาพแบตเตอรี่กี่ % ครับ"));
+  check("unknown group titles stay permissive (never block what we cannot judge)", !unsup("กลุ่มพิเศษที่ไม่รู้จัก", "", ""));
+  check("every mapped topic resolves keywords", ["สุขภาพแบตเตอรี่", "สภาพจอภาพและกระจก", "สภาพตัวเครื่องและฝาหลัง", "ประกัน", "ประเทศที่ซื้อ", "ประวัติการซ่อม", "อุปกรณ์เสริมที่นำมาด้วย"].every((t) => (__test.conditionTopicWords(t) || []).length > 0));
+  // Wiring: the guard runs before the defect/reject branch (an invented
+  // reject answer must not decline a healthy device either), skips answers
+  // already confirmed on a previous card, and drops to the best-case default.
+  const guard = src.indexOf("PROVENANCE GUARD");
+  const defect = src.indexOf('if (opt && (opt.failBehavior === "reject" || (opt.defect === true && !acceptDefective))) {');
+  check("provenance guard exists", guard > 0);
+  check("guard runs before the defect decline", defect > 0 && guard < defect);
+  check("guard covers reject/defect answers too", src.slice(guard, guard + 1400).includes('opt.failBehavior === "reject" ||'));
+  check("guard respects answers confirmed on an earlier card", src.slice(guard, guard + 1400).includes("prevQuote.answers[group.id] !== opt.id"));
+  check("dropped answer falls through to best case", src.slice(guard, guard + 1800).includes("opt = null;"));
+  check("evidence excludes contact replies", src.includes('m.senderRole === "customer" && !looksLikeContactReply(m.text)'));
+  check("the model is told it guessed", src.includes("ห้ามเดาคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด"));
+  check("persona forbids inventing condition answers", sysNoCust.includes("ห้ามเดา/กรอกคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด"));
+}
+
+// --- year-only decline: old years never become a which-model quiz ------------
+// Live case #YDD2 "macbook pro 2012": every tied candidate was itself a
+// delisted Intel, yet the customer got 8 chips to choose from (bottoming at
+// 2013 — 2012 is not even in the catalog). Owner's rule: a year older than
+// anything we still buy = decline immediately. Data-driven, no hardcoded
+// cutoff year.
+{
+  const YCAT = [
+    { id: "i13", name: 'MacBook Pro 13" (Intel, 2013)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i14", name: 'MacBook Pro 13" (Intel, 2014)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i15x", name: 'MacBook Pro 15" (Intel, 2015)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "i19", name: 'MacBook Pro 13" (Intel, 2019)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: false, variants: [] },
+    { id: "m4", name: 'MacBook Pro 14" (ชิป M4, 2024)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", is_active: true, variants: [] },
+  ];
+  const yd = (q) => __test.yearOnlyDecline(YCAT, q);
+  check("2012 (older than everything) declines with a year label", yd("macbook pro 2012")?.label === "MacBook Pro ปี 2012");
+  check("2013 (exists, all delisted) declines", !!yd("macbook pro 2013"));
+  check("2019 delisted single model declines with its real name", yd("macbook pro 2019")?.label === 'MacBook Pro 13" (Intel, 2019)');
+  check("2024 (buyable year) stays in the normal flow", yd("macbook pro 2024") === null);
+  check("no year in the query -> no year decline", yd("macbook pro") === null);
+  check("family label strips size and parens", __test.modelFamilyLabel(YCAT[0]) === "MacBook Pro");
+  const ydAt = src.indexOf("const yd = pin ? null : yearOnlyDecline(scoredRaw, input.query);");
+  const ambAt = src.indexOf("const amb = pin ? null : declinedAmbiguity(scoredDetailed);");
+  check("year decline runs before the ambiguity quiz", ydAt > 0 && ambAt > 0 && ydAt < ambAt);
+  check("year decline note forbids re-asking", src.includes("ห้ามถามให้เลือกปี/รุ่นซ้ำ"));
+  // Ambiguous-turn override: the canned replacement must re-ask WHICH MODEL,
+  // never ask name/phone while the model is unconfirmed (rule 2.1.1 —
+  // live case "ipad 6" got the contact ask instead of the chips).
+  check("amb candidates remembered for the guards", src.includes("state.ambCandidates = candidateNames.slice(0, 6);"));
+  check("override re-asks which model first", src.includes("ขอยืนยันรุ่นให้ชัดก่อนนะครับ หมายถึงรุ่นไหนครับ [ตัวเลือก: ${state.ambCandidates.join(\" | \")}]"));
+  check("amb branch outranks the contact branches", /state\.ambCandidates && state\.ambCandidates\.length >= 2/.test(src));
+}
+
+// --- human pacing: wait for the customer's keyboard to go quiet --------------
+// The AI used to answer bubble #1 immediately while the customer was still
+// typing bubbles #2-3 — interleaved replies. Now: a settle delay + the
+// widget's typing/customer heartbeat hold the turn until typing stops; if a
+// newer bubble lands while waiting, that invocation owns the reply and this
+// one yields BEFORE spending tokens (the pre-send superseded check remains
+// as the late-arrival net).
+{
+  const pacing = src.indexOf("---- Human pacing");
+  const typingSet = src.indexOf("update({ ai_typing: true })");
+  check("pacing block exists", pacing > 0);
+  check("pacing runs BEFORE the typing indicator + LLM work", typingSet > 0 && pacing < typingSet);
+  const body = src.slice(pacing, pacing + 1600);
+  check("pacing reads the widget heartbeat", body.includes("typing/customer"));
+  check("pacing yields to a newer bubble", body.includes("newer bubble arrived while pacing — yielding"));
+  check("pacing is capped (never eats the function budget)", body.includes("pacingStart > 20000"));
+  check("pacing failure never blocks the reply", body.includes("pacing is best-effort"));
 }
 
 // --- low customer CSAT -> push staff + queue the comment for teaching --------

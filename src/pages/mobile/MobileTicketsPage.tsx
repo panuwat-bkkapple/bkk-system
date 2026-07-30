@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { isAwaitingOffer } from '../../utils/offerRequest';
+import { isOfferAwaitingDecision } from '../../utils/customerOffer';
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -243,6 +244,7 @@ const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => voi
                 {isNew && <span className="shrink-0 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
                 {isB2B && <span className="text-[9px] font-black bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full shrink-0">B2B</span>}
                 {isAwaitingOffer(job) && <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full shrink-0">ขอราคา</span>}
+                {isOfferAwaitingDecision(job) && <span className="text-[9px] font-black bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full shrink-0">เสนอราคา</span>}
                 <span className="text-sm font-black text-slate-800 truncate">{job.model || 'ไม่ระบุรุ่น'}</span>
               </div>
               <p className="text-[10px] text-slate-400 mt-0.5">

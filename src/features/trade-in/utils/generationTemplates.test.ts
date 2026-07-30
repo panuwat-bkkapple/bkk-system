@@ -34,10 +34,30 @@ describe('classifyIphoneGeneration', () => {
     ['iPad Pro 11" (2020)', 'ipad_old'],
     ['iPad Air (2013)', 'ipad_old'],
     ['iPad mini 6 (2021)', 'ipad_old'],
-    ['MacBook Air 13" (Intel, 2020)', null],
+    ['MacBook Air 13" (Intel, 2020)', 'mac_intel'],
+    ['MacBook Pro 13" (2019)', 'mac_intel'],
+    ['MacBook Air M1 (2020)', 'mac_mid'],
+    ['MacBook Air M2 (2022)', 'mac_mid'],
+    ['MacBook Pro 14" M3 (2023)', 'mac_new'],
+    ['MacBook Pro 16" M4 Pro', 'mac_new'],
+    ['MacBook Air (2021)', 'mac_mid'],
+    ['iMac 24" M3 (2023)', 'mac_imac'],
+    ['Mac mini M4 (2024)', 'mac_desktop'],
+    ['Mac Studio M2 Max', 'mac_desktop'],
+    ['Mac Pro (2023)', 'mac_desktop'],
     ['Apple Watch Series 10', null],
     ['Apple Pencil Pro', null],
   ];
+  it('reads the chip from variant processor attributes when the name has none', () => {
+    expect(classifyIphoneGeneration({
+      name: 'MacBook Pro 14"',
+      variants: [{ attributes: { processor: 'Apple M4 Pro' } }],
+    })).toBe('mac_new');
+    expect(classifyIphoneGeneration({
+      name: 'MacBook Pro 13"',
+      variants: [{ attributes: { processor: 'Intel Core i5' } }],
+    })).toBe('mac_intel');
+  });
   for (const [name, tier] of cases) {
     it(`${name} -> ${tier}`, () => {
       expect(classifyIphoneGeneration({ name })).toBe(tier);
@@ -209,6 +229,59 @@ describe('applyGenerationToGroups', () => {
   });
 });
 
+describe('Mac tiers', () => {
+  it('mac_new carries battery/screen/body/warranty/keyboard-region/repair/box in order', () => {
+    const groups = buildGenerationGroups('mac_new');
+    expect(groups.map((g: any) => g.title)).toEqual([
+      'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่อง (บอดี้)', 'ประกัน',
+      'ประเทศที่ซื้อ + คีย์บอร์ด', 'ประวัติการซ่อม', 'อุปกรณ์เสริมที่นำมาด้วย',
+    ]);
+    for (const g of groups) {
+      expect(g.title_en, `title_en of ${g.title}`).toBeTruthy();
+      for (const o of g.options) expect(o.label_en, `label_en of ${o.label}`).toBeTruthy();
+    }
+  });
+  it('cracked MacBook screens deduct 50/60/70 by tier, never reject', () => {
+    const cracked = (tier: any) => buildGenerationGroups(tier)
+      .find((g: any) => g.title === 'สภาพจอภาพและกระจก')!.options.find((o: any) => o.label === 'จอแตก/ร้าว')!;
+    expect(cracked('mac_new').pct).toBe(50);
+    expect(cracked('mac_mid').pct).toBe(60);
+    expect(cracked('mac_intel').pct).toBe(70);
+    expect(cracked('mac_new').failBehavior).toBe('deduct');
+  });
+  it('mac_imac has no battery topic; mac_desktop has neither battery nor screen', () => {
+    const imacTitles = buildGenerationGroups('mac_imac').map((g: any) => g.title);
+    expect(imacTitles.some((t: string) => /แบต/.test(t))).toBe(false);
+    expect(imacTitles).toContain('สภาพจอภาพและกระจก');
+    const deskTitles = buildGenerationGroups('mac_desktop').map((g: any) => g.title);
+    expect(deskTitles.some((t: string) => /แบต/.test(t))).toBe(false);
+    expect(deskTitles.some((t: string) => /จอ/.test(t))).toBe(false);
+  });
+  it('bare-device MacBooks deduct 3% for the missing power adapter', () => {
+    const box = buildGenerationGroups('mac_mid').find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    expect(box.options.find((o: any) => /เครื่องเปล่า/.test(o.label))!.pct).toBe(3);
+  });
+  it('MacBook functional screening comes from the mac template minus battery', () => {
+    const titles = buildFunctionalScreeningGroups('mac_new').map((g: any) => g.title);
+    expect(titles).toEqual(['เปิดเครื่อง / ชาร์จไฟ', 'หน้าจอแสดงผล', 'คีย์บอร์ด + แทร็คแพด', 'พอร์ต + Wi-Fi / Bluetooth']);
+    expect(buildFunctionalScreeningGroups('mac_desktop').map((g: any) => g.title))
+      .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'พอร์ต + Wi-Fi / Bluetooth']);
+    expect(buildFunctionalScreeningGroups('mac_imac').map((g: any) => g.title))
+      .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'หน้าจอแสดงผล', 'พอร์ต + Wi-Fi / Bluetooth']);
+  });
+  it('the keyboard-region group replaces an old ประเทศที่ซื้อ topic and is never treated as screening', () => {
+    const old = [
+      { id: 'g1', title: 'ประเทศที่ซื้อ', kind: 'cosmetic', options: [{ id: 'o1', label: 'ศูนย์ไทย', deduct: 0 }] },
+      { id: 'g2', title: 'คีย์บอร์ด + แทร็คแพด', kind: 'functional', options: [{ id: 'o2', label: 'ปกติ', deduct: 0 }] },
+    ];
+    const { groups } = applyGenerationToGroups(old, 'mac_mid');
+    const regions = groups.filter((g: any) => /ประเทศ/.test(g.title));
+    expect(regions).toHaveLength(1);
+    expect(regions[0].title).toBe('ประเทศที่ซื้อ + คีย์บอร์ด');
+    expect(groups.filter((g: any) => g.title === 'คีย์บอร์ด + แทร็คแพด')).toHaveLength(1);
+  });
+});
+
 describe('planGenerationApply', () => {
   const perModelSet = makeSet();
   const sharedSet = { id: 'shared', name: 'รวม', groups: makeSet().groups };
@@ -219,19 +292,23 @@ describe('planGenerationApply', () => {
     { id: 'mx', name: 'iPhone X' }, // no set
     { id: 'ipad', name: 'iPad Air 4 (2020)', conditionSetId: 'setIpad' },
     { id: 'mac', name: 'MacBook Air 13" (ชิป M1, 2020)', conditionSetId: 'setMac' },
+    { id: 'watch', name: 'Apple Watch Series 10', conditionSetId: 'setWatch' },
   ];
   const ipadSet = { id: 'setIpad', name: 'iPad Air 4', groups: makeSet().groups };
+  const macSet = { id: 'setMac', name: 'MacBook Air M1', groups: makeSet().groups };
 
-  it('plans per-model iPhone/iPad sets; shared/out-of-scope/missing are reported', () => {
-    const plan = planGenerationApply(models, [perModelSet, sharedSet, ipadSet]);
-    expect(plan.actions.map((a) => a.modelId)).toEqual(['m15', 'ipad']);
+  it('plans per-model iPhone/iPad/Mac sets; shared/out-of-scope/missing are reported', () => {
+    const plan = planGenerationApply(models, [perModelSet, sharedSet, ipadSet, macSet]);
+    expect(plan.actions.map((a) => a.modelId)).toEqual(['m15', 'ipad', 'mac']);
     expect(plan.actions[0].tier).toBe('mid');
     expect(plan.actions[1].tier).toBe('ipad_old');
+    expect(plan.actions[2].tier).toBe('mac_mid');
     expect(plan.tierCounts.mid).toBe(1);
     expect(plan.tierCounts.ipad_old).toBe(1);
+    expect(plan.tierCounts.mac_mid).toBe(1);
     expect(plan.sharedSkipped.map((s) => s.modelId)).toEqual(['m16a', 'm16b']);
     expect(plan.missing.map((s) => s.modelId)).toEqual(['mx']);
-    expect(plan.outOfScope).toBe(1); // the MacBook
+    expect(plan.outOfScope).toBe(1); // the Apple Watch
   });
 
   it('is idempotent: after applying, re-planning reports alreadyApplied', () => {

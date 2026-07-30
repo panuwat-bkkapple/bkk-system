@@ -64,6 +64,10 @@ interface Conversation {
   tags?: Record<string, string>;
   // Service rating the customer left after resolve (write-once from the widget)
   csat?: { score: number; comment?: string; at?: number };
+  // Customer typing heartbeat (widget writes inbox/{id}/typing/customer every
+  // ~2.5s while composing) — fresh value = show "ลูกค้ากำลังพิมพ์…" and the
+  // chat AI delays its reply until the keyboard goes quiet.
+  typing_customer_at?: number;
 }
 
 interface Message {
@@ -224,6 +228,7 @@ export const InboxPage = () => {
         csat: val.csat && Number(val.csat.score) >= 1
           ? { score: Number(val.csat.score), comment: val.csat.comment, at: Number(val.csat.at) || 0 }
           : undefined,
+        typing_customer_at: val.typing && Number(val.typing.customer) > 0 ? Number(val.typing.customer) : 0,
       }));
       list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
       setConversations(list);
@@ -399,6 +404,32 @@ export const InboxPage = () => {
   };
 
   const selectedConversation = conversations.find((c) => c.id === selectedConvo);
+
+  // Two-way "กำลังพิมพ์" signals: admin composing -> heartbeat to
+  // inbox/{id}/typing/admin (the widget shows the same typing dots the AI
+  // gets); customer heartbeat (typing/customer, written by the widget) ->
+  // "ลูกค้ากำลังพิมพ์…" bubble in the thread. The tick keeps re-evaluating
+  // freshness so the indicator expires when the keyboard goes quiet.
+  const typingHeartbeatRef = useRef(0);
+  const [typingTick, setTypingTick] = useState(0);
+  const sendAdminTypingHeartbeat = () => {
+    if (!selectedConvo) return;
+    const now = Date.now();
+    if (now - typingHeartbeatRef.current < 2500) return;
+    typingHeartbeatRef.current = now;
+    update(ref(db, `inbox/${selectedConvo}`), { 'typing/admin': Date.now() }).catch(() => {});
+  };
+  const customerTyping = (() => {
+    void typingTick;
+    const at = selectedConversation?.typing_customer_at || 0;
+    return at > 0 && Date.now() - at < 8000;
+  })();
+  useEffect(() => {
+    const at = selectedConversation?.typing_customer_at || 0;
+    if (!at || Date.now() - at >= 8000) return;
+    const iv = setInterval(() => setTypingTick((t) => t + 1), 2500);
+    return () => clearInterval(iv);
+  }, [selectedConversation?.typing_customer_at]);
 
   // ---- Customer context (คอลัมน์ที่ 3): users/{uid} profile + latest jobs ----
   // เฉพาะแชทจากเว็บ (มี status = key เป็น uid ลูกค้า) — แชท legacy ไม่มี uid
@@ -629,6 +660,8 @@ export const InboxPage = () => {
       const updates: Record<string, unknown> = {
         lastMessage: text,
         lastMessageAt: Date.now(),
+        // Message sent = composing done — release the widget's typing dots.
+        'typing/admin': null,
       };
       if (isWidgetConvo) updates.customer_unread = increment(1);
       await update(ref(db, `inbox/${selectedConvo}`), updates);
@@ -645,20 +678,46 @@ export const InboxPage = () => {
     const file = e.target.files[0];
     setIsUploading(true);
     try {
-      const imageUrl = await uploadImageToFirebase(file, `inbox/${selectedConvo}/images`);
+      // Storage path MUST be chat_staff_uploads/{convoId} — the canonical
+      // storage.rules (bkk-frontend-next) grants only that path for staff
+      // chat photos. The old inbox/{id}/images path had no grant at all, so
+      // every upload hit the catch-all deny and the customer got nothing.
+      // 1600px / 0.6MB — matches the widget's customer-side compression so a
+      // photo looks the same whichever direction it travelled, and keeps
+      // condition evidence (serials, hairline scratches) legible.
+      const imageUrl = await uploadImageToFirebase(file, `chat_staff_uploads/${selectedConvo}`, {
+        maxWidthOrHeight: 1600,
+        maxSizeMB: 0.6,
+      });
+      const convo = conversations.find((c) => c.id === selectedConvo);
+      const isWidgetConvo = !!convo?.status;
+      // Same implicit takeover as a text reply — otherwise the AI keeps
+      // answering over a photo the staff just sent.
+      if (isWidgetConvo && (convo?.status !== 'human' || convo?.assigned_staff_id !== staffId)) {
+        await update(ref(db, `inbox/${selectedConvo}`), {
+          status: 'human',
+          assigned_staff_id: staffId,
+          assigned_staff_name: staffName,
+          ai_typing: false,
+        });
+      }
       await push(ref(db, `inbox/${selectedConvo}/messages`), {
         sender: currentUser?.uid || 'admin',
         senderName: currentUser?.name || 'Admin',
         senderRole: 'admin',
-        text: '📷 ส่งรูปภาพ',
+        text: 'ส่งรูปภาพ',
         imageUrl,
         timestamp: Date.now(),
         read: false,
       });
-      await update(ref(db, `inbox/${selectedConvo}`), {
-        lastMessage: '📷 ส่งรูปภาพ',
+      const updates: Record<string, unknown> = {
+        lastMessage: 'ส่งรูปภาพ',
         lastMessageAt: Date.now(),
-      });
+        'typing/admin': null,
+      };
+      // Widget conversations need the unread badge bumped like any reply.
+      if (isWidgetConvo) updates.customer_unread = increment(1);
+      await update(ref(db, `inbox/${selectedConvo}`), updates);
     } catch {
       toast.error('ไม่สามารถอัปโหลดรูปภาพได้');
     } finally {
@@ -1275,6 +1334,8 @@ export const InboxPage = () => {
                           src={msg.imageUrl}
                           alt="attachment"
                           className="mt-2 rounded-lg w-full max-h-48 object-cover border border-black/10 cursor-pointer"
+                          loading="lazy"
+                          decoding="async"
                           onClick={() => window.open(msg.imageUrl, '_blank')}
                         />
                       )}
@@ -1347,6 +1408,16 @@ export const InboxPage = () => {
                   </div>
                 );
               })}
+              {customerTyping && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-2.5 flex gap-1.5 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <span className="text-[11px] text-slate-400 ml-1">ลูกค้ากำลังพิมพ์…</span>
+                  </div>
+                </div>
+              )}
               <div ref={scrollRef} />
             </div>
 
@@ -1425,7 +1496,10 @@ export const InboxPage = () => {
               <input
                 type="text"
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => {
+                  setInputText(e.target.value);
+                  if (e.target.value.trim()) sendAdminTypingHeartbeat();
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
                 placeholder="พิมพ์ข้อความ..."
                 className="flex-1 bg-slate-100 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"

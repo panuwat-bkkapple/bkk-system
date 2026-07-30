@@ -281,6 +281,46 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     });
   };
 
+  // Make Offer (ลูกค้าเสนอราคาเอง) — CEO/MANAGER ตัดสินข้อเสนอที่ค้าง pending.
+  // accept: เงินเดินตามสูตรกลางเดิม (final_price = ราคาเสนอ; price/quote คงเดิม —
+  // readers ใช้ final_price ?? price แบบเดียวกับ revise flow). counter: เขียน
+  // counter_amount รอลูกค้าตอบบน /track. decline: ยืนราคาประเมิน ไม่แตะเงิน.
+  // push/อีเมลแจ้งลูกค้า+ผู้เสนอ = cloud function onCustomerOfferDecided
+  const handleDecideCustomerOffer = async (decision: 'accept' | 'counter' | 'decline', counterAmount?: number, note?: string) => {
+    const offer = job.customer_offer;
+    if (!offer || offer.status !== 'pending') return;
+    if (!canReviewAdjustments(currentUser?.role)) { toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่ตัดสินข้อเสนอลูกค้าได้'); return; }
+    const now = Date.now();
+    const decidedBy = { decided_at: now, decided_by_uid: currentUser?.id || null, decided_by_name: currentUser?.name || 'Admin' };
+    if (decision === 'accept') {
+      const p = Math.round(Number(offer.amount));
+      const net = Math.max(0, p - pickupFee + couponValue + adjustmentsSum);
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'accepted', ...decidedBy },
+        final_price: p, net_payout: net, devices: buildUpdatedDevices(p),
+        qc_logs: [makeLog('Customer Offer Accepted', `รับข้อเสนอลูกค้า ฿${p.toLocaleString()} (จากราคาประเมิน ฿${Number(offer.quote_at_offer).toLocaleString()} · ยอดสุทธิ ${net.toLocaleString()} บ.)`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('รับข้อเสนอแล้ว — ระบบจะแจ้งลูกค้าอัตโนมัติ');
+    } else if (decision === 'counter') {
+      const c = Math.round(Number(counterAmount));
+      if (!(c > Number(offer.quote_at_offer) && c < Number(offer.amount))) { toast.warning('ราคาเคาน์เตอร์ต้องอยู่ระหว่างราคาประเมินกับราคาที่ลูกค้าเสนอ'); return; }
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'countered', counter_amount: c, ...(note ? { counter_reason: note } : {}), ...decidedBy },
+        qc_logs: [makeLog('Customer Offer Countered', `เคาน์เตอร์ข้อเสนอลูกค้า ฿${Number(offer.amount).toLocaleString()} → ฿${c.toLocaleString()} — รอลูกค้าตอบบนหน้า track`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('ส่งราคาเคาน์เตอร์แล้ว — รอลูกค้าตอบ');
+    } else {
+      await update(ref(db, `jobs/${job.id}`), {
+        customer_offer: { ...offer, status: 'declined', ...decidedBy },
+        qc_logs: [makeLog('Customer Offer Declined', `ยืนราคาประเมินเดิม ฿${Number(offer.quote_at_offer).toLocaleString()} (ลูกค้าเสนอ ฿${Number(offer.amount).toLocaleString()}) — งานเดินต่อที่ราคาประเมิน`), ...(job.qc_logs || [])],
+        updated_at: now,
+      });
+      toast.success('ยืนราคาประเมินเดิม — ระบบจะแจ้งลูกค้าอัตโนมัติ');
+    }
+  };
+
   const handleReviseOffer = async () => {
     if (!revisedPrice) { toast.warning('กรุณาระบุราคาใหม่'); return; }
     if (!confirm(`ยืนยันการตั้งราคาเครื่องใหม่เป็น ${revisedPrice} บาท? (ระบบจะหักค่าไรเดอร์อัตโนมัติ)`)) return;
@@ -482,7 +522,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
         </div>
         <PricingSidebar
           job={job}
-          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment, handleEditRiderDiscount, handleRemoveRiderDiscount }}
+          handlers={{ handleUpdateStatus, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment, handleEditRiderDiscount, handleRemoveRiderDiscount, handleDecideCustomerOffer }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
           pricing={{ basePrice, pickupFee, couponValue, netPayout, adjustments: listAdjustments(job), adjustmentsSum, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}

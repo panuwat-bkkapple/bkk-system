@@ -7,6 +7,7 @@ import { JOB_STATUS } from '@/types/job-statuses';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
 import { withRetry } from '@/utils/firebaseRetry';
+import { sumAppliedAdjustments } from '@/utils/adjustments';
 
 // นำเข้า Components หลัก (ลบ Modal เก่าๆ ออกไปแล้ว)
 import { JobTable } from './components/modal/TradeInUI';
@@ -248,28 +249,37 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
     const actionLabel = targetStatus === 'Payout Processing' ? 'Deal Closed (Negotiated)' : 'Revised Offer';
     if (!confirm(`ยืนยันการตั้งราคาใหม่ที่ ${price} บาท?`)) return;
 
+    // ช่องกรอกของหน้านี้คือ "ยอดสุทธิที่จะโอนให้ลูกค้า" — แต่ฟิลด์ canonical ที่ทุก
+    // คนอ่านเป็น "ฐาน" (final_price/price) คือ **ราคาเครื่องก่อนหักค่าบริการ/ก่อนบวก
+    // คูปอง**: finance (TradeInPayouts.getNetPayout) และ cloud function
+    // (recomputeCustomerPickupFee) คิดยอดโอนสดจาก `final_price − ค่าบริการ + คูปอง
+    // + adjustments` ทุกครั้ง. เดิมโค้ดนี้เขียน final_price = ยอดสุทธิ ทำให้พอ
+    // finance คิดซ้ำ ยอดที่โอนจริง = สุทธิ + คูปอง − ค่าบริการ ≠ ยอดที่ลูกค้ากดยอมรับ
+    // จึงต้องถอดสูตรกลับเป็นราคาเครื่องก่อนเขียน
     const newNetPayout = Number(price);
     // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
-    const grossPickupFee = Number(job.pickup_fee || 0);
+    const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
     const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
     const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
     const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
-    const newOriginalPrice = newNetPayout + pickupFee - couponValue;
+    const adjustmentsSum = sumAppliedAdjustments(job);
+    const newBasePrice = Math.max(0, newNetPayout + pickupFee - couponValue - adjustmentsSum);
 
     const updatedLogs = [
-      { action: actionLabel, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: `${reason} - ราคาตกลงสุทธิ: ฿${newNetPayout.toLocaleString()}` }, 
+      { action: actionLabel, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: `${reason} - ราคาเครื่อง: ฿${newBasePrice.toLocaleString()} (ยอดโอนสุทธิ: ฿${newNetPayout.toLocaleString()})` },
       ...(job.qc_logs || [])
     ];
-    
+
     try {
       await withRetry(() => update(ref(db, `jobs/${job.id}`), {
         status: targetStatus,
         net_payout: newNetPayout,
-        final_price: newNetPayout,
+        final_price: newBasePrice,
         negotiated_price: newNetPayout,
         revised_price: newNetPayout,
-        original_price: newOriginalPrice,
-        price: newOriginalPrice,
+        // original_price = ราคาที่ลูกค้าประเมินตอนสั่งขาย (immutable) — หน้า track
+        // ใช้เทียบ "ราคาที่คุณประเมิน vs ราคาประเมินจริง" ห้ามทับด้วยราคาใหม่
+        price: newBasePrice,
         revise_reason: reason,
         qc_logs: updatedLogs,
         updated_at: Date.now()

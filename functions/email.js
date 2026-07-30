@@ -964,6 +964,68 @@ function buildAdminPaidSummaryEmail(job, kyc, to) {
   };
 }
 
+// ── Make Offer (ลูกค้าเสนอราคาเอง) ──────────────────────────────────────────
+// Decision email per customer_offer status. `offer` = jobs/{id}/customer_offer.
+// Sent by onCustomerOfferDecided in index.js. Deliberately never uses the word
+// "ปฏิเสธ" for the declined state — the quote stays valid and the order keeps
+// moving, so the copy points the customer back to the tracking page instead.
+const OFFER_DECISION_COPY = {
+  auto_accepted: {
+    subject: (o) => `ข้อเสนอราคาของคุณได้รับการยืนยัน ${formatTHB(o.amount)}`,
+    heading: "ข้อเสนอราคาของคุณได้รับการยืนยัน",
+    intro: (o) =>
+      `เรารับข้อเสนอราคา <strong>${formatTHB(o.amount)}</strong> ของคุณเรียบร้อยแล้ว (ยืนยันอัตโนมัติ) ยอดรับเงินของคำสั่งขายถูกปรับตามข้อเสนอ`,
+  },
+  accepted: {
+    subject: (o) => `ข้อเสนอราคาของคุณได้รับการยืนยัน ${formatTHB(o.amount)}`,
+    heading: "ข้อเสนอราคาของคุณได้รับการยืนยัน",
+    intro: (o) =>
+      `ทีมงานพิจารณาแล้วและรับข้อเสนอราคา <strong>${formatTHB(o.amount)}</strong> ของคุณ ยอดรับเงินของคำสั่งขายถูกปรับตามข้อเสนอ`,
+  },
+  countered: {
+    subject: (o) => `ทีมงานเสนอราคากลับ ${formatTHB(o.counter_amount)} — รอการตอบรับจากคุณ`,
+    heading: "ทีมงานเสนอราคากลับถึงคุณ",
+    intro: (o) =>
+      `จากข้อเสนอ ${formatTHB(o.amount)} ของคุณ ทีมงานขอเสนอราคาที่ดีที่สุดที่ให้ได้คือ <strong>${formatTHB(o.counter_amount)}</strong>` +
+      (o.counter_reason ? `<br/>หมายเหตุจากทีมงาน: ${esc(o.counter_reason)}` : "") +
+      `<br/>กด &ldquo;ติดตามสถานะคำสั่งขาย&rdquo; ด้านล่างเพื่อรับหรือไม่รับราคานี้ — หากไม่รับ คำสั่งขายยังเดินหน้าต่อที่ราคาประเมินเดิม ${formatTHB(o.quote_at_offer)} ตามปกติ`,
+  },
+  declined: {
+    subject: (o) => `เรายืนยันราคาประเมิน ${formatTHB(o.quote_at_offer)} สำหรับคำสั่งขายของคุณ`,
+    heading: "เรายืนยันราคาประเมินเดิม",
+    intro: (o) =>
+      `ทีมงานพิจารณาข้อเสนอ ${formatTHB(o.amount)} ของคุณอย่างละเอียดแล้ว — ราคาประเมิน <strong>${formatTHB(o.quote_at_offer)}</strong> คือราคาที่ดีที่สุดที่เราให้ได้สำหรับสภาพเครื่องนี้ คำสั่งขายของคุณยังเดินหน้าต่อที่ราคานี้ตามปกติ`,
+  },
+  counter_accepted: {
+    subject: (o) => `ยืนยันราคาที่ตกลงกัน ${formatTHB(o.counter_amount)}`,
+    heading: "ยืนยันราคาที่ตกลงกันเรียบร้อย",
+    intro: (o) =>
+      `ขอบคุณที่ตอบรับ — ราคาที่ตกลงกันคือ <strong>${formatTHB(o.counter_amount)}</strong> ยอดรับเงินของคำสั่งขายถูกปรับเรียบร้อยแล้ว`,
+  },
+  expired: {
+    subject: (o) => `ข้อเสนอราคาถูกปิดอัตโนมัติ — ราคาประเมิน ${formatTHB(o.quote_at_offer)} ยังใช้ได้`,
+    heading: "ข้อเสนอราคาถูกปิดอัตโนมัติ",
+    intro: (o) =>
+      `ขออภัย ทีมงานไม่สามารถยืนยันข้อเสนอ ${formatTHB(o.amount)} ของคุณได้ภายในเวลาที่กำหนด ระบบจึงปิดข้อเสนอโดยอัตโนมัติ — ราคาประเมินเดิม <strong>${formatTHB(o.quote_at_offer)}</strong> ยังใช้ได้ และคำสั่งขายของคุณเดินหน้าต่อตามปกติ`,
+  },
+};
+
+/** Customer email for a Make-Offer decision, or null for states with no email. */
+function buildCustomerOfferDecisionEmail(job, offer) {
+  const copy = OFFER_DECISION_COPY[offer?.status];
+  if (!copy || !job.cust_email) return null;
+  const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
+  return {
+    to: job.cust_email,
+    subject: copy.subject(offer),
+    html: shell({
+      heading: copy.heading,
+      intro: `${name}${copy.intro(offer)}`,
+      bodyHtml: orderSummaryCard(job, PAYOUT_LABEL_ESTIMATE) + trackingButton(job),
+    }),
+  };
+}
+
 module.exports = {
   sendEmail,
   COMPANY,
@@ -980,4 +1042,5 @@ module.exports = {
   buildCustomerPaymentVoucherEmail,
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
+  buildCustomerOfferDecisionEmail,
 };

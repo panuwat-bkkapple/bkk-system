@@ -461,6 +461,12 @@ export const PriceEditor = () => {
         pickup: editingItem.pickup ?? true,
         mailIn: editingItem.mailIn ?? true,
         maxPickupDistanceKm: Number(editingItem.maxPickupDistanceKm) || 0,
+        // Make Offer (ลูกค้าเสนอราคาเอง) — opt-in รายรุ่น; ปิด = null ให้ Firebase
+        // ลบฟิลด์ทิ้ง (ฝั่งลูกค้า + validateAndCreateOrder เช็ค === true fail-closed)
+        allowCustomerOffer: editingItem.allowCustomerOffer === true ? true : null,
+        offerMaxPct: editingItem.allowCustomerOffer === true && Number(editingItem.offerMaxPct) > 0
+          ? Math.min(Number(editingItem.offerMaxPct), 100)
+          : null,
         conditionSetId: editingItem.conditionSetId,
         // เฉพาะ accessory models — ความเข้ากันได้ระดับรุ่น (model ids, convention
         // เดียวกับ coupon applicable_models) ชนะระดับ series; ว่าง = null ให้

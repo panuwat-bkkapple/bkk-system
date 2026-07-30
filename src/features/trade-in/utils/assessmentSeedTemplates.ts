@@ -67,6 +67,19 @@ export const FUNCTIONAL_TEMPLATES: Record<string, { label: string; items: SeedFu
     { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ', options: [OK('พอร์ต + การเชื่อมต่อใช้ได้ปกติ'), BAD('พอร์ต / การเชื่อมต่อมีปัญหา', 'พอร์ตใช้ไม่ได้ ต่อ Wi-Fi หรือ Bluetooth ไม่ได้')] },
     { title: 'แบตเตอรี่', icon: 'battery', description: 'แบตเตอรี่ชาร์จเข้า อยู่ได้นานพอสมควร ไม่บวม ไม่ร้อนผิดปกติ', options: [OK('แบตชาร์จเข้า อยู่ได้นาน ไม่บวม'), BAD('แบตเตอรี่เสื่อม', 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ')] },
   ] },
+  // Mac desktop (mini / Studio / Pro) — ไม่มีจอ ไม่มีคีย์บอร์ด ไม่มีแบตในตัว
+  // จึงเหลือแค่เปิดเครื่อง + พอร์ต/การเชื่อมต่อ. iMac มีจอในตัว (แต่ไม่มีแบต)
+  // จึงได้หัวข้อจอเพิ่ม. ทั้งคู่ใช้หัวข้อ "เปิดเครื่อง / การทำงานพื้นฐาน"
+  // (ไม่พูดเรื่องชาร์จแบตแบบ MacBook)
+  mac_desktop: { label: 'Mac mini / Studio / Pro', items: [
+    { title: 'เปิดเครื่อง / การทำงานพื้นฐาน', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง', options: [OK('เปิดติด ใช้งานได้ปกติ'), BAD('เปิดไม่ติด / ค้าง / ดับเอง', 'เปิดไม่ติด หรือค้าง ดับเอง รีสตาร์ทเอง')] },
+    { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ', options: [OK('พอร์ต + การเชื่อมต่อใช้ได้ปกติ'), BAD('พอร์ต / การเชื่อมต่อมีปัญหา', 'พอร์ตใช้ไม่ได้ ต่อ Wi-Fi หรือ Bluetooth ไม่ได้')] },
+  ] },
+  mac_imac: { label: 'iMac', items: [
+    { title: 'เปิดเครื่อง / การทำงานพื้นฐาน', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง', options: [OK('เปิดติด ใช้งานได้ปกติ'), BAD('เปิดไม่ติด / ค้าง / ดับเอง', 'เปิดไม่ติด หรือค้าง ดับเอง รีสตาร์ทเอง')] },
+    { title: 'หน้าจอแสดงผล', icon: 'screen', description: 'ไม่มีจุดดำ ไม่มีเส้น ไม่มีแสงรั่ว สีสม่ำเสมอ ไม่มีจอเบิร์น', options: [OK('จอชัด สีปกติ ไม่มีตำหนิ'), BAD('จอเสีย / จอเบิร์น', 'มีจุดดำ เส้น แสงรั่ว หรือจอเบิร์น')] },
+    { title: 'พอร์ต + Wi-Fi / Bluetooth', icon: 'ports', description: 'พอร์ต USB-C/Thunderbolt ใช้งานได้ เชื่อมต่อ Wi-Fi และ Bluetooth ได้ปกติ', options: [OK('พอร์ต + การเชื่อมต่อใช้ได้ปกติ'), BAD('พอร์ต / การเชื่อมต่อมีปัญหา', 'พอร์ตใช้ไม่ได้ ต่อ Wi-Fi หรือ Bluetooth ไม่ได้')] },
+  ] },
   watch: { label: 'Apple Watch', items: [
     { title: 'เปิดเครื่อง / ชาร์จไฟ', icon: 'power', description: 'เปิดเครื่องได้ ไม่ดับเอง ไม่ค้าง ไม่รีสตาร์ทเอง ชาร์จแบตได้ปกติ', options: [OK('เปิดติด ชาร์จเข้า ใช้งานได้ปกติ'), BAD('เปิดไม่ติด / ชาร์จไม่เข้า', 'เปิดไม่ติด ค้าง ดับเอง หรือชาร์จไฟไม่เข้า')] },
     { title: 'การแสดงผล + ทัชสกรีน', icon: 'screen', description: 'หน้าจอสัมผัสตอบสนอง ไม่มีจุดดำ ไม่มีเส้น ไม่มีจอเบิร์น', options: [OK('จอชัด ทัชลื่น ไม่มีตำหนิ'), BAD('จอเสีย / ทัชมีปัญหา', 'มีจุดดำ เส้น จอเบิร์น หรือทัชไม่ตอบสนอง')] },
@@ -181,6 +194,61 @@ const BOX_GROUP: SeedCondGroup = {
     { label: 'ครบกล่อง (เครื่อง+สาย+กล่อง)', description: 'กล่องตรงเครื่อง อุปกรณ์แท้ครบ', failBehavior: 'pass', deduct: 0 },
     { label: 'ขาดกล่อง (มีเครื่อง+สายชาร์จ)', description: 'มีเครื่องและสายชาร์จ แต่ไม่มีกล่อง', failBehavior: 'deduct', deduct: 0 },
     { label: 'เครื่องเปล่า (ไม่มีสาย/กล่อง)', description: 'มีเฉพาะตัวเครื่อง ไม่มีสายชาร์จและกล่อง', failBehavior: 'deduct', deduct: 0 },
+  ],
+};
+
+// ── กลุ่มหักราคาเฉพาะ Mac ─────────────────────────────────────────────────
+// แบต Mac ไม่มีเมนู % แบบ iPhone — ลูกค้าดูได้ 2 อย่าง: สถานะ (Normal /
+// Service Recommended) + Cycle Count (การตั้งค่า > แบตเตอรี่ / System Report)
+const MAC_BATTERY_GROUP = (highCycle: number, worn: number): SeedCondGroup => ({
+  title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูสถานะแบตจาก การตั้งค่า > แบตเตอรี่ และ Cycle Count ใน System Report', options: [
+    { label: 'แบตปกติ (Normal, รอบชาร์จต่ำกว่า 300)', description: 'สถานะแบต Normal และ Cycle Count ต่ำกว่า 300', deduct: 0 },
+    { label: 'แบตปกติ รอบชาร์จสูง (300 ขึ้นไป)', description: 'สถานะแบต Normal แต่ Cycle Count 300 ขึ้นไป', pct: highCycle, failBehavior: 'deduct' },
+    { label: 'เสื่อม / ขึ้น Service Recommended', description: 'ขึ้นสถานะ Service Recommended หรือแบตหมดเร็วผิดปกติ', pct: worn, failBehavior: 'deduct' },
+  ],
+});
+// จอ MacBook/iMac — เพิ่มตัวเลือกชั้นเคลือบจอลอก (Staingate) ซึ่งเป็นอาการ
+// เฉพาะจอ Mac ที่เจอบ่อยในตลาดมือสอง (รวมกับรอยขีดข่วนลึกเป็นขั้นเดียว)
+const MAC_SCREEN_GROUP = (light: number, deep: number, cracked: number): SeedCondGroup => ({
+  title: 'สภาพจอภาพและกระจก', icon: 'screen', kind: 'cosmetic', description: 'รอยหรือความเสียหายของกระจกหน้าจอ', options: [
+    { label: 'สมบูรณ์ ไร้รอยขีดข่วน', description: 'ต้องไม่มีตำหนิใดๆ บนจอภาพหรือกระจก', deduct: 0 },
+    { label: 'รอยขนแมวบางๆ (ไม่ลึก)', description: 'อาจมองเห็นได้เมื่อส่องไฟ', pct: light },
+    { label: 'รอยขีดข่วนลึก / ชั้นเคลือบจอลอก', description: 'รอยลึกมองเห็นชัด หรือชั้นเคลือบกันสะท้อนหลุดลอกเป็นดวง', pct: deep },
+    { label: 'จอแตก/ร้าว', description: 'กระจกหน้าจอแตกหรือร้าว', pct: cracked, failBehavior: 'deduct' },
+  ],
+});
+const MAC_BODY_GROUP = (hairline: number, scratch: number, dent: number, bent: number): SeedCondGroup => ({
+  title: 'สภาพตัวเครื่อง (บอดี้)', icon: 'shield', kind: 'cosmetic', description: 'รอย ตำหนิ หรือความเสียหายของตัวเครื่อง', options: [
+    { label: 'สมบูรณ์ ไร้รอยตำหนิ', description: 'ตัวเครื่องสวย ไม่มีรอย ไม่มีตำหนิ', deduct: 0 },
+    { label: 'มีรอยขนแมว/รอยเคสกัด/รอยสีลอก', description: 'รอยจากการใช้งานปกติ มองเห็นเมื่อสะท้อนแสง', pct: hairline },
+    { label: 'มีรอยขีดข่วน / ถลอกเห็นชัด', description: 'มีรอยขีดข่วนหรือถลอกที่มองเห็นได้ชัดเจน', pct: scratch },
+    { label: 'รอยบุบ/รอยบิ่นตามมุม', description: 'ตัวเครื่องบุบ บิ่น หรือมีร่องรอยตกกระแทก', pct: dent },
+    { label: 'ตัวเครื่อง/บานพับผิดรูป ฝาปิดไม่สนิท', description: 'ตัวเครื่องบิดงอ บานพับหลวมหรือผิดรูป ปิดฝาแล้วไม่สนิท', pct: bent, failBehavior: 'deduct' },
+  ],
+});
+// เครื่องนอกของ Mac แยกตาม layout คีย์บอร์ด — คีย์ US ไม่มีสกรีนภาษาไทย
+// ขายต่อในตลาดไทยยากกว่าจึงหักแรงกว่า (title มีคำว่า "ประเทศ" ให้ตัว
+// normalize จับเป็นหัวข้อ pricing และตัวตัดเกรดฝั่งลูกค้า exclude ให้เอง)
+const MAC_REGION_GROUP: SeedCondGroup = {
+  title: 'ประเทศที่ซื้อ + คีย์บอร์ด', icon: 'help', kind: 'cosmetic', description: 'เครื่องศูนย์ไทยหรือเครื่องนอก และ layout ของคีย์บอร์ด', options: [
+    { label: 'ศูนย์ไทย คีย์บอร์ดไทย', description: 'เครื่องศูนย์ไทย คีย์บอร์ดสกรีนภาษาไทย', failBehavior: 'pass', deduct: 0 },
+    { label: 'เครื่องนอก คีย์บอร์ดไทย', description: 'เครื่องจากต่างประเทศ คีย์บอร์ดสกรีนภาษาไทย', failBehavior: 'deduct', pct: 8 },
+    { label: 'เครื่องนอก คีย์บอร์ด US / layout อื่น', description: 'เครื่องจากต่างประเทศ คีย์บอร์ดไม่มีสกรีนภาษาไทย', failBehavior: 'deduct', pct: 15 },
+  ],
+};
+const MAC_WARRANTY_INFO_GROUP: SeedCondGroup = {
+  title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง', options: [
+    { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+    { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
+  ],
+};
+// อะแดปเตอร์ Mac เป็นเงินจริง (แท้ 70W-140W ~2,000-3,500 บาท) — เครื่องเปล่า
+// จึงหัก 3% ต่างจาก BOX_GROUP ของ iPhone ที่ default ไม่หัก
+const MAC_BOX_GROUP: SeedCondGroup = {
+  title: 'อุปกรณ์เสริมที่นำมาด้วย', icon: 'box', kind: 'cosmetic', description: 'อุปกรณ์ที่ให้มาพร้อมเครื่อง', options: [
+    { label: 'ครบกล่อง (เครื่อง+อะแดปเตอร์+กล่อง)', description: 'กล่องตรงเครื่อง อะแดปเตอร์แท้ครบ', failBehavior: 'pass', deduct: 0 },
+    { label: 'ขาดกล่อง (มีเครื่อง+อะแดปเตอร์)', description: 'มีเครื่องและอะแดปเตอร์ แต่ไม่มีกล่อง', failBehavior: 'deduct', deduct: 0 },
+    { label: 'เครื่องเปล่า (ไม่มีอะแดปเตอร์/กล่อง)', description: 'มีเฉพาะตัวเครื่อง ไม่มีอะแดปเตอร์และกล่อง', failBehavior: 'deduct', pct: 3 },
   ],
 };
 
@@ -337,5 +405,63 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     REGION_SIMPLE_GROUP,
     REPAIR_GROUP,
     BOX_GROUP,
+  ] },
+  // ── Mac (นโยบายเจ้าของร้าน ก.ค. 2026 — ร่าง policy อนุมัติ "ทำตามนี้ก่อน
+  // ค่อยปรับทีหลัง") ──────────────────────────────────────────────────────
+  // Tier ตามชิป: mac_new = M3+, mac_mid = M1-M2, mac_intel = Intel,
+  // mac_imac = iMac (มีจอ ไม่มีแบต), mac_desktop = mini/Studio/Pro (ไม่มีจอ
+  // ไม่มีแบต). % จอแตกหนักเท่า iPhone (ค่าเปลี่ยนชุดฝาจอศูนย์ ~15,000-25,000
+  // บาท), แบตอิงสถานะ Normal/Service + Cycle Count (Mac ไม่มีเมนู % แบบ
+  // iPhone), เครื่องนอกแยกตาม layout คีย์บอร์ด (คีย์ US ไม่มีสกรีนไทย
+  // ขายต่อในไทยยากกว่า), เครื่องเปล่าไม่มีอะแดปเตอร์หัก 3% (อะแดปเตอร์แท้
+  // 70W-140W ราคา 2,000-3,500 บาท — ต่างจาก iPhone ที่ default ไม่หัก)
+  mac_new: { label: 'MacBook ชิป M3 ขึ้นไป (แบต cycle + ประกันละเอียด)', items: [
+    MAC_BATTERY_GROUP(3, 8),
+    MAC_SCREEN_GROUP(3, 10, 50),
+    MAC_BODY_GROUP(3, 6, 12, 40),
+    { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง', options: [
+      { label: 'เหลือประกันศูนย์มากกว่า 6 เดือน / AppleCare+', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
+      { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', pct: 2 },
+      { label: 'หมดประกันศูนย์แล้ว', description: 'พ้นระยะประกันศูนย์แล้ว', pct: 4 },
+    ] },
+    MAC_REGION_GROUP,
+    REPAIR_GROUP,
+    MAC_BOX_GROUP,
+  ] },
+  mac_mid: { label: 'MacBook ชิป M1-M2 (แบต cycle + ประกันไม่หัก)', items: [
+    MAC_BATTERY_GROUP(3, 12),
+    MAC_SCREEN_GROUP(5, 14, 60),
+    MAC_BODY_GROUP(5, 9, 16, 45),
+    MAC_WARRANTY_INFO_GROUP,
+    MAC_REGION_GROUP,
+    REPAIR_GROUP,
+    MAC_BOX_GROUP,
+  ] },
+  mac_intel: { label: 'MacBook Intel (แบตปกติ/เสื่อม + ประกันไม่หัก)', items: [
+    { title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูสถานะแบตจาก การตั้งค่า > แบตเตอรี่ และ Cycle Count ใน System Report', options: [
+      { label: 'แบตปกติ (Normal)', description: 'สถานะแบต Normal ใช้งานได้ตามปกติ ไม่บวม', deduct: 0 },
+      { label: 'เสื่อม / ขึ้น Service Recommended', description: 'ขึ้นสถานะ Service Recommended หรือแบตหมดเร็วผิดปกติ', pct: 18, failBehavior: 'deduct' },
+    ] },
+    MAC_SCREEN_GROUP(8, 20, 70),
+    MAC_BODY_GROUP(8, 13, 22, 55),
+    MAC_WARRANTY_INFO_GROUP,
+    MAC_REGION_GROUP,
+    REPAIR_GROUP,
+    MAC_BOX_GROUP,
+  ] },
+  mac_imac: { label: 'iMac (มีจอ ไม่มีแบต)', items: [
+    MAC_SCREEN_GROUP(5, 14, 60),
+    MAC_BODY_GROUP(5, 9, 16, 45),
+    MAC_WARRANTY_INFO_GROUP,
+    MAC_REGION_GROUP,
+    REPAIR_GROUP,
+    MAC_BOX_GROUP,
+  ] },
+  mac_desktop: { label: 'Mac mini / Studio / Pro (ไม่มีจอ ไม่มีแบต)', items: [
+    MAC_BODY_GROUP(5, 9, 16, 45),
+    MAC_WARRANTY_INFO_GROUP,
+    REGION_SIMPLE_GROUP,
+    REPAIR_GROUP,
+    MAC_BOX_GROUP,
   ] },
 };

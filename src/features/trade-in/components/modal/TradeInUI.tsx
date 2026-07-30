@@ -2,6 +2,7 @@ import React from 'react';
 import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays, History } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { isAwaitingOffer } from '@/utils/offerRequest';
+import { isOfferAwaitingDecision } from '@/utils/customerOffer';
 
 export const MethodBadge = ({ method }: { method: string }) => {
   const getStyle = () => {
@@ -163,6 +164,7 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
                 {job.status === 'New Lead' && !job.is_read && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded text-[8px] tracking-widest animate-pulse shadow-sm">NEW</span>}
                 {job.source === 'instant-sell' && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 flex items-center gap-0.5"><Zap size={8} />INSTANT</span>}
                 {isAwaitingOffer(job) && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-blue-200">ขอราคา</span>}
+                {isOfferAwaitingDecision(job) && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 animate-pulse">เสนอราคา</span>}
               </div>
               <div className="text-[10px] font-bold text-slate-400">{formatDate(job.created_at)}</div>
             </td>
