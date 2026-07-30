@@ -26,7 +26,22 @@ export default function GlobalSettings() {
   });
 
   // 🏍️ อัตราค่าวิ่งไรเดอร์ — Cloud Function อ่านจาก settings/logistics_rates
-  const [riderRates, setRiderRates] = useState(DEFAULT_RIDER_RATES);
+  //
+  // แยกอัตราตามยานพาหนะ เพราะต้นทุนจริงคนละราคา (น้ำมัน ค่าจอด) — ความต่างของ
+  // ยานพาหนะต้องอยู่ที่ "อัตรา" ที่แอดมินตั้งเอง ไม่ใช่ที่วิธีวัดระยะทาง
+  // มิฉะนั้นไรเดอร์ที่ตั้งตัวเองเป็นรถยนต์จะได้เงินมากกว่าสำหรับงานเดียวกัน
+  // (เส้นทางรถยนต์ระยะทางไกลกว่าเพราะขึ้นทางด่วน)
+  const [ratesVehicle, setRatesVehicle] = useState<'motorcycle' | 'car'>('motorcycle');
+  const [vehicleRates, setVehicleRates] = useState({
+    motorcycle: { ...DEFAULT_RIDER_RATES },
+    car: { ...DEFAULT_RIDER_RATES },
+  });
+  // โหมดวัดเส้นทางที่ใช้ "คิดเงิน" — ค่าเดียวทั้งระบบ ไม่แยกตามคนขับ เพราะค่า
+  // บริการถูกโชว์ให้ลูกค้าก่อนที่จะรู้ว่าใครรับงาน
+  const [travelMode, setTravelMode] = useState<'DRIVE' | 'TWO_WHEELER'>('DRIVE');
+  const riderRates = vehicleRates[ratesVehicle];
+  const setRiderRates = (next: typeof DEFAULT_RIDER_RATES) =>
+    setVehicleRates(prev => ({ ...prev, [ratesVehicle]: next }));
   const [isSavingRider, setIsSavingRider] = useState(false);
   const [showRiderSuccess, setShowRiderSuccess] = useState(false);
 
@@ -73,27 +88,46 @@ export default function GlobalSettings() {
     const unsubscribe = onValue(ratesRef, (snapshot) => {
       if (snapshot.exists()) {
         const v = snapshot.val() || {};
-        setRiderRates({
-          base_fee: Number(v.base_fee ?? DEFAULT_RIDER_RATES.base_fee),
-          per_km: Number(v.per_km ?? DEFAULT_RIDER_RATES.per_km),
-          min_fee: Number(v.min_fee ?? DEFAULT_RIDER_RATES.min_fee),
-          max_fee: Number(v.max_fee ?? DEFAULT_RIDER_RATES.max_fee),
-        });
+        // fallback ทีละฟิลด์: by_vehicle → ฟิลด์แบนเดิม → default
+        const read = (vehicle: 'motorcycle' | 'car') => {
+          const per = (v.by_vehicle && v.by_vehicle[vehicle]) || {};
+          const pick = (field: keyof typeof DEFAULT_RIDER_RATES) =>
+            Number(per[field] ?? v[field] ?? DEFAULT_RIDER_RATES[field]);
+          return {
+            base_fee: pick('base_fee'),
+            per_km: pick('per_km'),
+            min_fee: pick('min_fee'),
+            max_fee: pick('max_fee'),
+          };
+        };
+        setVehicleRates({ motorcycle: read('motorcycle'), car: read('car') });
+        setTravelMode(String(v.travel_mode || '').toUpperCase() === 'TWO_WHEELER' ? 'TWO_WHEELER' : 'DRIVE');
       }
     });
     return () => unsubscribe();
   }, []);
 
   const handleSaveRiderRates = async () => {
-    if (riderRates.min_fee > riderRates.max_fee) {
-      toast.warning('min_fee ต้องไม่มากกว่า max_fee');
+    const offender = (['motorcycle', 'car'] as const).find(
+      (v) => vehicleRates[v].min_fee > vehicleRates[v].max_fee
+    );
+    if (offender) {
+      // ตรวจทั้งสองยานพาหนะ ไม่ใช่แค่แท็บที่เปิดอยู่ — ค่าที่ผิดในแท็บที่ปิดไว้
+      // จะถูกบันทึกไปด้วยถ้าไม่เช็ค
+      toast.warning(
+        `min_fee ต้องไม่มากกว่า max_fee (${offender === 'car' ? 'รถยนต์' : 'มอเตอร์ไซค์'})`
+      );
       return;
     }
     setIsSavingRider(true);
     setShowRiderSuccess(false);
     try {
       await update(ref(db, 'settings/logistics_rates'), {
-        ...riderRates,
+        // ฟิลด์แบนที่ root = อัตรามอเตอร์ไซค์ เพื่อให้ทุกตัวที่ยังอ่าน root
+        // (fallback ฝั่ง functions) ได้เลขเดียวกับกองไรเดอร์ส่วนใหญ่
+        ...vehicleRates.motorcycle,
+        by_vehicle: vehicleRates,
+        travel_mode: travelMode,
         updated_at: Date.now(),
       });
       setShowRiderSuccess(true);
@@ -246,6 +280,27 @@ export default function GlobalSettings() {
           ใช้คำนวณ <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">jobs/&#123;id&#125;/rider_fee</code> ตอนสถานะงานเปลี่ยนเป็น <strong>Pending QC</strong> โดย Cloud Function — บันทึกเป็น <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/logistics_rates</code>
         </p>
 
+        {/* ยานพาหนะที่กำลังแก้อัตราอยู่ — ตัวเลขทั้ง 4 ช่องด้านล่างเป็นของคันที่เลือก */}
+        <div className="flex items-center gap-2 mb-5">
+          {(['motorcycle', 'car'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setRatesVehicle(v)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                ratesVehicle === v
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {v === 'motorcycle' ? 'มอเตอร์ไซค์' : 'รถยนต์'}
+            </button>
+          ))}
+          <span className="text-[11px] text-slate-400 font-medium ml-1">
+            อัตราแยกตามยานพาหนะ เพราะต้นทุนจริงคนละราคา
+          </span>
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Base Fee</label>
@@ -279,6 +334,28 @@ export default function GlobalSettings() {
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
             </div>
           </div>
+        </div>
+
+        <div className="mt-5 p-4 rounded-xl border border-slate-200 bg-slate-50/60">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+            วิธีวัดระยะทางที่ใช้คิดเงิน
+          </label>
+          <select
+            value={travelMode}
+            onChange={(e) => setTravelMode(e.target.value as 'DRIVE' | 'TWO_WHEELER')}
+            className="w-full md:w-72 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+          >
+            <option value="DRIVE">เส้นทางรถยนต์ (DRIVE)</option>
+            <option value="TWO_WHEELER">เส้นทางมอเตอร์ไซค์ (TWO_WHEELER)</option>
+          </select>
+          <p className="mt-2 text-[11px] text-slate-500 leading-relaxed font-medium">
+            ค่านี้ใช้ <strong>ค่าเดียวทั้งระบบ</strong> ไม่แยกตามคนขับ เพราะค่าบริการถูกแสดงให้ลูกค้าก่อนที่จะรู้ว่าใครรับงาน
+            ถ้าแยกตามคนขับ ลูกค้าสองคนที่อยู่ที่เดียวกันจะจ่ายไม่เท่ากัน
+            <br />
+            มอเตอร์ไซค์ขึ้นทางด่วนไม่ได้ เส้นทางรถยนต์จึงมีระยะทางไกลกว่าเกือบทุกครั้ง — เปลี่ยนค่านี้กระทบทั้งค่าบริการที่เก็บลูกค้าและค่าวิ่งที่จ่ายไรเดอร์
+            <br />
+            <strong>เวลาถึงลูกค้า (ETA)</strong> ใช้ยานพาหนะจริงของไรเดอร์ที่รับงานอยู่แล้ว ไม่เกี่ยวกับค่านี้
+          </p>
         </div>
 
         <div className="mt-5 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 flex items-start gap-3 text-xs text-emerald-800">

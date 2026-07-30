@@ -24,6 +24,10 @@ export const RiderManagement = () => {
   const [editEmergency, setEditEmergency] = useState('');
   const [editPlate, setEditPlate] = useState('');
   const [editVehicleModel, setEditVehicleModel] = useState('');
+  // ประเภทยานพาหนะ — Cloud Function อ่านที่ riders/{id}/vehicle_type ใช้ 2 อย่าง:
+  // เลือกชุดอัตราค่าวิ่ง (settings/logistics_rates/by_vehicle) และคิดเวลาถึง
+  // ลูกค้าตามเส้นทางที่ยานพาหนะนั้นวิ่งได้จริง (มอเตอร์ไซค์ขึ้นทางด่วนไม่ได้)
+  const [editVehicleType, setEditVehicleType] = useState<'motorcycle' | 'car'>('motorcycle');
   const [editBankName, setEditBankName] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
 
@@ -37,6 +41,9 @@ export const RiderManagement = () => {
 
     // Vehicle: support both nested object and flat fields
     const vehicle = {
+      type: (String(raw.vehicle_type || raw.vehicle?.type || '').toLowerCase() === 'car'
+        ? 'car'
+        : 'motorcycle') as 'motorcycle' | 'car',
       plate: raw.vehicle?.plate || raw.vehicle_plate || raw.licensePlate || raw.license_plate || raw.plate || raw.plate_number || '',
       model: raw.vehicle?.model || raw.vehicle_model || raw.vehicleModel || raw.car_model || raw.model || '',
     };
@@ -110,6 +117,7 @@ export const RiderManagement = () => {
       setEditEmergency(selectedRider.emergency_contact || '');
       setEditPlate(selectedRider.vehicle?.plate || '');
       setEditVehicleModel(selectedRider.vehicle?.model || '');
+      setEditVehicleType(selectedRider.vehicle?.type === 'car' ? 'car' : 'motorcycle');
       setEditBankName(selectedRider.bank?.name || '');
       setEditBankAccount(selectedRider.bank?.account || '');
       setIsEditingProfile(false);
@@ -194,7 +202,10 @@ export const RiderManagement = () => {
         updates.phone = editPhone;
         updates.email = editEmail;
         updates.emergency_contact = editEmergency;
-        updates.vehicle = { plate: editPlate, model: editVehicleModel };
+        updates.vehicle = { plate: editPlate, model: editVehicleModel, type: editVehicleType };
+        // แบนที่ root ด้วย เพราะ computeRiderFee อ่าน riders/{id}/vehicle_type
+        // ตรงๆ (อ่านฟิลด์เดียวถูกกว่าดึง object ทั้งก้อน)
+        updates.vehicle_type = editVehicleType;
         updates.bank = { name: editBankName, account: editBankAccount };
       }
       await update(ref(db, `riders/${riderId}`), updates);
@@ -406,6 +417,14 @@ export const RiderManagement = () => {
                     <div className="space-y-3 text-sm">
                       <div><label className="text-xs text-gray-500 font-medium">ป้ายทะเบียน</label><input type="text" value={editPlate} onChange={e => setEditPlate(e.target.value)} placeholder="เช่น กทม 1234" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div><label className="text-xs text-gray-500 font-medium">รุ่นรถ</label><input type="text" value={editVehicleModel} onChange={e => setEditVehicleModel(e.target.value)} placeholder="เช่น Honda Wave สีแดง" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div>
+                        <label className="text-xs text-gray-500 font-medium">ประเภทยานพาหนะ</label>
+                        <select value={editVehicleType} onChange={e => setEditVehicleType(e.target.value as 'motorcycle' | 'car')} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400">
+                          <option value="motorcycle">มอเตอร์ไซค์</option>
+                          <option value="car">รถยนต์</option>
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">ใช้เลือกชุดอัตราค่าวิ่ง และคิดเวลาถึงลูกค้า — ลูกค้าจะเห็นว่าไรเดอร์มาด้วยรถอะไร เพื่อเตรียมที่จอด</p>
+                      </div>
                       <div className="pt-3 mt-3 border-t"><label className="text-xs text-gray-500 font-medium">ธนาคาร</label><input type="text" value={editBankName} onChange={e => setEditBankName(e.target.value)} placeholder="เช่น กสิกรไทย" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div><label className="text-xs text-gray-500 font-medium">เลขบัญชี</label><input type="text" value={editBankAccount} onChange={e => setEditBankAccount(e.target.value)} placeholder="เลขบัญชีธนาคาร" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                     </div>
