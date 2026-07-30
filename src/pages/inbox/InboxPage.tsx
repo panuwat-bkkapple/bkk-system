@@ -682,7 +682,13 @@ export const InboxPage = () => {
       // storage.rules (bkk-frontend-next) grants only that path for staff
       // chat photos. The old inbox/{id}/images path had no grant at all, so
       // every upload hit the catch-all deny and the customer got nothing.
-      const imageUrl = await uploadImageToFirebase(file, `chat_staff_uploads/${selectedConvo}`);
+      // 1600px / 0.6MB — matches the widget's customer-side compression so a
+      // photo looks the same whichever direction it travelled, and keeps
+      // condition evidence (serials, hairline scratches) legible.
+      const imageUrl = await uploadImageToFirebase(file, `chat_staff_uploads/${selectedConvo}`, {
+        maxWidthOrHeight: 1600,
+        maxSizeMB: 0.6,
+      });
       const convo = conversations.find((c) => c.id === selectedConvo);
       const isWidgetConvo = !!convo?.status;
       // Same implicit takeover as a text reply — otherwise the AI keeps
@@ -1328,6 +1334,8 @@ export const InboxPage = () => {
                           src={msg.imageUrl}
                           alt="attachment"
                           className="mt-2 rounded-lg w-full max-h-48 object-cover border border-black/10 cursor-pointer"
+                          loading="lazy"
+                          decoding="async"
                           onClick={() => window.open(msg.imageUrl, '_blank')}
                         />
                       )}

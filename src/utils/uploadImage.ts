@@ -7,6 +7,13 @@ interface UploadOptions {
   /** Use a random opaque filename instead of `${timestamp}_${original}`.
    *  Useful for KYC photos where the filename should not leak metadata. */
   opaqueFilename?: boolean;
+  /** Longest edge in px (default 1280). Raise it for photos that are
+   *  CONDITION EVIDENCE — chat attachments carry serial numbers and hairline
+   *  scratches that must stay legible; 1280 is fine for catalog imagery but
+   *  loses fine detail on a full-device shot. */
+  maxWidthOrHeight?: number;
+  /** Output size ceiling in MB (default 0.5). */
+  maxSizeMB?: number;
 }
 
 export const uploadImageToFirebase = async (
@@ -28,8 +35,8 @@ export const uploadImageToFirebase = async (
     const ext = keepFormat ? (file.type === 'image/png' ? '.png' : '.webp') : '.jpg';
 
     const compressOptions = {
-      maxSizeMB: 0.5,
-      maxWidthOrHeight: 1280,
+      maxSizeMB: options.maxSizeMB ?? 0.5,
+      maxWidthOrHeight: options.maxWidthOrHeight ?? 1280,
       useWebWorker: true,
       fileType: outputType as string,
     };
