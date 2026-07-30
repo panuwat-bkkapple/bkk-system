@@ -713,6 +713,59 @@ function rankModelsScored(list, rawQuery) {
   });
 }
 
+// A customer message that carries a phone number is a reply to the contact
+// ask, so its words are a NAME, not device facts. Live bug (#WFQ1): the
+// customer typed "0655610223 จีน" (จีน = their nickname) answering "ขอชื่อกับ
+// เบอร์โทร"; the model read จีน as CH (China) origin, silently picked the
+// "เครื่องนอกมีข้อจำกัด (LL / J / CH / KH)" option worth -25%, and the card
+// came out 21,375 instead of 28,500 — the owner had to quote by hand.
+// 9+ consecutive digits (spaces/dashes ignored) = a phone or IMEI; neither is
+// condition evidence.
+function looksLikeContactReply(text) {
+  return /\d(?:[\s-]?\d){8,}/.test(String(text || ""));
+}
+
+// Topic vocabulary per condition group, keyed off the group TITLE (ids differ
+// per condition set). Thai has no word boundaries, so matching label tokens
+// against customer speech is unreliable — a curated topic list is. Unknown
+// group titles return null = "cannot judge", and the caller then allows the
+// answer (permissive fallback: never block a deduction we don't understand).
+const CONDITION_TOPIC_WORDS = [
+  { test: /แบต|battery/i, words: ["แบต", "battery", "สุขภาพ", "%", "เปอร์เซ", "ประสิทธิภาพ"] },
+  { test: /จอ|กระจก|แสดงผล/i, words: ["จอ", "กระจก", "รอย", "ร้าว", "แตก", "ขีดข่วน", "ขนแมว", "screen", "หน้าจอ", "สภาพ"] },
+  { test: /ตัวเครื่อง|ฝาหลัง|บอดี|body/i, words: ["ตัวเครื่อง", "ฝาหลัง", "บอดี", "รอย", "บุบ", "บิ่น", "งอ", "ถลอก", "เคส", "สีลอก", "ขนแมว", "สภาพ"] },
+  { test: /ประกัน|warranty/i, words: ["ประกัน", "warranty", "แอปเปิ", "applecare", "หมดประกัน"] },
+  { test: /ประเทศ|ที่ซื้อ|เครื่องศูนย|origin/i, words: [
+    "ศูนย์ไทย", "เครื่องศูนย", "เครื่องนอก", "เครื่องหิ้ว", "หิ้ว", "ประเทศ", "นำเข้า", "global", "โกลบอล",
+    "zp", "th/a", "ll", "ch", "kh", "sg", "my", "vn", "ja",
+    "จีน", "ญี่ปุ่น", "อเมริกา", "มะกัน", "สิงคโปร", "มาเลย", "ฮ่องกง", "เกาหลี", "ดูไบ", "เวียดนาม",
+  ] },
+  { test: /ซ่อม|อะไหล่|repair/i, words: ["ซ่อม", "อะไหล่", "เปลี่ยนจอ", "เปลี่ยนแบต", "repair", "เคลม", "ศูนย์"] },
+  { test: /อุปกรณ์|กล่อง|accessor/i, words: ["กล่อง", "สายชาร์จ", "สาย", "อุปกรณ์", "ครบกล่อง", "หัวชาร์จ", "ที่ชาร์จ"] },
+  { test: /เปิดเครื่อง|ใช้งานทั่วไป|ทัช|กล้อง|ลำโพง|ไมโครโฟน|เชื่อมต่อ|ซิม|สัญญาณ/i, words: [
+    "เปิดไม่ติด", "เปิดติด", "ดับเอง", "ค้าง", "รีสตาร์", "ทัช", "กล้อง", "ลำโพง", "ไมค์", "ไมโครโฟน",
+    "สัญญาณ", "wifi", "wi-fi", "ซิม", "โทรออก", "ปกติ", "ใช้งานได้",
+  ] },
+];
+function conditionTopicWords(groupTitle) {
+  const t = String(groupTitle || "");
+  const hit = CONDITION_TOPIC_WORDS.find((r) => r.test.test(t));
+  return hit ? hit.words : null;
+}
+
+// Would applying this group's answer be a GUESS? True when the topic never
+// came up: not in the customer's own words (contact replies excluded) and
+// never asked by the assistant either. Only consulted for answers that COST
+// the customer money (or would decline the device) — a best-case answer needs
+// no provenance.
+function conditionAnswerUnsupported({ groupTitle, evidenceText, assistantText }) {
+  const words = conditionTopicWords(groupTitle);
+  if (!words) return false; // unknown group — do not block
+  const ev = String(evidenceText || "").toLowerCase();
+  const ai = String(assistantText || "").toLowerCase();
+  return !words.some((w) => ev.includes(w.toLowerCase()) || ai.includes(w.toLowerCase()));
+}
+
 // Owner's rule for delisted models behind an ambiguous nickname: "iPad 6"
 // usually MEANS iPad Gen 6 (which we stopped buying), but the AI must CONFIRM
 // the model before declining — the customer may mean mini 6 / Air 6, which we
@@ -1466,7 +1519,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
     `5. ห้ามยืนยันหรือแก้ไขนัดหมาย ที่อยู่ ยอดโอน หรือข้อมูลออเดอร์แทนลูกค้า เรื่องเหล่านี้ต้อง escalate_to_human ทันที`,
-    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาสำคัญ: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว. เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด (รอย แบต ซ่อม) ถามแค่ "มีใบเสร็จหรือหลักฐานการซื้อไหม" กับความจุ/รุ่นย่อยที่ยังไม่รู้ แล้วออกการ์ดได้เลย — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
+    `6. ขั้นตอนปิดการขาย (เรียงลำดับห้ามสลับ): ขั้นที่ 1 พอลูกค้าเอ่ยชื่อรุ่น เรียก search_models ด้วย "ชื่อรุ่น" ทันที (ยังไม่ต้องรู้ความจุ — ความจุค่อยถามตอนออกการ์ด). ขั้นที่ 2 ตรวจผลลัพธ์ก่อนพูดอะไร: (ก) ได้ declined_model = งดรับซื้อ → ปฏิเสธสุภาพทันที ห้ามถามความจุ ห้ามถามสภาพ (ดูข้อ 2.1). (ข) "ไม่พบรุ่น/ไม่มีราคาในระบบ" = โหมดรับ Offer (นโยบายร้าน: บางรุ่นโดยเฉพาะ MacBook แข่งขันสูง ตั้งใจไม่โชว์ราคา ให้ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → ห้ามบอกว่า "ไม่รับซื้อ" และห้าม escalate มือเปล่าเด็ดขาด: ตอบเชิงบวก 1 ข้อความว่า "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ" แล้วขอในข้อความเดียวกัน: ชื่อ + เบอร์โทร + รายละเอียดเครื่องย่อ (สเปก/ความจุ สภาพ ปีที่ซื้อ). พอลูกค้าตอบ → save_customer_info แล้ว escalate_to_human (summary ต้องมี รุ่น+รายละเอียดเครื่อง+ระบุว่ามีเบอร์แล้ว) บอกลูกค้าว่าทีมงานจะโทรกลับเพื่อเสนอราคา. ลูกค้าไม่สะดวกให้เบอร์ → ให้เบอร์กลางร้านแทน แล้ว escalate พร้อมรายละเอียดเท่าที่มี. ห้ามเข้าชุดถามสภาพ 5 เรื่องของรุ่นมีราคา. (ค) มีราคา → ไปขั้นที่ 3 ทันที "โดยยังไม่ประกาศตัวเลขราคา" (ตัวเลขจริงให้แสดงบนการ์ดขั้นที่ 4 — คำสั่งเจ้าของร้าน: เก็บช่องทางติดต่อก่อนเผยราคา). ขั้นที่ 3 (เฉพาะกรณี ค) get_condition_questions แล้วถามแบบ "ทีละเรื่อง ทีละข้อความ" พร้อมปุ่มตัวเลือกตามข้อ 2.3 (UX เจ้าของร้าน: ให้ลูกค้ากดตอบ ไม่ต้องพิมพ์): ข้อความแรก = (0) ขอชื่อและเบอร์โทรติดต่อสั้นๆ เป็นธรรมชาติ (บอกว่าไว้ให้เจ้าหน้าที่ดูแลใบเสนอราคา/ติดต่อกลับ) — "ห้าม" พูดว่า "ข้ามได้/ไม่บังคับ/ไม่ให้ก็ได้" เด็ดขาด (คำสั่งเจ้าของร้าน: อย่าเปิดประตูให้ปฏิเสธ) ถ้าลูกค้าไม่ให้หรือข้ามไปตอบเรื่องอื่น ให้เดินหน้าต่อเนียนๆ ห้ามทวงระหว่างชุดคำถาม; ขอซ้ำได้อีก "หนึ่งครั้งเดียว" ตอนกำลังจะออกใบเสนอราคา (จังหวะที่ลูกค้าอยากเห็นราคา) ถ้ายังไม่ให้ก็ออกการ์ดตามปกติ พร้อมคำถามสภาพเรื่องแรกและ [ตัวเลือก] ของเรื่องนั้นในข้อความเดียวกัน. จากนั้นถามต่อทีละเรื่องจนครบ (ถามคำถามถัดไปตรงๆ ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ — ดูกฎบุคลิกเรื่องสูตรซ้ำ): (1) จอ/ตัวเครื่องมีรอยหรือความเสียหายไหม (2) สุขภาพแบตเตอรี่กี่ % (3) มีกล่อง/อุปกรณ์อะไรบ้าง (4) เครื่องศูนย์ไทยหรือเครื่องนอก (แนบวิธีเช็คสั้นๆ: ตั้งค่า > ทั่วไป > เกี่ยวกับ > รุ่น ลงท้าย TH/A คือศูนย์ไทย แล้วให้ [ตัวเลือก: ศูนย์ไทย (TH/A) | เครื่องนอก | ไม่แน่ใจ]) (5) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม — ปุ่มของแต่ละเรื่องให้สรุปสั้นๆ จาก label ของ option จริงใน get_condition_questions. กติกาเหล็ก: ห้ามเดา/กรอกคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด — ส่งใน answers ได้เฉพาะข้อที่ลูกค้าบอกมาจริงหรือกดปุ่มเลือกมาจริงเท่านั้น (เคสจริง: ลูกค้าพิมพ์ชื่อเล่นว่า "จีน" พร้อมเบอร์ ระบบเดาเป็นเครื่องนอกจีนแล้วหักราคา 25% ลูกค้าเกือบเสียราคาไป 7,000 บาท) ข้อที่ไม่รู้ให้ไม่ต้องส่ง ระบบจะถือว่าสภาพปกติเอง. อีกกติกา: ลูกค้าตอบเรื่องไหนมาแล้ว (พิมพ์เองหรือตอบรวดเดียวหลายเรื่อง) ข้ามเรื่องนั้นทันที ห้ามถามซ้ำ และห้ามลากยาว. เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด (รอย แบต ซ่อม) ถามแค่ "มีใบเสร็จหรือหลักฐานการซื้อไหม" กับความจุ/รุ่นย่อยที่ยังไม่รู้ แล้วออกการ์ดได้เลย — ข้อมูลพอออกการ์ดเมื่อไหร่ให้ไปขั้นที่ 4 ทันที. ขั้นที่ 4 พอได้คำตอบครบพอ (ให้เบอร์แล้วเรียก save_customer_info ก่อน) เรียก create_quote_card ทันทีด้วยคำตอบเท่าที่มี แล้วบอกลูกค้าให้กดปุ่มบนการ์ด — ห้ามรับคำสั่งขายแทนลูกค้าในแชท`,
     `6.1 ลูกค้าเอ่ยชื่อรุ่น (ถามราคา/ถามว่า "รับไหม"/บอกจะขาย): ห้ามตอบ "รับ/ไม่รับ" จากความจำเด็ดขาด ต้อง search_models ด้วยชื่อรุ่นก่อนทุกครั้ง แล้วตอบตามผล (ข้อ 6). ถ้าเป็นรุ่นที่มีราคา ให้บอกว่ารับซื้อรุ่นนี้แน่นอน แล้วเริ่มขั้นที่ 3 ของข้อ 6 ต่อในข้อความเดียวกันทันที (ขอชื่อ/เบอร์ + คำถามสภาพเรื่องแรกพร้อมปุ่ม [ตัวเลือก]) "โดยไม่ประกาศตัวเลขราคา" ไม่ต้องรอลูกค้าบอกว่าจะขาย`,
     `6.2 ห้ามบอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/สร้างออเดอร์บนหน้าเว็บเองเด็ดขาด ช่องทางขายในแชทมีทางเดียวคือการ์ดใบเสนอราคาจาก create_quote_card ถ้าเห็นข้อความเก่าของคุณในบทสนทนาที่เคยแนะนำให้ไปกดปุ่มบนเว็บ นั่นคือระบบเวอร์ชันเก่า ห้ามเลียนแบบ`,
     `6.3 ห้ามถามสภาพเกิน 1 รอบเด็ดขาด (กฎเหล็กที่พลาดบ่อย): พอลูกค้าตอบสภาพรอบแรกแล้ว — ไม่ว่าจะตอบครบหรือไม่ครบ คลุมเครือ ("สภาพดี" "ปกติ") หรือขอราคาเลย — ห้ามถามย้อนเพื่อ "ขอยืนยันอีกนิด/รอยอยู่ตรงไหน" ซ้ำอีกเด็ดขาด ให้เรียก create_quote_card ทันทีด้วยข้อมูลเท่าที่มี. ถ้าลูกค้าตอบเพิ่มมาทีหลัง (เช่น "ตัวเรือน") ก็ยิ่งต้องออกการ์ดเลย ห้ามถามต่อ — การ์ดออกเร็วสำคัญกว่าข้อมูลครบ เพราะราคาสุดท้ายยืนยันตอนตรวจเครื่องจริงอยู่แล้ว. ข้อยกเว้น 2 อย่างที่ "ถามต่อได้อีก 1 คำถาม" ก่อนออกการ์ด (เพราะกระทบราคาหลักพัน-หมื่น): (ก) ลูกค้าบอกว่าเคยซ่อม/เปลี่ยนอะไหล่ → ถามว่าอะไหล่แท้/ทั่วไป (ข้อ 6.8) (ข) ยังไม่รู้ว่าศูนย์ไทยหรือเครื่องนอก → ถามข้อ 6.9 — 2 ข้อนี้ไม่นับเป็น "ถามซ้ำ"`,
@@ -1636,8 +1689,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-28.4";
+const LOGIC_VERSION = "2026-07-30.1";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-30", text: "ปิดช่องที่ทำให้ราคาในการ์ดต่ำกว่าความจริง (เคสจริง iPhone 16 Pro Max 256GB: ราคาจริง 28,500 แต่การ์ดออก 21,375): ลูกค้าพิมพ์ \"0655610223 จีน\" ตอบคำถามขอชื่อ+เบอร์ — คำว่า \"จีน\" คือชื่อเล่นลูกค้า แต่ AI ตีความเป็นเครื่องนอกจีน (CH) แล้วหักราคา 25% เอง ทั้งที่ไม่มีใครถามเรื่องประเทศเลย. ตอนนี้ระบบบังคับว่า \"ทุกการหักราคาต้องมีที่มา\": ถ้า AI ส่งคำตอบสภาพเครื่องที่หักเงิน โดยเรื่องนั้นลูกค้าไม่เคยพูดและไม่มีใครถาม ระบบจะไม่หัก (คิดเป็นสภาพปกติ + ระบุบนการ์ดว่าเป็นค่าประเมิน) และเตือน AI ให้ไปถามลูกค้าก่อน. ข้อความที่มีเบอร์โทรไม่ถูกใช้เป็นหลักฐานสภาพเครื่องอีก (ชื่อคนมักมาคู่กับเบอร์)" },
   { at: "2026-07-28", text: "แชทส่งรูปได้ทั้งสองทาง + สถานะ 'อ่านแล้ว' ทำงานจริงทั้งสองฝั่ง (เดิมพังทั้งคู่): (1) รูปของแอดมินอัปโหลดลง path ที่ storage rules ไม่อนุญาต = ล้มเหลวทุกครั้ง และ widget ก็ไม่มีตัวแสดงรูป — ตอนนี้แอดมินส่งรูปให้ลูกค้าเห็นได้ และลูกค้ามีปุ่มแนบรูปในแชทแล้ว (จำกัด 8MB เฉพาะไฟล์ภาพ) (2) 'อ่านแล้ว' ฝั่งลูกค้าไม่เคยขึ้นในแชทที่ AI ดูแล เพราะมีแต่แอดมินเปิดอ่านที่ตีธงได้ — ตอนนี้มาตินตอบ = ตีธงอ่านแล้วให้ด้วย, และฝั่งแอดมินเห็นติ๊กคู่เมื่อลูกค้าเปิดอ่านจริง (เพิ่ม rule ให้ลูกค้าเขียนได้แค่ธง read เท่านั้น)" },
   { at: "2026-07-28", text: "รุ่นปีเก่าที่งดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนปุ่มให้เลือก (เคสจริง 'macbook pro 2012': ระบบชวนเลือกจาก 8 รุ่นที่ล้วนงดรับซื้อ ทั้งที่เจ้าของสอนไว้แล้วว่าปีเก่ากว่าที่รับ = งดทันที): กติกาใหม่อิงข้อมูลจริงไม่ hardcode ปี — ลูกค้าระบุปีที่ (ก) ตรงเฉพาะรุ่นงดรับซื้อ หรือ (ข) เก่ากว่าทุกรุ่นที่ยังรับในตระกูลนั้น → แจ้งงดรับซื้อทันที + แก้ด่านสำรอง: ตอนรุ่นยังกำกวม ('ipad 6') ข้อความบังคับจะถามยืนยันรุ่นพร้อมปุ่มตัวเลือกจริง ไม่ใช่ขอชื่อ+เบอร์ก่อนรู้รุ่น (ผิดกติกา 2.1.1 ที่เจอในแชทจริง)" },
   { at: "2026-07-28", text: "มาตินรอให้ลูกค้าพิมพ์จบก่อนตอบ (จังหวะแบบมนุษย์): widget ส่งสัญญาณ 'กำลังพิมพ์' และระบบจะรอจนแป้นพิมพ์เงียบ (เพดาน ~20 วิ) ค่อยเริ่มคิด — ลูกค้าพิมพ์รัวหลาย bubble จะได้คำตอบเดียวที่เห็นครบทุกข้อความ ไม่ใช่ตอบแทรกทีละท่อน + เพิ่มไอคอนกำลังพิมพ์สองทาง: แอดมินพิมพ์ในคอนโซล ลูกค้าเห็นจุดกำลังพิมพ์เหมือนตอน AI พิมพ์, ลูกค้าพิมพ์ แอดมินเห็น 'ลูกค้ากำลังพิมพ์…' ในคอนโซล" },
@@ -1986,7 +2040,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -2438,6 +2492,8 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               };
         }
         const assumedGroups = [];
+        // Condition answers the guard refused (guessed, never discussed).
+        const unsupportedAnswers = [];
         const lines = [];
         const customerConditions = [];
         const rawConditions = {};
@@ -2506,6 +2562,34 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             const optId = answers[group.id];
             let opt = optId != null ? options.find((o) => o.id === optId) : null;
             let assumed = false;
+            // PROVENANCE GUARD — a deduction must trace back to something the
+            // customer actually said. The model may only pass answers it was
+            // told; when it passes a costly answer for a topic that never came
+            // up (nobody asked, nobody mentioned it), that is a guess and it
+            // takes money off the customer's quote. Live bug (#WFQ1): "จีน" —
+            // the customer's NAME, sent with their phone number — became
+            // "เครื่องนอก CH" and cut an iPhone 16 Pro Max 256GB from 28,500
+            // to 21,375. Dropping the answer falls through to the best-case
+            // default below, which the card already marks as an assumption.
+            // Answers confirmed on an earlier card are never re-judged.
+            if (
+              opt &&
+              (prevQuote && prevQuote.answers ? prevQuote.answers[group.id] !== opt.id : true) &&
+              (resolveOptionDeduction(opt, basePrice, model.liquidityFactor) > 0 ||
+                opt.failBehavior === "reject" ||
+                opt.defect === true) &&
+              conditionAnswerUnsupported({
+                groupTitle: group.title || group.name || "",
+                evidenceText: conditionEvidence,
+                assistantText,
+              })
+            ) {
+              console.warn(
+                `[chatAi] ${convoId} dropped unsupported condition answer: "${group.title || group.id}" = "${opt.label || opt.id}" (never asked, never mentioned)`
+              );
+              unsupportedAnswers.push(group.title || group.name || group.id);
+              opt = null;
+            }
             if (opt && (opt.failBehavior === "reject" || (opt.defect === true && !acceptDefective))) {
               // The customer's own answer means "we do not buy this device" —
               // never issue a full-price card for it (the 0-baht tiers on these
@@ -2656,6 +2740,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           ok: true,
           estimated_price: estimated,
           assumed_groups: assumedGroups,
+          ...(unsupportedAnswers.length > 0 ? { rejected_guessed_answers: unsupportedAnswers } : {}),
           ...(prevQuote
             ? {
                 amended_from_previous: true,
@@ -2680,6 +2765,9 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
               : "") +
             (assumedGroups.length > 0
               ? " (ส่วนที่ไม่ได้ถามระบบประเมินตามสภาพปกติแล้ว บอกลูกค้าสั้นๆ ว่าถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง)"
+              : "") +
+            (unsupportedAnswers.length > 0
+              ? ` [คำเตือนระบบ] คุณส่งคำตอบสภาพเครื่องที่ลูกค้าไม่เคยบอกและไม่มีใครถามมาด้วย (${unsupportedAnswers.join(", ")}) ระบบไม่นำมาหักราคา — ห้ามเดาคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด ถ้าต้องรู้ให้ถามลูกค้าก่อน`
               : ""),
         };
       }
@@ -3825,7 +3913,18 @@ function registerChatAi({ dispatchAdminPush }) {
           .filter((m) => m.senderRole === "customer")
           .map((m) => String(m.text || ""))
           .join(" \n ");
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text });
+        // Provenance inputs for the condition-answer guard in
+        // create_quote_card: what the CUSTOMER actually said (contact replies
+        // stripped — see looksLikeContactReply) and what the assistant asked.
+        const conditionEvidence = history
+          .filter((m) => m.senderRole === "customer" && !looksLikeContactReply(m.text))
+          .map((m) => String(m.text || ""))
+          .join(" \n ");
+        const assistantText = history
+          .filter((m) => m.senderRole === "ai" || m.senderRole === "admin")
+          .map((m) => String(m.text || ""))
+          .join(" \n ");
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
@@ -4804,6 +4903,9 @@ module.exports = {
     normalizeForPin,
     yearOnlyDecline,
     modelFamilyLabel,
+    looksLikeContactReply,
+    conditionTopicWords,
+    conditionAnswerUnsupported,
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,

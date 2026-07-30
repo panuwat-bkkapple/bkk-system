@@ -1127,6 +1127,50 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
 }
 
+// --- every deduction must trace back to something the customer said ---------
+// Live bug #WFQ1: iPhone 16 Pro Max 256GB is 28,500 in the catalog, but the
+// card came out 21,375 — exactly -25%, and the only 25% option in that
+// condition set is "เครื่องนอกมีข้อจำกัด (LL / J / CH / KH)". The customer had
+// typed "0655610223 จีน" answering "ขอชื่อกับเบอร์โทร": จีน was their
+// nickname, the model read it as CH/China origin. Nobody ever asked about
+// country. The owner had to quote 29,000 by hand.
+{
+  const COUNTRY = "ประเทศที่ซื้อ";
+  const BATTERY = "สุขภาพแบตเตอรี่";
+  const unsup = (groupTitle, evidenceText, assistantText = "") =>
+    __test.conditionAnswerUnsupported({ groupTitle, evidenceText, assistantText });
+  check("a phone-bearing message is a contact reply", __test.looksLikeContactReply("0655610223 จีน"));
+  check("phone with dashes/spaces still detected", __test.looksLikeContactReply("065 561 0223 จีน") && __test.looksLikeContactReply("065-561-0223"));
+  check("battery percent is NOT a phone", !__test.looksLikeContactReply("แบต 89%"));
+  check("storage size is NOT a phone", !__test.looksLikeContactReply("256GB"));
+  // The live turn: evidence excludes the contact reply, so จีน is invisible.
+  check(
+    "#WFQ1 country deduction is refused (nobody asked, nobody said)",
+    unsup(COUNTRY, "iPhone 16 Pro Max \n 256GB", "ก่อนออกใบเสนอราคาให้ รบกวนขอชื่อกับเบอร์โทร"),
+  );
+  // Genuine deductions must survive — under-quoting loses the deal, but
+  // over-quoting loses margin, so both directions matter.
+  check("customer stating 'เครื่องนอก LL' keeps the deduction", !unsup(COUNTRY, "เครื่องนอก LL ครับ"));
+  check("customer stating 'ซื้อมาจากจีน' keeps the deduction", !unsup(COUNTRY, "ซื้อมาจากจีนครับ"));
+  check("AI having asked about origin keeps the deduction", !unsup(COUNTRY, "ไม่แน่ใจ", "เครื่องศูนย์ไทย (TH/A) หรือเครื่องนอกครับ"));
+  check("battery answer after the AI asked keeps the deduction", !unsup(BATTERY, "85%", "สุขภาพแบตเตอรี่กี่ % ครับ"));
+  check("unknown group titles stay permissive (never block what we cannot judge)", !unsup("กลุ่มพิเศษที่ไม่รู้จัก", "", ""));
+  check("every mapped topic resolves keywords", ["สุขภาพแบตเตอรี่", "สภาพจอภาพและกระจก", "สภาพตัวเครื่องและฝาหลัง", "ประกัน", "ประเทศที่ซื้อ", "ประวัติการซ่อม", "อุปกรณ์เสริมที่นำมาด้วย"].every((t) => (__test.conditionTopicWords(t) || []).length > 0));
+  // Wiring: the guard runs before the defect/reject branch (an invented
+  // reject answer must not decline a healthy device either), skips answers
+  // already confirmed on a previous card, and drops to the best-case default.
+  const guard = src.indexOf("PROVENANCE GUARD");
+  const defect = src.indexOf('if (opt && (opt.failBehavior === "reject" || (opt.defect === true && !acceptDefective))) {');
+  check("provenance guard exists", guard > 0);
+  check("guard runs before the defect decline", defect > 0 && guard < defect);
+  check("guard covers reject/defect answers too", src.slice(guard, guard + 1400).includes('opt.failBehavior === "reject" ||'));
+  check("guard respects answers confirmed on an earlier card", src.slice(guard, guard + 1400).includes("prevQuote.answers[group.id] !== opt.id"));
+  check("dropped answer falls through to best case", src.slice(guard, guard + 1800).includes("opt = null;"));
+  check("evidence excludes contact replies", src.includes('m.senderRole === "customer" && !looksLikeContactReply(m.text)'));
+  check("the model is told it guessed", src.includes("ห้ามเดาคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด"));
+  check("persona forbids inventing condition answers", sysNoCust.includes("ห้ามเดา/กรอกคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด"));
+}
+
 // --- year-only decline: old years never become a which-model quiz ------------
 // Live case #YDD2 "macbook pro 2012": every tied candidate was itself a
 // delisted Intel, yet the customer got 8 chips to choose from (bottoming at
