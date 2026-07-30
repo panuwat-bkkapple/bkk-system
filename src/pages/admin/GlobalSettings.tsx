@@ -40,8 +40,6 @@ export default function GlobalSettings() {
   // บริการถูกโชว์ให้ลูกค้าก่อนที่จะรู้ว่าใครรับงาน
   const [travelMode, setTravelMode] = useState<'DRIVE' | 'TWO_WHEELER'>('DRIVE');
   const riderRates = vehicleRates[ratesVehicle];
-  const setRiderRates = (next: typeof DEFAULT_RIDER_RATES) =>
-    setVehicleRates(prev => ({ ...prev, [ratesVehicle]: next }));
   const [isSavingRider, setIsSavingRider] = useState(false);
   const [showRiderSuccess, setShowRiderSuccess] = useState(false);
 
@@ -217,8 +215,13 @@ export default function GlobalSettings() {
     }
   };
 
+  // Edits land on the card of the vehicle tab currently open, and only that
+  // one — the other vehicle's rates have to survive switching tabs and saving.
   const handleRiderRateChange = (field: keyof typeof riderRates, value: string) => {
-    setRiderRates(prev => ({ ...prev, [field]: Number(value) }));
+    setVehicleRates(prev => ({
+      ...prev,
+      [ratesVehicle]: { ...prev[ratesVehicle], [field]: Number(value) },
+    }));
   };
 
   const previewRiderFee = (km: number) => {
