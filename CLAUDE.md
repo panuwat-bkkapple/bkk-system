@@ -70,6 +70,14 @@
 - **`onJobCouponRevoked`** — trigger เมื่อ `jobs/{id}/applied_coupon` ถูกลบ/เปลี่ยน code → reconcile ledger ฝั่ง server (client เขียนไม่ได้): flip `issued_coupons` (used→issued, เคลียร์ used_*), เคลียร์ `is_used` ใน wallet `users/{uid}/coupons`, คืน quota `coupons/{id}/used_count`. Manual Top-up ของแอดมินไม่มี ledger = no-op
 - **`onRiderFeeDiscountEdited`** — trigger เมื่อ `jobs/{id}/rider_fee_discount` เปลี่ยน (แอดมินแก้/ลบส่วนลดจาก ticket UI) → sync `issued_rider_fee_discounts/{jobId}` (row เดิมเท่านั้น ไม่สร้างใหม่)
 - **`onPickupLocationChanged`** — trigger เมื่อ `jobs/{id}/cust_lat` เปลี่ยน (admin ปรับจุดรับเครื่องของงาน Pickup) → `computeRiderFee` ใหม่จากระยะทางใหม่ แล้วเซ็ต `pickup_fee` + `rider_fee_estimate` + `net_payout` อัตโนมัติ, และถ้ามีไรเดอร์ถืองานอยู่ (`rider_id`) จะ push แจ้ง "จุดรับเครื่องเปลี่ยน". **สำคัญ:** ไรเดอร์นำทางด้วย `cust_lat/cust_lng` (ดู `bkk-rider-app` `useJobActions.handleOpenNavigation`) และจะ**ไม่สนใจที่อยู่ข้อความเมื่อมีหมุด** — ห้ามแก้ `cust_address` แล้วปล่อยหมุดเก่าค้าง (ไรเดอร์จะวิ่งผิดที่). ชื่อห้ามตั้งทั่วไปด้วยเหตุผล namespace เดียวกัน
+- **`onRiderAssignedRecalcEstimate`** — trigger เมื่อ `jobs/{id}/rider_id` เปลี่ยน (ไรเดอร์กดรับ / แอดมิน assign / ถอนงาน) → คิด `rider_fee_estimate` ใหม่ด้วย **การ์ดอัตราของยานพาหนะคนที่ถืองานจริง** (`computeRiderFeeForAssignee`). ใช้ `onValueWritten` เพราะเคสหลักคือ `rider_id` ถูก **สร้าง** ไม่ใช่แก้ (`onValueUpdated` จะไม่ยิง). **แตะเฉพาะเงินฝั่งไรเดอร์** — `pickup_fee`/`net_payout` ของลูกค้าห้ามขยับเพราะใครรับงาน (invariant #3). ข้ามงานที่ไม่ใช่ Pickup และงานที่ `rider_fee` (settlement) คิดไปแล้ว
+
+## ค่าวิ่งไรเดอร์ แยกตามยานพาหนะ (motorcycle / car)
+- **อัตรา** อยู่ที่ `settings/logistics_rates/by_vehicle/{motorcycle|car}` (ตั้งที่ `/global-settings` แท็บยานพาหนะ) — ฟิลด์แบนที่ root ยังเป็น fallback ทีละฟิลด์ ระบบเดิมจึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะกรอก `by_vehicle`
+- **ยานพาหนะของไรเดอร์** อยู่ที่ `riders/{id}/vehicle_type` (+ mirror ที่ `riders/{id}/vehicle/type` ซึ่งเป็นตัวที่ลูกค้าอ่านได้ตามกฎ read ของ subtree `vehicle`) — ตั้งที่หน้า `/riders`
+- **แยกสามเรื่องอย่าสับสน** (ดู doc comment ของ `computeRiderFee`): ระยะทางที่ใช้**คิดเงิน**ใช้ `rates.travel_mode` ฐานเดียวทั้งระบบ (ไม่อิงคนขับ ไม่งั้นตั้งตัวเองเป็นรถยนต์ = ขึ้นเงิน) | **อัตรา** แยกตามยานพาหนะได้ | **ETA** ใช้โหมดของยานพาหนะจริง (มอเตอร์ไซค์ขึ้นทางด่วนไม่ได้)
+- **`fee_by_vehicle`** ใน `rider_fee_estimate_meta`/`rider_fee_meta` = ค่าจ้างของทั้งสองยานพาหนะจากระยะทางชุดเดียวกัน (ได้ฟรี ไม่ยิง Routes เพิ่ม) — งานในกองยังไม่มีใครถือ ตัวเลขก้อนเดียวจึงเป็นของมอเตอร์ไซค์เสมอ แอปไรเดอร์อ่านตัวนี้ผ่าน `getRiderPayout(job, vehicleType)` (`bkk-rider-app/src/utils/jobHelpers.ts`) เพื่อโชว์เลขของคนดูเอง
+- ที่เขียนเงินฝั่งไรเดอร์ต้องใช้ `computeRiderFeeForAssignee` (อิงคนถืองาน) — `computeRiderFee` เปล่าๆ ใช้เฉพาะตอนสร้างงานที่ยังไม่มีใครรับ
 
 ## Appointment / pickup_schedule (เลื่อนนัด)
 - **`pickup_schedule`** ใช้ร่วมกันทุก receive_method เก็บ `{ type, date, time, time_start, time_end, rescheduled_at? }`
@@ -103,6 +111,7 @@
    - **หลังสร้างงาน เรื่องเงินเป็นของ cloud function** (`onReceiveMethodChanged`, `onPickupLocationChanged`) — client เขียนได้แค่ `final_price` (ตอนแก้ราคา) แล้วปล่อยให้ function คิด `pickup_fee`/`net_payout` ต่อ
    - คนอ่านข้าม repo: `bkk-frontend-next` แสดง `net_payout` ให้ลูกค้า (track/profile/history/analytics); finance pages อ่าน `net_payout`
 3. **ค่าธรรมเนียม — คนละตัว อย่าสับสน:** `pickup_fee` = หักจาก**ลูกค้า** (อยู่ในสูตร net_payout) | `rider_fee`/`rider_fee_estimate` = จ่ายให้**ไรเดอร์** (อ่านโดย finance settlement + ไรเดอร์เห็น estimate ก่อนรับงาน). คนละความหมาย ห้ามเอามาใช้แทนกัน
+   - `pickup_fee` ถูก quote ให้ลูกค้าตอน checkout ด้วยระบบราคาโซนของเว็บ (`bkk-frontend-next` เป็นเจ้าของ) — **ห้ามขยับเพราะไรเดอร์คนไหนรับงาน**. ส่วน `rider_fee*` อิงยานพาหนะของคนถืองานได้ (ดู section ค่าวิ่งไรเดอร์)
 4. **วิธีรับเครื่อง:** `receive_method` ↔ `pickup_fee` ↔ `rider_id` ↔ `status` ↔ location fields (`cust_address`/`store_branch`)
    - เจ้าของ reconcile = `onReceiveMethodChanged` (ดู section Cloud Functions + Trade Method)
 5. **นัดหมาย:** `pickup_schedule.time` (string `"12:00 - 14:00"`, backward-compat) ↔ `time_start`/`time_end`

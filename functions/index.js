@@ -529,6 +529,16 @@ function resolveCustomerCoords(job) {
 }
 
 /**
+ * ค่าจ้างจากการ์ดอัตรา + ระยะทาง (clamp ด้วย min/max ของการ์ดนั้น)
+ * ระยะทางไม่รู้ (ไม่มีพิกัด / Routes ล้ม) = ได้ min_fee ตามพฤติกรรมเดิม
+ */
+function feeFromRates(rates, distanceKm) {
+  if (!Number.isFinite(distanceKm)) return Math.round(rates.min_fee);
+  const raw = rates.base_fee + rates.per_km * distanceKm;
+  return Math.round(Math.max(rates.min_fee, Math.min(rates.max_fee, raw)));
+}
+
+/**
  * คำนวณค่าวิ่งไรเดอร์ (บาท, จำนวนเต็ม) จากระยะทาง driving จริง
  * สูตร: clamp(base_fee + per_km × distance_km, min_fee, max_fee)
  *
@@ -558,13 +568,25 @@ function resolveCustomerCoords(job) {
  */
 async function computeRiderFee(db, job, options = {}) {
   const vehicleType = options.vehicleType || null;
-  const rates = await getLogisticsRates(db, vehicleType);
+  // อ่านทั้งสองการ์ดอัตรา (settings node เล็ก) เพราะระยะทางที่ใช้คิดเงินเป็น
+  // ฐานเดียวกันทั้งระบบ ค่าจ้างของอีกยานพาหนะจึงได้มาฟรีจากเลขชุดเดิม ไม่ต้อง
+  // ยิง Routes เพิ่ม — ใช้โชว์ในกองงานให้ไรเดอร์แต่ละคนเห็นเลขของตัวเองจริง
+  const [motoRates, carRates] = await Promise.all([
+    getLogisticsRates(db, "motorcycle"),
+    getLogisticsRates(db, "car"),
+  ]);
+  const rates = normalizeVehicle(vehicleType) === "car" ? carRates : motoRates;
   const custCoords = resolveCustomerCoords(job);
   const branchCoords = await resolveBranchCoords(db, job);
+  const byVehicle = (distanceKm) => ({
+    motorcycle: feeFromRates(motoRates, distanceKm),
+    car: feeFromRates(carRates, distanceKm),
+  });
 
   if (!custCoords || !branchCoords) {
     return {
       fee: rates.min_fee,
+      fee_by_vehicle: byVehicle(null),
       distance_km: null,
       duration_min: null,
       rates,
@@ -576,6 +598,7 @@ async function computeRiderFee(db, job, options = {}) {
   if (route.error) {
     return {
       fee: rates.min_fee,
+      fee_by_vehicle: byVehicle(null),
       distance_km: null,
       duration_min: null,
       rates,
@@ -605,10 +628,12 @@ async function computeRiderFee(db, job, options = {}) {
     }
   }
 
-  const raw = rates.base_fee + rates.per_km * route.distance_km;
-  const clamped = Math.max(rates.min_fee, Math.min(rates.max_fee, raw));
   return {
-    fee: Math.round(clamped),
+    fee: feeFromRates(rates, route.distance_km),
+    // ค่าจ้างของทั้งสองยานพาหนะจากระยะทางเดียวกัน — ไรเดอร์ในกองงานยังไม่มีใคร
+    // ถืองาน ตัวเลขที่เก็บไว้ตัวเดียวจึงเป็นของยานพาหนะเดียว คนขับรถยนต์จะเห็น
+    // เลขของมอเตอร์ไซค์ ทั้งคู่เก็บไว้เพื่อให้แอปไรเดอร์โชว์เลขที่เขาจะได้จริง
+    fee_by_vehicle: byVehicle(route.distance_km),
     distance_km: Math.round(route.distance_km * 100) / 100,
     duration_min: Math.round(durationMin),
     // โหมดที่ใช้คิดระยะทาง (เงิน) กับที่ใช้คิดเวลา (ETA) แยกกันรายงาน เพราะ
@@ -632,6 +657,36 @@ async function riderVehicleType(db, job) {
   if (!job || !job.rider_id) return null;
   const snap = await db.ref(`riders/${job.rider_id}/vehicle_type`).once("value");
   return snap.exists() ? normalizeVehicle(snap.val()) : null;
+}
+
+/**
+ * meta ของค่าจ้างไรเดอร์ — รูปเดียวกันทุกจุดที่เขียน rider_fee_estimate/rider_fee
+ * `fee_by_vehicle` ให้แอปไรเดอร์เลือกโชว์เลขของยานพาหนะตัวเอง
+ */
+function riderFeeMeta(result) {
+  return {
+    distance_km: result.distance_km,
+    fee_by_vehicle: result.fee_by_vehicle || null,
+    rates: result.rates,
+    reason: result.reason,
+    computed_at: Date.now(),
+  };
+}
+
+/**
+ * ค่าจ้างไรเดอร์ "ตามอัตราของคนที่ถืองานอยู่จริง"
+ *
+ * ใช้กับเงินฝั่งไรเดอร์เท่านั้น (`rider_fee_estimate`, `rider_fee`) — ไม่ใช่
+ * `pickup_fee` ของลูกค้า. เหตุผลที่แยก: ค่าบริการที่เก็บจากลูกค้าถูก quote ไว้
+ * ตอน checkout ด้วยระบบราคาโซนของเว็บ ห้ามขยับเพราะ "ใครกดรับงาน" ส่วนต้นทุน
+ * ที่เราจ่ายไรเดอร์ต่างกันจริงตามยานพาหนะ จึงต้องอิงคนที่รับงาน
+ *
+ * ยังไม่มีใครรับงาน = ไม่ส่ง vehicleType → ได้อัตรามอเตอร์ไซค์ (ค่าเริ่มต้น
+ * ของกองไรเดอร์) เป็นตัวเลขประเมินกลาง
+ */
+async function computeRiderFeeForAssignee(db, job) {
+  const vehicleType = await riderVehicleType(db, job);
+  return computeRiderFee(db, job, vehicleType ? { vehicleType } : {});
 }
 
 // =============================================================================
@@ -1315,12 +1370,7 @@ exports.onNewTicketCreated = onValueCreated(
         const result = await computeRiderFee(db, job);
         await db.ref(`jobs/${jobId}`).update({
           rider_fee_estimate: result.fee,
-          rider_fee_estimate_meta: {
-            distance_km: result.distance_km,
-            rates: result.rates,
-            reason: result.reason,
-            computed_at: Date.now(),
-          },
+          rider_fee_estimate_meta: riderFeeMeta(result),
         });
         console.log(
           `[onNewTicket] rider_fee_estimate for job ${jobId}: ฿${result.fee} (${result.reason}, ${result.distance_km ?? "n/a"} km)`
@@ -2512,14 +2562,9 @@ exports.onReceiveMethodChanged = onValueUpdated(
     //    non-Pickup methods, which needs no pricing formula.
     if (after === "Pickup") {
       try {
-        const result = await computeRiderFee(db, job);
+        const result = await computeRiderFeeForAssignee(db, job);
         updates.rider_fee_estimate = result.fee;
-        updates.rider_fee_estimate_meta = {
-          distance_km: result.distance_km,
-          rates: result.rates,
-          reason: result.reason,
-          computed_at: Date.now(),
-        };
+        updates.rider_fee_estimate_meta = riderFeeMeta(result);
         logs.push({
           action: "Rider Estimate Updated",
           by: "System",
@@ -2642,15 +2687,10 @@ exports.onPickupLocationChanged = onValueUpdated(
     let fee = null;
     const updates = {};
     try {
-      const result = await computeRiderFee(db, job);
+      const result = await computeRiderFeeForAssignee(db, job);
       fee = result.fee;
       updates.rider_fee_estimate = result.fee;
-      updates.rider_fee_estimate_meta = {
-        distance_km: result.distance_km,
-        rates: result.rates,
-        reason: result.reason,
-        computed_at: Date.now(),
-      };
+      updates.rider_fee_estimate_meta = riderFeeMeta(result);
     } catch (err) {
       console.error(`[onPickupLocationChanged] computeRiderFee failed for ${jobId}:`, err);
     }
@@ -2858,15 +2898,12 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     }
 
     try {
-      const result = await computeRiderFee(db, job);
+      // อัตราของยานพาหนะไรเดอร์ที่ส่งมอบเครื่องจริง — ตัวเลขนี้คือเงินที่
+      // Finance จะจ่ายให้เขา ไม่ใช่ค่าบริการที่เก็บจากลูกค้า
+      const result = await computeRiderFeeForAssignee(db, job);
       const updates = {
         rider_fee: result.fee,
-        rider_fee_meta: {
-          distance_km: result.distance_km,
-          rates: result.rates,
-          reason: result.reason,
-          computed_at: Date.now(),
-        },
+        rider_fee_meta: riderFeeMeta(result),
       };
       // ถ้ายังไม่มี rider_fee_status มาก่อน ตั้งเป็น Pending เพื่อเข้าคิว settlement
       if (!job.rider_fee_status) {
@@ -2878,6 +2915,70 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
       );
     } catch (err) {
       console.error(`[riderFee] Failed to compute for ${jobId}:`, err);
+    }
+  }
+);
+
+// =============================================================================
+// Rider assignment → re-estimate the rider's own payout at THEIR rate card
+// -----------------------------------------------------------------------------
+// `settings/logistics_rates/by_vehicle` lets an admin pay a car rider a
+// different base/per-km than a motorcycle rider, because the real cost differs.
+// That setting could never reach a rider's payout before: the estimate was
+// computed at job creation / method change / pin move, all of which happen
+// before anyone accepts, so it always used the default (motorcycle) rates and
+// stayed there. This trigger closes the loop — when the holder of the job
+// changes, the rider-side estimate is recomputed at the new holder's rates.
+//
+// Strictly rider-side money. `pickup_fee` (charged to the CUSTOMER) and
+// `net_payout` are NOT touched: the customer was quoted a delivery fee by the
+// website's zone pricing at checkout, and it must not move because a different
+// rider happened to take the job. Invariant #3 — pickup_fee and rider_fee* are
+// different amounts to different parties.
+//
+// onValueWritten, not onValueUpdated: the common case is rider_id being CREATED
+// (a job starts with no rider), which onValueUpdated does not fire for.
+// Name stays specific for the same {region}/{name} collision rule as the rest.
+// =============================================================================
+exports.onRiderAssignedRecalcEstimate = onValueWritten(
+  {
+    ref: "/jobs/{jobId}/rider_id",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val() || null;
+    const after = event.data.after.val() || null;
+    if (before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+
+    // Only Pickup jobs pay a rider a distance fee.
+    if (job.receive_method !== "Pickup") return;
+
+    // Settlement already computed (handover done, Finance may have approved it)
+    // — the estimate is now history and rewriting it would only confuse the
+    // audit trail. rider_fee is the number that matters from here on.
+    if (typeof job.rider_fee === "number" && job.rider_fee > 0) return;
+
+    try {
+      // Force rider_id to the event's `after` instead of whatever the once()
+      // read: the snapshot races with concurrent writes, and the rate card must
+      // follow the rider THIS event is about.
+      const result = await computeRiderFeeForAssignee(db, { ...job, rider_id: after });
+      await db.ref(`jobs/${jobId}`).update({
+        rider_fee_estimate: result.fee,
+        rider_fee_estimate_meta: riderFeeMeta(result),
+      });
+      console.log(
+        `[onRiderAssignedRecalcEstimate] ${jobId}: rider ${before || "none"} → ${after || "none"}, ` +
+        `estimate=฿${result.fee} (${result.rates.vehicle} rates, ${result.distance_km ?? "n/a"} km)`
+      );
+    } catch (err) {
+      console.error(`[onRiderAssignedRecalcEstimate] failed for ${jobId}:`, err);
     }
   }
 );
