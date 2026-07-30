@@ -321,7 +321,7 @@ const DEFAULT_LOGISTICS_RATES = {
  *
  * คืน { distance_km, duration_min } หรือ { error } ถ้า fail
  */
-async function fetchDrivingDistance(origin, destination) {
+async function fetchDrivingDistance(origin, destination, travelMode = "DRIVE") {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
     console.error("[routesApi] GOOGLE_MAPS_API_KEY not configured");
@@ -338,7 +338,9 @@ async function fetchDrivingDistance(origin, destination) {
         latLng: { latitude: destination.lat, longitude: destination.lng },
       },
     },
-    travelMode: "DRIVE",
+    travelMode: normalizeTravelMode(travelMode),
+    // TRAFFIC_AWARE is only valid for DRIVE and TWO_WHEELER, which are the
+    // only two modes normalizeTravelMode can return.
     routingPreference: "TRAFFIC_AWARE",
   };
 
@@ -392,15 +394,67 @@ async function fetchDrivingDistance(origin, destination) {
  * อ่านอัตราค่าวิ่งจาก settings/logistics_rates (configurable ผ่าน admin UI)
  * คืนค่า default ถ้ายังไม่ได้ตั้งไว้
  */
-async function getLogisticsRates(db) {
+/**
+ * ยานพาหนะของไรเดอร์ — คนละอัตรา เพราะต้นทุนจริงคนละราคา (น้ำมัน ค่าจอด)
+ * ค่าที่ไม่รู้จักถือเป็นมอเตอร์ไซค์ ซึ่งเป็นค่าเริ่มต้นของกองไรเดอร์
+ */
+function normalizeVehicle(value) {
+  return String(value || "").toLowerCase() === "car" ? "car" : "motorcycle";
+}
+
+/**
+ * โหมดวัดเส้นทางที่ "เหมาะกับยานพาหนะนั้นจริง" — ใช้กับ ETA เท่านั้น
+ *
+ * เจตนา: มอเตอร์ไซค์ขึ้นทางด่วนไม่ได้ เวลาถึงลูกค้าจึงต่างจากรถยนต์จริง
+ * แต่ระยะทางที่ใช้ "คิดเงิน" ยังใช้ฐานเดียวทั้งระบบ (rates.travel_mode)
+ * เพราะเส้นทางรถยนต์ระยะทางไกลกว่า ถ้าเอาระยะทางตามยานพาหนะมาคิดเงิน
+ * ไรเดอร์ที่ตั้งตัวเองเป็นรถยนต์จะได้เงินมากกว่าสำหรับงานเดียวกันทันที
+ */
+function travelModeForVehicle(vehicle) {
+  return normalizeVehicle(vehicle) === "car" ? "DRIVE" : "TWO_WHEELER";
+}
+
+/**
+ * อัตราค่าวิ่ง แยกตามยานพาหนะได้
+ *
+ * รูปแบบใหม่: settings/logistics_rates/by_vehicle/{motorcycle|car}
+ * รูปแบบเดิม (ฟิลด์แบนที่ root) ยังใช้เป็น fallback ทุกฟิลด์ ทีละฟิลด์ —
+ * ระบบที่ตั้งค่าเดิมไว้จึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะมีคนกรอก by_vehicle
+ */
+async function getLogisticsRates(db, vehicleType) {
   const snap = await db.ref("settings/logistics_rates").once("value");
   const saved = snap.exists() ? snap.val() : {};
+  const vehicle = normalizeVehicle(vehicleType);
+  const perVehicle = (saved.by_vehicle && saved.by_vehicle[vehicle]) || {};
+
+  const pick = (field) => Number(
+    perVehicle[field] ?? saved[field] ?? DEFAULT_LOGISTICS_RATES[field]
+  );
+
   return {
-    base_fee: Number(saved.base_fee ?? DEFAULT_LOGISTICS_RATES.base_fee),
-    per_km: Number(saved.per_km ?? DEFAULT_LOGISTICS_RATES.per_km),
-    min_fee: Number(saved.min_fee ?? DEFAULT_LOGISTICS_RATES.min_fee),
-    max_fee: Number(saved.max_fee ?? DEFAULT_LOGISTICS_RATES.max_fee),
+    vehicle,
+    base_fee: pick("base_fee"),
+    per_km: pick("per_km"),
+    min_fee: pick("min_fee"),
+    max_fee: pick("max_fee"),
+    travel_mode: normalizeTravelMode(saved.travel_mode),
   };
+}
+
+/**
+ * How road distance is measured, as a setting rather than a constant: some
+ * riders are on motorcycles and some drive cars, and the two routes differ
+ * materially here — motorcycles are barred from the expressways a car route
+ * will happily take, so the car route is often longer in kilometres and
+ * shorter in minutes.
+ *
+ * Anything unrecognised falls back to DRIVE, which is what every existing
+ * fee was calculated with. A typo in a settings field must not silently
+ * reprice every pickup.
+ */
+function normalizeTravelMode(value) {
+  const mode = String(value || "").toUpperCase();
+  return mode === "TWO_WHEELER" ? "TWO_WHEELER" : "DRIVE";
 }
 
 /**
@@ -483,8 +537,28 @@ function resolveCustomerCoords(job) {
  *   - Distance Matrix API fail (network / quota / API key)
  * ไม่คำนวณเส้นตรง (Haversine) เพื่อให้ยอดตรงกับระยะทางจริงเสมอ
  */
-async function computeRiderFee(db, job) {
-  const rates = await getLogisticsRates(db);
+/**
+ * ค่าวิ่ง + ระยะทาง + เวลาถึงลูกค้า
+ *
+ * แยกสามเรื่องออกจากกันโดยเจตนา:
+ *
+ *   ระยะทางที่ใช้คิดเงิน  ใช้ rates.travel_mode ฐานเดียวทั้งระบบ ไม่อิงคนขับ
+ *                        เพราะเส้นทางรถยนต์ไกลกว่า ถ้าอิงคนขับ การตั้งตัวเอง
+ *                        เป็นรถยนต์จะกลายเป็นการขึ้นเงินสำหรับงานเดียวกัน
+ *   อัตรา (base/per_km)  แยกตามยานพาหนะได้ เพราะต้นทุนจริงคนละราคา — ตรงนี้
+ *                        คือที่ที่ความต่างของยานพาหนะ "ควร" อยู่ เพราะแอดมิน
+ *                        ตั้งเองอย่างตั้งใจ ไม่ใช่งอกมาจากวิธีวัดเส้นทาง
+ *   เวลาถึงลูกค้า (ETA)  ใช้โหมดของยานพาหนะจริง เพราะมอเตอร์ไซค์ขึ้นทางด่วน
+ *                        ไม่ได้ เวลาจึงต่างจริง และเวลาไม่ได้จ่ายเงินใคร
+ *                        จึงปั่นไม่ได้
+ *
+ * `vehicleType` ว่าง = ยังไม่รู้ว่าใครรับงาน (ตอนสร้างงาน / เปลี่ยนวิธีรับ) →
+ * คิดด้วยอัตรามอเตอร์ไซค์ซึ่งเป็นค่าเริ่มต้นของกองไรเดอร์ และไม่ยิง Routes
+ * รอบที่สอง
+ */
+async function computeRiderFee(db, job, options = {}) {
+  const vehicleType = options.vehicleType || null;
+  const rates = await getLogisticsRates(db, vehicleType);
   const custCoords = resolveCustomerCoords(job);
   const branchCoords = await resolveBranchCoords(db, job);
 
@@ -498,7 +572,7 @@ async function computeRiderFee(db, job) {
     };
   }
 
-  const route = await fetchDrivingDistance(custCoords, branchCoords);
+  const route = await fetchDrivingDistance(custCoords, branchCoords, rates.travel_mode);
   if (route.error) {
     return {
       fee: rates.min_fee,
@@ -509,15 +583,55 @@ async function computeRiderFee(db, job) {
     };
   }
 
+  // ETA ตามยานพาหนะจริง ยิงรอบที่สองเฉพาะเมื่อโหมดต่างจากที่ใช้คิดเงิน —
+  // เท่ากันก็ไม่ต้องจ่ายค่า API ซ้ำเพื่อคำตอบเดิม
+  let durationMin = route.duration_min;
+  let etaTravelMode = rates.travel_mode;
+  // ยานพาหนะสำหรับ ETA มาจากไรเดอร์ที่ถืองานอยู่จริง แม้ผู้เรียกไม่ได้ส่งมา —
+  // เพราะ ETA ไม่กระทบเงินของใคร จะแม่นขึ้นได้ฟรี ส่วน "อัตรา" ยังใช้เฉพาะ
+  // vehicleType ที่ผู้เรียกส่งมาอย่างตั้งใจเท่านั้น เพื่อไม่ให้ค่าบริการของ
+  // ลูกค้าเปลี่ยนไปตามคนที่กดรับงาน
+  const etaVehicle = vehicleType || (await riderVehicleType(db, job));
+  if (etaVehicle) {
+    const riderMode = travelModeForVehicle(etaVehicle);
+    if (riderMode !== rates.travel_mode) {
+      const etaRoute = await fetchDrivingDistance(custCoords, branchCoords, riderMode);
+      if (!etaRoute.error) {
+        durationMin = etaRoute.duration_min;
+        etaTravelMode = riderMode;
+      }
+    } else {
+      etaTravelMode = riderMode;
+    }
+  }
+
   const raw = rates.base_fee + rates.per_km * route.distance_km;
   const clamped = Math.max(rates.min_fee, Math.min(rates.max_fee, raw));
   return {
     fee: Math.round(clamped),
     distance_km: Math.round(route.distance_km * 100) / 100,
-    duration_min: Math.round(route.duration_min),
+    duration_min: Math.round(durationMin),
+    // โหมดที่ใช้คิดระยะทาง (เงิน) กับที่ใช้คิดเวลา (ETA) แยกกันรายงาน เพราะ
+    // เป็นคนละคำถาม และเวลาไล่บั๊กเรื่องค่าวิ่งต้องรู้ว่าเลขไหนมาจากฐานไหน
+    travel_mode: rates.travel_mode,
+    eta_travel_mode: etaTravelMode,
+    // vehicle = ยานพาหนะที่ "อัตรา" อิง | eta_vehicle = ที่ "เวลา" อิง
+    // คนละตัวได้ และเวลาไล่บั๊กต้องแยกออกจากกัน
+    vehicle: rates.vehicle,
+    eta_vehicle: etaVehicle,
     rates,
     reason: "calculated",
   };
+}
+
+/**
+ * ยานพาหนะของไรเดอร์ที่ถืองานนี้ — null ถ้ายังไม่มีใครรับ
+ * อ่านจาก riders/{id}/vehicle_type ซึ่งแอดมินตั้งในหน้าจัดการไรเดอร์
+ */
+async function riderVehicleType(db, job) {
+  if (!job || !job.rider_id) return null;
+  const snap = await db.ref(`riders/${job.rider_id}/vehicle_type`).once("value");
+  return snap.exists() ? normalizeVehicle(snap.val()) : null;
 }
 
 // =============================================================================
