@@ -4,7 +4,7 @@ import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
-import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2, Clock } from 'lucide-react';
+import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2, Clock, AlertTriangle } from 'lucide-react';
 import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
@@ -46,6 +46,28 @@ export const TradeInPayouts = () => {
     const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
     const coupon = Number(tx.applied_coupon?.actual_value || tx.applied_coupon?.value || 0);
     return Math.max(0, base - pickupFee + coupon + sumAppliedAdjustments(tx));
+  };
+
+  // ยอดที่ "ตกลงกับลูกค้า" ไว้ — หน้า track โชว์ net_payout ส่วนการเจรจาเก็บที่
+  // revised_price. ถ้ามันไม่ตรงกับยอดที่กำลังจะโอน (getNetPayout คิดสดจาก
+  // final_price) แปลว่ามี path ไหนเขียนราคาไม่ครบวง — เตือนก่อนเงินออก
+  // อย่ากดโอนแล้วค่อยมาตามเก็บทีหลัง (ดู scripts/audit-payouts.cjs)
+  type PayoutJob = {
+    revised_price?: number;
+    negotiated_price?: number;
+    net_payout?: number;
+  };
+  const agreedWithCustomer = (tx: PayoutJob): number | null => {
+    const revised = Number(tx.revised_price || tx.negotiated_price || 0);
+    if (revised > 0) return revised;
+    const net = Number(tx.net_payout || 0);
+    return net > 0 ? net : null;
+  };
+  const payoutMismatch = (tx: PayoutJob): number | null => {
+    const agreed = agreedWithCustomer(tx);
+    if (agreed == null) return null;
+    const diff = Math.round(getNetPayout(tx)) - Math.round(agreed);
+    return diff === 0 ? null : diff;
   };
 
   const pendingPayouts = useMemo(() => {
@@ -221,6 +243,12 @@ export const TradeInPayouts = () => {
                  {/* 🌟 โชว์ยอด Net Payout ในตาราง */}
                  <td className="p-6 font-black text-emerald-600 text-lg text-right">
                     {formatCurrency(getNetPayout(tx))}
+                    {payoutMismatch(tx) !== null && (
+                      <div className="mt-1.5 inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1 rounded-lg text-[10px] font-black normal-case">
+                        <AlertTriangle size={12} />
+                        ลูกค้าเห็น {formatCurrency(agreedWithCustomer(tx) as number)}
+                      </div>
+                    )}
                  </td>
                  <td className="p-6 text-right pr-10">
                     <button 
@@ -264,6 +292,21 @@ export const TradeInPayouts = () => {
                       {formatCurrency(getNetPayout(selectedTx))}
                     </h1>
                  </div>
+
+                 {payoutMismatch(selectedTx) !== null && (
+                   <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-3">
+                     <AlertTriangle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                     <div className="text-xs font-bold text-amber-800 leading-relaxed">
+                       <p className="font-black uppercase tracking-widest text-[10px] mb-1">ยอดไม่ตรงกับที่แจ้งลูกค้า</p>
+                       <p>
+                         ลูกค้าเห็น/ตกลงไว้ที่ <b>{formatCurrency(agreedWithCustomer(selectedTx) as number)}</b> แต่ระบบกำลังจะโอน{' '}
+                         <b>{formatCurrency(getNetPayout(selectedTx))}</b> ({(payoutMismatch(selectedTx) as number) > 0 ? 'เกิน' : 'ขาด'}{' '}
+                         {formatCurrency(Math.abs(payoutMismatch(selectedTx) as number))})
+                       </p>
+                       <p className="mt-1 text-amber-700/80">กรุณาตรวจราคาในใบงานให้ตรงก่อนโอน</p>
+                     </div>
+                   </div>
+                 )}
                  
                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 space-y-4 shadow-inner">
                     <div className="flex justify-between items-center gap-4">
