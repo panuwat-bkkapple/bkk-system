@@ -23,6 +23,11 @@ const DIAGNOS_REGION = "asia-southeast1";
 const SESSION_TTL_MS = 30 * 60 * 1000; // QR expires 30 min after creation
 const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // purge sessions after 7 days
 const DIAGNOS_BASE_URL = process.env.DIAGNOS_BASE_URL || "https://www.bkkapple.com";
+// Where the handoff QR points. NOT the customer website: the person scanning it
+// is staff, and the rider PWA is the origin they are already signed in on — a
+// claim page on bkkapple.com would have no idea who they are. Overridable at
+// settings/diagnos/rider_app_url for a staging build.
+const RIDER_APP_URL = process.env.RIDER_APP_URL || "https://bkk-rider-app.web.app";
 
 // Superset of every client's list, as the design spec requires. `buttons` and
 // `charging_port` only ever arrive from the native app — no browser can read a
@@ -622,8 +627,9 @@ exports.createSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request
   const now = nowMs();
   const code = await allocateClaimCode(db);
 
-  const baseUrlSnap = await db.ref("settings/diagnos/base_url").once("value");
-  const baseUrl = (typeof baseUrlSnap.val() === "string" && baseUrlSnap.val()) || DIAGNOS_BASE_URL;
+  const riderUrlSnap = await db.ref("settings/diagnos/rider_app_url").once("value");
+  const riderAppUrl =
+    (typeof riderUrlSnap.val() === "string" && riderUrlSnap.val()) || RIDER_APP_URL;
 
   const ref = db.ref(SELF_ASSESSMENT_PATH).push();
   const id = ref.key;
@@ -658,7 +664,9 @@ exports.createSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request
     ok: true,
     id,
     code,
-    url: `${baseUrl}/diagnos/a/${id}#c=${code}`,
+    // id in the path, code in the fragment — same shape as the session link,
+    // and a fragment never reaches a server log. The rider app reads both.
+    url: `${riderAppUrl}/claim/${id}#c=${code}`,
     expiresAt: now + SELF_ASSESSMENT_TTL_MS,
   };
 });
