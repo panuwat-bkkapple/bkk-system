@@ -1127,6 +1127,63 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
 }
 
+// --- Martin can actually see customer photos ---------------------------------
+// Live gap: the customer sent a retail box + tax invoice (model, storage and
+// origin in one shot) and got "ผมไม่สามารถดูรูปภาพที่ส่งมาได้" — a dead end on
+// the highest-intent message in the funnel. Photos now ride on the last user
+// turn as vision blocks, with cost + failure bounds.
+{
+  const realFetch = globalThis.fetch;
+  const jpeg = Buffer.from('ffd8ffe000104a46494600010100000100010000ffd9', 'hex');
+  let calls = 0;
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => 'image/jpeg' },
+    arrayBuffer: async () => jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.length),
+  });
+  const history = [
+    { senderRole: 'customer', text: 'สวัสดีครับ' },
+    { senderRole: 'ai', text: 'ยินดีครับ' },
+    { senderRole: 'customer', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/a.jpg?token=1' },
+  ];
+  const msgs = [
+    { role: 'user', content: 'สวัสดีครับ' },
+    { role: 'assistant', content: 'ยินดีครับ' },
+    { role: 'user', content: 'ส่งรูปภาพ' },
+  ];
+  const r1 = await __test.attachCustomerImages(msgs, history);
+  const last = msgs[msgs.length - 1];
+  check('a customer photo is attached', r1.attached === 1);
+  check('it lands on the last USER turn as image+text blocks', Array.isArray(last.content) && last.content[0].type === 'image' && last.content[1].type === 'text');
+  check('the block is a valid base64 source', last.content[0].source.type === 'base64' && last.content[0].source.media_type === 'image/jpeg' && last.content[0].source.data.length > 0);
+  check('the original message text survives', last.content[1].text.includes('ส่งรูปภาพ'));
+  check('the money guardrail rides with the photo', last.content[1].text.includes('ห้ามใช้ตัวเลขบนใบเสร็จ'));
+  calls = 0;
+  globalThis.fetch = async () => { calls++; return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.length) }; };
+  await __test.attachCustomerImages([{ role: 'user', content: 'ส่งรูปภาพ' }], history);
+  check('the same photo is cached, not re-downloaded every turn', calls === 0);
+  const r2 = await __test.attachCustomerImages([{ role: 'user', content: 'hi' }], [{ senderRole: 'customer', text: 'hi' }]);
+  check('a text-only conversation is left untouched', r2.attached === 0);
+  const r3 = await __test.attachCustomerImages(
+    [{ role: 'user', content: 'hi' }],
+    [{ senderRole: 'admin', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/staff.jpg' }, { senderRole: 'customer', text: 'hi' }],
+  );
+  check('staff photos are NOT billed into the model turn', r3.attached === 0);
+  globalThis.fetch = async () => { throw new Error('network down'); };
+  const msgsFail = [{ role: 'user', content: 'ส่งรูปภาพ' }];
+  const r4 = await __test.attachCustomerImages(msgsFail, [{ senderRole: 'customer', text: 'ส่งรูปภาพ', imageUrl: 'https://firebasestorage.googleapis.com/down.jpg' }]);
+  check('a download failure degrades to text-only', r4.attached === 0 && typeof msgsFail[0].content === 'string');
+  globalThis.fetch = async () => ({ ok: true, headers: { get: () => 'application/pdf' }, arrayBuffer: async () => jpeg.buffer });
+  const r5 = await __test.attachCustomerImages([{ role: 'user', content: 'x' }], [{ senderRole: 'customer', text: 'x', imageUrl: 'https://firebasestorage.googleapis.com/doc.pdf' }]);
+  check('non-image media types are refused', r5.attached === 0);
+  globalThis.fetch = realFetch;
+  check('attach is wired into the handler turn', src.includes('const vision = await attachCustomerImages(messages, history);'));
+  check('cost bounds are explicit', /VISION_RECENT_MESSAGES = 8/.test(src) && /VISION_MAX_IMAGES = 2/.test(src));
+  check('persona says photos ARE visible', sysNoCust.includes('ลูกค้าส่งรูปได้และ "คุณดูรูปได้จริง"'));
+  check('persona keeps prices tool-only for photos', sysNoCust.includes('ห้ามเอาตัวเลขบนใบเสร็จ/กล่อง/ป้ายราคามาเป็นราคารับซื้อ'));
+  check('persona requires confirming what the photo shows', sysNoCust.includes('บอกลูกค้าแล้วขอยืนยัน'));
+}
+
 // --- every deduction must trace back to something the customer said ---------
 // Live bug #WFQ1: iPhone 16 Pro Max 256GB is 28,500 in the catalog, but the
 // card came out 21,375 — exactly -25%, and the only 25% option in that
