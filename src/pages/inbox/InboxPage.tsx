@@ -678,20 +678,40 @@ export const InboxPage = () => {
     const file = e.target.files[0];
     setIsUploading(true);
     try {
-      const imageUrl = await uploadImageToFirebase(file, `inbox/${selectedConvo}/images`);
+      // Storage path MUST be chat_staff_uploads/{convoId} — the canonical
+      // storage.rules (bkk-frontend-next) grants only that path for staff
+      // chat photos. The old inbox/{id}/images path had no grant at all, so
+      // every upload hit the catch-all deny and the customer got nothing.
+      const imageUrl = await uploadImageToFirebase(file, `chat_staff_uploads/${selectedConvo}`);
+      const convo = conversations.find((c) => c.id === selectedConvo);
+      const isWidgetConvo = !!convo?.status;
+      // Same implicit takeover as a text reply — otherwise the AI keeps
+      // answering over a photo the staff just sent.
+      if (isWidgetConvo && (convo?.status !== 'human' || convo?.assigned_staff_id !== staffId)) {
+        await update(ref(db, `inbox/${selectedConvo}`), {
+          status: 'human',
+          assigned_staff_id: staffId,
+          assigned_staff_name: staffName,
+          ai_typing: false,
+        });
+      }
       await push(ref(db, `inbox/${selectedConvo}/messages`), {
         sender: currentUser?.uid || 'admin',
         senderName: currentUser?.name || 'Admin',
         senderRole: 'admin',
-        text: '📷 ส่งรูปภาพ',
+        text: 'ส่งรูปภาพ',
         imageUrl,
         timestamp: Date.now(),
         read: false,
       });
-      await update(ref(db, `inbox/${selectedConvo}`), {
-        lastMessage: '📷 ส่งรูปภาพ',
+      const updates: Record<string, unknown> = {
+        lastMessage: 'ส่งรูปภาพ',
         lastMessageAt: Date.now(),
-      });
+        'typing/admin': null,
+      };
+      // Widget conversations need the unread badge bumped like any reply.
+      if (isWidgetConvo) updates.customer_unread = increment(1);
+      await update(ref(db, `inbox/${selectedConvo}`), updates);
     } catch {
       toast.error('ไม่สามารถอัปโหลดรูปภาพได้');
     } finally {
