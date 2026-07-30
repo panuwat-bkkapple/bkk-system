@@ -684,8 +684,20 @@ exports.claimSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request)
   } else if (await requireAdmin(db, request.auth.uid)) {
     const adminSnap = await db.ref(`admins/${request.auth.uid}`).once("value");
     actor = { role: "ADMIN", name: adminSnap.val().name || adminSnap.val().display_name || "Admin" };
+  } else if (job.uid && job.uid === request.auth.uid) {
+    // The customer attaching their OWN test to their OWN case, which is what
+    // happens when they open the case from the BKK Diagnos app instead of
+    // handing a rider a code. Deliberately the narrowest opening available:
+    // the job must belong to this caller, and so must the assessment (checked
+    // below, once it is loaded).
+    //
+    // Nothing here is forgeable. The assessment was written by
+    // createSelfAssessment, the summary and every mismatch are recomputed on
+    // the server from it, and none of it moves money on its own — it is
+    // evidence a human weighs later.
+    actor = { role: "CUSTOMER", name: job.cust_name || "ลูกค้า" };
   } else {
-    throw new HttpsError("permission-denied", "เฉพาะไรเดอร์ของงานนี้หรือแอดมิน");
+    throw new HttpsError("permission-denied", "เฉพาะไรเดอร์ของงานนี้ แอดมิน หรือเจ้าของงาน");
   }
 
   // Look up by id when we have one, otherwise by the code the customer read
@@ -713,6 +725,14 @@ exports.claimSelfAssessment = onCall({ region: DIAGNOS_REGION }, async (request)
   }
 
   if (!assessment) throw new HttpsError("not-found", "ไม่พบผลการประเมิน หรือรหัสหมดอายุแล้ว");
+
+  // The second half of the owner path above. Staff may attach any assessment a
+  // customer shows them — that is the point of the six-digit code. A customer
+  // may attach only their own, so the "open a case from the app" flow cannot be
+  // used to staple someone else's clean test onto your own job.
+  if (actor.role === "CUSTOMER" && assessment.uid !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "ผลการประเมินนี้ไม่ใช่ของบัญชีนี้");
+  }
   if (assessment.status === "claimed") {
     throw new HttpsError(
       "failed-precondition",
