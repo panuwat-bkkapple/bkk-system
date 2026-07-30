@@ -20,6 +20,11 @@
 - **Secrets ที่ต้องมี:** VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_DATABASE_URL, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY, VITE_GOOGLE_MAPS_API_KEY, FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN
 - **Secrets (Cloud Functions):** THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL (optional: EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL) — ดู Order Confirmation Emails ด้านล่าง
 
+## Cloud Functions env vars (กับดักที่กัดมาแล้ว)
+- **`functions/.env` = source of truth ของ env var ทุกตัว และ firebase-tools "แทนที่" ทั้งชุดทุกครั้งที่ deploy** — deploy จากเครื่องที่ไม่มีไฟล์นี้ = **ล้าง env var ของ function ที่ deploy ทิ้ง** (แต่ละ function เป็น Cloud Run service ของตัวเอง ตัวที่ไม่ได้ deploy ไม่กระทบ)
+- `.env` ถูก gitignore → CI เขียนขึ้นจาก GitHub Secrets ที่ step "Create Functions .env" ใน `firebase-hosting-deploy.yml` (12 ตัว: THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL, EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL, TELEGRAM_*, ANTHROPIC_API_KEY, CHAT_AI_MODEL)
+- **deploy functions ด้วยมือจาก clone ใหม่ = ต้องสร้าง `functions/.env` ก่อน** ไม่งั้นเงียบๆ พัง: `computeRiderFee` ไม่มี `GOOGLE_MAPS_API_KEY` → Routes API ล้ม → ค่าวิ่ง fallback เป็น `min_fee` ทุกงาน (ดู log `[routesApi] GOOGLE_MAPS_API_KEY not configured`). ทางที่ปลอดภัยที่สุดคือให้ CI deploy (push main)
+
 ## Mobile App (PWA)
 - **URL:** `bkk-apple-admin.web.app/mobile`
 - **ใช้งานบน iOS** ผ่าน Add to Home Screen (PWA standalone mode)
