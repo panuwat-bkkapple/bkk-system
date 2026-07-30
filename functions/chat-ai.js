@@ -1636,8 +1636,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-28.3";
+const LOGIC_VERSION = "2026-07-28.4";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-28", text: "แชทส่งรูปได้ทั้งสองทาง + สถานะ 'อ่านแล้ว' ทำงานจริงทั้งสองฝั่ง (เดิมพังทั้งคู่): (1) รูปของแอดมินอัปโหลดลง path ที่ storage rules ไม่อนุญาต = ล้มเหลวทุกครั้ง และ widget ก็ไม่มีตัวแสดงรูป — ตอนนี้แอดมินส่งรูปให้ลูกค้าเห็นได้ และลูกค้ามีปุ่มแนบรูปในแชทแล้ว (จำกัด 8MB เฉพาะไฟล์ภาพ) (2) 'อ่านแล้ว' ฝั่งลูกค้าไม่เคยขึ้นในแชทที่ AI ดูแล เพราะมีแต่แอดมินเปิดอ่านที่ตีธงได้ — ตอนนี้มาตินตอบ = ตีธงอ่านแล้วให้ด้วย, และฝั่งแอดมินเห็นติ๊กคู่เมื่อลูกค้าเปิดอ่านจริง (เพิ่ม rule ให้ลูกค้าเขียนได้แค่ธง read เท่านั้น)" },
   { at: "2026-07-28", text: "รุ่นปีเก่าที่งดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนปุ่มให้เลือก (เคสจริง 'macbook pro 2012': ระบบชวนเลือกจาก 8 รุ่นที่ล้วนงดรับซื้อ ทั้งที่เจ้าของสอนไว้แล้วว่าปีเก่ากว่าที่รับ = งดทันที): กติกาใหม่อิงข้อมูลจริงไม่ hardcode ปี — ลูกค้าระบุปีที่ (ก) ตรงเฉพาะรุ่นงดรับซื้อ หรือ (ข) เก่ากว่าทุกรุ่นที่ยังรับในตระกูลนั้น → แจ้งงดรับซื้อทันที + แก้ด่านสำรอง: ตอนรุ่นยังกำกวม ('ipad 6') ข้อความบังคับจะถามยืนยันรุ่นพร้อมปุ่มตัวเลือกจริง ไม่ใช่ขอชื่อ+เบอร์ก่อนรู้รุ่น (ผิดกติกา 2.1.1 ที่เจอในแชทจริง)" },
   { at: "2026-07-28", text: "มาตินรอให้ลูกค้าพิมพ์จบก่อนตอบ (จังหวะแบบมนุษย์): widget ส่งสัญญาณ 'กำลังพิมพ์' และระบบจะรอจนแป้นพิมพ์เงียบ (เพดาน ~20 วิ) ค่อยเริ่มคิด — ลูกค้าพิมพ์รัวหลาย bubble จะได้คำตอบเดียวที่เห็นครบทุกข้อความ ไม่ใช่ตอบแทรกทีละท่อน + เพิ่มไอคอนกำลังพิมพ์สองทาง: แอดมินพิมพ์ในคอนโซล ลูกค้าเห็นจุดกำลังพิมพ์เหมือนตอน AI พิมพ์, ลูกค้าพิมพ์ แอดมินเห็น 'ลูกค้ากำลังพิมพ์…' ในคอนโซล" },
   { at: "2026-07-28", text: "ข้อความบังคับของระบบอ่านบริบทเครื่องซีลแล้ว (เคสจริง iPad Air 11\" M4 มือ 1: ลูกค้าบอก 'ยังไม่ได้แกะกล่อง' แต่ข้อความขอเบอร์ยังปิดท้ายด้วยคำถามรอยขีดข่วน): เมื่อลูกค้าระบุว่าเครื่องมือ 1 ยังไม่แกะซีล ข้อความบังคับทุกจุด (ขอชื่อ+เบอร์, โหมด Offer, ด่านกันราคาหลุด) สลับคำถามท้ายเป็น 'มีใบเสร็จ/หลักฐานการซื้อไหม' แทนคำถามสภาพมือสอง + เพิ่มกติกาใน persona ตรงๆ: เครื่องซีลข้ามชุดคำถามสภาพทั้งหมด ถามแค่ใบเสร็จกับความจุแล้วออกการ์ดเลย" },
@@ -1954,6 +1955,19 @@ async function writeAiMessage(db, convoId, assistantName, rawText) {
     lastMessageAt: now,
     customer_unread: ServerValue.increment(1),
   });
+  // Read receipt for the customer: replying IS reading. Only a staffer
+  // opening the thread in the console used to set read=true, so in
+  // AI-handled chats (the vast majority) the customer's "อ่านแล้ว" never
+  // appeared at all. One bounded query + one multi-path update per reply.
+  try {
+    const recent = await db.ref(`inbox/${convoId}/messages`).orderByKey().limitToLast(12).once("value");
+    const flips = {};
+    recent.forEach((s) => {
+      const v = s.val() || {};
+      if (v.senderRole === "customer" && v.read !== true) flips[`${s.key}/read`] = true;
+    });
+    if (Object.keys(flips).length) await db.ref(`inbox/${convoId}/messages`).update(flips);
+  } catch { /* read receipts are cosmetic — never block a reply */ }
 }
 
 async function writeSystemMessage(db, convoId, text) {
