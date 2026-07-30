@@ -21,9 +21,10 @@
 - **Secrets (Cloud Functions):** THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL (optional: EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL) — ดู Order Confirmation Emails ด้านล่าง
 
 ## Cloud Functions env vars (กับดักที่กัดมาแล้ว)
-- **`functions/.env` = source of truth ของ env var ทุกตัว และ firebase-tools "แทนที่" ทั้งชุดทุกครั้งที่ deploy** — deploy จากเครื่องที่ไม่มีไฟล์นี้ = **ล้าง env var ของ function ที่ deploy ทิ้ง** (แต่ละ function เป็น Cloud Run service ของตัวเอง ตัวที่ไม่ได้ deploy ไม่กระทบ)
+- **`functions/.env` = ที่ที่ env var ทุกตัวถูกประกาศตอน deploy** (แต่ละ function เป็น Cloud Run service ของตัวเอง ตัวที่ไม่ได้ deploy ไม่กระทบกัน)
 - `.env` ถูก gitignore → CI เขียนขึ้นจาก GitHub Secrets ที่ step "Create Functions .env" ใน `firebase-hosting-deploy.yml` (12 ตัว: THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL, EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL, TELEGRAM_*, ANTHROPIC_API_KEY, CHAT_AI_MODEL)
-- **deploy functions ด้วยมือจาก clone ใหม่ = ต้องสร้าง `functions/.env` ก่อน** ไม่งั้นเงียบๆ พัง: `computeRiderFee` ไม่มี `GOOGLE_MAPS_API_KEY` → Routes API ล้ม → ค่าวิ่ง fallback เป็น `min_fee` ทุกงาน (ดู log `[routesApi] GOOGLE_MAPS_API_KEY not configured`). ทางที่ปลอดภัยที่สุดคือให้ CI deploy (push main)
+- **deploy ด้วยมือจาก clone ที่ไม่มี `.env` — สังเกตแล้วว่า env var ที่ตั้งไว้เดิม "ไม่" ถูกล้าง** (30 ก.ค. 2026: deploy มือ 13:02 UTC → งาน 13:29 ยังขึ้น `rider_fee_estimate ... (calculated, 0 km)` = ยังมีคีย์ Routes API อยู่). อย่าอนุมานเกินหลักฐานนี้ทั้งสองทาง — ยังไม่ได้ทดสอบเคส env var ที่ตั้ง**ครั้งแรก** จาก clone ที่ไม่มี `.env`. ทางที่ปลอดภัยยังเป็นให้ CI deploy (push main) เพราะ `.env` ถูกเขียนจาก secrets ครบทุกตัวแน่นอน
+- **วิธีเช็คว่าคีย์ Maps ยังใช้ได้จริง** (ไม่ต้องเดาจาก config): `firebase functions:log --only onNewTicketCreated -n 30` แล้วดู `reason` ในบรรทัด `rider_fee_estimate` — `calculated` = Routes API ตอบจริง, `routes_api_*` = คีย์/เน็ตมีปัญหา, `missing_customer_coords` = งานไม่มีหมุด (ปกติสำหรับ Store-in/Mail-in)
 
 ## Mobile App (PWA)
 - **URL:** `bkk-apple-admin.web.app/mobile`
