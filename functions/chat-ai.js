@@ -1515,6 +1515,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `2.1.3 ห้ามสัญญาว่า "เจ้าหน้าที่จะเช็คแล้วแจ้งกลับ / จะติดต่อกลับ" ทั้งที่ยังไม่มีเบอร์โทรลูกค้า — สัญญาแบบนั้นทำจริงไม่ได้ (ไม่มีเบอร์ให้โทร) และห้ามใช้แทนการทำงาน: ถ้าระบบไม่มีราคา (โหมด Offer) สิ่งที่ต้องทำคือขอ ชื่อ + เบอร์โทร + รายละเอียดเครื่อง ในข้อความนั้นเลย แล้วค่อย escalate_to_human เมื่อได้ข้อมูลครบ — คำสัญญาติดต่อกลับพูดได้เฉพาะหลังมีเบอร์และส่งเรื่องเข้าคิวเจ้าหน้าที่แล้วจริงเท่านั้น`,
     `2.2 สเปกและตัวเลือกของรุ่น (ขนาดจอ ความจุ สี เครือข่าย รุ่นย่อย) ต้องมาจากผล search_models เท่านั้น — ชื่อรุ่น + รายการ variants คือความจริงทั้งหมดที่มี ห้ามเสริมตัวเลือกจากความจำเด็ดขาด: ถ้า variants ไม่มีเรื่องขนาดจอ = รุ่นนั้นมีขนาดเดียว ห้ามถาม "จอกี่นิ้ว", ถ้าผลค้นหามีรุ่นเดียว ห้ามเสนอ "มีให้เลือก 2 ขนาด/2 รุ่น" (บั๊กจริง: บอกลูกค้าว่า iPad Air 5 มีจอ 10.9 กับ 12.9 ทั้งที่มีขนาดเดียว — 12.9 เป็นของ iPad Pro). สิ่งที่ถามลูกค้าได้ = เฉพาะสิ่งที่ต้องใช้เลือก variant ในข้อมูลจริง (เช่น Wi-Fi หรือ Cellular, ความจุ). ข้อความเก่าของคุณเองในแชทก็ไม่ใช่แหล่งข้อมูลสเปก — ถ้าเคยเสนอตัวเลือกที่ไม่มีจริงไปแล้ว ให้แก้ไขกับลูกค้าทันที ห้ามยึดตามเพื่อความต่อเนื่อง`,
     `2.3 คำถามเลือกตอบ = เสนอปุ่มให้ลูกค้ากด: เมื่อคำถามของคุณมีชุดคำตอบปิดที่รู้ล่วงหน้า (เช่น เลือกจากผล search_models: ขนาดจอ, Wi-Fi หรือ Cellular, ความจุ — หรือคำถามสั้นตอบได้ 2-3 ทาง) ให้จบข้อความด้วยบรรทัดสุดท้ายรูปแบบ [ตัวเลือก: ตัวเลือกที่หนึ่ง | ตัวเลือกที่สอง] ระบบจะแปลงเป็นปุ่มกดให้ลูกค้าอัตโนมัติ (ลูกค้ายังพิมพ์ตอบเองได้เสมอ). เงื่อนไข: ตัวเลือกต้องมาจากข้อมูลจริงตามข้อ 2.2 เท่านั้น, 2-6 ตัวเลือก, สั้นกระชับ, ห้ามใส่ตัวเลขราคาในตัวเลือก, และหนึ่งข้อความ = หนึ่งคำถาม + ปุ่มชุดของคำถามนั้นเท่านั้น (ห้ามถามหลายเรื่องแล้วแนบปุ่มรวมชุดเดียว — ชุดคำถามสภาพข้อ 6 ขั้นที่ 3 จึงถามทีละเรื่อง ทีละปุ่มชุด). สำคัญ: ปุ่มต้องเป็น "คำตอบสำเร็จรูป" เท่านั้น — กดแล้วเท่ากับลูกค้าพิมพ์คำตอบนั้นเอง (เช่น "64GB", "ไม่มีรอย") — ห้ามสร้างปุ่มกับคำถามปลายเปิดที่ลูกค้าต้องพิมพ์เอง (ขอชื่อ, เบอร์โทร, รายละเอียดอิสระ) และห้ามปุ่มแสดงเจตนา/รับทราบ ("ให้ชื่อและเบอร์", "ตกลง", "สนใจ") เพราะกดแล้วส่งข้อความที่ไม่มีข้อมูลอะไรเลย — คำถามขอชื่อ/เบอร์จึงไม่มีปุ่มเสมอ (ยกเว้นแนบปุ่มของ "คำถามสภาพ" ที่ถามคู่กันในข้อความแรก)`,
+    `2.4 ลูกค้าส่งรูปได้และ "คุณดูรูปได้จริง" — ข้อความไหนที่ลูกค้าแนบรูป ระบบจะส่งรูปนั้นมาให้คุณในเทิร์นนั้นด้วย ห้ามพูดว่าดูรูปไม่ได้เด็ดขาด. ใช้รูปเพื่อ: อ่านชื่อรุ่น/ความจุจากกล่องหรือใบเสร็จ, อ่านเลขซีเรียล/IMEI, ดูสภาพรอย/ตำหนิเบื้องต้น, ดูว่าซีลยังไม่แกะ. ข้อจำกัดที่ห้ามข้าม: (ก) ราคารับซื้อมาจาก tool เท่านั้น — ห้ามเอาตัวเลขบนใบเสร็จ/กล่อง/ป้ายราคามาเป็นราคารับซื้อหรือใช้ตั้งราคาเด็ดขาด (ข) สิ่งที่เห็นจากรูปให้ "บอกลูกค้าแล้วขอยืนยัน" ก่อน เช่น "จากรูปเห็นเป็นรุ่น ... ใช่ไหมครับ" — ห้ามเอาที่เห็นจากรูปไปกรอกเป็นคำตอบสภาพเครื่องเพื่อหักราคาเองทันที (ระบบจะไม่หักให้อยู่ดีตามกฎข้อ 6 กติกาเหล็ก) (ค) รูปไม่ชัด/ไม่ใช่รูปเครื่อง ให้บอกตรงๆ ว่าเห็นอะไรและขอรูปมุมที่ต้องการหรือขอข้อมูลเป็นข้อความแทน (ง) ห้ามเดาข้อมูลที่รูปไม่ได้แสดง เช่น สุขภาพแบต ประวัติซ่อม ประกัน — ต้องถามลูกค้า`,
     `3. ทุกราคาที่บอกลูกค้าเป็น "ราคาประเมินเบื้องต้น" เสมอ ราคาสุดท้ายขึ้นกับการตรวจสภาพจริง ห้ามการันตีราคา`,
     `3.1 ห้ามขึ้นราคาเพราะลูกค้า "ต่อราคา" เด็ดขาด (บั๊กจริงที่เสียความน่าเชื่อถือ: ประเมิน 10,100 ลูกค้าพิมพ์ "เพิ่มราคา 12,000 ได้ไหม" แล้ว AI ออกการ์ดใหม่ 12,500). ราคารับซื้อมาจากสภาพเครื่อง + ราคาตลาดเท่านั้น — คำขอเรื่องเงินไม่ทำให้ราคาขึ้น. ถ้าลูกค้าขอราคาสูงขึ้น/ต่อราคา (เช่น "ขอเพิ่ม" "ได้มากกว่านี้ไหม" "ราคาน้อยไป") ให้ตอบสุภาพว่าราคาประเมินคือยอดเดิม และ "ถ้าสภาพเครื่องจริงดีกว่าที่แจ้ง ราคาจะปรับขึ้นให้ตอนตรวจจริงหน้างาน" ห้ามพิมพ์ตัวเลขที่ลูกค้าขอ ห้ามเรียก create_quote_card ใหม่ให้ยอดสูงขึ้น. จะออกการ์ดใหม่ยอดสูงขึ้นได้ต่อเมื่อลูกค้าแจ้ง "สภาพจริงที่ดีกว่าเดิม" (เช่น จอไม่มีรอยจริงๆ, แบตสูงกว่าที่บอก) เท่านั้น ไม่ใช่แค่ขอเงินเพิ่ม`,
     `4. ห้ามรับหรือขอเลขบัญชีธนาคาร เลขบัตรประชาชน หรือรหัสใดๆ ในแชท (ลูกค้ากรอกเองในขั้นตอน Checkout บนเว็บ)`,
@@ -1689,8 +1690,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-30.1";
+const LOGIC_VERSION = "2026-07-30.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-30", text: "มาตินดูรูปที่ลูกค้าส่งได้จริงแล้ว (เดิมตอบว่า \"ผมไม่สามารถดูรูปภาพที่ส่งมาได้\" ทั้งที่รูปกล่อง+ใบกำกับภาษีบอกรุ่น/ความจุ/ที่มาเครื่องครบในใบเดียว): รูปที่ลูกค้าแนบจะถูกส่งเข้าโมเดลพร้อมข้อความในเทิร์นนั้น ใช้อ่านชื่อรุ่น/ความจุจากกล่องหรือใบเสร็จ, อ่านเลขซีเรียล/IMEI, ดูสภาพรอยเบื้องต้น, ดูว่าซีลแกะแล้วหรือยัง. เพดานที่วางไว้กันค่าใช้จ่าย: แนบเฉพาะรูปล่าสุด (สูงสุด 2 ใบ จาก 8 ข้อความท้าย) ไม่ลากรูปเก่าไปทุกเทิร์น + cache ไม่ให้โหลดซ้ำ + โหลดไม่สำเร็จก็ตอบจากข้อความได้เหมือนเดิม. กฎเหล็กที่ยังคุมอยู่: ราคารับซื้อมาจากระบบเท่านั้น ห้ามอ่านราคาจากใบเสร็จ/กล่องมาใช้ และสิ่งที่เห็นจากรูปต้องให้ลูกค้ายืนยันก่อน ห้ามเอาไปหักราคาเอง" },
   { at: "2026-07-30", text: "ปิดช่องที่ทำให้ราคาในการ์ดต่ำกว่าความจริง (เคสจริง iPhone 16 Pro Max 256GB: ราคาจริง 28,500 แต่การ์ดออก 21,375): ลูกค้าพิมพ์ \"0655610223 จีน\" ตอบคำถามขอชื่อ+เบอร์ — คำว่า \"จีน\" คือชื่อเล่นลูกค้า แต่ AI ตีความเป็นเครื่องนอกจีน (CH) แล้วหักราคา 25% เอง ทั้งที่ไม่มีใครถามเรื่องประเทศเลย. ตอนนี้ระบบบังคับว่า \"ทุกการหักราคาต้องมีที่มา\": ถ้า AI ส่งคำตอบสภาพเครื่องที่หักเงิน โดยเรื่องนั้นลูกค้าไม่เคยพูดและไม่มีใครถาม ระบบจะไม่หัก (คิดเป็นสภาพปกติ + ระบุบนการ์ดว่าเป็นค่าประเมิน) และเตือน AI ให้ไปถามลูกค้าก่อน. ข้อความที่มีเบอร์โทรไม่ถูกใช้เป็นหลักฐานสภาพเครื่องอีก (ชื่อคนมักมาคู่กับเบอร์)" },
   { at: "2026-07-28", text: "แชทส่งรูปได้ทั้งสองทาง + สถานะ 'อ่านแล้ว' ทำงานจริงทั้งสองฝั่ง (เดิมพังทั้งคู่): (1) รูปของแอดมินอัปโหลดลง path ที่ storage rules ไม่อนุญาต = ล้มเหลวทุกครั้ง และ widget ก็ไม่มีตัวแสดงรูป — ตอนนี้แอดมินส่งรูปให้ลูกค้าเห็นได้ และลูกค้ามีปุ่มแนบรูปในแชทแล้ว (จำกัด 8MB เฉพาะไฟล์ภาพ) (2) 'อ่านแล้ว' ฝั่งลูกค้าไม่เคยขึ้นในแชทที่ AI ดูแล เพราะมีแต่แอดมินเปิดอ่านที่ตีธงได้ — ตอนนี้มาตินตอบ = ตีธงอ่านแล้วให้ด้วย, และฝั่งแอดมินเห็นติ๊กคู่เมื่อลูกค้าเปิดอ่านจริง (เพิ่ม rule ให้ลูกค้าเขียนได้แค่ธง read เท่านั้น)" },
   { at: "2026-07-28", text: "รุ่นปีเก่าที่งดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนปุ่มให้เลือก (เคสจริง 'macbook pro 2012': ระบบชวนเลือกจาก 8 รุ่นที่ล้วนงดรับซื้อ ทั้งที่เจ้าของสอนไว้แล้วว่าปีเก่ากว่าที่รับ = งดทันที): กติกาใหม่อิงข้อมูลจริงไม่ hardcode ปี — ลูกค้าระบุปีที่ (ก) ตรงเฉพาะรุ่นงดรับซื้อ หรือ (ข) เก่ากว่าทุกรุ่นที่ยังรับในตระกูลนั้น → แจ้งงดรับซื้อทันที + แก้ด่านสำรอง: ตอนรุ่นยังกำกวม ('ipad 6') ข้อความบังคับจะถามยืนยันรุ่นพร้อมปุ่มตัวเลือกจริง ไม่ใช่ขอชื่อ+เบอร์ก่อนรู้รุ่น (ผิดกติกา 2.1.1 ที่เจอในแชทจริง)" },
@@ -3539,6 +3541,82 @@ function buildClaudeHistory(messageList) {
 }
 
 // ---------------------------------------------------------------------------
+// Customer photos -> vision blocks
+// ---------------------------------------------------------------------------
+// A trade-in customer's photo is the densest input we get: the retail box
+// shows model + storage, the receipt shows purchase date and origin, and the
+// device itself shows the scratches we would otherwise have to interview them
+// about. Before this, the widget's photos never reached the model and it
+// answered "ผมไม่สามารถดูรูปภาพที่ส่งมาได้" — a dead end on the highest-intent
+// message a customer can send.
+const VISION_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const VISION_MAX_BYTES = 4 * 1024 * 1024; // API ceiling is 5MB base64; ours land ~300-500KB
+const VISION_FETCH_TIMEOUT_MS = 6000;
+// Only photos from the tail of the window are attached: a photo stays in the
+// payload (and is billed) on EVERY later turn otherwise. Two images from the
+// last handful of messages keeps "the customer just sent this" working without
+// dragging old attachments through the whole conversation.
+const VISION_RECENT_MESSAGES = 8;
+const VISION_MAX_IMAGES = 2;
+// Cloud Function instances are reused, so the same photo would be downloaded
+// again on every turn of the conversation. Small bounded cache, keyed by URL.
+const visionCache = new Map();
+const VISION_CACHE_MAX = 24;
+
+async function fetchImageAsBlock(url) {
+  const cached = visionCache.get(url);
+  if (cached) return cached;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VISION_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const type = String(res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!VISION_MEDIA_TYPES.has(type)) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length || buf.length > VISION_MAX_BYTES) return null;
+    const block = { type: "image", source: { type: "base64", media_type: type, data: buf.toString("base64") } };
+    if (visionCache.size >= VISION_CACHE_MAX) visionCache.delete(visionCache.keys().next().value);
+    visionCache.set(url, block);
+    return block;
+  } catch {
+    return null; // network/timeout/abort — the turn continues text-only
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Attach the customer's recent photos to the LAST user turn (Claude reads
+// images in the turn they appear in). Never throws: a failed download just
+// means the model answers from text, exactly as it did before.
+async function attachCustomerImages(messages, messageList) {
+  const recent = messageList.slice(-VISION_RECENT_MESSAGES);
+  const urls = [];
+  for (const m of recent) {
+    if (!m || m.senderRole !== "customer") continue;
+    const u = typeof m.imageUrl === "string" ? m.imageUrl.trim() : "";
+    if (u && !urls.includes(u)) urls.push(u);
+  }
+  if (urls.length === 0) return { messages, attached: 0 };
+  const lastUser = [...messages].reverse().find((t) => t.role === "user");
+  if (!lastUser) return { messages, attached: 0 };
+  const blocks = (await Promise.all(urls.slice(-VISION_MAX_IMAGES).map(fetchImageAsBlock))).filter(Boolean);
+  if (blocks.length === 0) return { messages, attached: 0 };
+  const text = typeof lastUser.content === "string" ? lastUser.content : "";
+  lastUser.content = [
+    ...blocks,
+    {
+      type: "text",
+      text:
+        `${text}\n[ระบบ] รูปด้านบนเป็นรูปที่ลูกค้าส่งมาในแชทนี้ — ใช้ระบุรุ่น/ความจุ/เลขซีเรียล/สภาพเครื่องได้ ` +
+        `แต่ราคารับซื้อต้องมาจาก search_models / create_quote_card เท่านั้น ห้ามใช้ตัวเลขบนใบเสร็จหรือกล่องเป็นราคารับซื้อ ` +
+        `และสิ่งที่เห็นจากรูปให้บอกลูกค้าแล้วขอให้ยืนยันก่อนคิดเป็นค่าหักราคา`.trim(),
+    },
+  ];
+  return { messages, attached: blocks.length };
+}
+
+// ---------------------------------------------------------------------------
 // The trigger
 // ---------------------------------------------------------------------------
 
@@ -3928,6 +4006,17 @@ function registerChatAi({ dispatchAdminPush }) {
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
+        // Customer photos ride along on the last user turn. Best-effort by
+        // design: a download failure degrades to the old text-only behaviour
+        // instead of failing the turn.
+        try {
+          const vision = await attachCustomerImages(messages, history);
+          if (vision.attached > 0) {
+            console.log(`[${tag}] ${convoId} attached ${vision.attached} customer photo(s) to the model turn`);
+          }
+        } catch (err) {
+          console.warn(`[${tag}] ${convoId} photo attach failed:`, err && err.message);
+        }
 
         let finalText = "";
         // Text the model wrote alongside tool calls in earlier rounds — used
@@ -4904,6 +4993,7 @@ module.exports = {
     yearOnlyDecline,
     modelFamilyLabel,
     looksLikeContactReply,
+    attachCustomerImages,
     conditionTopicWords,
     conditionAnswerUnsupported,
     sublineMismatch,
