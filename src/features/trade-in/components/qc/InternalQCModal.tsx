@@ -50,7 +50,9 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
         if (!job) return [];
         if (job.devices && Array.isArray(job.devices) && job.devices.length > 0) return job.devices;
         
-        const fallbackPrice = job.original_price || job.price || job.final_price || 0;
+        // ราคาปัจจุบันก่อนเสมอ — `original_price` คือราคาที่ลูกค้าประเมินตอนสั่งขาย
+        // ถ้าหยิบมาก่อนจะดึงราคาเก่า (ก่อนตรวจ/ก่อนเจรจา) กลับมาเป็นฐานการหักตำหนิ
+        const fallbackPrice = job.final_price || job.price || job.original_price || 0;
         
         return [{
             device_id: 'default',

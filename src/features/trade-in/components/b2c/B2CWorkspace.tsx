@@ -58,13 +58,21 @@ export const B2CWorkspace = ({
   const isProcessingPayment = ['payout processing', 'waiting for finance', 'price accepted'].includes(statusLower);
 
   // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
-  const grossPickupFee = Number(job?.pickup_fee || 0);
-  const riderFeeDiscount = Number(job?.rider_fee_discount || 0);
+  const isPickup = job?.receive_method === 'Pickup';
+  const grossPickupFee = isPickup ? Number(job?.pickup_fee || 0) : 0;
+  const riderFeeDiscount = isPickup ? Number(job?.rider_fee_discount || 0) : 0;
   const riderPromoLabel = (job?.applied_rider_promo?.name || job?.applied_rider_promo?.code || '').trim();
   const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-  const originalPrice = Number(job?.original_price || job?.price || 0);
+  // ฐานของยอดโอน = ราคาเครื่องปัจจุบัน (final_price ก่อน price) — `original_price`
+  // คือราคาที่ลูกค้าประเมินตอนสั่งขาย ซึ่งหยุดนิ่งหลังไรเดอร์ตรวจเครื่อง การเอามา
+  // ตั้งเป็นบรรทัดแรกของ breakdown ทำให้ผลรวมไม่ตรงกับ Total Net Payout ด้านบน
+  const basePrice = Number(job?.final_price || job?.price || job?.original_price || 0);
   const couponValue = Number(job?.applied_coupon?.actual_value || job?.applied_coupon?.value || 0);
-  const displayNetPayout = job?.revised_price || job?.negotiated_price || job?.net_payout || job?.final_price || job?.price || 0;
+  // คิดสดด้วยสูตรเดียวกับ finance (TradeInPayouts.getNetPayout) — ค่า net_payout
+  // ที่ค้างใน DB จาก path เก่าอาจไม่ตรงกับยอดที่โอนจริง
+  const displayNetPayout = basePrice > 0
+    ? Math.max(0, basePrice - pickupFee + couponValue + sumAppliedAdjustments(job))
+    : Number(job?.net_payout || 0);
 
   const handleSaveCustomerInfo = async () => {
       // ... (โค้ดบันทึกลูกค้าเหมือนเดิม) ...
@@ -411,12 +419,12 @@ export const B2CWorkspace = ({
              </div>
            </div>
 
-           {(pickupFee > 0 || originalPrice > 0 || couponValue > 0) && (
+           {(pickupFee > 0 || basePrice > 0 || couponValue > 0) && (
               <div className="mt-4 space-y-1.5 border-t border-white/10 pt-4 text-[10px] font-bold text-slate-300 uppercase tracking-widest relative z-10">
-                 {originalPrice > 0 && (
+                 {basePrice > 0 && (
                    <div className="flex justify-between">
                      <span>รวมราคาประเมิน ({job.total_devices || 1} เครื่อง)</span>
-                     <span className="text-white">฿{formatCurrency(originalPrice)}</span>
+                     <span className="text-white">฿{formatCurrency(basePrice)}</span>
                    </div>
                  )}
                  {grossPickupFee > 0 && (
