@@ -1,11 +1,26 @@
 #!/usr/bin/env node
 /**
- * ตรวจยอดโอนของงาน Trade-in ว่าตรงกับที่ตกลงกับลูกค้าไหม
+ * ตรวจยอดโอนของงาน Trade-in ว่าตรงกับที่ตกลงกับลูกค้าไหม (อ่านอย่างเดียว ไม่เขียน DB)
  *
- *   node scripts/audit-payouts.cjs            # ใบที่ "รอโอน" อยู่ตอนนี้ (ตรวจก่อนกดโอน)
- *   node scripts/audit-payouts.cjs --paid     # ใบที่ "โอนไปแล้ว" 90 วันหลังสุด (ตรวจย้อนหลัง)
- *   node scripts/audit-payouts.cjs --paid --days=180
- *   ... เติม --csv เพื่อเอาไปเปิด Excel, --all เพื่อดูทุกใบไม่ใช่เฉพาะที่เพี้ยน
+ * วิธีรัน — จาก **โฟลเดอร์ราก repo bkk-system** (ไม่ใช่ ~ และไม่ใช่ functions/):
+ *
+ *   git pull                                  # ให้แน่ใจว่ามีสคริปต์นี้แล้ว
+ *   node scripts/audit-payouts.cjs --paid --days=180 \
+ *     --email you@example.com --password 'yourpassword'
+ *
+ * ไม่ต้องมี service account, ไม่ต้อง npm ci, ไม่ต้องตั้ง env อะไรเลย — ล็อกอินด้วย
+ * บัญชีแอดมินตัวเดียวกับที่ใช้เข้าหน้าเว็บแอดมิน (แนวเดียวกับ
+ * scripts/bulk-upload-mac-products.cjs) แล้วอ่านผ่าน RTDB REST API ตาม rules ปกติ
+ *
+ * ถ้าไม่อยากพิมพ์รหัสผ่านในคำสั่ง (จะติดอยู่ใน shell history) ให้ตั้ง env แทน:
+ *   FIREBASE_AUTH_EMAIL=you@example.com FIREBASE_AUTH_PASSWORD='...' \
+ *     node scripts/audit-payouts.cjs --paid --days=180
+ *
+ * โหมด:
+ *   (ไม่ใส่อะไร)   ใบที่ "รอโอน" อยู่ตอนนี้ — ตรวจก่อนกดโอน
+ *   --paid         ใบที่ "โอนไปแล้ว" ย้อนหลัง (ค่าเริ่มต้น 90 วัน, ปรับด้วย --days=N)
+ *   --csv          พิมพ์เป็น CSV เอาไปเปิด Excel
+ *   --all          แสดงทุกใบ ไม่ใช่เฉพาะใบที่เพี้ยน
  *
  * ทำไมต้องมี: `final_price`/`price` คือ **ราคาเครื่อง (ฐาน)** ส่วนยอดที่โอนจริงถูก
  * คิดสดทุกครั้งจาก
@@ -15,19 +30,87 @@
  * sync `net_payout` → ยอดที่ลูกค้ากดยอมรับ ≠ ยอดที่โอนจริง
  *
  * โหมด --paid เทียบ **ยอดใน transaction DEBIT ที่โอนไปจริง** กับ **ยอดที่ตกลงกับ
- * ลูกค้า** (revised_price / net_payout) จึงจับเคสจ่ายเกิน/ขาดได้ แม้ตอนโอน
- * finance กับ DB จะ "ตรงกันเอง" ก็ตาม
- *
- * วิธีรัน (จากเครื่องที่มี service account — สคริปต์นี้อ่านอย่างเดียว ไม่เขียน DB):
- *   cd functions && npm ci        # ถ้ายังไม่มี node_modules
- *   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
- *   FIREBASE_DATABASE_URL=https://<db>.asia-southeast1.firebasedatabase.app \
- *     node ../scripts/audit-payouts.cjs --paid
+ * ลูกค้า** (revised_price / net_payout) จึงจับเคสจ่ายเกิน/ขาดได้ แม้ตอนโอน finance
+ * กับ DB จะ "ตรงกันเอง" ก็ตาม
  *
  * หมายเหตุค่า RTDB: ใช้ query ตาม index เสมอ (`jobs` ตาม status, `transactions`
  * ตาม timestamp) ไม่ดึงทั้ง node ตามกฎใน CLAUDE.md
  */
-const admin = require(require('path').join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin'));
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+
+// ---------------------------------------------------------------------------
+// โหลด .env จากราก repo (แนวเดียวกับ scripts/bulk-upload-mac-products.cjs)
+// ---------------------------------------------------------------------------
+function loadEnv() {
+  const envPath = path.resolve(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const i = t.indexOf('=');
+    if (i < 0) continue;
+    const k = t.slice(0, i).trim();
+    if (!process.env[k]) process.env[k] = t.slice(i + 1).trim();
+  }
+}
+loadEnv();
+
+const DB_URL = (
+  process.env.FIREBASE_DATABASE_URL ||
+  process.env.VITE_FIREBASE_DATABASE_URL ||
+  'https://bkk-apple-tradein-default-rtdb.asia-southeast1.firebasedatabase.app'
+).replace(/\/$/, '');
+const API_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+
+function request(url, method, body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      timeout: 60000,
+    }, (res) => {
+      let raw = '';
+      res.on('data', (c) => { raw += c; });
+      res.on('end', () => {
+        let data = null;
+        try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
+        resolve({ status: res.statusCode, data });
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(new Error('request timeout')); });
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function signIn(email, password) {
+  if (!API_KEY) {
+    throw new Error('ไม่พบ VITE_FIREBASE_API_KEY — รันจากรากโฟลเดอร์ repo ที่มีไฟล์ .env หรือ export FIREBASE_API_KEY เอง');
+  }
+  const res = await request(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
+    'POST',
+    { email, password, returnSecureToken: true },
+  );
+  if (res.status !== 200) {
+    throw new Error(`ล็อกอินไม่สำเร็จ: ${res.data?.error?.message || JSON.stringify(res.data)}`);
+  }
+  return res.data.idToken;
+}
+
+/** GET RTDB ตาม path + query (query ต้องมี index รองรับเสมอ) */
+async function dbGet(dbPath, token, query) {
+  const qs = Object.entries(query || {}).map(([k, v]) => `${k}=${encodeURIComponent(v)}`);
+  qs.push(`auth=${token}`);
+  const res = await request(`${DB_URL}${dbPath}.json?${qs.join('&')}`, 'GET');
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`อ่าน ${dbPath} ไม่สำเร็จ (${res.status}): ${JSON.stringify(res.data)}`);
+  }
+  return res.data;
+}
 
 // เหมือน pendingPayouts ใน src/pages/finance/components/TradeInPayouts.tsx
 const PENDING_STATUSES = [
@@ -156,14 +239,13 @@ function diagnosePaid(job, debit) {
   return { flags, m, agreed, amount: paid };
 }
 
-async function fetchByStatus(db, status) {
-  const snap = await db.ref('jobs').orderByChild('status').equalTo(status).once('value');
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, job]) => ({ id, ...job }));
+async function fetchByStatus(token, status) {
+  const val = await dbGet('/jobs', token, { orderBy: '"status"', equalTo: JSON.stringify(status) });
+  return Object.entries(val || {}).map(([id, job]) => ({ id, ...job }));
 }
 
-async function collectPending(db) {
-  const batches = await Promise.all(PENDING_STATUSES.map((s) => fetchByStatus(db, s)));
+async function collectPending(token) {
+  const batches = await Promise.all(PENDING_STATUSES.map((s) => fetchByStatus(token, s)));
   const seen = new Set();
   const out = [];
   for (const batch of batches) {
@@ -178,16 +260,15 @@ async function collectPending(db) {
   return out.sort((a, b) => (b.job.updated_at || 0) - (a.job.updated_at || 0));
 }
 
-async function collectPaid(db, days) {
+async function collectPaid(token, days) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const snap = await db.ref('transactions').orderByChild('timestamp').startAt(cutoff).once('value');
-  const txs = Object.values(snap.val() || {}).filter(
+  const all = await dbGet('/transactions', token, { orderBy: '"timestamp"', startAt: String(cutoff) });
+  const txs = Object.values(all || {}).filter(
     (t) => t && t.type === 'DEBIT' && PAYOUT_CATEGORIES.has(t.category) && t.ref_job_id,
   );
   const out = [];
   for (const tx of txs) {
-    const jobSnap = await db.ref(`jobs/${tx.ref_job_id}`).once('value');
-    const job = jobSnap.val();
+    const job = await dbGet(`/jobs/${tx.ref_job_id}`, token, {});
     if (!job) {
       out.push({
         job: { id: tx.ref_job_id, ref_no: tx.ref_job_id, cust_name: '-' },
@@ -208,13 +289,25 @@ async function main() {
   const showAll = argv.includes('--all');
   const daysArg = argv.find((a) => a.startsWith('--days='));
   const days = daysArg ? Number(daysArg.split('=')[1]) || 90 : 90;
+  const flagValue = (name) => {
+    const eq = argv.find((a) => a.startsWith(`${name}=`));
+    if (eq) return eq.slice(name.length + 1);
+    const i = argv.indexOf(name);
+    return i >= 0 ? argv[i + 1] : '';
+  };
 
-  admin.initializeApp({
-    databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL,
-  });
-  const db = admin.database();
+  const email = flagValue('--email') || process.env.FIREBASE_AUTH_EMAIL || '';
+  const password = flagValue('--password') || process.env.FIREBASE_AUTH_PASSWORD || '';
+  if (!email || !password) {
+    console.error('ต้องระบุบัญชีแอดมิน: --email you@example.com --password \'...\'');
+    console.error('(หรือตั้ง FIREBASE_AUTH_EMAIL / FIREBASE_AUTH_PASSWORD เป็น env แทน)');
+    process.exit(1);
+  }
 
-  const rows = paidMode ? await collectPaid(db, days) : await collectPending(db);
+  console.log(`เชื่อมต่อ ${DB_URL}`);
+  const token = await signIn(email, password);
+
+  const rows = paidMode ? await collectPaid(token, days) : await collectPending(token);
   const bad = rows.filter((r) => r.flags.length > 0);
   const shown = showAll ? rows : bad;
 
@@ -248,8 +341,6 @@ async function main() {
       console.log('ให้ดู qc_logs ประกอบก่อนสรุปว่าจ่ายผิดจริง\n');
     }
   }
-
-  await admin.app().delete();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
