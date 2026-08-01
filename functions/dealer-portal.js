@@ -139,15 +139,86 @@ async function requireStaffRole(db, auth, roles) {
   throw new HttpsError("permission-denied", "ไม่พบข้อมูลพนักงานของบัญชีนี้");
 }
 
+// Team members: 1 ร้านมีได้หลายบัญชี login
+//   - บัญชีร้านเดิม (dealers/{uid}) = OWNER โดยอัตโนมัติ ไม่ต้อง migrate
+//   - สมาชิกที่เจ้าของร้านสร้าง = dealer_members/{uid} {company_id, member_role,
+//     name, email, status} ชี้กลับไปที่ร้าน
+//   - ซอง/ออเดอร์/สลิป ยัง key ด้วย id ร้าน (dealerUid = companyId) เหมือนเดิม —
+//     กติกาประมูล "1 ร้าน 1 ซอง" ไม่เปลี่ยน แต่บันทึก memberUid/ชื่อคนทำทุกครั้ง
 async function requireDealerCaller(db, auth) {
   if (!auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
-  const snap = await db.ref(`dealers/${auth.uid}`).once("value");
+  const uid = auth.uid;
+
+  const memberSnap = await db.ref(`dealer_members/${uid}`).once("value");
+  const member = memberSnap.val();
+  let companyId = uid;
+  if (member) {
+    if (String(member.status || "").toUpperCase() !== "ACTIVE") {
+      throw new HttpsError("permission-denied", "บัญชีสมาชิกถูกระงับ — ติดต่อเจ้าของร้าน");
+    }
+    companyId = String(member.company_id || "");
+    if (!companyId) throw new HttpsError("permission-denied", "บัญชีสมาชิกไม่ผูกกับร้าน");
+  }
+
+  const snap = await db.ref(`dealers/${companyId}`).once("value");
   const dealer = snap.val();
   if (!dealer) throw new HttpsError("permission-denied", "บัญชีนี้ไม่ได้ลงทะเบียนเป็นดีลเลอร์");
   if (String(dealer.status || "").toUpperCase() !== "ACTIVE") {
     throw new HttpsError("permission-denied", "บัญชีดีลเลอร์ถูกระงับ — ติดต่อเจ้าหน้าที่");
   }
-  return { dealerUid: auth.uid, dealer };
+  return {
+    dealerUid: companyId, // id ของ "ร้าน" — ตัว key ของซอง/ออเดอร์ทั้งหมด
+    memberUid: uid,
+    member,
+    memberRole: member ? String(member.member_role || "MEMBER").toUpperCase() : "OWNER",
+    memberName: member ? member.name || member.email : dealer.contact_name || dealer.company_name,
+    dealer,
+  };
+}
+
+// ลำดับชั้นในร้าน: บัญชีหลักของร้าน (implicit OWNER) → OWNER/MANAGER → STAFF
+//   - OWNER (รวมบัญชีหลัก): สร้าง/จัดการสมาชิกได้ทุก role + แก้ข้อมูลติดต่อร้าน
+//   - MANAGER: สร้าง/จัดการได้เฉพาะ STAFF
+//   - STAFF: ใช้งานปกติ (ดู lot, เสนอราคา, แนบสลิป) จัดการสมาชิกไม่ได้
+const DEALER_MEMBER_ROLES = ["OWNER", "MANAGER", "STAFF"];
+
+function canManageMemberRole(actorRole, targetRole) {
+  if (actorRole === "OWNER") return true;
+  if (actorRole === "MANAGER") return targetRole === "STAFF";
+  return false;
+}
+
+// เฉพาะเจ้าของร้าน (บัญชีหลักของร้าน หรือ membership ที่ role OWNER)
+async function requireDealerOwner(db, auth) {
+  const ctx = await requireDealerCaller(db, auth);
+  if (ctx.memberRole !== "OWNER") {
+    throw new HttpsError("permission-denied", "เฉพาะเจ้าของร้านเท่านั้นที่ทำรายการนี้ได้");
+  }
+  return ctx;
+}
+
+// ผู้มีสิทธิ์จัดการสมาชิก (OWNER หรือ MANAGER)
+async function requireDealerManager(db, auth) {
+  const ctx = await requireDealerCaller(db, auth);
+  if (!["OWNER", "MANAGER"].includes(ctx.memberRole)) {
+    throw new HttpsError("permission-denied", "เฉพาะเจ้าของร้านหรือผู้จัดการเท่านั้นที่จัดการสมาชิกได้");
+  }
+  return ctx;
+}
+
+// อีเมลถูกใช้ในระบบไหนแล้วบ้าง (staff/dealer/member) — กันบัญชีชนกันข้ามระบบ
+async function dealerEmailInUse(db, email) {
+  const [staffSnap, dealersSnap, membersSnap] = await Promise.all([
+    db.ref("staff").once("value"),
+    db.ref("dealers").orderByChild("email").equalTo(email).once("value"),
+    db.ref("dealer_members").orderByChild("email").equalTo(email).once("value"),
+  ]);
+  for (const s of Object.values(staffSnap.val() || {})) {
+    if (s && normEmail(s.email) === email) return "staff";
+  }
+  if (dealersSnap.exists()) return "dealer";
+  if (membersSnap.exists()) return "member";
+  return null;
 }
 
 // ── document numbers / settings ──────────────────────────────────────────────
@@ -464,6 +535,11 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         throw new HttpsError("already-exists", "อีเมลนี้ถูกใช้กับดีลเลอร์รายอื่นแล้ว");
       }
     }
+    const memberDupSnap = await db
+      .ref("dealer_members").orderByChild("email").equalTo(email).once("value");
+    if (memberDupSnap.exists()) {
+      throw new HttpsError("already-exists", "อีเมลนี้เป็นสมาชิกทีมของดีลเลอร์รายอื่นอยู่แล้ว");
+    }
 
     let authUser = null;
     try {
@@ -638,10 +714,14 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     if (!isValidEmail(email)) throw new HttpsError("invalid-argument", "อีเมลไม่ถูกต้อง");
     if (!phone || phone.length > 30) throw new HttpsError("invalid-argument", "กรุณาระบุเบอร์โทรติดต่อ");
 
-    // กันซ้ำ: เป็นดีลเลอร์อยู่แล้ว / มีใบสมัครค้างอยู่แล้ว
+    // กันซ้ำ: เป็นดีลเลอร์/สมาชิกทีมอยู่แล้ว / มีใบสมัครค้างอยู่แล้ว
     const dealersSnap = await db.ref("dealers").orderByChild("email").equalTo(email).once("value");
     if (dealersSnap.exists()) {
       throw new HttpsError("already-exists", "อีเมลนี้เป็นดีลเลอร์ในระบบแล้ว — เข้าสู่ระบบได้ที่ portal หรือติดต่อเจ้าหน้าที่");
+    }
+    const memberSnap = await db.ref("dealer_members").orderByChild("email").equalTo(email).once("value");
+    if (memberSnap.exists()) {
+      throw new HttpsError("already-exists", "อีเมลนี้เป็นสมาชิกทีมดีลเลอร์ในระบบแล้ว — เข้าสู่ระบบได้ที่ portal");
     }
     const appsSnap = await db.ref("dealer_applications").orderByChild("email").equalTo(email).once("value");
     if (appsSnap.exists()) {
@@ -1151,6 +1231,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         note: bid.note || null,
         created_at: bid.created_at || null,
         updated_at: bid.updated_at || null,
+        updated_by: bid.updated_by || null,
         history: bid.history || [],
       },
       result,
@@ -1158,11 +1239,161 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     };
   });
 
-  // ดีลเลอร์แก้ข้อมูลผู้ติดต่อของตัวเอง — เฉพาะฟิลด์ติดต่อเท่านั้น ข้อมูลนิติบุคคล
-  // (company_name/tax_id/address) ผูกกับเอกสารภาษี ต้องให้แอดมินแก้ (กันสวมสิทธิ์ใบกำกับ)
+  // ───────────────────────────────────────────────────────────────────────────
+  // Team members — ร้านจัดการสมาชิกเอง (สูงสุด MAX_MEMBERS คน/ร้าน)
+  // บัญชีหลักของร้าน (ที่ GETMOBIE ออกให้) = OWNER → สร้าง OWNER/MANAGER/STAFF ได้
+  // MANAGER → สร้าง/จัดการได้เฉพาะ STAFF. ทุก role ใช้งานปกติได้ (เสนอราคา/
+  // แก้ซองของร้าน/ดูออเดอร์/แนบสลิป) — ทุกการกระทำบันทึกชื่อคนทำ
+  // ───────────────────────────────────────────────────────────────────────────
+  const MAX_MEMBERS = 10;
+
+  fns.dealerListMembers = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerManager(db, request.auth);
+    const snap = await db
+      .ref("dealer_members").orderByChild("company_id").equalTo(dealerUid).once("value");
+    const out = [];
+    if (snap.exists()) {
+      snap.forEach((c) => {
+        const m = c.val() || {};
+        out.push({
+          uid: c.key,
+          name: m.name || null,
+          email: m.email || null,
+          member_role: m.member_role || "MEMBER",
+          status: m.status || "ACTIVE",
+          created_at: m.created_at || null,
+        });
+      });
+    }
+    out.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+    return { members: out, max: MAX_MEMBERS };
+  });
+
+  fns.dealerMemberCreate = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid, dealer, memberRole } = await requireDealerManager(db, request.auth);
+    const data = request.data || {};
+
+    const name = String(data.name || "").trim();
+    const email = normEmail(data.email);
+    if (!name) throw new HttpsError("invalid-argument", "ระบุชื่อสมาชิก");
+    if (!isValidEmail(email)) throw new HttpsError("invalid-argument", "อีเมลไม่ถูกต้อง");
+    if (typeof data.password !== "string" || data.password.length < 8) {
+      throw new HttpsError("invalid-argument", "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร");
+    }
+    const newRole = String(data.member_role || "STAFF").toUpperCase();
+    if (!DEALER_MEMBER_ROLES.includes(newRole)) {
+      throw new HttpsError("invalid-argument", `role ต้องเป็นหนึ่งใน: ${DEALER_MEMBER_ROLES.join(", ")}`);
+    }
+    if (!canManageMemberRole(memberRole, newRole)) {
+      throw new HttpsError("permission-denied", "ผู้จัดการสร้างได้เฉพาะพนักงาน (STAFF) — role อื่นต้องให้เจ้าของร้านสร้าง");
+    }
+
+    const countSnap = await db
+      .ref("dealer_members").orderByChild("company_id").equalTo(dealerUid).once("value");
+    if (countSnap.exists() && countSnap.numChildren() >= MAX_MEMBERS) {
+      throw new HttpsError("failed-precondition", `เพิ่มสมาชิกได้สูงสุด ${MAX_MEMBERS} คนต่อร้าน`);
+    }
+    const used = await dealerEmailInUse(db, email);
+    if (used) throw new HttpsError("already-exists", "อีเมลนี้ถูกใช้ในระบบแล้ว — ใช้อีเมลอื่น");
+
+    let authUser = null;
+    try {
+      authUser = await getAuth().getUserByEmail(email);
+    } catch (e) {
+      if (!e || e.code !== "auth/user-not-found") {
+        throw new HttpsError("internal", `ตรวจสอบบัญชีไม่สำเร็จ: ${e?.message || e}`);
+      }
+    }
+    if (authUser) {
+      // มีบัญชี Auth อยู่ (เช่น เคยเป็นลูกค้าเว็บ) แต่ไม่ได้อยู่ในระบบ dealer/staff —
+      // กันสวมบัญชีคนอื่น: ไม่ยึดบัญชีเดิม ให้ใช้อีเมลอื่น
+      throw new HttpsError("already-exists", "อีเมลนี้มีบัญชีอยู่แล้ว — ใช้อีเมลอื่นสำหรับสมาชิกทีม");
+    }
+    authUser = await getAuth().createUser({ email, password: data.password, displayName: name });
+
+    await db.ref(`dealer_members/${authUser.uid}`).set({
+      company_id: dealerUid,
+      member_role: newRole,
+      name,
+      email,
+      status: "ACTIVE",
+      created_at: nowMs(),
+      created_by: request.auth.uid,
+    });
+    console.log(`[dealer] member ${email} added to company ${dealerUid} (${dealer.company_name})`);
+    return { ok: true, uid: authUser.uid };
+  });
+
+  fns.dealerMemberSetStatus = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid, memberRole, memberUid } = await requireDealerManager(db, request.auth);
+    const data = request.data || {};
+    const uid = String(data.uid || "");
+    const status = String(data.status || "").toUpperCase();
+    if (!["ACTIVE", "SUSPENDED"].includes(status)) {
+      throw new HttpsError("invalid-argument", "status ต้องเป็น ACTIVE หรือ SUSPENDED");
+    }
+    if (uid === memberUid) throw new HttpsError("failed-precondition", "ระงับบัญชีตัวเองไม่ได้");
+    const m = (await db.ref(`dealer_members/${uid}`).once("value")).val();
+    if (!m || m.company_id !== dealerUid) throw new HttpsError("not-found", "ไม่พบสมาชิกในร้านของคุณ");
+    if (!canManageMemberRole(memberRole, String(m.member_role || "STAFF").toUpperCase())) {
+      throw new HttpsError("permission-denied", "ผู้จัดการจัดการได้เฉพาะพนักงาน (STAFF)");
+    }
+
+    if (status === "SUSPENDED") {
+      await getAuth().updateUser(uid, { disabled: true });
+      await getAuth().revokeRefreshTokens(uid);
+    } else {
+      await getAuth().updateUser(uid, { disabled: false });
+    }
+    await db.ref(`dealer_members/${uid}`).update({ status, updated_at: nowMs() });
+    return { ok: true };
+  });
+
+  fns.dealerMemberResetPassword = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid, memberRole } = await requireDealerManager(db, request.auth);
+    const data = request.data || {};
+    const uid = String(data.uid || "");
+    if (typeof data.password !== "string" || data.password.length < 8) {
+      throw new HttpsError("invalid-argument", "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร");
+    }
+    const m = (await db.ref(`dealer_members/${uid}`).once("value")).val();
+    if (!m || m.company_id !== dealerUid) throw new HttpsError("not-found", "ไม่พบสมาชิกในร้านของคุณ");
+    if (!canManageMemberRole(memberRole, String(m.member_role || "STAFF").toUpperCase())) {
+      throw new HttpsError("permission-denied", "ผู้จัดการจัดการได้เฉพาะพนักงาน (STAFF)");
+    }
+    await getAuth().updateUser(uid, { password: data.password });
+    await getAuth().revokeRefreshTokens(uid);
+    return { ok: true };
+  });
+
+  fns.dealerMemberDelete = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid, memberRole, memberUid } = await requireDealerManager(db, request.auth);
+    const uid = String((request.data || {}).uid || "");
+    if (uid === memberUid) throw new HttpsError("failed-precondition", "ลบบัญชีตัวเองไม่ได้");
+    const m = (await db.ref(`dealer_members/${uid}`).once("value")).val();
+    if (!m || m.company_id !== dealerUid) throw new HttpsError("not-found", "ไม่พบสมาชิกในร้านของคุณ");
+    if (!canManageMemberRole(memberRole, String(m.member_role || "STAFF").toUpperCase())) {
+      throw new HttpsError("permission-denied", "ผู้จัดการจัดการได้เฉพาะพนักงาน (STAFF)");
+    }
+    try {
+      await getAuth().deleteUser(uid);
+    } catch (e) {
+      if (!e || e.code !== "auth/user-not-found") throw e;
+    }
+    await db.ref(`dealer_members/${uid}`).remove();
+    return { ok: true };
+  });
+
+  // ดีลเลอร์แก้ข้อมูลผู้ติดต่อของร้าน — เจ้าของร้านเท่านั้น (ข้อมูลนิติบุคคล
+  // company_name/tax_id/address ผูกกับเอกสารภาษี ยังต้องให้แอดมินแก้)
   fns.dealerUpdateContact = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
-    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const { dealerUid } = await requireDealerOwner(db, request.auth);
     const data = request.data || {};
     const patch = { updated_at: nowMs() };
     if (data.contact_name !== undefined) patch.contact_name = String(data.contact_name || "").trim().slice(0, 100) || null;
@@ -1213,7 +1444,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
   // เสนอ/แก้ซอง — แก้ได้จนกว่าจะปิดรับ ทุก revision ต่อท้าย history (ลบไม่ได้)
   fns.dealerPlaceBid = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
-    const { dealerUid, dealer } = await requireDealerCaller(db, request.auth);
+    const { dealerUid, dealer, memberUid, memberName } = await requireDealerCaller(db, request.auth);
     const data = request.data || {};
     const lotId = String(data.lotId || "");
     const lot = (await db.ref(`lots/${lotId}`).once("value")).val();
@@ -1284,6 +1515,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         type: existing.type,
         amount_total: existing.amount_total || null,
         item_bids: existing.item_bids || null,
+        by: existing.updated_by || null, // audit รายคนในทีม
       });
     }
 
@@ -1295,6 +1527,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       note: String(data.note || "").trim() || null,
       created_at: existing ? existing.created_at || nowMs() : nowMs(),
       updated_at: nowMs(),
+      // ใครในร้านเป็นคนยื่น/แก้ครั้งล่าสุด (ทีมมีหลายคน — ต้อง trace ได้)
+      updated_by: memberName || null,
+      updated_by_uid: memberUid,
       history,
     });
 
@@ -1588,7 +1823,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
 
   fns.dealerSubmitPaymentSlip = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
-    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const { dealerUid, memberName } = await requireDealerCaller(db, request.auth);
     const data = request.data || {};
     const orderId = String(data.orderId || "");
     const slipUrl = String(data.slip_url || "").trim();
@@ -1605,6 +1840,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         ...(order.payment || {}),
         slip_url: slipUrl,
         submitted_at: nowMs(),
+        submitted_by: memberName || null,
       },
     });
     await pushStatusLog(db, orderId, "payment_review", null);
