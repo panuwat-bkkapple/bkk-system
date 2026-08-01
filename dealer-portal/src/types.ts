@@ -49,6 +49,18 @@ export interface LotSummary {
     item_count: number;
     updated_at: number | null;
   } | null;
+  /** ผลประมูลของฉัน: won = มีคำสั่งซื้อ, lost = ประกาศแล้วแต่ไม่ได้รับเลือก */
+  my_result: 'won' | 'lost' | null;
+  my_order: MyLotOrder | null;
+}
+
+export interface MyLotOrder {
+  id: string;
+  order_no: string | null;
+  amount: number;
+  status: OrderStatus;
+  item_count: number;
+  items?: Record<string, { model: string; ref_no?: string | null; amount: number }>;
 }
 
 export interface MyBid {

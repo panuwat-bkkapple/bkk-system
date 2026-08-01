@@ -1,14 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Clock3 } from 'lucide-react';
+import { RefreshCw, Clock3, ChevronRight, Trophy, PackageOpen } from 'lucide-react';
 import { listLots } from '../api';
 import { LOT_STATUS_LABEL, fmtBaht, fmtDateTime, type LotSummary } from '../types';
+
+type TabKey = 'open' | 'waiting' | 'decided' | 'all';
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'open', label: 'เปิดรับราคา' },
+  { key: 'waiting', label: 'รอประกาศผล' },
+  { key: 'decided', label: 'ประกาศผลแล้ว' },
+  { key: 'all', label: 'ทั้งหมด' },
+];
+
+const bucketOf = (lot: LotSummary): Exclude<TabKey, 'all'> => {
+  if (lot.status === 'open') return 'open';
+  if (['closed', 'awarding'].includes(lot.status)) return 'waiting';
+  return 'decided';
+};
 
 export const LotList = () => {
   const navigate = useNavigate();
   const [lots, setLots] = useState<LotSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState<TabKey>('open');
+  // นาฬิกากลางตัวเดียวสำหรับ countdown ทุกการ์ด (อัปเดตทุก 30 วิ — พอสำหรับลิสต์)
+  const [now, setNow] = useState(Date.now());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -27,74 +45,130 @@ export const LotList = () => {
     void load();
   }, [load]);
 
-  const open = lots.filter((l) => l.status === 'open');
-  const past = lots.filter((l) => l.status !== 'open');
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const counts = useMemo(() => {
+    const c: Record<TabKey, number> = { open: 0, waiting: 0, decided: 0, all: lots.length };
+    for (const l of lots) c[bucketOf(l)] += 1;
+    return c;
+  }, [lots]);
+
+  const visible = useMemo(
+    () => (tab === 'all' ? lots : lots.filter((l) => bucketOf(l) === tab)),
+    [lots, tab]
+  );
 
   return (
     <div>
-      <div className="row">
+      <div className="row" style={{ alignItems: 'flex-end' }}>
         <div>
           <h1 className="h1">ล็อตสินค้า</h1>
           <div className="sub">เสนอราคาแบบปิดซอง — ไม่มีผู้ใดเห็นราคาของคุณ</div>
         </div>
         <button className="btn ghost small" onClick={() => void load()}>
-          <RefreshCw size={14} /> รีเฟรช
+          <RefreshCw size={13} /> รีเฟรช
         </button>
       </div>
 
-      {loading && <div className="loading">กำลังโหลด...</div>}
+      {/* แท็บกรองสถานะ — sticky ใต้หัวเว็บ */}
+      <div className="filter-tabs">
+        {TABS.map((t) => (
+          <button key={t.key} className={`ftab ${tab === t.key ? 'on' : ''}`} onClick={() => setTab(t.key)}>
+            {t.label}
+            <span className={`cnt ${t.key === 'open' && counts.open > 0 ? 'hot' : ''}`}>{counts[t.key]}</span>
+          </button>
+        ))}
+      </div>
+
+      {loading && (<><div className="skel" /><div className="skel" /></>)}
       {error && <div className="error">{error}</div>}
 
-      {!loading && open.length === 0 && (
-        <div className="card center muted bold">ยังไม่มีล็อตที่เปิดรับราคาในขณะนี้</div>
+      {!loading && visible.length === 0 && (
+        <div className="empty">
+          <PackageOpen size={28} style={{ color: 'var(--faint)', marginBottom: 8 }} />
+          <div>
+            {tab === 'open'
+              ? (<><b>ยังไม่มีล็อตเปิดรับราคา</b><br />เมื่อมีล็อตใหม่สำหรับระดับของคุณ เราจะแจ้งทางอีเมลทันที</>)
+              : 'ไม่มีรายการในหมวดนี้'}
+          </div>
+        </div>
       )}
 
-      {open.map((lot) => (
-        <LotCard key={lot.id} lot={lot} onClick={() => navigate(`/lots/${lot.id}`)} />
+      {visible.map((lot) => (
+        <LotCard key={lot.id} lot={lot} now={now} onClick={() => navigate(`/lots/${lot.id}`)} />
       ))}
-
-      {past.length > 0 && (
-        <>
-          <h2 className="h1" style={{ fontSize: 15, marginTop: 28 }}>ที่ผ่านมา</h2>
-          {past.map((lot) => (
-            <LotCard key={lot.id} lot={lot} onClick={() => navigate(`/lots/${lot.id}`)} />
-          ))}
-        </>
-      )}
     </div>
   );
 };
 
-const LotCard = ({ lot, onClick }: { lot: LotSummary; onClick: () => void }) => {
+const remainText = (ms: number): string => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `อีก ${d} วัน ${h} ชม.`;
+  if (h > 0) return `อีก ${h} ชม. ${m} นาที`;
+  return `อีก ${m} นาที`;
+};
+
+const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick: () => void }) => {
   const meta = LOT_STATUS_LABEL[lot.status] || { label: lot.status, cls: '' };
+  const remain = (lot.close_at || 0) - now;
+  const urgent = lot.status === 'open' && remain < 3600_000;
+
   return (
     <div className="card clickable" onClick={onClick}>
       <div className="row">
         <span className="mono tiny muted bold">{lot.lot_no}</span>
-        <span className={`badge ${meta.cls}`}>{meta.label}</span>
-      </div>
-      <div className="black mt8" style={{ fontSize: 16 }}>{lot.title}</div>
-      <div className="small muted bold mt8">
-        {lot.item_count} เครื่อง
-        {lot.asking_total ? ` · ราคาตั้งรวม ${fmtBaht(lot.asking_total)}` : ''}
-      </div>
-      <div className="row mt12">
-        <div className="tiny muted bold">
-          {lot.status === 'open' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Clock3 size={11} /> ปิดรับ {fmtDateTime(lot.close_at)}
-            </span>
-          )}
-          {lot.bid_stats && lot.eligible_count != null && (
-            <span> · เสนอแล้ว {lot.bid_stats.bid_count}/{lot.eligible_count} ราย</span>
-          )}
-        </div>
-        {lot.my_bid ? (
-          <span className="badge blue">
-            เสนอแล้ว {lot.my_bid.type === 'whole_lot' ? fmtBaht(lot.my_bid.amount_total) : `${lot.my_bid.item_count} เครื่อง`}
-          </span>
+        {/* ผลของฉันสำคัญกว่าสถานะ lot — ชนะ/ไม่ได้รับเลือกขึ้นแทน */}
+        {lot.my_result === 'won' ? (
+          <span className="pill green">คุณชนะดีลนี้</span>
+        ) : lot.my_result === 'lost' ? (
+          <span className="pill">ไม่ได้รับเลือก</span>
         ) : (
-          lot.status === 'open' && <span className="badge amber">ยังไม่ได้เสนอ</span>
+          <span className={`pill ${meta.cls}`}>{meta.label}</span>
+        )}
+      </div>
+
+      <div className="row mt8" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <div className="black" style={{ fontSize: 16.5, lineHeight: 1.35 }}>{lot.title}</div>
+          <div className="small muted bold mt8">
+            {lot.item_count} เครื่อง
+            {lot.asking_total ? <> · ราคาตั้งรวม <span className="money">{fmtBaht(lot.asking_total)}</span></> : null}
+            {lot.bid_stats && lot.eligible_count != null && (
+              <> · เสนอแล้ว {lot.bid_stats.bid_count}/{lot.eligible_count} ราย</>
+            )}
+          </div>
+        </div>
+        <ChevronRight size={18} style={{ color: 'var(--faint)', flexShrink: 0, marginTop: 2 }} />
+      </div>
+
+      <div className="row mt12">
+        {lot.my_result === 'won' && lot.my_order ? (
+          <span className="small black" style={{ color: 'var(--accent-deep)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Trophy size={14} /> {fmtBaht(lot.my_order.amount)} · {lot.my_order.order_no}
+          </span>
+        ) : lot.my_bid ? (
+          <span className="pill blue">
+            ซองของคุณ: {lot.my_bid.type === 'whole_lot' ? fmtBaht(lot.my_bid.amount_total) : `${lot.my_bid.item_count} เครื่อง`}
+          </span>
+        ) : lot.status === 'open' ? (
+          <span className="pill amber">ยังไม่ได้เสนอราคา</span>
+        ) : (
+          <span />
+        )}
+
+        {lot.status === 'open' && (
+          <span className={`chip time ${urgent ? 'urgent' : ''}`}>
+            <Clock3 size={12} /> {remainText(remain)}
+          </span>
+        )}
+        {['closed', 'awarding'].includes(lot.status) && (
+          <span className="tiny muted bold">ปิดรับ {fmtDateTime(lot.close_at)}</span>
         )}
       </div>
     </div>
