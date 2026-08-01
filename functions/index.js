@@ -18,6 +18,7 @@ const {
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
   buildCustomerOfferDecisionEmail,
+  buildCustomerReturnTrackingEmail,
 } = require("./email");
 const {
   loadNotificationSettings,
@@ -722,6 +723,7 @@ const TERMINAL_STATUSES = [
   "Cancelled",
   "Closed (Lost)",
   "Returned",
+  "Return Confirmed", // canonical of "Returned" (job-statuses.ts)
   "Withdrawal Completed",
 ];
 const ARCHIVE_THRESHOLD_DAYS = 90;
@@ -952,6 +954,9 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "customer_signature", "quote_expiry_date",
   "is_reviewed", "uid", "rider_id",
   "cancelled_at", "cancel_reason", "cancellation_reason", "reopened_at",
+  // Return-to-customer flow (src/utils/returnFlow.ts) — the track page shows
+  // the return tracking number + timestamps. return_reason stays internal.
+  "return_tracking_number", "return_shipped_at", "return_initiated_at", "return_confirmed_at",
 ];
 
 async function runPublicTrackBackfill({ dryRun }) {
@@ -1779,6 +1784,66 @@ exports.onJobStatusEmail = onValueUpdated(
       }
     } catch (err) {
       console.error("[orderEmail] onJobStatusEmail unhandled error:", err);
+    }
+  }
+);
+
+// =============================================================================
+// Return tracking → customer email (Mail-in return leg)
+//
+// The 'Returning To Customer' milestone email goes out BEFORE the parcel is
+// actually shipped back, so it can't carry a tracking number. When the admin
+// records the return tracking (jobs/{id}/return_tracking_number — written via
+// src/utils/returnFlow.ts buildReturnShipFields from the ticket UI), this
+// trigger emails the customer the number. The 'Return Confirmed' milestone
+// email later repeats it (email.js reads the field).
+//
+// Same master gate as the milestone emails (settings/accounting), same silent
+// skip without RESEND config. Dedup: return_tracking_email_sent stores the
+// last value emailed — re-saving the same number is a no-op, a corrected
+// number sends again. Name is project-unique per the {region}/{name} rule.
+// =============================================================================
+exports.onReturnTrackingSent = onValueWritten(
+  {
+    ref: "/jobs/{jobId}/return_tracking_number",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    try {
+      const after = event.data.after.exists() ? String(event.data.after.val() || "").trim() : "";
+      if (!after) return; // cleared/deleted — nothing to announce
+      const before = event.data.before.exists() ? String(event.data.before.val() || "").trim() : "";
+      if (before === after) return;
+
+      const jobId = event.params.jobId;
+      const db = getDatabase();
+      const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+      if (!jobSnap.exists()) return;
+      const job = jobSnap.val();
+      if (job.is_test) return;
+      if (!job.cust_email) return;
+
+      // Only meaningful while the device is on its way back (or already
+      // confirmed and the number was corrected).
+      const status = normalizeStatus(job.status, job.receive_method);
+      if (status !== "Returning To Customer" && status !== "Return Confirmed") return;
+
+      // Master gate: inert until enabled in ตั้งค่าระบบบัญชี.
+      const acct = await loadAccountingSettings(db);
+      if (!acct.enabled) return;
+      applyAccounting(job, acct);
+
+      // Dedup per tracking value (retry-safe; corrected number re-sends).
+      const sentRef = db.ref(`jobs/${jobId}/return_tracking_email_sent`);
+      if ((await sentRef.once("value")).val() === after) return;
+      await sentRef.set(after);
+
+      const msg = buildCustomerReturnTrackingEmail(job);
+      if (!msg) return;
+      const res = await sendEmail(msg);
+      console.log(`[orderEmail] return-tracking ${jobId}:`, JSON.stringify(res));
+    } catch (err) {
+      console.error("[orderEmail] onReturnTrackingSent unhandled error:", err);
     }
   }
 );

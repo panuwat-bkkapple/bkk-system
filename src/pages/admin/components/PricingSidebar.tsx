@@ -17,6 +17,7 @@ import { CustomerOfferDecisionCard } from './CustomerOfferDecisionCard';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 import { canReviewAdjustments } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
+import { canStartReturn, isReturning, buildReturnInitFields, buildReturnShipFields, buildReturnConfirmFields } from '@/utils/returnFlow';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -100,6 +101,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
   const [adjBusy, setAdjBusy] = useState(false);
+  // Return-to-customer flow (ปฏิเสธรับซื้อ → ส่งเครื่องคืน) — src/utils/returnFlow.ts
+  const [returnReasonInput, setReturnReasonInput] = useState('');
+  const [returnTrackingInput, setReturnTrackingInput] = useState('');
+  const [returnBusy, setReturnBusy] = useState(false);
 
   const {
     isAddingCoupon, setIsAddingCoupon,
@@ -124,6 +129,50 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
     setAdjBusy(true);
     try { await handleAddAdjustment(adjLabel, amt); setAdjLabel(''); setAdjAmount(''); }
     finally { setAdjBusy(false); }
+  };
+
+  // Return-to-customer flow. Extra fields are written straight to the job,
+  // then the status flip goes through handleUpdateStatus so the qc_log entry
+  // is stamped with the current admin like every other transition.
+  const submitStartReturn = async () => {
+    const reason = returnReasonInput.trim();
+    if (!reason) return;
+    if (!confirm('ยืนยันปฏิเสธรับซื้อและเริ่มขั้นตอนส่งเครื่องคืนลูกค้า?')) return;
+    setReturnBusy(true);
+    try {
+      const { status, ...extras } = buildReturnInitFields(reason, currentUserName);
+      await update(ref(db, `jobs/${job.id}`), extras);
+      await handleUpdateStatus(status, `ปฏิเสธรับซื้อ เริ่มส่งเครื่องคืนลูกค้า (เหตุผล: ${reason})`);
+      setReturnReasonInput('');
+    } finally { setReturnBusy(false); }
+  };
+  const submitReturnTracking = async () => {
+    const tracking = returnTrackingInput.trim();
+    if (!tracking) return;
+    setReturnBusy(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        ...buildReturnShipFields(tracking),
+        qc_logs: [
+          { action: 'Return Tracking Added', details: `เลขพัสดุส่งคืน: ${tracking}`, by: currentUserName, timestamp: Date.now() },
+          ...(job.qc_logs || []),
+        ],
+      });
+      setReturnTrackingInput('');
+    } finally { setReturnBusy(false); }
+  };
+  const submitConfirmReturn = async () => {
+    const needTracking = job.receive_method === 'Mail-in' && !job.return_tracking_number;
+    const msg = needTracking
+      ? 'ยังไม่ได้บันทึกเลขพัสดุขากลับ — ยืนยันปิดงานส่งคืนเลย?'
+      : 'ยืนยันว่าเครื่องถูกส่งคืนลูกค้าเรียบร้อยแล้ว? (ปิดงานถาวร)';
+    if (!confirm(msg)) return;
+    setReturnBusy(true);
+    try {
+      const { status, ...extras } = buildReturnConfirmFields(currentUserName);
+      await update(ref(db, `jobs/${job.id}`), extras);
+      await handleUpdateStatus(status, 'ยืนยันส่งเครื่องคืนลูกค้าเรียบร้อย ปิดงาน');
+    } finally { setReturnBusy(false); }
   };
   // Rider-fee discount breakdown. `pickupFee` from pricing is the EFFECTIVE
   // fee (gross minus the absorbed promo); read the gross + discount straight
@@ -960,6 +1009,77 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Reject purchase → return device (Mail-in / Store-in, unpaid) */}
+        {!isCancelled && canStartReturn(job) && (
+          <div className="space-y-3 mt-4 bg-orange-50/60 border border-orange-200 p-5 rounded-3xl">
+            <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest flex items-center gap-2"><XCircle size={14} /> ปฏิเสธรับซื้อ — ส่งเครื่องคืน</p>
+            <p className="text-[11px] font-bold text-orange-800/70 leading-relaxed">
+              เครื่องไม่ผ่านเกณฑ์รับซื้อ (เช่น ติด iCloud / สภาพไม่ตรงและตกลงราคาไม่ได้) — เริ่มขั้นตอนส่งเครื่องคืนลูกค้าโดยไม่มีค่าใช้จ่าย
+            </p>
+            <textarea
+              value={returnReasonInput}
+              onChange={e => setReturnReasonInput(e.target.value)}
+              placeholder="ระบุเหตุผลที่ปฏิเสธรับซื้อ..."
+              className="w-full bg-white border border-orange-100 p-3.5 rounded-xl text-xs font-bold min-h-[60px] outline-none focus:border-orange-400"
+            />
+            <button
+              onClick={submitStartReturn}
+              disabled={returnBusy || !returnReasonInput.trim()}
+              className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md disabled:opacity-40"
+            >
+              ปฏิเสธรับซื้อ → เริ่มส่งเครื่องคืน
+            </button>
+          </div>
+        )}
+
+        {/* Return in progress — record return tracking (Mail-in) + close out */}
+        {isReturning(job) && (
+          <div className="space-y-3 mt-4 bg-orange-50 border border-orange-200 p-5 rounded-3xl">
+            <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest flex items-center gap-2"><Truck size={14} /> กำลังส่งเครื่องคืนลูกค้า</p>
+            {job.return_reason && (
+              <p className="text-[11px] font-bold text-orange-800/70 leading-relaxed">เหตุผล: {job.return_reason}</p>
+            )}
+            {job.receive_method === 'Mail-in' && (
+              job.return_tracking_number ? (
+                <div className="bg-white border border-orange-200 rounded-xl p-3">
+                  <p className="text-[10px] font-black text-orange-500 uppercase tracking-wider mb-1">เลขพัสดุขากลับ</p>
+                  <p className="text-sm font-black text-orange-800 font-mono tracking-wider">{job.return_tracking_number}</p>
+                  {job.return_shipped_at && (
+                    <p className="text-[10px] text-orange-400 mt-1">ส่งเมื่อ {formatDate(job.return_shipped_at)}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={returnTrackingInput}
+                    onChange={e => setReturnTrackingInput(e.target.value)}
+                    placeholder="เลขพัสดุขากลับ (ส่งคืนลูกค้า)..."
+                    className="flex-1 bg-white border border-orange-100 p-3 rounded-xl text-sm font-bold outline-none focus:border-orange-400"
+                  />
+                  <button
+                    onClick={submitReturnTracking}
+                    disabled={returnBusy || !returnTrackingInput.trim()}
+                    className="px-4 py-3 bg-orange-500 text-white rounded-xl text-xs font-black uppercase disabled:opacity-40"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              )
+            )}
+            {job.receive_method === 'Store-in' && (
+              <p className="text-[11px] font-bold text-orange-800/70 leading-relaxed">รอลูกค้ามารับเครื่องคืนที่สาขา — กดยืนยันเมื่อส่งมอบแล้ว</p>
+            )}
+            <button
+              onClick={submitConfirmReturn}
+              disabled={returnBusy}
+              className="w-full py-3.5 bg-slate-800 hover:bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md disabled:opacity-40"
+            >
+              ยืนยันส่งคืนเรียบร้อย — ปิดงาน (Return Confirmed)
+            </button>
           </div>
         )}
 

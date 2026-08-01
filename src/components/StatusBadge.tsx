@@ -12,6 +12,8 @@ export const StatusBadge = ({ status }: { status: string }) => {
     'Payout Processing': { label: 'Payout Processing', color: 'bg-purple-100 text-purple-700' },
     'Completed': { label: 'Completed', color: 'bg-green-100 text-green-700' },
     'Returned': { label: 'Returned', color: 'bg-red-100 text-red-700' },
+    'Returning To Customer': { label: 'Returning', color: 'bg-orange-100 text-orange-700' },
+    'Return Confirmed': { label: 'Return Confirmed', color: 'bg-red-100 text-red-700' },
     'Cancelled': { label: 'Cancelled', color: 'bg-gray-100 text-gray-700' },
     'Closed (Lost)': { label: 'Closed (Lost)', color: 'bg-slate-200 text-slate-600' },
   };

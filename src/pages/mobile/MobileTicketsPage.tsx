@@ -39,6 +39,8 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   'Cancelled':          { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
   'Closed (Lost)':      { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
   'Returned':           { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
+  'Returning To Customer': { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
+  'Return Confirmed':   { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
 };
 
 const PHASE_FILTERS = [
@@ -59,8 +61,10 @@ const LOGISTICS_STATUSES = [
   // Inspection / payout phases — unchanged
   'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation',
   'Payout Processing', 'Waiting for Handover',
+  // Return in progress — still active work (admin must ship back + close)
+  'Returning To Customer',
 ];
-const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
+const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed', 'Completed', 'Sold'];
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {
   'Pickup':   <Truck size={12} />,

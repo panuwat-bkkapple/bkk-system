@@ -98,7 +98,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
         const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(j.status);
         const isLogistics = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit', 'Pending QC', 'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'].includes(j.status);
-        const isClosed = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned'].includes(j.status);
+        const isClosed = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed'].includes(j.status);
 
         if (filterPhase === 'Sales' && !isSales) return false;
         if (filterPhase === 'Logistics' && !isLogistics) return false;

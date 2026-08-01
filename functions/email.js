@@ -838,7 +838,18 @@ const STATUS_COPY = {
     customer: {
       subject: (j) => `กำลังส่งเครื่องคืน — ${REF(j)}`,
       heading: "กำลังส่งเครื่องคืนให้คุณ",
-      intro: () => "เรากำลังดำเนินการส่งเครื่องคืนให้คุณ และจะแจ้งรายละเอียดการจัดส่งให้ทราบ",
+      intro: (j) => {
+        // Method-aware: Mail-in gets the parcel back (tracking number follows
+        // via onReturnTrackingSent once admin records it); Store-in picks the
+        // device up at the branch. No charge either way.
+        if (j.receive_method === "Mail-in") {
+          return "เราจะจัดส่งเครื่องคืนให้คุณตามที่อยู่ที่แจ้งไว้ โดยไม่มีค่าใช้จ่าย และจะแจ้งเลขพัสดุให้ทราบทางอีเมลเมื่อจัดส่งแล้ว";
+        }
+        if (j.receive_method === "Store-in") {
+          return "คุณสามารถติดต่อรับเครื่องคืนได้ที่สาขาที่นำเครื่องเข้ามา โดยไม่มีค่าใช้จ่าย";
+        }
+        return "เรากำลังดำเนินการส่งเครื่องคืนให้คุณ และจะแจ้งรายละเอียดการจัดส่งให้ทราบ";
+      },
     },
   },
   "Return Confirmed": {
@@ -846,7 +857,10 @@ const STATUS_COPY = {
     customer: {
       subject: (j) => `ยืนยันการส่งเครื่องคืน — ${REF(j)}`,
       heading: "ยืนยันการส่งเครื่องคืน",
-      intro: () => "เครื่องของคุณถูกส่งคืนเรียบร้อยแล้ว หากมีข้อสงสัยกรุณาติดต่อทีมงาน",
+      intro: (j) =>
+        j.return_tracking_number
+          ? `เครื่องของคุณถูกส่งคืนเรียบร้อยแล้ว (เลขพัสดุ: <strong>${esc(j.return_tracking_number)}</strong>) หากมีข้อสงสัยกรุณาติดต่อทีมงาน`
+          : "เครื่องของคุณถูกส่งคืนเรียบร้อยแล้ว หากมีข้อสงสัยกรุณาติดต่อทีมงาน",
     },
   },
   "Refund Initiated": {
@@ -888,6 +902,30 @@ function buildCustomerStatusEmail(job, status) {
       heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
       intro: `${name}${c.intro(job)}`,
       bodyHtml: orderSummaryCard(job, payoutLabel) + extra + trackingButton(job),
+    }),
+  };
+}
+
+/**
+ * Return-leg tracking email (Mail-in): sent by onReturnTrackingSent when the
+ * admin records jobs/{id}/return_tracking_number. The Returning To Customer
+ * milestone email fires before shipping, so the tracking number needs its own
+ * send. Null when the job has no customer email.
+ */
+function buildCustomerReturnTrackingEmail(job) {
+  if (!job.cust_email || !job.return_tracking_number) return null;
+  const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
+  const tracking = esc(job.return_tracking_number);
+  return {
+    to: job.cust_email,
+    subject: `เลขพัสดุส่งเครื่องคืน — ${REF(job)}`,
+    html: shell({
+      heading: "จัดส่งเครื่องคืนแล้ว",
+      intro:
+        `${name}เราได้จัดส่งเครื่องคืนให้คุณเรียบร้อยแล้ว ` +
+        `เลขพัสดุ: <strong>${tracking}</strong> ` +
+        `สามารถติดตามสถานะพัสดุได้จากเว็บไซต์ของบริษัทขนส่ง`,
+      bodyHtml: orderSummaryCard(job) + trackingButton(job),
     }),
   };
 }
@@ -1043,4 +1081,5 @@ module.exports = {
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
   buildCustomerOfferDecisionEmail,
+  buildCustomerReturnTrackingEmail,
 };

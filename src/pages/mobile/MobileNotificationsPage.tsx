@@ -87,6 +87,8 @@ export const MobileNotificationsPage = () => {
           'Cancelled': { title: '🚫 ยกเลิกงาน', severity: 'critical' },
           'Closed (Lost)': { title: '❌ ปิดงาน (Lost)', severity: 'critical' },
           'Returned': { title: '📦 ตีเครื่องกลับ', severity: 'critical' },
+          'Returning To Customer': { title: '📦 กำลังส่งเครื่องคืนลูกค้า', severity: 'warning' },
+          'Return Confirmed': { title: '📦 ส่งเครื่องคืนแล้ว', severity: 'info' },
           'Negotiation': { title: '💬 ลูกค้าต่อราคา', severity: 'warning' },
           'Revised Offer': { title: '💰 เสนอราคาใหม่', severity: 'warning' },
           'Price Accepted': { title: '✅ ลูกค้ารับราคา', severity: 'info' },

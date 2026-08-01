@@ -39,6 +39,7 @@ import { isAwaitingOffer } from '../../utils/offerRequest';
 import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDecisionCard';
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
+import { canStartReturn, isReturning, buildReturnInitFields, buildReturnShipFields, buildReturnConfirmFields } from '../../utils/returnFlow';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -66,6 +67,8 @@ const STATUS_COLORS: Record<string, string> = {
   'Cancelled':         'bg-gray-100 text-gray-500',
   'Closed (Lost)':     'bg-gray-100 text-gray-500',
   'Returned':          'bg-gray-100 text-gray-500',
+  'Returning To Customer': 'bg-orange-100 text-orange-700',
+  'Return Confirmed':  'bg-gray-100 text-gray-500',
 };
 
 const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -153,6 +156,9 @@ export const MobileTicketDetail = () => {
   const [couponFormOpen, setCouponFormOpen] = useState(false);
   const [couponCode, setCouponCode] = useState('');
   const [couponAmount, setCouponAmount] = useState('');
+  // Return-to-customer flow (ปฏิเสธรับซื้อ → ส่งเครื่องคืน) — src/utils/returnFlow.ts
+  const [returnTracking, setReturnTracking] = useState('');
+  const [returnBusy, setReturnBusy] = useState(false);
 
   // Load job. RTDB returns arrays as objects when keys aren't sequential
   // integers (e.g. qc_logs that got a string key written by mistake), so
@@ -231,7 +237,7 @@ export const MobileTicketDetail = () => {
   if (loading) return <div className="flex items-center justify-center h-full"><RefreshCw size={24} className="animate-spin text-slate-400" /></div>;
   if (!job) return <div className="flex items-center justify-center h-full text-red-500 font-bold">ไม่พบข้อมูลงาน</div>;
 
-  const isCancelled = ['cancelled', 'closed (lost)', 'returned'].includes((job.status || '').toLowerCase());
+  const isCancelled = ['cancelled', 'closed (lost)', 'returned', 'return confirmed'].includes((job.status || '').toLowerCase());
   // Soft-close: "Cancelled" is reopenable on the same ticket until the 7-day
   // window lapses; "Closed (Lost)" and others are final.
   const isReopenable = (job.status || '').toLowerCase() === 'cancelled';
@@ -502,11 +508,12 @@ export const MobileTicketDetail = () => {
     toast.success('รับเคสสำเร็จ');
   };
 
-  const handleUpdateStatus = async (newStatus: string, details: string) => {
+  const handleUpdateStatus = async (newStatus: string, details: string, extraFields: Record<string, any> = {}) => {
     await update(ref(db, `jobs/${job.id}`), {
       status: newStatus,
       qc_logs: [makeLog(newStatus, details), ...(job.qc_logs || [])],
-      updated_at: Date.now()
+      updated_at: Date.now(),
+      ...extraFields
     });
     toast.success(`อัพเดทเป็น ${newStatus}`);
     // งานที่ขายพ่วงอุปกรณ์เสริม — เข้าคลังแล้วแตกเป็น stock รายชิ้น (ref -A1..)
@@ -514,6 +521,62 @@ export const MobileTicketDetail = () => {
     if (newStatus === 'In Stock') {
       const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
       if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Return-to-customer flow (ปฏิเสธรับซื้อ → ส่งเครื่องคืน) — Mail-in / Store-in
+  // ที่ยังไม่จ่ายเงิน. เงื่อนไข/ฟิลด์รวมอยู่ที่ src/utils/returnFlow.ts
+  // -------------------------------------------------------------------------
+
+  const handleStartReturn = async () => {
+    const reason = prompt('ระบุเหตุผลที่ปฏิเสธรับซื้อ / ส่งเครื่องคืน:');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('กรุณาระบุเหตุผล'); return; }
+    if (!confirm('ยืนยันปฏิเสธรับซื้อและเริ่มขั้นตอนส่งเครื่องคืนลูกค้า?')) return;
+    setReturnBusy(true);
+    try {
+      const fields = buildReturnInitFields(reason, currentUser?.name || 'Admin');
+      await handleUpdateStatus(fields.status, `ปฏิเสธรับซื้อ เริ่มส่งเครื่องคืนลูกค้า (เหตุผล: ${reason.trim()})`, fields);
+    } catch (e: unknown) {
+      toast.error('บันทึกไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  const handleSaveReturnTracking = async () => {
+    const tracking = returnTracking.trim();
+    if (!tracking) { toast.error('กรุณาระบุเลขพัสดุขากลับ'); return; }
+    setReturnBusy(true);
+    try {
+      await update(ref(db, `jobs/${job.id}`), {
+        ...buildReturnShipFields(tracking),
+        qc_logs: [makeLog('Return Tracking Added', `เลขพัสดุส่งคืน: ${tracking}`), ...(job.qc_logs || [])],
+      });
+      setReturnTracking('');
+      toast.success('บันทึกเลขพัสดุขากลับแล้ว — ระบบจะส่งอีเมลแจ้งลูกค้า');
+    } catch (e: unknown) {
+      toast.error('บันทึกไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  const handleConfirmReturn = async () => {
+    const needTracking = job.receive_method === 'Mail-in' && !job.return_tracking_number;
+    const msg = needTracking
+      ? 'ยังไม่ได้บันทึกเลขพัสดุขากลับ — ยืนยันปิดงานส่งคืนเลย?'
+      : 'ยืนยันว่าเครื่องถูกส่งคืนลูกค้าเรียบร้อยแล้ว? (ปิดงานถาวร)';
+    if (!confirm(msg)) return;
+    setReturnBusy(true);
+    try {
+      const fields = buildReturnConfirmFields(currentUser?.name || 'Admin');
+      await handleUpdateStatus(fields.status, 'ยืนยันส่งเครื่องคืนลูกค้าเรียบร้อย ปิดงาน', fields);
+    } catch (e: unknown) {
+      toast.error('บันทึกไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReturnBusy(false);
     }
   };
 
@@ -1396,7 +1459,7 @@ export const MobileTicketDetail = () => {
                 )}
 
                 {/* BKK Diagnos — start a session (Store-in / Mail-in staff mode) */}
-                {!['Cancelled', 'Completed', 'Paid', 'Returned'].includes(job.status) && (
+                {!['Cancelled', 'Completed', 'Paid', 'Returned', 'Return Confirmed', 'Returning To Customer'].includes(job.status) && (
                   <DiagnosStartPanel job={job} deviceIndex={idx} />
                 )}
 
@@ -1488,6 +1551,63 @@ export const MobileTicketDetail = () => {
             </div>
           )}
 
+          {/* === Return-to-customer panel (ปฏิเสธรับซื้อ → ส่งคืน) === */}
+          {/* Active while the job is in 'Returning To Customer': record the
+              return tracking number (Mail-in) and close the job out. The
+              reject entry point lives with the other actions below. */}
+          {isReturning(job) && (
+            <div className="bg-orange-50 rounded-2xl border border-orange-200 shadow-sm p-4 space-y-3">
+              <h3 className="text-xs font-black text-orange-700 uppercase tracking-wider">
+                กำลังส่งเครื่องคืนลูกค้า
+              </h3>
+              {job.return_reason && (
+                <p className="text-[11px] font-bold text-orange-700/80 leading-relaxed">
+                  เหตุผล: {job.return_reason}
+                </p>
+              )}
+              {job.receive_method === 'Mail-in' && (
+                job.return_tracking_number ? (
+                  <div className="bg-white border border-orange-200 rounded-xl p-3">
+                    <p className="text-[10px] font-black text-orange-500 uppercase tracking-wider mb-1">เลขพัสดุขากลับ</p>
+                    <p className="text-sm font-black text-orange-800 font-mono tracking-wider">{job.return_tracking_number}</p>
+                    {job.return_shipped_at && (
+                      <p className="text-[10px] text-orange-400 mt-1">ส่งเมื่อ {new Date(job.return_shipped_at).toLocaleString('th-TH')}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={returnTracking}
+                      onChange={(e) => setReturnTracking(e.target.value)}
+                      placeholder="เลขพัสดุขากลับ (ส่งคืนลูกค้า)..."
+                      className="flex-1 bg-white border border-orange-200 rounded-xl px-3 py-2.5 text-sm font-bold outline-none focus:border-orange-400"
+                    />
+                    <button
+                      onClick={handleSaveReturnTracking}
+                      disabled={returnBusy}
+                      className="px-4 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+                    >
+                      บันทึก
+                    </button>
+                  </div>
+                )
+              )}
+              {job.receive_method === 'Store-in' && (
+                <p className="text-[11px] font-bold text-orange-700/80 leading-relaxed">
+                  รอลูกค้ามารับเครื่องคืนที่สาขา — กดยืนยันเมื่อส่งมอบแล้ว
+                </p>
+              )}
+              <button
+                onClick={handleConfirmReturn}
+                disabled={returnBusy}
+                className="w-full py-3 bg-slate-800 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+              >
+                ยืนยันส่งคืนเรียบร้อย — ปิดงาน (Return Confirmed)
+              </button>
+            </div>
+          )}
+
           {/* === Quick Actions (always visible) === */}
           {/* Always show the action panel for non-cancelled jobs so admin
               can at least access the bottom red Cancel button — the
@@ -1520,6 +1640,15 @@ export const MobileTicketDetail = () => {
                   {action.label}
                 </button>
               ))}
+              {canStartReturn(job) && (
+                <button
+                  onClick={handleStartReturn}
+                  disabled={returnBusy}
+                  className="w-full py-3 rounded-xl text-sm font-bold border border-orange-200 text-orange-600 bg-orange-50 disabled:opacity-50"
+                >
+                  ปฏิเสธรับซื้อ → ส่งเครื่องคืน
+                </button>
+              )}
               <button
                 onClick={() => setShowCancelModal(true)}
                 className="w-full py-3 rounded-xl text-sm font-bold border border-red-200 text-red-500 bg-red-50"
@@ -1662,7 +1791,7 @@ export const MobileTicketDetail = () => {
           </div>
 
           {/* Chat Input */}
-          {!['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Closed (Lost)', 'Cancelled'].includes(job.status) ? (
+          {!['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Return Confirmed', 'Closed (Lost)', 'Cancelled'].includes(job.status) ? (
             <div className="p-3 bg-white border-t border-slate-100 flex gap-2 items-center shrink-0">
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleChatImage} />
               <button

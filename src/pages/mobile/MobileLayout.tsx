@@ -57,7 +57,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
           if (age > 14 * 86400000) nCount++;
         }
         // Status changes within 24 hours
-        const alertStatuses = ['Cancelled', 'Closed (Lost)', 'Returned', 'Negotiation', 'Revised Offer', 'Price Accepted', 'Withdrawal Requested'];
+        const alertStatuses = ['Cancelled', 'Closed (Lost)', 'Returned', 'Returning To Customer', 'Negotiation', 'Revised Offer', 'Price Accepted', 'Withdrawal Requested'];
         if (alertStatuses.includes(j.status) && j.updated_at && (now - j.updated_at) < 24 * 3600000) {
           nCount++;
         }

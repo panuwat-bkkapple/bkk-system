@@ -134,7 +134,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         <div ref={scrollRef} />
       </div>
 
-      {['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Closed (Lost)', 'Cancelled'].includes(jobInfo.status) ? (
+      {['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Return Confirmed', 'Closed (Lost)', 'Cancelled'].includes(jobInfo.status) ? (
         <div className="p-4 bg-slate-100 border-t border-slate-200 text-center rounded-b-2xl">
           <span className="text-xs font-bold text-slate-500 flex items-center justify-center gap-2">
             🔒 แชทถูกปิดแล้ว (จบงาน)

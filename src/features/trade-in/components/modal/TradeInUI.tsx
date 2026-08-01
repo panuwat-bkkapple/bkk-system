@@ -62,6 +62,7 @@ export const StatusBadge = ({ status }: { status: string }) => {
     'Drop-off Expired': 'bg-slate-100 text-slate-500 border-slate-200',
     'Shipping Expired': 'bg-slate-100 text-slate-500 border-slate-200',
     'Returned': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
+    'Returning To Customer': 'bg-orange-100 text-orange-700 border-orange-300 ring-2 ring-orange-500/20',
     'Return Confirmed': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
   };
   return <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${styles[status] || 'bg-slate-50 text-slate-400 border-slate-100'}`}>{status}</span>;
@@ -110,8 +111,8 @@ export const TicketPipeline = ({ status }: { status: string }) => {
 
   if (isCancelled) {
     return (
-      <div className={`p-4 rounded-2xl text-center font-black text-xs uppercase tracking-widest border mt-6 shadow-inner ${status === 'Returned' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-red-50 text-red-600 border-red-200'}`}>
-        {status === 'Returned' ? '📦 Item Returned (ส่งเครื่องคืนลูกค้าแล้ว)' : '🚫 Ticket Closed / Cancelled (ยกเลิกรายการแล้ว)'}
+      <div className={`p-4 rounded-2xl text-center font-black text-xs uppercase tracking-widest border mt-6 shadow-inner ${(status === 'Returned' || status === 'Return Confirmed') ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-red-50 text-red-600 border-red-200'}`}>
+        {(status === 'Returned' || status === 'Return Confirmed') ? '📦 Item Returned (ส่งเครื่องคืนลูกค้าแล้ว)' : '🚫 Ticket Closed / Cancelled (ยกเลิกรายการแล้ว)'}
       </div>
     );
   }
