@@ -858,6 +858,44 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     };
   });
 
+  // ลิสต์คำสั่งซื้อของดีลเลอร์เอง — collection read ของ dealer_orders เป็น
+  // admin-only (rules) ดีลเลอร์จึง query ตรงไม่ได้; server query ด้วย
+  // .indexOn: dealer_uid แล้วคืนเฉพาะของตัวเอง (รายใบ subscribe ตรงได้ตาม rules)
+  fns.dealerListOrders = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const snap = await db
+      .ref("dealer_orders")
+      .orderByChild("dealer_uid")
+      .equalTo(dealerUid)
+      .once("value");
+    const out = [];
+    if (snap.exists()) {
+      snap.forEach((child) => {
+        const o = child.val() || {};
+        out.push({
+          id: child.key,
+          order_no: o.order_no,
+          lot_no: o.lot_no || null,
+          type: o.type,
+          item_count: o.item_count || 0,
+          items: o.items || {},
+          amount: o.amount || 0,
+          status: o.status,
+          quotation: o.quotation ? { number: o.quotation.number, url: o.quotation.url || null } : null,
+          payment: o.payment
+            ? { slip_url: o.payment.slip_url || null, submitted_at: o.payment.submitted_at || null }
+            : null,
+          payment_info: o.payment_info || null,
+          shipping: o.shipping || null,
+          created_at: o.created_at || null,
+        });
+      });
+    }
+    out.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return { orders: out };
+  });
+
   // เสนอ/แก้ซอง — แก้ได้จนกว่าจะปิดรับ ทุก revision ต่อท้าย history (ลบไม่ได้)
   fns.dealerPlaceBid = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();

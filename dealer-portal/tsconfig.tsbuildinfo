@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/firebase.ts","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/hooks/useDealerSession.tsx","./src/pages/Login.tsx","./src/pages/LotDetailPage.tsx","./src/pages/LotList.tsx","./src/pages/OrderDetail.tsx","./src/pages/Orders.tsx","./src/pages/Profile.tsx"],"version":"5.8.3"}
