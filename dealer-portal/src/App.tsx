@@ -10,14 +10,14 @@ import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { dealer, logout } = useDealerSession();
+  const { dealer, memberName, logout } = useDealerSession();
   const loc = useLocation();
   return (
     <>
       <header className="topbar">
         <div className="brand">GETMOBIE <span>DEALER</span></div>
         <div className="who">
-          <div>{dealer?.company_name}</div>
+          <div>{memberName && memberName !== dealer?.company_name ? `${memberName} · ${dealer?.company_name}` : dealer?.company_name}</div>
           <button onClick={() => void logout()}>
             <LogOut size={11} /> ออกจากระบบ
           </button>

@@ -356,7 +356,9 @@ export const LotDetailPage = () => {
                 ? <>เหมายกล็อต <span className="money">{fmtBaht(myBid.amount_total)}</span></>
                 : <>รายตัว {Object.keys(myBid.item_bids || {}).length} เครื่อง รวม <span className="money">{fmtBaht(Object.values(myBid.item_bids || {}).reduce((s, v) => s + v, 0))}</span></>}
             </div>
-            <div className="tiny muted bold mt8">ส่งล่าสุด {fmtDateTime(myBid.updated_at)}</div>
+            <div className="tiny muted bold mt8">
+              ส่งล่าสุด {fmtDateTime(myBid.updated_at)}{myBid.updated_by ? ` โดย ${myBid.updated_by}` : ''}
+            </div>
           </div>
         )
       )}

@@ -4,6 +4,25 @@
 
 export type DealerTier = 'A' | 'B' | 'C';
 
+// ลำดับชั้นในร้าน: บัญชีหลักของร้าน = OWNER → OWNER/MANAGER จัดการสมาชิก →
+// STAFF ใช้งานปกติ (MIRROR: enum ฝั่ง server ใน functions/dealer-portal.js)
+export type DealerMemberRole = 'OWNER' | 'MANAGER' | 'STAFF';
+
+export const MEMBER_ROLE_LABEL: Record<DealerMemberRole, string> = {
+  OWNER: 'เจ้าของร้าน',
+  MANAGER: 'ผู้จัดการ',
+  STAFF: 'พนักงาน',
+};
+
+export interface TeamMember {
+  uid: string;
+  name: string | null;
+  email: string | null;
+  member_role: DealerMemberRole;
+  status: 'ACTIVE' | 'SUSPENDED';
+  created_at: number | null;
+}
+
 export interface DealerProfile {
   company_name: string;
   tax_id?: string | null;
@@ -105,7 +124,9 @@ export interface MyBid {
   note: string | null;
   created_at: number | null;
   updated_at: number | null;
-  history: { at: number; type: string; amount_total?: number | null }[];
+  /** ใครในทีมยื่น/แก้ครั้งล่าสุด */
+  updated_by?: string | null;
+  history: { at: number; type: string; amount_total?: number | null; by?: string | null }[];
 }
 
 export type OrderStatus =

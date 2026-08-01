@@ -31,3 +31,23 @@ export const submitPaymentSlip = (orderId: string, slipUrl: string) =>
 
 export const updateContact = (payload: { contact_name?: string; phone?: string; line_id?: string }) =>
   call<{ ok: boolean }>('dealerUpdateContact', payload);
+
+// ── Team members ──
+import type { DealerMemberRole, TeamMember } from './types';
+
+export const listMembers = () => call<{ members: TeamMember[]; max: number }>('dealerListMembers');
+
+export const createMember = (payload: {
+  name: string;
+  email: string;
+  password: string;
+  member_role: DealerMemberRole;
+}) => call<{ ok: boolean; uid: string }>('dealerMemberCreate', payload);
+
+export const setMemberStatus = (uid: string, status: 'ACTIVE' | 'SUSPENDED') =>
+  call<{ ok: boolean }>('dealerMemberSetStatus', { uid, status });
+
+export const resetMemberPassword = (uid: string, password: string) =>
+  call<{ ok: boolean }>('dealerMemberResetPassword', { uid, password });
+
+export const deleteMember = (uid: string) => call<{ ok: boolean }>('dealerMemberDelete', { uid });
