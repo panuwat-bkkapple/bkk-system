@@ -5830,6 +5830,18 @@ exports.dailySickwUsageSummary = onSchedule(
 );
 
 // =============================================================================
+// Staff account lifecycle — per-employee Firebase Auth accounts, CEO-gated.
+// เจ้าของการเขียน /staff + /admins เพียงผู้เดียว (rules ปิด client write แล้ว)
+// ดูรายละเอียดใน ./staff-accounts.js
+// =============================================================================
+const staffAccounts = require("./staff-accounts");
+exports.adminStaffCreate = staffAccounts.adminStaffCreate;
+exports.adminStaffUpdate = staffAccounts.adminStaffUpdate;
+exports.adminStaffSetStatus = staffAccounts.adminStaffSetStatus;
+exports.adminStaffDelete = staffAccounts.adminStaffDelete;
+exports.adminStaffResetPassword = staffAccounts.adminStaffResetPassword;
+
+// =============================================================================
 // BKK Diagnos — on-device diagnostic sessions (see ./diagnostics.js)
 // =============================================================================
 const diagnostics = require("./diagnostics");

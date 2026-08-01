@@ -922,20 +922,22 @@ export interface Product {
   type?: ProductType;
 }
 
-/** พนักงาน */
+/** พนักงาน — บัญชี login เป็นของตัวเองต่อคน (สร้างผ่าน cloud function adminStaffCreate) */
 export interface Staff {
-  /** รหัสพนักงาน */
+  /** รหัสพนักงาน (push key ใน /staff — ใช้เป็น key ของ admin_fcm_tokens ด้วย) */
   id: string;
   /** ชื่อพนักงาน */
   name: string;
-  /** อีเมล */
+  /** อีเมล — ตรงกับบัญชี Firebase Auth ที่ใช้ login (เก็บ lowercase) */
   email: string;
+  /** Firebase Auth uid ของบัญชีพนักงาน (มีเมื่อออกบัญชี login แล้ว) */
+  uid?: string;
   /** บทบาท */
   role: UserRole;
-  /** สถานะการทำงาน */
+  /** สถานะการทำงาน — INACTIVE = พักงาน (auth ถูก disable + สิทธิ์ DB ถูกถอน) */
   status: StaffStatus;
-  /** PIN สำหรับเข้าระบบ POS */
-  pin: string;
+  /** @deprecated PIN ของระบบ login แบบเก่า — ไม่ใช้แล้ว */
+  pin?: string;
 }
 
 /** ข้อความแชท */

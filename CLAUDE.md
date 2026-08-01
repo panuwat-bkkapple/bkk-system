@@ -162,14 +162,17 @@
 - **Ledger `/issued_coupons/{id}`:** `{ code, value, uid, review_id, job_id, issued_at, expires_at, status: issued|used, used_at, used_job_id }`. ออกตอนรีวิว (status `issued`), `validateAndCreateOrder` flip เป็น `used` ตอน redeem. **read rule = admin** (อยู่ที่ `bkk-frontend-next/database.rules.json` — deploy จาก repo นั้น)
 - **หน้า reconcile:** `/issued-coupons` (`src/pages/admin/IssuedCoupons.tsx`, CEO/MANAGER/FINANCE) — ตาราง issued vs used vs expired + มูลค่า + cross-check กับ `/reviews` (flag ใบที่ used แต่ไม่พบรีวิว) + export CSV
 
-## Role-Based Access
+## Role-Based Access & Staff Accounts (สถาปัตยกรรมใหม่ ส.ค. 2026)
+- **พนักงานแต่ละคนมีบัญชี Firebase Auth ของตัวเอง** (อีเมล+รหัสผ่านส่วนตัว) — เลิกใช้บัญชีมาสเตอร์ร่วม + เลือกชื่อ + PIN แล้ว. `LoginScreen` เป็น email/password ขั้นตอนเดียว
+- **วงจรบัญชีทั้งหมดผ่าน cloud functions เท่านั้น** (`functions/staff-accounts.js` — CEO-gated ฝั่ง server ด้วยอีเมลใน auth token): `adminStaffCreate` / `adminStaffUpdate` / `adminStaffSetStatus` / `adminStaffDelete` / `adminStaffResetPassword`. **database rules ปิด client write ที่ `/staff` และ `/admins` แล้ว** (แก้ที่ `bkk-frontend-next/database.rules.json` — ต้อง deploy จาก repo นั้น) — Admin SDK ใน functions เป็นผู้เขียนคนเดียว. functions สร้าง/ถอน `/admins/{uid}` คู่กับบัญชีเสมอ
+- **พักงาน (INACTIVE) บังคับ 3 ชั้น:** auth user ถูก disable (login ใหม่ไม่ได้) + revoke refresh tokens + ลบ `/admins/{uid}` (rules ตัดสิทธิ์ทันที). ฝั่ง client `useStaffSession` เฝ้า `staff/{id}/status` แบบ realtime — ถูกพักงานปุ๊บ session ที่เปิดค้างโดนเตะออกทันที. ไม่มี fallback "ไม่รู้จัก = role STAFF" อีกแล้ว: อีเมลที่ไม่ match staff record ที่ ACTIVE จะถูก sign out
 - Role ที่ระบบรู้จักมี **4 ค่าเท่านั้น**: CEO / MANAGER / STAFF / FINANCE (route guard ใน `App.tsx`, `settingsNav.tsx`, `AdminLayout`, `canReviewAdjustments`, `functions/staffIdsByRoles`) — ค่าเก่า CASHIER/QC ถูกเลิกใช้ หน้า `/staff` จะ flag ให้แก้
-- **CEO:** เข้าถึงทุกฟีเจอร์
+- **CEO:** เข้าถึงทุกฟีเจอร์ + จัดการบัญชีพนักงาน
 - **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings, รายงานการเงิน/ภาษี)
 - **STAFF:** เข้าถึงฟีเจอร์พื้นฐาน (Tickets, QC, คลัง, POS) — เสนอ Offer ได้แต่ต้องรอ CEO/MANAGER อนุมัติ
 - **FINANCE:** เข้าถึง Finance, Daily Expenses, P&L, ภ.พ.30, สมุดรายวัน, ตั้งค่าระบบบัญชี
-- **การผูก role ใช้อีเมล:** staff record ต้องมี `email` ตรงกับอีเมล Firebase Auth ที่ login (เก็บ lowercase — `useStaffSession` ฝั่ง client และ `lookupStaffByAuth` ฝั่ง functions จับคู่ด้วยอีเมล) ไม่มีอีเมล = login แล้วได้ role default STAFF
-- **FCM token ต้อง key ด้วย staff push id** (`admin_fcm_tokens/{staffId}`) ไม่ใช่ Firebase uid — push แบบเจาะ role (`staffIdsByRoles` → `dispatchAdminPush(allowStaffIds)`) ฟิลเตอร์ด้วย staff id; session จาก `useStaffSession`/PIN login มี `id` แล้ว call sites ใช้ `currentUser?.id || currentUser?.uid`
+- **การผูก role ใช้อีเมล:** staff record มี `email` (lowercase) + `uid` ของบัญชี Auth — `useStaffSession` ฝั่ง client และ `lookupStaffByAuth` ฝั่ง functions จับคู่ด้วยอีเมล
+- **FCM token ต้อง key ด้วย staff push id** (`admin_fcm_tokens/{staffId}`) ไม่ใช่ Firebase uid — push แบบเจาะ role (`staffIdsByRoles` → `dispatchAdminPush(allowStaffIds)`) ฟิลเตอร์ด้วย staff id; session มี `id` เสมอ call sites ใช้ `currentUser?.id || currentUser?.uid`
 
 ## RTDB Cost Rules (บทเรียนจากบิล ก.ค. 2026 — อย่าทำพัง)
 - **ห้าม scheduler อ่าน `/jobs` ทั้งก้อน** — ใช้ `fetchJobsByStatuses()` (query ตาม `.indexOn: status`) เสมอ. `checkOverdueReturns` รันทุก 5 นาที เคยกวาดทั้ง node = ~288 full download/วัน ลงบิลตรงๆ. ข้อยกเว้นที่ตั้งใจ: `autoFlagRiders` (วันละครั้ง ต้องดูทุกงานใน lookback) และ endpoint migration แบบ manual
