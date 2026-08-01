@@ -1,6 +1,8 @@
 # Dealer Portal — ระบบขายส่งยกล็อต + ประมูลแบบปิดซอง (Design Doc)
 
-> สถานะ: **ออกแบบ (ยังไม่ implement)** · เขียน: ส.ค. 2026
+> สถานะ: **Implement แล้วครบ Phase 1–3** (ส.ค. 2026) — เอกสารนี้คือดีไซน์อ้างอิง; สรุปการใช้งานจริง+จุดที่ต่างเล็กน้อยดู section "Dealer Portal" ใน `CLAUDE.md`. จุดต่างจากดีไซน์: (1) การสร้าง lot ใช้ item picker ในหน้า `/lots` แทน multi-select ใน Inventory (ครอบคลุมกว่า) (2) shared types ใช้ pattern mirror 3 ที่ตามธรรมเนียม repo แทนโฟลเดอร์ `shared/` (3) เพิ่ม `dealerListOrders` (ดีลเลอร์ query ลิสต์ order ตรงไม่ได้เพราะ collection read เป็น admin-only) (4) เพิ่มหน้า `/dealer-analytics`
+> การตัดสินใจที่ยืนยันแล้ว: แก้ซองได้จนปิดรับ (เก็บ history) · มี reserve price ต่อ lot (เก็บใน lot_private) · ตัวเลข 5/30 default เห็นเฉพาะแอดมิน + toggle `show_bid_stats` ต่อ lot · ราคาเสนอ = รวม VAT
+> เขียน: ส.ค. 2026
 > Dealer Portal เป็น**แอปแยก + ซับโดเมนแยก** (`dealer.bkkapple.com`) — โค้ดอยู่ใน `bkk-system/dealer-portal/`, business logic อยู่ `bkk-system/functions/`, database rules ยัง deploy จาก `bkk-frontend-next` (canonical เดิม). **เว็บลูกค้า (`bkk-frontend-next`) ไม่ถูกแตะเลยนอกจากไฟล์ rules**
 
 ---
