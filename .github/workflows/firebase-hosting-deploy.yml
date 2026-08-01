@@ -123,13 +123,13 @@ jobs:
           target: dealer
 
       # ── GETMOBIE landing (getmobie.com — static ล้วน ไม่มี build step) ────
-      # custom domain getmobie.com ผูกครั้งเดียวใน console (site: getmobie-www)
+      # custom domain getmobie.com ผูกครั้งเดียวใน console (site: getmobie-landing)
       - name: Ensure getmobie www site exists
         continue-on-error: true
         run: |
           printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
-          npx firebase-tools@13 hosting:sites:create getmobie-www --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
+          npx firebase-tools@13 hosting:sites:create getmobie-landing --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
         env:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 
