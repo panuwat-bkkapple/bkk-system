@@ -240,6 +240,23 @@ export function buildFunctionalScreeningGroups(tier: IphoneGeneration): any[] {
  *     (ครอบคลุม Air 4-5, Pro M1-M2, Gen 11 ตามนโยบาย และเป็น fallback ของ
  *      mini/Gen/รุ่นเก่าที่ไม่ระบุ — เจ้าของร้านสั่งไม่ให้ปล่อย 0)
  */
+/**
+ * นโยบายค่าหักกล่อง/อุปกรณ์ของ iPhone (เจ้าของร้าน ส.ค. 2026) — เหตุผลการ
+ * ฝังในโค้ดเดียวกับ iPad ด้านบน:
+ *   iPhone 17 ขึ้นไป (รุ่นล่าสุด)      -> ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ *   iPhone 15-16                        -> ขาดกล่อง 500 / เครื่องเปล่า 800
+ *   iPhone 14 ลงไป (รวม SE/X/รุ่นเก่า) -> ขาดกล่อง 300 / เครื่องเปล่า 500
+ */
+export function iphoneBoxDeducts(modelName: unknown): { missingBox: number; bareDevice: number } | null {
+  const name = String(modelName || '').trim();
+  if (!/^iphone/i.test(name)) return null;
+  const m = name.match(/iphone\s+(\d{1,2})[a-z]?\b/i);
+  const n = m ? Number(m[1]) : 0;
+  if (n >= 17) return { missingBox: 500, bareDevice: 1000 };
+  if (n >= 15) return { missingBox: 500, bareDevice: 800 };
+  return { missingBox: 300, bareDevice: 500 };
+}
+
 export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDevice: number } | null {
   const name = String(modelName || '').trim();
   if (!/^ipad/i.test(name)) return null;
@@ -266,7 +283,7 @@ export function macBareDeviceDeduct(model: any): number {
 /** Overlay the per-line box deducts onto a materialized groups array. */
 function applyBoxDeducts(groups: any[], model: unknown): any[] {
   const name = String((typeof model === 'object' && model !== null ? (model as any).name : model) || '').trim();
-  const ipadBox = ipadBoxDeducts(name);
+  const ipadBox = ipadBoxDeducts(name) || iphoneBoxDeducts(name);
   const macBare = /^(macbook|imac|mac\s)/i.test(name)
     ? macBareDeviceDeduct(typeof model === 'object' ? model : { name })
     : null;

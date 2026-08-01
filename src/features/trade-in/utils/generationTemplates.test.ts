@@ -6,6 +6,7 @@ import {
   applyGenerationToGroups,
   planGenerationApply,
   ipadBoxDeducts,
+  iphoneBoxDeducts,
   macBareDeviceDeduct,
 } from './generationTemplates';
 
@@ -265,16 +266,47 @@ describe('ipadBoxDeducts (นโยบายค่าหักกล่องร
     expect(byLabel(/^ขาดกล่อง/).deduct).toBe(1000);
     expect(byLabel(/^เครื่องเปล่า/).deduct).toBe(1500);
   });
-  it('unlisted iPads get the 500/1000 floor and stay idempotent; iPhones keep 0', () => {
+  it('unlisted iPads get the 500/1000 floor and stay idempotent', () => {
     const { groups } = applyGenerationToGroups([], 'ipad_old', 'iPad mini 5 (2019)');
     const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
     expect(box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!.deduct).toBe(500);
     expect(box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!.deduct).toBe(1000);
     const again = applyGenerationToGroups(groups, 'ipad_old', 'iPad mini 5 (2019)');
     expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
-    const iphone = applyGenerationToGroups([], 'mid', 'iPhone 15');
-    const iphoneBox = iphone.groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
-    for (const o of iphoneBox.options) expect(o.deduct).toBe(0);
+  });
+});
+
+describe('iphoneBoxDeducts (นโยบายค่าหักกล่องของ iPhone)', () => {
+  const cases: [string, { missingBox: number; bareDevice: number } | null][] = [
+    ['iPhone 17 Pro Max', { missingBox: 500, bareDevice: 1000 }],
+    ['iPhone 17e', { missingBox: 500, bareDevice: 1000 }],
+    ['iPhone 16 Pro', { missingBox: 500, bareDevice: 800 }],
+    ['iPhone 15', { missingBox: 500, bareDevice: 800 }],
+    ['iPhone 14 Pro Max', { missingBox: 300, bareDevice: 500 }],
+    ['iPhone 13 mini', { missingBox: 300, bareDevice: 500 }],
+    ['iPhone SE (2022)', { missingBox: 300, bareDevice: 500 }],
+    ['iPhone XS Max', { missingBox: 300, bareDevice: 500 }],
+    ['iPhone 8 Plus', { missingBox: 300, bareDevice: 500 }],
+    ['iPad Air 4 (2020)', null],
+    ['MacBook Air M2 (2022)', null],
+  ];
+  for (const [name, expected] of cases) {
+    it(`${name} -> ${expected ? `${expected.missingBox}/${expected.bareDevice}` : 'ไม่ใช่ iPhone'}`, () => {
+      expect(iphoneBoxDeducts(name)).toEqual(expected);
+    });
+  }
+  it('applyGenerationToGroups overlays iPhone box deducts and stays idempotent', () => {
+    const { groups } = applyGenerationToGroups([], 'latest', 'iPhone 17 Pro Max');
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    expect(box.options.find((o: any) => /^ครบกล่อง/.test(o.label))!.deduct).toBe(0);
+    expect(box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!.deduct).toBe(500);
+    expect(box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!.deduct).toBe(1000);
+    const mid = applyGenerationToGroups([], 'mid', 'iPhone 14 Plus');
+    const midBox = mid.groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    expect(midBox.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!.deduct).toBe(300);
+    expect(midBox.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!.deduct).toBe(500);
+    const again = applyGenerationToGroups(groups, 'latest', 'iPhone 17 Pro Max');
+    expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
   });
 });
 
