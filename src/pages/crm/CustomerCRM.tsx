@@ -232,7 +232,7 @@ export const CustomerCRM = () => {
                                     {activeTab === 'B2B' && (
                                         <div>
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">ชื่อผู้ติดต่อ (Contact Person)</label>
-                                            <input type="text" value={formData.contact_person} onChange={e => setFormData({ ...formData, contact_person: e.target.value })} className="w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-bold outline-none focus:border-blue-500" placeholder="คุณสมชาย (ฝ่ายจัดซื้อ)" />
+                                            <input type="text" value={formData.contact_person} onChange={e => setFormData({ ...formData, contact_person: e.target.value })} className="w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-bold outline-none focus:border-blue-500" placeholder="ชื่อจริง นามสกุล (แผนก)" />
                                         </div>
                                     )}
                                 </div>

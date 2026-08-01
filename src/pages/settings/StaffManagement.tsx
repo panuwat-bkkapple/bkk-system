@@ -176,7 +176,7 @@ export const StaffManagement = () => {
                   <div className="grid grid-cols-2 gap-4">
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">ชื่อ-นามสกุล</label>
-                        <input required type="text" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl font-bold outline-none focus:border-blue-500" placeholder="เช่น สมชาย ใจดี"/>
+                        <input required type="text" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl font-bold outline-none focus:border-blue-500" placeholder="ชื่อจริง นามสกุล"/>
                      </div>
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">เบอร์โทรศัพท์</label>

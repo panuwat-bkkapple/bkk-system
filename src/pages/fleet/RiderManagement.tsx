@@ -255,7 +255,7 @@ export const RiderManagement = () => {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100">
-              <th className="p-4 font-bold">ชื่อ - นามสกุล</th>
+              <th className="p-4 font-bold">ชื่อ-นามสกุล</th>
               <th className="p-4 font-bold">ข้อมูลติดต่อ</th>
               <th className="p-4 font-bold">รถประจำตำแหน่ง</th>
               <th className="p-4 font-bold text-center">โซน / คะแนน (Tier)</th>
@@ -396,14 +396,14 @@ export const RiderManagement = () => {
                   </div>
                   {isEditingProfile ? (
                     <div className="space-y-3 text-sm">
-                      <div><label className="text-xs text-gray-500 font-medium">ชื่อ-สกุล</label><input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="กรอกชื่อ-นามสกุล" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">ชื่อ-นามสกุล</label><input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="ชื่อจริง นามสกุล" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div><label className="text-xs text-gray-500 font-medium">เบอร์โทร</label><input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="เช่น 0812345678" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div><label className="text-xs text-gray-500 font-medium">อีเมล</label><input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="email@example.com" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div className="bg-red-50 p-3 rounded-lg"><label className="text-xs text-red-600 font-medium">ติดต่อฉุกเฉิน</label><input type="tel" value={editEmergency} onChange={e => setEditEmergency(e.target.value)} placeholder="เบอร์โทรฉุกเฉิน" className="w-full bg-white border border-red-200 rounded-lg px-3 py-2 font-bold text-red-700 outline-none focus:border-red-400" /></div>
                     </div>
                   ) : (
                     <div className="space-y-3 text-sm">
-                      <div className="flex justify-between"><span className="text-gray-500">ชื่อ-สกุล:</span> <span className="font-bold">{selectedRider.name || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">ชื่อ-นามสกุล:</span> <span className="font-bold">{selectedRider.name || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">เบอร์โทร:</span> <span className="font-bold">{selectedRider.phone || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">อีเมล:</span> <span className="font-bold">{selectedRider.email || <span className="text-gray-300 italic">ไม่มีข้อมูล</span>}</span></div>
                       <div className="flex justify-between bg-red-50 p-2 rounded-lg"><span className="text-red-600 font-medium">ติดต่อฉุกเฉิน:</span> <span className="font-bold text-red-700">{selectedRider.emergency_contact || '-'}</span></div>

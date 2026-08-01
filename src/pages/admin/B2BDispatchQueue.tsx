@@ -496,7 +496,7 @@ export const B2BDispatchQueue = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">ชื่อผู้ติดต่อ</label>
-                  <input type="text" value={newContact} onChange={e => setNewContact(e.target.value)} className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold outline-none focus:border-indigo-500" placeholder="ชื่อ-สกุล" />
+                  <input type="text" value={newContact} onChange={e => setNewContact(e.target.value)} className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold outline-none focus:border-indigo-500" placeholder="ชื่อจริง นามสกุล" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">เบอร์ติดต่อ <span className="text-red-500">*</span></label>
