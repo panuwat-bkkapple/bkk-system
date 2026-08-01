@@ -15,7 +15,7 @@
           "getmobie-app"
         ],
         "www": [
-          "getmobie-www"
+          "getmobie-landing"
         ]
       }
     }
