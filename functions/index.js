@@ -19,6 +19,10 @@ const {
   buildAdminPaidSummaryEmail,
   buildCustomerOfferDecisionEmail,
 } = require("./email");
+const {
+  loadNotificationSettings,
+  shouldNotify,
+} = require("./notification-settings");
 
 initializeApp();
 
@@ -40,6 +44,16 @@ initializeApp();
 // requests that only CEO/MANAGER should receive. null/undefined = everyone.
 async function dispatchAdminPush(message, tag, audience = "admin", allowStaffIds = null) {
   const db = getDatabase();
+
+  // Admin master switches (/notification-settings page). Checked before the
+  // token read so a disabled category costs nothing.
+  const notifySettings = await loadNotificationSettings(db);
+  const gate = shouldNotify(notifySettings, "admin_push", message);
+  if (!gate.allowed) {
+    console.log(`[${tag}] Skipped — disabled in notification settings (${gate.reason})`);
+    return { successCount: 0, failureCount: 0, total: 0, skipped: gate.reason };
+  }
+
   const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
   if (!tokensSnap.exists()) {
     console.warn(`[${tag}] No tokens in admin_fcm_tokens — nobody to notify`);
@@ -151,6 +165,14 @@ async function dispatchTelegram(text, tag) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return; // not configured yet — silently skip
+
+  // Channel switch from /notification-settings. Telegram carries no data.type,
+  // so only the channel toggle applies here.
+  const gate = shouldNotify(await loadNotificationSettings(getDatabase()), "telegram", null);
+  if (!gate.allowed) {
+    console.log(`[${tag}] Telegram skipped — disabled in notification settings`);
+    return;
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -3019,6 +3041,14 @@ const AMENDMENT_REGION = "asia-southeast1";
  *  (b) the targeted admin has no live FCM tokens. Keeps cleanup-on-failure
  *  semantics consistent with broadcast path. */
 async function dispatchAmendmentPush(db, message, ownerAdminUid, tag) {
+  // The targeted branch below sends via getMessaging() directly, so it would
+  // slip past the switches that dispatchAdminPush enforces — gate here too.
+  const gate = shouldNotify(await loadNotificationSettings(db), "admin_push", message);
+  if (!gate.allowed) {
+    console.log(`[${tag}] Skipped — disabled in notification settings (${gate.reason})`);
+    return;
+  }
+
   if (ownerAdminUid) {
     const tokensSnap = await db.ref(`admin_fcm_tokens/${ownerAdminUid}`).once("value");
     if (tokensSnap.exists()) {
@@ -3062,6 +3092,12 @@ async function dispatchAmendmentPush(db, message, ownerAdminUid, tag) {
  *  the offending token entry is removed from RTDB so it doesn't waste sends. */
 async function pushToRider(db, riderUid, message, tag) {
   try {
+    const gate = shouldNotify(await loadNotificationSettings(db), "rider_push", message);
+    if (!gate.allowed) {
+      console.log(`[${tag}] Rider push skipped — disabled in notification settings (${gate.reason})`);
+      return;
+    }
+
     const tokens = [];
     const tokenMeta = [];
 
@@ -5799,6 +5835,18 @@ exports.dailySickwUsageSummary = onSchedule(
     // จึง filter ฝั่ง CEO ไม่ได้ง่ายๆ — ส่งให้ทุก admin device แทน เพราะ
     // คนที่ใส่ FCM token ใน admin_fcm_tokens คือ admin ของระบบทั้งหมดอยู่แล้ว
     try {
+      // Sends directly rather than through dispatchAdminPush, so apply the
+      // /notification-settings switches here as well.
+      const gate = shouldNotify(
+        await loadNotificationSettings(db),
+        "admin_push",
+        { data: { type: "sickw_usage_alert" } },
+      );
+      if (!gate.allowed) {
+        console.log(`[sickw-daily] push skipped — disabled in notification settings (${gate.reason})`);
+        return;
+      }
+
       const tokensSnap = await db.ref("admin_fcm_tokens").once("value");
       const tokens = [];
       tokensSnap.forEach((adminSnap) => {

@@ -58,6 +58,7 @@
 - **PriceEditor:** `/src/features/trade-in/PriceEditor.tsx`
 - **Desktop Notifications:** `/src/components/layout/NotificationCenter.tsx`
 - **Mobile Notifications:** `/src/pages/mobile/MobileNotificationsPage.tsx`
+- **Notification Settings:** `/notification-settings` (ดู section สวิตช์การแจ้งเตือน)
 
 ## Job/Ticket Statuses
 - **B2C Normal:** สร้างด้วย status `"New Lead"`
@@ -77,6 +78,14 @@
 - **`onRiderFeeDiscountEdited`** — trigger เมื่อ `jobs/{id}/rider_fee_discount` เปลี่ยน (แอดมินแก้/ลบส่วนลดจาก ticket UI) → sync `issued_rider_fee_discounts/{jobId}` (row เดิมเท่านั้น ไม่สร้างใหม่)
 - **`onPickupLocationChanged`** — trigger เมื่อ `jobs/{id}/cust_lat` เปลี่ยน (admin ปรับจุดรับเครื่องของงาน Pickup) → `computeRiderFee` ใหม่จากระยะทางใหม่ แล้วเซ็ต `pickup_fee` + `rider_fee_estimate` + `net_payout` อัตโนมัติ, และถ้ามีไรเดอร์ถืองานอยู่ (`rider_id`) จะ push แจ้ง "จุดรับเครื่องเปลี่ยน". **สำคัญ:** ไรเดอร์นำทางด้วย `cust_lat/cust_lng` (ดู `bkk-rider-app` `useJobActions.handleOpenNavigation`) และจะ**ไม่สนใจที่อยู่ข้อความเมื่อมีหมุด** — ห้ามแก้ `cust_address` แล้วปล่อยหมุดเก่าค้าง (ไรเดอร์จะวิ่งผิดที่). ชื่อห้ามตั้งทั่วไปด้วยเหตุผล namespace เดียวกัน
 - **`onRiderAssignedRecalcEstimate`** — trigger เมื่อ `jobs/{id}/rider_id` เปลี่ยน (ไรเดอร์กดรับ / แอดมิน assign / ถอนงาน) → คิด `rider_fee_estimate` ใหม่ด้วย **การ์ดอัตราของยานพาหนะคนที่ถืองานจริง** (`computeRiderFeeForAssignee`). ใช้ `onValueWritten` เพราะเคสหลักคือ `rider_id` ถูก **สร้าง** ไม่ใช่แก้ (`onValueUpdated` จะไม่ยิง). **แตะเฉพาะเงินฝั่งไรเดอร์** — `pickup_fee`/`net_payout` ของลูกค้าห้ามขยับเพราะใครรับงาน (invariant #3). ข้ามงานที่ไม่ใช่ Pickup และงานที่ `rider_fee` (settlement) คิดไปแล้ว
+
+## สวิตช์การแจ้งเตือน (settings/notifications)
+- **หน้า `/notification-settings`** (`src/pages/admin/NotificationSettings.tsx`, CEO/MANAGER) = ที่รวมการตั้งค่าแจ้งเตือนทั้งระบบ. ก่อนหน้านี้กระจายอยู่ 3 ที่ (การ์ดสถานะ push ใน `/mobile/notifications`, สวิตช์อีเมลใน `/accounting-settings`, permission strip ในคอนโซลแชท) + env-only อีก 2 ตัว
+- **สิ่งที่หน้านี้เป็นเจ้าของจริง** = `settings/notifications` เท่านั้น: `channels {admin_push, rider_push, telegram}` + `events {new_ticket, status_change, chat_message, approval, field_ops, system_alert}`. ค่าที่เจ้าของอยู่หน้าอื่น (อีเมล = `settings/accounting/order_emails_enabled`, SLA ข้อเสนอ, เกณฑ์ flag ไรเดอร์) หน้านี้แค่**โชว์สถานะ + ลิงก์ไป** ห้ามเขียนทับ — กันสองหน้าแก้ฟิลด์เดียวกัน. ข้อยกเว้นเดียวคือ `settings/system/rider_overdue_min` ซึ่งเดิม**ไม่มี UI เลย** จึงให้หน้านี้เป็นเจ้าของ
+- **การ gate ทำฝั่ง server** ที่ `functions/notification-settings.js` (`shouldNotify`) — เสียบไว้ที่ choke point ทุกตัวที่ยิง push จริง: `dispatchAdminPush`, `pushToRider`, `dispatchTelegram`, `dispatchAmendmentPush` (มี branch ที่ยิง `getMessaging()` ตรง เลี่ยง dispatchAdminPush ได้) และ push ของ `sickw-daily`. **เพิ่มที่ยิง push ใหม่ = ต้องเสียบ gate ด้วย** ไม่งั้นสวิตช์ปิดแล้วยังเด้ง
+- **ตัดสินจาก `message.data.type`** ผ่าน map `EVENT_CATEGORY` → หมวดที่โชว์ใน UI. **fail-open ทุกทาง**: type ที่ไม่อยู่ใน map / ไม่มี node / อ่านพัง = ส่งตามเดิม มีแต่ `false` ที่แอดมินเขียนเองเท่านั้นที่ปิด. push ทดสอบ (`sendTestAdminPush`) ไม่ถูก gate โดยตั้งใจ — เป็นเครื่องมือ diagnose
+- **MIRROR 2 ที่:** หมวด/ช่องทาง/ค่า default อยู่ทั้ง `functions/notification-settings.js` (JS, ตัวที่ gate จริง) และ `src/utils/notificationSettings.ts` (TS, label ของ UI) — functions import TS ไม่ได้ **เพิ่มหมวดต้องแก้ทั้งคู่ + map `data.type` ฝั่ง server**
+- `settings/notifications` อยู่ใต้ `settings` จึงใช้ rule เดิม (read = auth, write = admin) **ไม่ต้อง deploy rules ใหม่**
 
 ## ค่าวิ่งไรเดอร์ แยกตามยานพาหนะ (motorcycle / car)
 - **อัตรา** อยู่ที่ `settings/logistics_rates/by_vehicle/{motorcycle|car}` (ตั้งที่ `/global-settings` แท็บยานพาหนะ) — ฟิลด์แบนที่ root ยังเป็น fallback ทีละฟิลด์ ระบบเดิมจึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะกรอก `by_vehicle`
