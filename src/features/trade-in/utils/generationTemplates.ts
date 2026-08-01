@@ -231,31 +231,23 @@ export function buildFunctionalScreeningGroups(tier: IphoneGeneration): any[] {
  * นโยบายค่าหักกล่อง/อุปกรณ์ราย line ของ iPad (เจ้าของร้าน ส.ค. 2026) —
  * หัวข้อกล่องเป็นหัวข้อที่ "ปรับตามรุ่น" เป็นเจ้าของ (อยู่ใน REPLACED_TITLE_RES)
  * เลขที่กรอกมือใน Engine จะถูกรีเซ็ตทุกครั้งที่กดปุ่ม จึงต้องฝังเป็น policy
- * ที่นี่ให้ survive การกดซ้ำ. รุ่นนอกตารางนี้ใช้ default ของ template (0):
- *   iPad Air 4-5 (M1)          -> ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ * ที่นี่ให้ survive การกดซ้ำ:
  *   iPad Air รุ่น 6-8 (M2-M4)  -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
- *   iPad Pro M1-M2             -> ขาดกล่อง 500 / เครื่องเปล่า 1,000
  *   iPad Pro M4-M5             -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
- *   iPad Generation 10 / 11    -> คงค่าที่แอดมินตั้งไว้เดิม (500/800, 500/1000)
+ *   iPad Generation 10         -> คงค่าที่แอดมินตั้งไว้เดิม (500/800)
+ *   iPad อื่นทุกรุ่น           -> กันไว้ที่ ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ *     (ครอบคลุม Air 4-5, Pro M1-M2, Gen 11 ตามนโยบาย และเป็น fallback ของ
+ *      mini/Gen/รุ่นเก่าที่ไม่ระบุ — เจ้าของร้านสั่งไม่ให้ปล่อย 0)
  */
 export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDevice: number } | null {
   const name = String(modelName || '').trim();
   if (!/^ipad/i.test(name)) return null;
   const chip = name.match(/ชิป\s*M(\d)|(?:^|[\s("])M(\d)\b/i);
   const m = chip ? Number(chip[1] || chip[2]) : null;
-  if (/^ipad air/i.test(name)) {
-    if (/\bair\s*4\b/i.test(name) || m === 1) return { missingBox: 500, bareDevice: 1000 };
-    if (m != null && m >= 2) return { missingBox: 1000, bareDevice: 1500 };
-    return null;
-  }
-  if (/^ipad pro/i.test(name)) {
-    if (m === 1 || m === 2) return { missingBox: 500, bareDevice: 1000 };
-    if (m != null && m >= 4) return { missingBox: 1000, bareDevice: 1500 };
-    return null;
-  }
+  if (/^ipad air/i.test(name) && m != null && m >= 2) return { missingBox: 1000, bareDevice: 1500 };
+  if (/^ipad pro/i.test(name) && m != null && m >= 4) return { missingBox: 1000, bareDevice: 1500 };
   if (/^ipad generation 10\b/i.test(name)) return { missingBox: 500, bareDevice: 800 };
-  if (/^ipad generation 11\b/i.test(name)) return { missingBox: 500, bareDevice: 1000 };
-  return null;
+  return { missingBox: 500, bareDevice: 1000 };
 }
 
 /** Overlay the per-line box deducts onto a materialized groups array. */

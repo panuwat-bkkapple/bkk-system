@@ -243,12 +243,12 @@ describe('ipadBoxDeducts (นโยบายค่าหักกล่องร
     ['iPad Pro 11" (ชิป M5, 2025)', { missingBox: 1000, bareDevice: 1500 }],
     ['iPad Generation 10', { missingBox: 500, bareDevice: 800 }],
     ['iPad Generation 11', { missingBox: 500, bareDevice: 1000 }],
-    // นอกนโยบาย -> ใช้ default ของ template (0)
-    ['iPad Air 3 (2019)', null],
-    ['iPad Air (2013)', null],
-    ['iPad Pro 12.9" (2020)', null],
-    ['iPad mini รุ่นที่ 7 (ชิป A17 Pro)', null],
-    ['iPad Generation 9', null],
+    // นอกตาราง -> กันไว้ที่ 500/1,000 (นโยบายเจ้าของร้าน: ห้ามปล่อย 0)
+    ['iPad Air 3 (2019)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air (2013)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 12.9" (2020)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad mini รุ่นที่ 7 (ชิป A17 Pro)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Generation 9', { missingBox: 500, bareDevice: 1000 }],
     ['iPhone 15 Pro', null],
   ];
   for (const [name, expected] of cases) {
@@ -264,12 +264,16 @@ describe('ipadBoxDeducts (นโยบายค่าหักกล่องร
     expect(byLabel(/^ขาดกล่อง/).deduct).toBe(1000);
     expect(byLabel(/^เครื่องเปล่า/).deduct).toBe(1500);
   });
-  it('non-policy models keep the template default of 0 and stay idempotent', () => {
+  it('unlisted iPads get the 500/1000 floor and stay idempotent; iPhones keep 0', () => {
     const { groups } = applyGenerationToGroups([], 'ipad_old', 'iPad mini 5 (2019)');
     const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
-    for (const o of box.options) expect(o.deduct).toBe(0);
+    expect(box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!.deduct).toBe(500);
+    expect(box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!.deduct).toBe(1000);
     const again = applyGenerationToGroups(groups, 'ipad_old', 'iPad mini 5 (2019)');
     expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
+    const iphone = applyGenerationToGroups([], 'mid', 'iPhone 15');
+    const iphoneBox = iphone.groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    for (const o of iphoneBox.options) expect(o.deduct).toBe(0);
   });
 });
 
