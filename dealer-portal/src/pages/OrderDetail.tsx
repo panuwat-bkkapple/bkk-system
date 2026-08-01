@@ -1,0 +1,167 @@
+// รายละเอียดคำสั่งซื้อ — subscribe realtime ตรงจาก RTDB (rules: dealer_uid ตัวเอง)
+// + อัปโหลดสลิป (Storage self-scope) แล้วแจ้งผ่าน callable
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { onValue, ref as dbRef } from 'firebase/database';
+import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ArrowLeft, FileText, Truck, Upload, Landmark } from 'lucide-react';
+import { db, storage, auth } from '../firebase';
+import { submitPaymentSlip } from '../api';
+import { ORDER_STATUS_LABEL, fmtBaht, fmtDateTime, type DealerOrderSummary, type OrderStatus } from '../types';
+
+// ลำดับ milestone สำหรับ timeline แนวตั้ง
+const FLOW: OrderStatus[] = ['pending_payment', 'payment_review', 'paid', 'shipped', 'completed'];
+
+export const OrderDetail = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [order, setOrder] = useState<(DealerOrderSummary & { status_log?: Record<string, { status: string; at: number }> }) | null>(null);
+  const [denied, setDenied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    const unsub = onValue(
+      dbRef(db, `dealer_orders/${id}`),
+      (snap) => setOrder(snap.exists() ? ({ id, ...snap.val() }) : null),
+      () => setDenied(true)
+    );
+    return unsub;
+  }, [id]);
+
+  const flowIndex = useMemo(
+    () => (order ? FLOW.indexOf(order.status as OrderStatus) : -1),
+    [order]
+  );
+
+  const handleUploadSlip = async (file: File) => {
+    if (!id || !auth.currentUser || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      // path ตาม storage rules: dealer_payments/{orderId}/{uid}/{filename}
+      const path = `dealer_payments/${id}/${auth.currentUser.uid}/${Date.now()}-${file.name}`;
+      const snap = await uploadBytes(sRef(storage, path), file);
+      const url = await getDownloadURL(snap.ref);
+      await submitPaymentSlip(id, url);
+      setMsg({ kind: 'ok', text: 'แนบหลักฐานแล้ว — เจ้าหน้าที่กำลังตรวจสอบ' });
+    } catch (err: unknown) {
+      setMsg({ kind: 'err', text: (err as Error)?.message || 'อัปโหลดไม่สำเร็จ' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (denied) return <div className="card center muted bold mt16">ไม่พบคำสั่งซื้อนี้</div>;
+  if (!order) return <div className="loading">กำลังโหลด...</div>;
+
+  const meta = ORDER_STATUS_LABEL[order.status] || { label: order.status, cls: '' };
+  const canPay = ['pending_payment', 'payment_review'].includes(order.status);
+  const items = Object.entries(order.items || {});
+
+  return (
+    <div>
+      <button className="btn ghost small" style={{ marginTop: 16 }} onClick={() => navigate('/orders')}>
+        <ArrowLeft size={14} /> กลับ
+      </button>
+
+      <div className="row mt12">
+        <span className="mono tiny muted bold">{order.order_no} · {order.lot_no}</span>
+        <span className={`badge ${meta.cls}`}>{meta.label}</span>
+      </div>
+      <h1 className="h1" style={{ margin: '6px 0 2px' }}>{fmtBaht(order.amount)} <span className="small muted">(รวม VAT)</span></h1>
+
+      {/* Timeline */}
+      {order.status !== 'cancelled' && (
+        <div className="card">
+          <ul className="timeline">
+            {FLOW.map((s, i) => {
+              const done = flowIndex >= i;
+              return (
+                <li key={s}>
+                  <span className="dot" style={{ background: done ? 'var(--accent)' : 'var(--line)' }} />
+                  <span className={`small ${done ? 'black' : 'bold muted'}`}>{ORDER_STATUS_LABEL[s].label}</span>
+                </li>
+              );
+            })}
+          </ul>
+          {order.shipping?.tracking_no && (
+            <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Truck size={14} /> {order.shipping.method || 'ขนส่ง'} · เลขติดตาม <b className="mono">{order.shipping.tracking_no}</b>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ใบเสนอราคา */}
+      {order.quotation && (
+        <div className="card row">
+          <div className="small bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <FileText size={15} /> ใบเสนอราคา {order.quotation.number}
+          </div>
+          {order.quotation.url && (
+            <a href={order.quotation.url} target="_blank" rel="noreferrer" className="btn ghost small">ดาวน์โหลด PDF</a>
+          )}
+        </div>
+      )}
+
+      {/* ชำระเงิน */}
+      {canPay && (
+        <div className="card">
+          <div className="tiny muted black" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>ชำระเงิน</div>
+          {order.payment_info?.account_no && (
+            <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <Landmark size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                โอนเข้าบัญชี <b>{order.payment_info.bank} {order.payment_info.account_no}</b><br />
+                ชื่อบัญชี {order.payment_info.account_name} · ยอด <b>{fmtBaht(order.amount)}</b>
+              </span>
+            </div>
+          )}
+          {order.payment?.slip_url && (
+            <div className="small bold mt12">
+              แนบสลิปแล้วเมื่อ {fmtDateTime(order.payment.submitted_at)} —{' '}
+              <a href={order.payment.slip_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>ดูสลิป</a>
+            </div>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleUploadSlip(f);
+              e.target.value = '';
+            }}
+          />
+          <button className="btn accent" style={{ marginTop: 14 }} disabled={busy} onClick={() => fileRef.current?.click()}>
+            <Upload size={15} /> {busy ? 'กำลังอัปโหลด...' : order.payment?.slip_url ? 'แนบสลิปใหม่' : 'แนบสลิปโอนเงิน'}
+          </button>
+          {msg && <div className={msg.kind === 'ok' ? 'success' : 'error'}>{msg.text}</div>}
+        </div>
+      )}
+
+      {/* รายการเครื่อง */}
+      <div className="card">
+        <div className="tiny muted black" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>รายการ ({items.length})</div>
+        <table className="itemtable mt8">
+          <tbody>
+            {items.map(([jobId, it]) => (
+              <tr key={jobId}>
+                <td>
+                  <div className="bold">{it.model}</div>
+                  {it.ref_no && <div className="tiny muted mono">{it.ref_no}</div>}
+                </td>
+                <td className="amt bold">{order.type === 'whole_lot' ? '' : fmtBaht(it.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {order.type === 'whole_lot' && <div className="row mt8 small bold"><span>เหมายกล็อต</span><span>{fmtBaht(order.amount)}</span></div>}
+      </div>
+    </div>
+  );
+};

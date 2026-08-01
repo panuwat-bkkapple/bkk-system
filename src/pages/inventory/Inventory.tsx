@@ -99,6 +99,12 @@ export const Inventory = () => {
 
   const handleSavePricing = async () => {
     if (!editingItem) return;
+    // เครื่องที่ล็อกอยู่ในล็อตขายส่ง (Dealer Portal) — ห้ามแก้สถานะจากหน้านี้
+    // ไม่งั้นหลุดจากการจอง (ปลดล็อกได้ทาง Cancel lot / Award เท่านั้น)
+    if (editingItem.lot_id && editForm.status !== editingItem.status) {
+      toast.error(`เครื่องนี้ล็อกอยู่ในล็อต ${editingItem.lot_no || ''} — เปลี่ยนสถานะผ่านหน้า Lots เท่านั้น`);
+      return;
+    }
     try {
       await update(ref(db, `jobs/${editingItem.id}`), {
         selling_price: Number(editForm.selling_price),
@@ -201,6 +207,7 @@ export const Inventory = () => {
                                     <div className="font-black text-sm text-slate-800 flex items-center gap-2">
                                        {item.model}
                                        {item.type === 'Accessory' && <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded">Accessory</span>}
+                                       {item.lot_id && <span className="text-[8px] font-black uppercase bg-orange-50 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded" title="ล็อกอยู่ในล็อตขายส่ง — จัดการผ่านหน้า Lots">{item.lot_no || 'IN LOT'}</span>}
                                     </div>
                                     <div className="text-[10px] font-mono font-bold text-slate-400 flex gap-2"><span>SN: {item.serial || 'N/A'}</span> • <span>{item.color}</span></div>
                                     <div className="mt-1 flex items-center gap-1">

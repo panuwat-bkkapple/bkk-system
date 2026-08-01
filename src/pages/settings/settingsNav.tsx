@@ -36,6 +36,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { path: '/admin/branches', label: 'สาขา (Locations)', description: 'จัดการสาขา ที่อยู่ หมุดแผนที่ เวลาเปิด-ปิด', icon: <MapPin size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/staff', label: 'พนักงาน (Users)', description: 'บัญชีพนักงาน role และสถานะการใช้งาน', icon: <Users size={18} />, roles: ['CEO'] },
       { path: '/accounting-settings', label: 'ระบบบัญชี & ใบกำกับภาษี', description: 'ข้อมูลนิติบุคคล VAT เลขรันใบกำกับ อีเมลเอกสาร', icon: <Calculator size={18} />, roles: ['CEO', 'FINANCE'] },
+      { path: '/dealer-settings', label: 'Dealer Portal (ขายส่ง)', description: 'Tier ดีลเลอร์ เลขรันเอกสารขายส่ง บัญชีรับชำระ', icon: <Users size={18} />, roles: ['CEO'] },
     ],
   },
   {

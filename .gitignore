@@ -25,3 +25,4 @@ functions/.env
 *.njsproj
 *.sln
 *.sw?
+*.tsbuildinfo
