@@ -1,244 +1,243 @@
 // src/components/auth/LoginScreen.tsx
-import React, { useState, useEffect } from 'react';
+//
+// Per-employee login — สถาปัตยกรรมใหม่: พนักงานแต่ละคน login ด้วยบัญชี
+// Firebase Auth ของตัวเอง (อีเมล + รหัสผ่านส่วนตัว) ขั้นตอนเดียว
+// ไม่มีบัญชีมาสเตอร์ร่วม ไม่มีการเลือกชื่อ + PIN อีกต่อไป
+//
+// หลัง sign-in สำเร็จ ต้องผ่านการตรวจ 2 ชั้นก่อนเข้าระบบ:
+//   1. อีเมลต้องตรงกับ staff record (role/สิทธิ์ผูกด้วยอีเมล — สร้างโดย CEO
+//      ผ่านหน้า /staff ซึ่งเรียก cloud function adminStaffCreate)
+//   2. record ต้อง ACTIVE — พนักงานที่ถูกพักงานจะถูกปฏิเสธ (ฝั่ง server ก็
+//      บังคับอยู่แล้ว: auth ถูก disable + /admins ถูกถอน → อ่าน DB ไม่ได้)
+import React, { useState } from 'react';
 import { auth, db } from '../../api/firebase';
-import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get, push, set } from 'firebase/database';
-import { Lock, LogIn, KeyRound, User, ChevronLeft, LogOut, ShieldCheck } from 'lucide-react';
+import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'firebase/auth';
+import { ref, get } from 'firebase/database';
+import { LogIn, Mail, Lock, Eye, EyeOff, ShieldCheck, UserX, AlertTriangle, CheckCircle2 } from 'lucide-react';
+
+const normEmail = (e: string) => e.trim().toLowerCase();
+
+// แปลง error จาก Firebase Auth เป็นข้อความที่คนอ่านรู้เรื่อง โดยไม่เผยว่า
+// อีเมลไหนมีอยู่ในระบบ (กัน account enumeration)
+const authErrorMessage = (code: string): { text: string; suspended?: boolean } => {
+  switch (code) {
+    case 'auth/user-disabled':
+      return { text: 'บัญชีนี้ถูกพักการใช้งาน กรุณาติดต่อผู้ดูแลระบบ', suspended: true };
+    case 'auth/too-many-requests':
+      return { text: 'พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่' };
+    case 'auth/network-request-failed':
+      return { text: 'เชื่อมต่อเครือข่ายไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต' };
+    default:
+      return { text: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' };
+  }
+};
 
 export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
-  const [firebaseUser, setFirebaseUser] = useState<any>(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-
-  // --- 🛡️ Step 1: Master Login State (Firebase) ---
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [suspended, setSuspended] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  // --- 🧑‍💼 Step 2: Staff PIN Login State ---
-  const [staffList, setStaffList] = useState<any[]>([]);
-  const [selectedStaff, setSelectedStaff] = useState<any>(null);
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [fetchingStaff, setFetchingStaff] = useState(false);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
+    setLoading(true);
+    setError('');
+    setSuspended(false);
+    setResetSent(false);
 
-  // 🌟 เช็คสถานะ Master Login ตอนเปิดหน้าเว็บ
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
-      if (user) {
-        // ถ้ามีกุญแจ Master แล้ว -> ดึงรายชื่อพนักงานมาโชว์ได้เลย!
-        setFetchingStaff(true);
-        try {
-          const snap = await get(ref(db, 'staff'));
-          if (snap.exists()) {
-            const arr = Object.keys(snap.val()).map(k => ({ id: k, ...snap.val()[k] }));
-            setStaffList(arr.filter(s => s.status === 'ACTIVE'));
-          } else {
-            // Database is empty - bootstrap first user as CEO and auto-login
-            const staffName = user.displayName || user.email?.split('@')[0] || 'Admin';
-            const newStaffRef = push(ref(db, 'staff'));
-            const newStaff = {
-              name: staffName,
-              email: user.email,
-              role: 'CEO',
-              status: 'ACTIVE',
-              pin: '0000',
-              createdAt: new Date().toISOString(),
-            };
-            await set(newStaffRef, newStaff);
-            onLogin({ id: newStaffRef.key, ...newStaff });
+    try {
+      const cred = await signInWithEmailAndPassword(auth, normEmail(email), password);
+
+      // ผูก identity กับ staff record ด้วยอีเมล (แหล่งเดียวกับ cloud functions)
+      let staffSnap;
+      try {
+        staffSnap = await get(ref(db, 'staff'));
+      } catch {
+        // อ่านไม่ได้ = ไม่มีสิทธิ์ใน database rules (ถูกถอนจาก /admins —
+        // เคสพักงาน/ถูกถอนสิทธิ์ที่ auth ยัง login ผ่าน)
+        await signOut(auth);
+        setSuspended(true);
+        setError('บัญชีนี้ไม่มีสิทธิ์เข้าถึงระบบ กรุณาติดต่อผู้ดูแลระบบ');
+        return;
+      }
+
+      const authEmail = normEmail(cred.user.email || '');
+      let matched: any = null;
+      let matchedId: string | null = null;
+      if (staffSnap.exists()) {
+        const staffData = staffSnap.val();
+        for (const [id, s] of Object.entries<any>(staffData)) {
+          if (s && normEmail(String(s.email || '')) === authEmail) {
+            matched = s;
+            matchedId = id;
+            break;
           }
-        } catch (err) {
-          // silently handled
-        } finally {
-          setFetchingStaff(false);
         }
       }
-      setIsCheckingAuth(false); // 🌟 พระเอกอยู่ตรงนี้! สั่งหยุดวงล้อ Loading ไม่ว่าจะสำเร็จหรือพัง
-    });
-    return () => unsub();
-  }, []);
 
-  // 🌟 ฟังก์ชันล็อกอิน Master
-  const handleMasterLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError('');
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // พอสำเร็จ useEffect ข้างบนจะทำงานอัตโนมัติ
-    } catch (err) {
-      setAuthError('อีเมลหรือรหัสผ่านระบบไม่ถูกต้อง');
-      setAuthLoading(false);
-    }
-  };
-
-  // 🌟 ฟังก์ชันล็อกอินพนักงานด้วย PIN (ตรวจสอบกับ database โดยตรง)
-  const handlePinLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinError('');
-
-    try {
-      // ดึง PIN จาก database ใหม่ทุกครั้ง ป้องกันการแก้ไข client-side
-      const snap = await get(ref(db, `staff/${selectedStaff.id}/pin`));
-      const dbPin = snap.exists() ? String(snap.val()) : null;
-
-      if (dbPin && pin === dbPin) {
-        // ส่งข้อมูลพนักงาน (ไม่รวม PIN) เข้าสู่ระบบ
-        const { pin: _pin, ...safeStaff } = selectedStaff;
-        onLogin(safeStaff);
-      } else {
-        setPinError('รหัส PIN 4 หลักไม่ถูกต้อง');
-        setPin('');
+      if (!matched) {
+        await signOut(auth);
+        setError('บัญชีนี้ยังไม่ได้ลงทะเบียนเป็นพนักงาน กรุณาติดต่อผู้ดูแลระบบ');
+        return;
       }
-    } catch (err) {
-      setPinError('เกิดข้อผิดพลาดในการตรวจสอบ กรุณาลองใหม่');
-      setPin('');
+      if (matched.status !== 'ACTIVE') {
+        await signOut(auth);
+        setSuspended(true);
+        setError('บัญชีนี้ถูกพักการใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+        return;
+      }
+
+      onLogin({
+        id: matchedId,
+        uid: cred.user.uid,
+        name: matched.name || cred.user.displayName || authEmail.split('@')[0],
+        email: authEmail,
+        role: matched.role || 'STAFF',
+        branch: matched.branch || '',
+      });
+    } catch (err: any) {
+      const mapped = authErrorMessage(err?.code || '');
+      setSuspended(!!mapped.suspended);
+      setError(mapped.text);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleMasterLogout = () => {
-    signOut(auth);
-    setSelectedStaff(null);
+  const handleForgotPassword = async () => {
+    const target = normEmail(email);
+    if (!target) {
+      setError('กรอกอีเมลก่อน แล้วกด "ลืมรหัสผ่าน" อีกครั้ง');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, target);
+    } catch {
+      // เงียบ — ไม่เผยว่าอีเมลไหนมี/ไม่มีในระบบ
+    }
+    setError('');
+    setSuspended(false);
+    setResetSent(true);
   };
-
-  // ==========================================
-  // 🎨 ส่วนแสดงผล (Render UI)
-  // ==========================================
-
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-[#F5F5F7] flex flex-col items-center justify-center text-slate-400 font-bold">
-        <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-        <p>Loading Secure System...</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 overflow-hidden relative">
-        
-        {/* ----------------------------------------------------- */}
-        {/* 🛡️ หน้าจอที่ 1: Master Login (สำหรับเปิดกุญแจระบบ) */}
-        {/* ----------------------------------------------------- */}
-        {!firebaseUser && (
-          <div className="animate-in fade-in slide-in-from-bottom-4">
-            <div className="text-center mb-8">
-              <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 shadow-inner">
-                <Lock size={32} />
-              </div>
-              <h1 className="text-2xl font-black text-slate-800 tracking-tight">Master System Login</h1>
-              <p className="text-slate-500 text-sm mt-1 font-bold">เข้าสู่ระบบหลังบ้านด้วยบัญชีผู้ดูแล</p>
-            </div>
+    <div className="min-h-screen relative flex items-center justify-center p-4 bg-slate-950 overflow-hidden">
+      {/* Ambient background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-[32rem] h-[32rem] rounded-full bg-blue-600/20 blur-[120px]" />
+        <div className="absolute -bottom-48 -right-32 w-[36rem] h-[36rem] rounded-full bg-indigo-500/15 blur-[140px]" />
+        <div className="absolute top-1/3 left-1/2 w-72 h-72 rounded-full bg-sky-400/10 blur-[100px]" />
+      </div>
 
-            <form onSubmit={handleMasterLogin} className="space-y-5">
-              {authError && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl text-center font-bold">{authError}</div>}
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-1 uppercase tracking-widest">Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="admin@bkkapple.com" />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 mb-1 uppercase tracking-widest">Password</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••" />
-              </div>
-              <button type="submit" disabled={authLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 uppercase text-sm">
-                {authLoading ? 'กำลังตรวจสอบ...' : <><LogIn size={18} /> ปลดล็อกระบบ</>}
-              </button>
-            </form>
+      <div className="relative w-full max-w-[26rem]">
+        {/* Brand */}
+        <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-600/40 mb-4">
+            <ShieldCheck size={30} className="text-white" />
           </div>
-        )}
+          <h1 className="text-2xl font-black text-white tracking-tight uppercase">
+            BKK <span className="text-blue-400">Apple</span> Admin
+          </h1>
+          <p className="text-slate-400 text-sm font-bold mt-1">ระบบหลังบ้าน — เข้าสู่ระบบด้วยบัญชีพนักงานของคุณ</p>
+        </div>
 
+        {/* Card */}
+        <div className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-[1.75rem] p-8 shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <form onSubmit={handleLogin} className="space-y-5">
 
-        {/* ----------------------------------------------------- */}
-        {/* 🧑‍💼 หน้าจอที่ 2: เลือกพนักงานและใส่ PIN */}
-        {/* ----------------------------------------------------- */}
-        {firebaseUser && (
-          <div className="animate-in fade-in slide-in-from-right-4">
-            
-            {/* Header ของหน้าเลือกพนักงาน */}
-            <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
-              <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest">
-                <ShieldCheck size={14} /> Master Unlocked
-              </div>
-              <button onClick={handleMasterLogout} className="text-xs font-bold text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors">
-                <LogOut size={12}/> สลับบัญชีหลัก
-              </button>
-            </div>
-
-            {/* 2.1 โหมดเลือกชื่อพนักงาน */}
-            {!selectedStaff ? (
-              <>
-                <div className="text-center mb-6">
-                  <h1 className="text-xl font-black text-slate-800">เลือกบัญชีพนักงาน</h1>
-                  <p className="text-slate-500 text-xs mt-1 font-bold">กรุณาระบุตัวตนก่อนเข้าใช้งาน POS</p>
-                </div>
-                
-                {fetchingStaff ? (
-                  <div className="py-10 text-center text-slate-400 font-bold animate-pulse">กำลังโหลดรายชื่อ...</div>
-                ) : (
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                    {staffList.map((staff) => (
-                      <button 
-                        key={staff.id} 
-                        onClick={() => setSelectedStaff(staff)}
-                        className="w-full flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all text-left group"
-                      >
-                        <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">
-                          {staff.name.charAt(0)}
-                        </div>
-                        <div className="flex-1">
-                          <div className="font-black text-slate-800">{staff.name}</div>
-                          <div className="text-xs font-bold text-slate-400">{staff.role} • {staff.branch}</div>
-                        </div>
-                        <ChevronLeft size={18} className="text-slate-300 rotate-180 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : 
-
-            /* 2.2 โหมดใส่ PIN 4 หลัก */
-            (
-              <div className="animate-in fade-in slide-in-from-right-4">
-                 <button onClick={() => { setSelectedStaff(null); setPin(''); setPinError(''); }} className="text-slate-400 hover:text-blue-600 flex items-center gap-1 text-sm font-bold mb-4">
-                   <ChevronLeft size={16} /> กลับไปเลือกชื่อ
-                 </button>
-
-                 <div className="text-center mb-8">
-                    <div className="w-20 h-20 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black text-3xl mx-auto mb-4 shadow-inner">
-                      {selectedStaff.name.charAt(0)}
-                    </div>
-                    <h1 className="text-2xl font-black text-slate-800">{selectedStaff.name}</h1>
-                    <p className="text-slate-500 text-sm mt-1 font-bold uppercase">{selectedStaff.role}</p>
-                 </div>
-
-                 <form onSubmit={handlePinLogin} className="space-y-6">
-                    {pinError && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl text-center font-bold">{pinError}</div>}
-                    <div>
-                      <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-widest text-center">กรอกรหัส PIN 4 หลัก</label>
-                      <input 
-                        type="password" 
-                        maxLength={4}
-                        pattern="\d{4}"
-                        autoFocus
-                        value={pin} 
-                        onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} 
-                        required 
-                        className="w-full px-4 py-4 rounded-2xl border-2 border-slate-200 font-mono text-3xl font-black tracking-[1em] text-center focus:border-blue-500 focus:bg-blue-50/30 outline-none transition-all" 
-                        placeholder="••••" 
-                      />
-                    </div>
-                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-black py-4 rounded-xl transition shadow-lg shadow-slate-900/20 uppercase text-sm flex justify-center items-center gap-2">
-                       <KeyRound size={18} /> เข้าสู่ระบบ
-                    </button>
-                 </form>
+            {resetSent && (
+              <div className="bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 text-sm p-3.5 rounded-xl font-bold flex items-start gap-2">
+                <CheckCircle2 size={17} className="shrink-0 mt-0.5" />
+                <span>ถ้าอีเมลนี้มีบัญชีอยู่ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปให้แล้ว — เช็คกล่องจดหมาย (และ Junk)</span>
               </div>
             )}
-          </div>
-        )}
+
+            {error && (
+              <div className={`text-sm p-3.5 rounded-xl font-bold flex items-start gap-2 border ${
+                suspended
+                  ? 'bg-amber-500/10 border-amber-400/30 text-amber-300'
+                  : 'bg-red-500/10 border-red-400/30 text-red-300'
+              }`}>
+                {suspended ? <UserX size={17} className="shrink-0 mt-0.5" /> : <AlertTriangle size={17} className="shrink-0 mt-0.5" />}
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">อีเมลพนักงาน</label>
+              <div className="relative">
+                <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-white/[0.06] border border-white/10 text-white font-bold placeholder:text-slate-500 placeholder:font-medium focus:border-blue-400/60 focus:bg-white/[0.08] focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                  placeholder="you@bkkapple.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">รหัสผ่าน</label>
+              <div className="relative">
+                <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-12 py-3.5 rounded-xl bg-white/[0.06] border border-white/10 text-white font-bold placeholder:text-slate-500 placeholder:font-medium focus:border-blue-400/60 focus:bg-white/[0.08] focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 uppercase text-sm tracking-wide"
+            >
+              {loading ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  กำลังตรวจสอบ...
+                </>
+              ) : (
+                <><LogIn size={17} /> เข้าสู่ระบบ</>
+              )}
+            </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs font-bold text-slate-400 hover:text-blue-300 transition-colors"
+              >
+                ลืมรหัสผ่าน?
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <p className="text-center text-[11px] font-bold text-slate-600 mt-6">
+          บัญชีพนักงานออกให้โดยผู้ดูแลระบบเท่านั้น — หากเข้าไม่ได้ กรุณาติดต่อ CEO/ผู้จัดการ
+        </p>
       </div>
     </div>
   );

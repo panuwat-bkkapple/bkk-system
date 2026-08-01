@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { getFirebaseMessaging } from '../api/firebase';
+import { ref, remove } from 'firebase/database';
+import { getFirebaseMessaging, auth, db } from '../api/firebase';
 import { onMessage } from 'firebase/messaging';
-import { refreshAdminPushToken } from '../utils/adminPush';
+import { refreshAdminPushToken, getAdminDeviceId } from '../utils/adminPush';
 
 // FCM tokens on iOS PWA can silently expire after weeks/months. We re-validate
 // on visibility change (cheap) and every 12h while the app stays open. The
@@ -33,7 +34,15 @@ export const useAdminPushNotifications = (
     const refresh = async () => {
       if (cancelled) return;
       try {
-        await refreshAdminPushToken(staffId, { app });
+        const res = await refreshAdminPushToken(staffId, { app });
+        // Sessions used to register under the Firebase auth uid (the shared
+        // master account) instead of the staff push id. The same device token
+        // under both keys means duplicate pushes and role-targeted pushes
+        // missing — drop this device's leftover uid-keyed entry.
+        const authUid = auth.currentUser?.uid;
+        if (res.ok && authUid && authUid !== staffId) {
+          remove(ref(db, `admin_fcm_tokens/${authUid}/${getAdminDeviceId()}`)).catch(() => {});
+        }
       } catch (err) {
         console.error('[Push] token refresh failed:', err);
       }

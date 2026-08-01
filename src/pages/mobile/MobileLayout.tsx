@@ -17,8 +17,9 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Register FCM token for push notifications (lock screen + background)
-  useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
+  // Register FCM token for push notifications (lock screen + background) —
+  // keyed by staff push id so server-side role-targeted pushes reach us.
+  useAdminPushNotifications(currentUser?.id || currentUser?.uid || null);
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
   const [notifCount, setNotifCount] = useState(0);

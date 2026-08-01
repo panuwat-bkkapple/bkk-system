@@ -94,14 +94,20 @@ export enum PaymentMethod {
   CREDIT = 'CREDIT',
 }
 
-/** บทบาทผู้ใช้งาน */
+/**
+ * บทบาทผู้ใช้งาน — role ที่ route guard ทั้งระบบรู้จักมีแค่ 4 ค่า:
+ * CEO / MANAGER / STAFF / FINANCE (ดู App.tsx, settingsNav, AdminLayout,
+ * canReviewAdjustments, functions/staffIdsByRoles)
+ */
 export enum UserRole {
   CEO = 'CEO',
   MANAGER = 'MANAGER',
-  CASHIER = 'CASHIER',
-  QC = 'QC',
   FINANCE = 'FINANCE',
   STAFF = 'STAFF',
+  /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
+  CASHIER = 'CASHIER',
+  /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
+  QC = 'QC',
 }
 
 /** สถานะพนักงาน */
@@ -916,20 +922,22 @@ export interface Product {
   type?: ProductType;
 }
 
-/** พนักงาน */
+/** พนักงาน — บัญชี login เป็นของตัวเองต่อคน (สร้างผ่าน cloud function adminStaffCreate) */
 export interface Staff {
-  /** รหัสพนักงาน */
+  /** รหัสพนักงาน (push key ใน /staff — ใช้เป็น key ของ admin_fcm_tokens ด้วย) */
   id: string;
   /** ชื่อพนักงาน */
   name: string;
-  /** อีเมล */
+  /** อีเมล — ตรงกับบัญชี Firebase Auth ที่ใช้ login (เก็บ lowercase) */
   email: string;
+  /** Firebase Auth uid ของบัญชีพนักงาน (มีเมื่อออกบัญชี login แล้ว) */
+  uid?: string;
   /** บทบาท */
   role: UserRole;
-  /** สถานะการทำงาน */
+  /** สถานะการทำงาน — INACTIVE = พักงาน (auth ถูก disable + สิทธิ์ DB ถูกถอน) */
   status: StaffStatus;
-  /** PIN สำหรับเข้าระบบ POS */
-  pin: string;
+  /** @deprecated PIN ของระบบ login แบบเก่า — ไม่ใช้แล้ว */
+  pin?: string;
 }
 
 /** ข้อความแชท */
