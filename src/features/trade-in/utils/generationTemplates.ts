@@ -1,6 +1,7 @@
 import { CONDITION_TEMPLATES, FUNCTIONAL_TEMPLATES } from './assessmentSeedTemplates';
 import { fillEnFields } from './assessmentEnSeed';
 import { writeConditionSet } from './conditionSets';
+import { representativeBasePrice } from './perModelConditionSets';
 
 /**
  * Auto-apply the generation battery/warranty/region templates to every
@@ -250,17 +251,38 @@ export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDe
   return { missingBox: 500, bareDevice: 1000 };
 }
 
+/**
+ * Mac "เครื่องเปล่า (ไม่มีอะแดปเตอร์/กล่อง)" — นโยบายเจ้าของร้าน: 3% ของราคา
+ * แต่**ขั้นต่ำ 1,000 บาท** (อะแดปเตอร์แท้ 2,000-3,500 บาท เครื่องถูกก็ต้องซื้อ
+ * อยู่ดี). schema ของ option ไม่มีฟิลด์ขั้นต่ำ จึง bake เป็นบาทต่อรุ่นที่ราคา
+ * กลางของรุ่น (median used price) ตอนกด "ปรับตามรุ่น" — ปัดขึ้นเป็นหลักร้อย.
+ */
+export function macBareDeviceDeduct(model: any): number {
+  const rep = representativeBasePrice(model);
+  const pctBaht = rep > 0 ? Math.ceil((rep * 0.03) / 100) * 100 : 0;
+  return Math.max(1000, pctBaht);
+}
+
 /** Overlay the per-line box deducts onto a materialized groups array. */
-function applyBoxDeducts(groups: any[], modelName: unknown): any[] {
-  const box = ipadBoxDeducts(modelName);
-  if (!box) return groups;
+function applyBoxDeducts(groups: any[], model: unknown): any[] {
+  const name = String((typeof model === 'object' && model !== null ? (model as any).name : model) || '').trim();
+  const ipadBox = ipadBoxDeducts(name);
+  const macBare = /^(macbook|imac|mac\s)/i.test(name)
+    ? macBareDeviceDeduct(typeof model === 'object' ? model : { name })
+    : null;
+  if (!ipadBox && macBare == null) return groups;
   return groups.map((g) => {
     if (!/กล่อง|อุปกรณ์เสริม/.test(String(g?.title || ''))) return g;
     return {
       ...g,
       options: (g.options || []).map((o: any) => {
-        if (/^ขาดกล่อง/.test(String(o?.label || ''))) return { ...o, deduct: box.missingBox };
-        if (/^เครื่องเปล่า/.test(String(o?.label || ''))) return { ...o, deduct: box.bareDevice };
+        const label = String(o?.label || '');
+        if (ipadBox && /^ขาดกล่อง/.test(label)) return { ...o, deduct: ipadBox.missingBox };
+        if (ipadBox && /^เครื่องเปล่า/.test(label)) return { ...o, deduct: ipadBox.bareDevice };
+        if (macBare != null && /^เครื่องเปล่า/.test(label)) {
+          const { pct: _pct, ...rest } = o;
+          return { ...rest, deduct: macBare };
+        }
         return o;
       }),
     };
@@ -272,10 +294,10 @@ function applyBoxDeducts(groups: any[], modelName: unknown): any[] {
  * battery/warranty/region/cosmetic groups with the tier's template groups.
  * Each batch is inserted where its first removed group used to be, so the
  * customer flow keeps its shape (screening first, then deduction topics);
- * untouched groups (custom topics) stay put. `modelName` (optional) applies
- * the per-line iPad box-deduct policy above.
+ * untouched groups (custom topics) stay put. `model` (optional; model object
+ * or plain name string) applies the per-line iPad/Mac box-deduct policy above.
  */
-export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration, modelName?: unknown): {
+export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration, model?: unknown): {
   groups: any[];
   removedTitles: string[];
 } {
@@ -295,7 +317,7 @@ export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGener
     }
   });
   const freshFn = buildFunctionalScreeningGroups(tier);
-  const freshPrice = applyBoxDeducts(buildGenerationGroups(tier), modelName);
+  const freshPrice = applyBoxDeducts(buildGenerationGroups(tier), model);
   // Screening leads the flow when the set never had it; pricing appends.
   if (fnInsertAt === -1) fnInsertAt = 0;
   if (priceInsertAt === -1) priceInsertAt = kept.length;
@@ -359,7 +381,7 @@ export function planGenerationApply(models: any[], sets: any[]): GenerationApply
       continue;
     }
     const existing = JSON.parse(JSON.stringify(set.groups || []));
-    const { groups, removedTitles } = applyGenerationToGroups(existing, tier, m?.name);
+    const { groups, removedTitles } = applyGenerationToGroups(existing, tier, m);
     if (JSON.stringify(groups) === JSON.stringify(set.groups || [])) { plan.alreadyApplied++; continue; }
     plan.tierCounts[tier]++;
     plan.actions.push({

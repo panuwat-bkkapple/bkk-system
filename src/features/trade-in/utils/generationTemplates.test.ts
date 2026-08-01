@@ -6,6 +6,7 @@ import {
   applyGenerationToGroups,
   planGenerationApply,
   ipadBoxDeducts,
+  macBareDeviceDeduct,
 } from './generationTemplates';
 
 describe('classifyIphoneGeneration', () => {
@@ -316,6 +317,23 @@ describe('Mac tiers', () => {
       .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'พอร์ต + Wi-Fi / Bluetooth']);
     expect(buildFunctionalScreeningGroups('mac_imac').map((g: any) => g.title))
       .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'หน้าจอแสดงผล', 'พอร์ต + Wi-Fi / Bluetooth']);
+  });
+  it('bare-device deduct is baked in baht with a 1,000 floor (3% of median price, rounded up to 100)', () => {
+    // Cheap Intel MacBook: 3% ของ 10,000 = 300 -> floor ดันขึ้น 1,000
+    const cheap = { name: 'MacBook Pro 13" (2019)', variants: [{ usedPrice: 10000 }] };
+    expect(macBareDeviceDeduct(cheap)).toBe(1000);
+    // Expensive M4 Pro: 3% ของ 60,000 = 1,800 -> ใช้ตาม % (เกิน floor)
+    const pricey = { name: 'MacBook Pro 16" M4 Pro', variants: [{ usedPrice: 60000 }] };
+    expect(macBareDeviceDeduct(pricey)).toBe(1800);
+    // ไม่มีราคา -> floor 1,000
+    expect(macBareDeviceDeduct({ name: 'MacBook Air M2 (2022)' })).toBe(1000);
+    const { groups } = applyGenerationToGroups([], 'mac_intel', cheap);
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    const bare = box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!;
+    expect(bare.deduct).toBe(1000);
+    expect(bare.pct).toBeUndefined();
+    const again = applyGenerationToGroups(groups, 'mac_intel', cheap);
+    expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
   });
   it('the keyboard-region group replaces an old ประเทศที่ซื้อ topic and is never treated as screening', () => {
     const old = [
