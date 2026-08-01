@@ -153,6 +153,16 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             </div>
           </div>
 
+          {/* Dealer Portal — ขายส่งยกล็อต */}
+          <div>
+            {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Dealer (ขายส่ง)</p>}
+            <div className="space-y-1">
+              <NavButton collapsed={isCollapsed} to="/lots" icon={<Package size={18} />} label="ล็อตขายส่ง (Lots)" />
+              <NavButton collapsed={isCollapsed} to="/dealer-orders" icon={<Receipt size={18} />} label="คำสั่งซื้อดีลเลอร์" />
+              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/dealers" icon={<Users size={18} />} label="ทะเบียนดีลเลอร์" />}
+            </div>
+          </div>
+
           {/* CRM & After-Sales */}
           {hasAccess(['CEO', 'MANAGER']) && (
             <div>

@@ -67,6 +67,11 @@ const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').
 const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
 const MobileNotificationsPage = lazy(() => import('./pages/mobile/MobileNotificationsPage').then(m => ({ default: m.MobileNotificationsPage })));
 const MobileFinancePage = lazy(() => import('./pages/mobile/MobileFinancePage').then(m => ({ default: m.MobileFinancePage })));
+const DealerManager = lazy(() => import('./pages/dealers/DealerManager').then(m => ({ default: m.DealerManager })));
+const LotManager = lazy(() => import('./pages/dealers/LotManager').then(m => ({ default: m.LotManager })));
+const LotDetail = lazy(() => import('./pages/dealers/LotDetail').then(m => ({ default: m.LotDetail })));
+const DealerOrders = lazy(() => import('./pages/dealers/DealerOrders').then(m => ({ default: m.DealerOrders })));
+const DealerSettings = lazy(() => import('./pages/admin/DealerSettings'));
 
 // ==========================================
 // Main App Router
@@ -137,6 +142,11 @@ export default function App() {
               <Route path="/crm" element={<CustomerCRM />} />
               <Route path="/customer-crm" element={<Navigate to="/crm" replace />} />
               <Route path="/traceability" element={<Traceability />} />
+              {/* Dealer Portal (ขายส่งยกล็อต) — ดีลเลอร์/ซอง/ออเดอร์ */}
+              <Route path="/dealers" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <DealerManager /> : <Navigate to="/" replace />} />
+              <Route path="/lots" element={<LotManager />} />
+              <Route path="/lots/:id" element={<LotDetail />} />
+              <Route path="/dealer-orders" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' || currentUser?.role === 'STAFF' ? <DealerOrders /> : <Navigate to="/" replace />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
               {/* Catalog เป็นหน้า immersive เต็มความกว้าง — อยู่นอก SettingsLayout
                   แต่ยังถูกลิงก์จากเมนู Settings (hub + sidebar) */}
@@ -169,6 +179,7 @@ export default function App() {
                 <Route path="/ai-profile" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <AiProfileSettings /> : <Navigate to="/" replace />} />
                 <Route path="/store-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StoreSettings /> : <Navigate to="/" replace />} />
                 <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
+                <Route path="/dealer-settings" element={currentUser?.role === 'CEO' ? <DealerSettings /> : <Navigate to="/" replace />} />
               </Route>
             </Route>
           </>
