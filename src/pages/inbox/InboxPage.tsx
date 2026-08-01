@@ -1760,7 +1760,7 @@ const NewChatModal = ({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="กรอกชื่อ..."
+              placeholder="ชื่อจริง นามสกุล"
               className="w-full px-4 py-3 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               autoFocus
             />

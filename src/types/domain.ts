@@ -536,7 +536,7 @@ export interface KYCRecord {
   signature_url?: string | null;
   fallback_reason?: KYCFallbackReason;
   fallback_detail?: string;
-  /** ชื่อ-นามสกุลตามบัตร รวมคำนำหน้า (เช่น "นาย สมชาย ใจดี") — auto-fill จาก Vision OCR, rider แก้ได้ */
+  /** ชื่อ-นามสกุลตามบัตร รวมคำนำหน้า (เช่น "คำนำหน้า ชื่อจริง นามสกุล") — auto-fill จาก Vision OCR, rider แก้ได้ */
   id_name?: string;
   /** วันเกิดตามบัตร (DD/MM/YYYY ตามที่ปรากฏบนบัตร — อาจเป็น พ.ศ. หรือ ค.ศ.) */
   id_dob?: string;

@@ -288,7 +288,7 @@ export const CreateTicketModal = ({ onClose, onSubmit, jobs }: any) => {
                   </select>
                   <input type="text" value={formData.bank_account} onChange={e => setFormData({ ...formData, bank_account: e.target.value })} className="p-4 bg-white border border-emerald-200 rounded-2xl font-black tracking-wider outline-none text-xs text-emerald-800" placeholder="เลขบัญชี" />
                 </div>
-                <input type="text" value={formData.bank_holder} onChange={e => setFormData({ ...formData, bank_holder: e.target.value })} className="w-full mt-2 p-3 bg-white border border-emerald-200 rounded-xl font-bold outline-none text-xs text-emerald-800" placeholder="ชื่อบัญชี (Account Name)" />
+                <input type="text" value={formData.bank_holder} onChange={e => setFormData({ ...formData, bank_holder: e.target.value })} className="w-full mt-2 p-3 bg-white border border-emerald-200 rounded-xl font-bold outline-none text-xs text-emerald-800" placeholder="ชื่อจริง นามสกุล เจ้าของบัญชี" />
               </div>
 
               <div className="flex gap-4 pt-4">

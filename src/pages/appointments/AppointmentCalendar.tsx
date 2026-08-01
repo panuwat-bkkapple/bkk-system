@@ -232,7 +232,7 @@ const AppointmentForm = ({ appointment, initialDate, onSave, onClose }: Appointm
               <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อลูกค้า *</label>
               <input
                 type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} required
-                placeholder="ชื่อลูกค้า"
+                placeholder="ชื่อจริง นามสกุล"
                 className="w-full border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>

@@ -229,7 +229,7 @@ export const POS = () => {
                 <div className="p-5 border-b border-slate-100 bg-slate-50">
                     <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3"><User size={14} /> Customer (Optional)</div>
                     <div className="flex gap-2">
-                        <input type="text" placeholder="ชื่อลูกค้า..." value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} className="flex-1 bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-bold outline-none focus:border-blue-500" />
+                        <input type="text" placeholder="ชื่อจริง นามสกุล" value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} className="flex-1 bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-bold outline-none focus:border-blue-500" />
                         <input type="text" placeholder="เบอร์โทร..." value={customer.phone} onChange={e => setCustomer({ ...customer, phone: e.target.value })} className="flex-1 bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-bold outline-none focus:border-blue-500" />
                     </div>
                 </div>

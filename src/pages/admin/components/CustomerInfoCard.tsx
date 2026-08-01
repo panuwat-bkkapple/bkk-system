@@ -206,7 +206,7 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
           <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-blue-200 shadow-inner animate-in fade-in">
             <div>
               <label className="text-[10px] font-bold text-slate-500 ml-1">ชื่อลูกค้า</label>
-              <input type="text" value={editData.name} onChange={e => onEditChange({ ...editData, name: e.target.value })} className="w-full text-sm font-bold border rounded-xl px-3 py-2 outline-none focus:border-blue-400" />
+              <input type="text" placeholder="ชื่อจริง นามสกุล" value={editData.name} onChange={e => onEditChange({ ...editData, name: e.target.value })} className="w-full text-sm font-bold border rounded-xl px-3 py-2 outline-none focus:border-blue-400" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
