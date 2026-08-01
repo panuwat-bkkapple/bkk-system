@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
-  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins
+  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell
 } from 'lucide-react';
 
 // Single source of truth ของโครงเมนูตั้งค่า (Reusely-style 3 กลุ่ม):
@@ -56,6 +56,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     title: 'Advanced Settings',
     subtitle: 'ค่าระบบส่วนกลาง และ AI',
     items: [
+      { path: '/notification-settings', label: 'การแจ้งเตือน', description: 'ช่องทาง (Push/Telegram) เหตุการณ์ที่แจ้ง เกณฑ์เวลา และสถานะเครื่อง', icon: <Bell size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/global-settings', label: 'ตั้งค่าระบบส่วนกลาง', description: 'ค่าส่งลูกค้า เรทค่าตอบแทนไรเดอร์ Sickw IMEI', icon: <Settings size={18} />, roles: ['CEO'] },
       { path: '/chat-settings', label: 'Chat Widget (AI)', description: 'ชื่อผู้ช่วย ป๊อปอัพชวนแชท เวลาทำการแชท', icon: <MessageSquareQuote size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/ai-profile', label: 'โปรไฟล์ AI (Persona)', description: 'โทนการตอบ ความยาวคำตอบ ของ AI แชท', icon: <Bot size={18} />, roles: ['CEO', 'MANAGER'] },
