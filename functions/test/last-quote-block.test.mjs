@@ -1268,6 +1268,56 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("persona forbids inventing condition answers", sysNoCust.includes("ห้ามเดา/กรอกคำตอบสภาพเครื่องแทนลูกค้าเด็ดขาด"));
 }
 
+// --- a fault the customer describes in their own words still counts ---------
+// Found by the owner's own question: "iPhone 12 Pro แบต 86% แต่ใช้ไปสักพักดับ
+// เปิดขึ้นมาเหลือ 10% แบบนี้ขายได้เท่าไหร่". That set's "เปิดไม่ติด / ค้าง /
+// ดับเอง" carries failBehavior:reject — the shop does not buy the device. But
+// the provenance guard above matched only the option's literal wording, and
+// "ใช้ไปสักพักดับ" contains no "ดับเอง", so the REJECT answer was dropped and
+// the phone would have been quoted at nearly full price. Guarding a deduction
+// must never turn into ignoring a fault: for faults the vocabulary is
+// deliberately generous, because a missed symptom costs far more than an
+// over-eager one (the worst case is one extra question).
+{
+  const FUNC = "เปิดเครื่อง / ใช้งานทั่วไป";
+  const unsup = (evidenceText, assistantText = "") =>
+    __test.conditionAnswerUnsupported({ groupTitle: FUNC, evidenceText, assistantText });
+  check(
+    "the owner's verbatim sentence keeps the reject answer",
+    !unsup("ต้องการขาย iPhone 12 Pro แบต 86% แต่ใช้ไปสักพักดับ เปิดขึ้นมาเหลือ 10% แบบนี้ขายได้เท่าไหร่"),
+  );
+  for (const [phrase, label] of [
+    ["เครื่องดับเองบ่อยครับ", "ดับเอง"],
+    ["เปิดไม่ติดเลย", "เปิดไม่ติด"],
+    ["จอค้างแล้วรีเอง", "ค้าง/รีเอง"],
+    ["ใช้ๆ อยู่แล้วเครื่องวูบ", "วูบ"],
+    ["ลำโพงมีปัญหา", "ลำโพง"],
+    ["กล้องหลังเสีย", "กล้องเสีย"],
+    ["ทัชไม่ค่อยติด", "ทัช"],
+    ["เครื่องปกติดีทุกอย่าง", "ปกติ (คำตอบ pass)"],
+  ]) check(`fault vocabulary covers "${label}"`, !unsup(phrase));
+  for (const [phrase, label] of [
+    ["it shuts down randomly", "shuts down"],
+    ["the phone dies suddenly", "dies"],
+    ["screen freezes and reboots", "freeze/reboot"],
+    ["camera not working", "not working"],
+  ]) check(`fault vocabulary covers EN "${label}"`, !unsup(phrase));
+  // The guard must still block a fault answer nobody mentioned — otherwise
+  // widening the vocabulary would have quietly disarmed it for this group.
+  check("a bare model+storage line still cannot justify a fault answer", unsup("iPhone 12 Pro 256GB"));
+  check("a contact reply still cannot justify a fault answer", unsup("0655610223 จีน"));
+  // Ambiguous symptoms: 86% battery + unexpected shutdown maps to BOTH
+  // "แบตเตอรี่เสื่อม" (pct 20, still buyable) and "ดับเอง" (reject). Guessing
+  // either way is wrong, so the persona must ask one splitting question built
+  // from the set's real options, and treat "ไม่แน่ใจ" as the worse branch.
+  check("persona has the ambiguous-symptom rule", sysNoCust.includes("6.10.1"));
+  check("rule reads the real condition set before judging", /6\.10\.1[\s\S]{0,900}get_condition_questions/.test(sysNoCust));
+  check("rule forbids inventing a price for a symptom", /6\.10\.1[\s\S]{0,1400}ห้ามเดาราคาให้อาการเด็ดขาด/.test(sysNoCust));
+  check("unsure defaults to the worse branch", /6\.10\.1[\s\S]{0,1400}ถือว่าเป็นอาการที่หนักกว่า/.test(sysNoCust));
+  check("splitting question is asked once, then move on", /6\.10\.1[\s\S]{0,1500}ถามแยกทางได้ "ครั้งเดียว"/.test(sysNoCust));
+  check("owner-visible behaviors mention the two-way symptom", src.includes("ตีความได้ 2 ทาง"));
+}
+
 // --- year-only decline: old years never become a which-model quiz ------------
 // Live case #YDD2 "macbook pro 2012": every tied candidate was itself a
 // delisted Intel, yet the customer got 8 chips to choose from (bottoming at
