@@ -1,7 +1,7 @@
 // ทุก write ของ portal ผ่าน callable เท่านั้น (rules ปิด client write สนิท)
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
-import type { DealerOrderSummary, LotSummary, MyBid } from './types';
+import type { DealerOrderSummary, LotSummary, MyBid, MyLotOrder } from './types';
 
 const call = async <T>(name: string, data?: Record<string, unknown>): Promise<T> => {
   const fn = httpsCallable(functions, name);
@@ -10,7 +10,11 @@ const call = async <T>(name: string, data?: Record<string, unknown>): Promise<T>
 
 export const listLots = () => call<{ lots: LotSummary[] }>('dealerListLots');
 
-export const getMyBid = (lotId: string) => call<{ bid: MyBid | null }>('dealerGetMyBid', { lotId });
+export const getMyBid = (lotId: string) =>
+  call<{ bid: MyBid | null; result: 'won' | 'lost' | null; order: MyLotOrder | null }>(
+    'dealerGetMyBid',
+    { lotId }
+  );
 
 export const placeBid = (payload: {
   lotId: string;

@@ -31,9 +31,13 @@ export const Login = () => {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={handleSubmit}>
-        <div className="black" style={{ fontSize: 20 }}>GETMOBIE</div>
-        <div className="sub" style={{ letterSpacing: 2, textTransform: 'uppercase' }}>Dealer Portal</div>
-        <div className="tiny muted bold" style={{ marginTop: 2 }}>บริษัท เก็ทโมบี้ จำกัด</div>
+        <div className="black" style={{ fontSize: 22, letterSpacing: 0.3 }}>
+          GETMOBIE
+          <span style={{ color: 'var(--accent)', fontSize: 10, fontWeight: 800, letterSpacing: 2.5, border: '1px solid var(--accent-line)', borderRadius: 6, padding: '2px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
+            DEALER
+          </span>
+        </div>
+        <div className="tiny muted bold" style={{ marginTop: 4 }}>บริษัท เก็ทโมบี้ จำกัด</div>
         <p className="small muted mt12">
           เข้าสู่ระบบด้วยบัญชีดีลเลอร์ที่ได้รับจากเจ้าหน้าที่ เพื่อดูล็อตสินค้าและเสนอราคา
         </p>

@@ -4,18 +4,25 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref as dbRef } from 'firebase/database';
 import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { ArrowLeft, FileText, Truck, Upload, Landmark } from 'lucide-react';
+import { ArrowLeft, FileText, Truck, Upload, Landmark, Check } from 'lucide-react';
 import { db, storage, auth } from '../firebase';
 import { submitPaymentSlip } from '../api';
 import { ORDER_STATUS_LABEL, fmtBaht, fmtDateTime, type DealerOrderSummary, type OrderStatus } from '../types';
 
-// ลำดับ milestone สำหรับ timeline แนวตั้ง
+// ลำดับ milestone สำหรับ stepper แนวตั้ง
 const FLOW: OrderStatus[] = ['pending_payment', 'payment_review', 'paid', 'shipped', 'completed'];
+const FLOW_LABEL: Record<string, string> = {
+  pending_payment: 'ชนะประมูล — รอชำระเงิน',
+  payment_review: 'ตรวจสอบการชำระ',
+  paid: 'ชำระแล้ว — เตรียมสินค้า',
+  shipped: 'จัดส่งแล้ว',
+  completed: 'รับสินค้าสำเร็จ',
+};
 
 export const OrderDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [order, setOrder] = useState<(DealerOrderSummary & { status_log?: Record<string, { status: string; at: number }> }) | null>(null);
+  const [order, setOrder] = useState<DealerOrderSummary | null>(null);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -54,8 +61,8 @@ export const OrderDetail = () => {
     }
   };
 
-  if (denied) return <div className="card center muted bold mt16">ไม่พบคำสั่งซื้อนี้</div>;
-  if (!order) return <div className="loading">กำลังโหลด...</div>;
+  if (denied) return <div className="empty mt16">ไม่พบคำสั่งซื้อนี้</div>;
+  if (!order) return (<><div className="skel" style={{ marginTop: 20 }} /><div className="skel" /></>);
 
   const meta = ORDER_STATUS_LABEL[order.status] || { label: order.status, cls: '' };
   const canPay = ['pending_payment', 'payment_review'].includes(order.status);
@@ -69,20 +76,23 @@ export const OrderDetail = () => {
 
       <div className="row mt12">
         <span className="mono tiny muted bold">{order.order_no} · {order.lot_no}</span>
-        <span className={`badge ${meta.cls}`}>{meta.label}</span>
+        <span className={`pill ${meta.cls}`}>{meta.label}</span>
       </div>
-      <h1 className="h1" style={{ margin: '6px 0 2px' }}>{fmtBaht(order.amount)} <span className="small muted">(รวม VAT)</span></h1>
+      <h1 className="h1 money" style={{ margin: '6px 0 2px' }}>
+        {fmtBaht(order.amount)} <span className="small muted" style={{ fontWeight: 700 }}>(รวม VAT)</span>
+      </h1>
 
-      {/* Timeline */}
-      {order.status !== 'cancelled' && (
+      {/* Stepper สถานะ */}
+      {order.status !== 'cancelled' ? (
         <div className="card">
-          <ul className="timeline">
+          <ul className="stepper">
             {FLOW.map((s, i) => {
-              const done = flowIndex >= i;
+              const done = flowIndex > i;
+              const nowStep = flowIndex === i;
               return (
-                <li key={s}>
-                  <span className="dot" style={{ background: done ? 'var(--accent)' : 'var(--line)' }} />
-                  <span className={`small ${done ? 'black' : 'bold muted'}`}>{ORDER_STATUS_LABEL[s].label}</span>
+                <li key={s} className={done ? 'done' : nowStep ? 'now' : ''}>
+                  <span className="knot">{done ? <Check size={12} /> : i + 1}</span>
+                  <span className="lbl">{FLOW_LABEL[s]}</span>
                 </li>
               );
             })}
@@ -93,13 +103,17 @@ export const OrderDetail = () => {
             </div>
           )}
         </div>
+      ) : (
+        <div className="card center">
+          <span className="pill red">คำสั่งซื้อถูกยกเลิก</span>
+        </div>
       )}
 
       {/* ใบเสนอราคา */}
       {order.quotation && (
         <div className="card row">
-          <div className="small bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FileText size={15} /> ใบเสนอราคา {order.quotation.number}
+          <div className="small bold" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <FileText size={15} style={{ color: 'var(--muted)' }} /> ใบเสนอราคา {order.quotation.number}
           </div>
           {order.quotation.url && (
             <a href={order.quotation.url} target="_blank" rel="noreferrer" className="btn ghost small">ดาวน์โหลด PDF</a>
@@ -109,21 +123,23 @@ export const OrderDetail = () => {
 
       {/* ชำระเงิน */}
       {canPay && (
-        <div className="card">
-          <div className="tiny muted black" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>ชำระเงิน</div>
+        <div className="card" style={{ borderColor: 'var(--warn-line)' }}>
+          <div className="tiny black" style={{ textTransform: 'uppercase', letterSpacing: 1, color: 'var(--warn)' }}>
+            ขั้นตอนถัดไป: ชำระเงิน
+          </div>
           {order.payment_info?.account_no && (
-            <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--warn-soft)', borderColor: 'var(--warn-line)' }}>
               <Landmark size={15} style={{ flexShrink: 0, marginTop: 2 }} />
               <span>
                 โอนเข้าบัญชี <b>{order.payment_info.bank} {order.payment_info.account_no}</b><br />
-                ชื่อบัญชี {order.payment_info.account_name} · ยอด <b>{fmtBaht(order.amount)}</b>
+                ชื่อบัญชี {order.payment_info.account_name} · ยอด <b className="money">{fmtBaht(order.amount)}</b>
               </span>
             </div>
           )}
           {order.payment?.slip_url && (
             <div className="small bold mt12">
               แนบสลิปแล้วเมื่อ {fmtDateTime(order.payment.submitted_at)} —{' '}
-              <a href={order.payment.slip_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>ดูสลิป</a>
+              <a href={order.payment.slip_url} target="_blank" rel="noreferrer" style={{ color: 'var(--info)' }}>ดูสลิป</a>
             </div>
           )}
           <input
@@ -155,12 +171,14 @@ export const OrderDetail = () => {
                   <div className="bold">{it.model}</div>
                   {it.ref_no && <div className="tiny muted mono">{it.ref_no}</div>}
                 </td>
-                <td className="amt bold">{order.type === 'whole_lot' ? '' : fmtBaht(it.amount)}</td>
+                <td className="amt bold money">{order.type === 'whole_lot' ? '' : fmtBaht(it.amount)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {order.type === 'whole_lot' && <div className="row mt8 small bold"><span>เหมายกล็อต</span><span>{fmtBaht(order.amount)}</span></div>}
+        {order.type === 'whole_lot' && (
+          <div className="row mt8 small bold"><span>เหมายกล็อต</span><span className="money">{fmtBaht(order.amount)}</span></div>
+        )}
       </div>
     </div>
   );

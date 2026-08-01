@@ -17,10 +17,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         <div className="brand">GETMOBIE <span>DEALER</span></div>
         <div className="who">
           <div>{dealer?.company_name}</div>
-          <button
-            onClick={() => void logout()}
-            style={{ background: 'none', border: 'none', color: '#93c5fd', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-          >
+          <button onClick={() => void logout()}>
             <LogOut size={11} /> ออกจากระบบ
           </button>
         </div>

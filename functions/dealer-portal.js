@@ -1000,6 +1000,27 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
 
     const lotsSnap = await db.ref("lots").once("value");
     const lots = lotsSnap.exists() ? lotsSnap.val() : {};
+
+    // ออเดอร์ของดีลเลอร์คนนี้ทั้งหมด (query เดียว, indexOn dealer_uid) —
+    // ใช้ตัดสินผลประมูลต่อ lot: มี order = ชนะ, lot ประกาศแล้วแต่ไม่มี order = ไม่ได้รับเลือก
+    const myOrdersSnap = await db
+      .ref("dealer_orders").orderByChild("dealer_uid").equalTo(dealerUid).once("value");
+    const myOrderByLot = {};
+    if (myOrdersSnap.exists()) {
+      myOrdersSnap.forEach((c) => {
+        const o = c.val() || {};
+        if (o.lot_id && o.status !== "cancelled") {
+          myOrderByLot[o.lot_id] = {
+            id: c.key,
+            order_no: o.order_no || null,
+            amount: Number(o.amount) || 0,
+            status: o.status,
+            item_count: o.item_count || 0,
+          };
+        }
+      });
+    }
+
     const out = [];
     for (const [lotId, lot] of Object.entries(lots)) {
       if (!lot || lot.status === "draft" || lot.status === "cancelled") continue;
@@ -1012,7 +1033,13 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       const isOpen = lot.status === "open" && Number(lot.close_at) > nowMs();
       if (!(isOpen && tierVisible && tierOpenNow) && !myBid) continue;
 
+      const myOrder = myOrderByLot[lotId] || null;
+      const decided = ["awarded", "completed"].includes(lot.status);
+
       out.push({
+        // ผลประมูลของฉัน: won (มี order) / lost (ประกาศแล้ว เคยเสนอ แต่ไม่มี order) / null
+        my_result: myOrder ? "won" : decided && myBid ? "lost" : null,
+        my_order: myOrder,
         id: lotId,
         lot_no: lot.lot_no || null,
         title: lot.title || null,
@@ -1048,7 +1075,33 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     if (!lotId) throw new HttpsError("invalid-argument", "ต้องระบุ lotId");
     const snap = await db.ref(`lot_bids/${lotId}/${dealerUid}`).once("value");
     const bid = snap.val();
-    if (!bid) return { bid: null };
+
+    // ผลประมูลของ lot นี้ (สำหรับหน้ารายละเอียด — แสดง "ยินดีด้วย/ไม่ได้รับเลือก")
+    let result = null;
+    let order = null;
+    const lot = (await db.ref(`lots/${lotId}`).once("value")).val() || {};
+    if (["awarded", "completed"].includes(lot.status)) {
+      const os = await db.ref("dealer_orders").orderByChild("lot_id").equalTo(lotId).once("value");
+      if (os.exists()) {
+        os.forEach((c) => {
+          const o = c.val() || {};
+          if (o.dealer_uid === dealerUid && o.status !== "cancelled") {
+            order = {
+              id: c.key,
+              order_no: o.order_no || null,
+              amount: Number(o.amount) || 0,
+              status: o.status,
+              item_count: o.item_count || 0,
+              items: o.items || {},
+            };
+          }
+        });
+      }
+      if (order) result = "won";
+      else if (bid) result = "lost";
+    }
+
+    if (!bid) return { bid: null, result, order };
     // ส่งกลับเฉพาะซองตัวเอง — history ให้ดูได้ (เป็นของเขาเอง)
     return {
       bid: {
@@ -1061,6 +1114,8 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         updated_at: bid.updated_at || null,
         history: bid.history || [],
       },
+      result,
+      order,
     };
   });
 
