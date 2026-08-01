@@ -122,6 +122,27 @@ jobs:
           projectId: bkk-apple-tradein
           target: dealer
 
+      # ── GETMOBIE landing (getmobie.com — static ล้วน ไม่มี build step) ────
+      # custom domain getmobie.com ผูกครั้งเดียวใน console (site: getmobie-www)
+      - name: Ensure getmobie www site exists
+        continue-on-error: true
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx firebase-tools@13 hosting:sites:create getmobie-www --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+
+      - name: Deploy Hosting (getmobie landing)
+        continue-on-error: true
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          channelId: live
+          projectId: bkk-apple-tradein
+          target: www
+
   deploy-functions:
     name: Deploy Cloud Functions
     runs-on: ubuntu-latest

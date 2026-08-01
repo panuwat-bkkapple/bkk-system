@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GETMOBIE — แหล่งรับซื้อมือถือมือสองยกล็อตสำหรับดีลเลอร์</title>
+  <meta name="description" content="GETMOBIE โดยบริษัท เก็ทโมบี้ จำกัด — เปิดประมูลมือถือมือสองยกล็อตแบบปิดซองสำหรับดีลเลอร์ ผ่านเกรดจากระบบ QC พร้อมใบเสนอราคาและใบกำกับภาษีเต็มรูปอัตโนมัติ สมัครเป็นดีลเลอร์ฟรี" />
+  <meta property="og:title" content="GETMOBIE — ขายส่งมือถือมือสองยกล็อตสำหรับดีลเลอร์" />
+  <meta property="og:description" content="ประมูลปิดซอง โปร่งใส ตรวจสอบได้ พร้อมเอกสารภาษีครบ — สมัครเป็นดีลเลอร์ฟรี" />
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    :root {
+      --ink: #0f172a; --ink2: #334155; --muted: #64748b; --line: #e2e8f0;
+      --bg: #f8fafc; --accent: #2563eb; --accent2: #93c5fd; --green: #059669;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans Thai', sans-serif; color: var(--ink); background: #fff; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+    header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+    .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
+    .logo { font-weight: 800; font-size: 19px; letter-spacing: 0.5px; }
+    .logo span { color: var(--accent); }
+    .nav-actions { display: flex; gap: 10px; align-items: center; }
+    .btn { display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; border: none; }
+    .btn-primary { background: var(--ink); color: #fff; }
+    .btn-primary:hover { background: #1e293b; }
+    .btn-accent { background: var(--accent); color: #fff; }
+    .btn-accent:hover { background: #1d4ed8; }
+    .btn-ghost { background: #fff; color: var(--ink2); border: 1px solid var(--line); }
+
+    .hero { background: linear-gradient(180deg, var(--ink) 0%, #1e293b 100%); color: #fff; padding: 72px 0 84px; }
+    .hero .tag { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--accent2); text-transform: uppercase; margin-bottom: 16px; }
+    .hero h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.25; font-weight: 800; max-width: 700px; }
+    .hero p { margin-top: 16px; font-size: 17px; line-height: 1.7; color: #cbd5e1; max-width: 620px; }
+    .hero .cta { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .hero .note { margin-top: 14px; font-size: 12px; color: #94a3b8; }
+
+    section { padding: 64px 0; }
+    section.alt { background: var(--bg); }
+    .sec-head { text-align: center; margin-bottom: 40px; }
+    .sec-head h2 { font-size: 26px; font-weight: 800; }
+    .sec-head p { margin-top: 8px; color: var(--muted); font-weight: 600; font-size: 14px; }
+
+    .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+    .card .num { width: 34px; height: 34px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; font-size: 15px; }
+    .card h3 { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+    .card p { font-size: 13.5px; line-height: 1.65; color: var(--muted); }
+
+    .form-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 32px; max-width: 640px; margin: 0 auto; box-shadow: 0 8px 30px rgba(15,23,42,0.06); }
+    .frow { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 560px) { .frow { grid-template-columns: 1fr; } }
+    .field { margin-top: 14px; }
+    .field label { display: block; font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .field label b { color: var(--accent); }
+    .field input, .field textarea { width: 100%; padding: 13px; border: 1px solid var(--line); border-radius: 12px; font-size: 15px; font-family: inherit; font-weight: 600; outline: none; }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .hp { position: absolute; left: -9999px; top: -9999px; }
+    .msg { margin-top: 14px; font-size: 14px; font-weight: 700; display: none; padding: 12px 14px; border-radius: 12px; }
+    .msg.ok { display: block; background: #ecfdf5; color: var(--green); border: 1px solid #a7f3d0; }
+    .msg.err { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+    footer { border-top: 1px solid var(--line); padding: 32px 0; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
+    footer .brand { font-weight: 800; color: var(--ink); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <div class="logo">GETMOBIE<span>.</span></div>
+      <div class="nav-actions">
+        <a class="btn btn-ghost" href="https://app.getmobie.com">เข้าสู่ระบบดีลเลอร์</a>
+        <a class="btn btn-primary" href="#register">สมัครเป็นดีลเลอร์</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="wrap">
+      <span class="tag">Wholesale · Sealed-Bid Auction</span>
+      <h1>แหล่งรับซื้อมือถือมือสอง<br />ยกล็อต สำหรับดีลเลอร์</h1>
+      <p>
+        GETMOBIE เปิดประมูลสินค้ายกล็อตแบบ<strong>ปิดซอง</strong> — สินค้าทุกเครื่องผ่านการตรวจสภาพและให้เกรดจากระบบ QC
+        เสนอราคาได้ทั้งเหมายกล็อตหรือเลือกรายเครื่อง ราคาของคุณเป็นความลับจนกว่าจะปิดรับและเปิดซองโดยผู้มีอำนาจ
+        พร้อมใบเสนอราคาและใบกำกับภาษีเต็มรูปอัตโนมัติทุกดีล
+      </p>
+      <div class="cta">
+        <a class="btn btn-accent" href="#register">สมัครเป็นดีลเลอร์ ฟรี</a>
+        <a class="btn btn-ghost" href="#how">ดูวิธีการทำงาน</a>
+      </div>
+      <div class="note">ดำเนินการโดย บริษัท เก็ทโมบี้ จำกัด — นิติบุคคลจดทะเบียน ออกใบกำกับภาษีเต็มรูปได้ทุกรายการ</div>
+    </div>
+  </div>
+
+  <section id="why">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>ทำไมดีลเลอร์เลือก GETMOBIE</h2>
+        <p>ระบบที่ออกแบบมาเพื่อการซื้อขายส่งโดยเฉพาะ</p>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <h3>ประมูลปิดซอง โปร่งใสจริง</h3>
+          <p>ไม่มีใครเห็นราคาของคุณ — แม้แต่เจ้าหน้าที่ — จนกว่าจะปิดรับราคาและเปิดซองโดยผู้มีอำนาจ ทุกขั้นตอนถูกบันทึกตรวจสอบย้อนหลังได้</p>
+        </div>
+        <div class="card">
+          <h3>สินค้าผ่าน QC ทุกเครื่อง</h3>
+          <p>ทุกเครื่องในล็อตผ่านการตรวจสภาพ ให้เกรด และระบุอุปกรณ์ครบถ้วน เห็นข้อมูลก่อนตัดสินใจเสนอราคา</p>
+        </div>
+        <div class="card">
+          <h3>เอกสารครบ ถูกภาษี</h3>
+          <p>ใบเสนอราคาออกทันทีที่ชนะประมูล และใบกำกับภาษีเต็มรูปในนามบริษัทของคุณเมื่อชำระเงิน — นำไปใช้เครดิตภาษีซื้อได้</p>
+        </div>
+        <div class="card">
+          <h3>สิทธิพิเศษตามระดับ</h3>
+          <p>ดีลเลอร์ระดับสูงได้เห็นล็อตใหม่ก่อนใคร (Early Access) ยิ่งซื้อสม่ำเสมอ ยิ่งได้เปรียบ</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="alt">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>ขั้นตอนการทำงาน</h2>
+        <p>จากล็อตใหม่ถึงของถึงมือ — ติดตามได้ทุกสถานะในระบบ</p>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="num">1</div><h3>รับแจ้งล็อตใหม่</h3><p>ล็อตเปิดประมูลแจ้งตรงถึงอีเมลคุณ พร้อมรายการเครื่อง เกรด และเวลาปิดรับราคา</p></div>
+        <div class="card"><div class="num">2</div><h3>เสนอราคาปิดซอง</h3><p>เสนอเหมายกล็อตหรือเลือกรายเครื่อง แก้ไขราคาได้จนถึงเวลาปิดรับ</p></div>
+        <div class="card"><div class="num">3</div><h3>ประกาศผล + ใบเสนอราคา</h3><p>ชนะประมูลรับใบเสนอราคา PDF ทันที โอนชำระและแนบสลิปในระบบ</p></div>
+        <div class="card"><div class="num">4</div><h3>รับของ + ใบกำกับภาษี</h3><p>ยืนยันชำระแล้วจัดส่งพร้อมเลขติดตาม และใบกำกับภาษีเต็มรูปส่งถึงอีเมล</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="register">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>สมัครเป็นดีลเลอร์</h2>
+        <p>กรอกข้อมูลธุรกิจของคุณ — เจ้าหน้าที่ตรวจสอบและส่งบัญชีเข้าใช้งานให้ทางอีเมลภายใน 1-2 วันทำการ</p>
+      </div>
+      <form class="form-card" id="regForm" novalidate>
+        <div class="frow">
+          <div class="field">
+            <label>ชื่อบริษัท / ร้าน <b>*</b></label>
+            <input name="company_name" required maxlength="200" placeholder="เช่น หจก. โฟนช็อป" />
+          </div>
+          <div class="field">
+            <label>เลขผู้เสียภาษี (ถ้ามี — ใช้ออกใบกำกับเต็มรูป)</label>
+            <input name="tax_id" maxlength="20" inputmode="numeric" placeholder="0105561234567" />
+          </div>
+        </div>
+        <div class="field">
+          <label>ที่อยู่ (ตามจดทะเบียน)</label>
+          <textarea name="address" rows="2" maxlength="500"></textarea>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label>ชื่อผู้ติดต่อ <b>*</b></label>
+            <input name="contact_name" required maxlength="100" />
+          </div>
+          <div class="field">
+            <label>เบอร์โทร <b>*</b></label>
+            <input name="phone" required maxlength="30" inputmode="tel" />
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label>อีเมล (ใช้รับบัญชีเข้าระบบ) <b>*</b></label>
+            <input name="email" type="email" required maxlength="200" />
+          </div>
+          <div class="field">
+            <label>LINE ID</label>
+            <input name="line_id" maxlength="100" />
+          </div>
+        </div>
+        <div class="field">
+          <label>ข้อมูลเพิ่มเติม (ประเภทสินค้าที่สนใจ ปริมาณรับซื้อต่อเดือน ฯลฯ)</label>
+          <textarea name="note" rows="3" maxlength="1000"></textarea>
+        </div>
+        <!-- honeypot กัน bot — ผู้ใช้จริงมองไม่เห็น -->
+        <div class="hp" aria-hidden="true">
+          <label>Website</label>
+          <input name="website" tabindex="-1" autocomplete="off" />
+        </div>
+        <div class="field" style="margin-top:20px;">
+          <button class="btn btn-accent" type="submit" id="submitBtn" style="width:100%; padding:15px; font-size:15px;">ส่งใบสมัคร</button>
+        </div>
+        <div class="msg" id="formMsg"></div>
+      </form>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div class="brand">GETMOBIE</div>
+      <div>บริษัท เก็ทโมบี้ จำกัด — ผู้ให้บริการแพลตฟอร์มขายส่งอุปกรณ์มือถือมือสองสำหรับดีลเลอร์</div>
+      <div>ดีลเลอร์ที่มีบัญชีแล้ว เข้าสู่ระบบได้ที่ <a href="https://app.getmobie.com" style="color:var(--accent); font-weight:700;">app.getmobie.com</a></div>
+    </div>
+  </footer>
+
+  <script>
+    // เรียก callable dealerRegister ตรงผ่าน HTTP (โปรโตคอล callable: POST {data})
+    // — หน้า static ล้วน ไม่ต้องพ่วง Firebase SDK
+    var FN_URL = 'https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/dealerRegister';
+    var form = document.getElementById('regForm');
+    var msg = document.getElementById('formMsg');
+    var btn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      msg.className = 'msg';
+      var fd = new FormData(form);
+      var data = {};
+      fd.forEach(function (v, k) { data[k] = String(v).trim(); });
+      if (!data.company_name || !data.contact_name || !data.phone || !data.email) {
+        msg.textContent = 'กรุณากรอกช่องที่มีเครื่องหมาย * ให้ครบ';
+        msg.className = 'msg err';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'กำลังส่ง...';
+      try {
+        var res = await fetch(FN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: data }),
+        });
+        var body = await res.json().catch(function () { return {}; });
+        if (res.ok && body.result && body.result.ok) {
+          form.reset();
+          msg.textContent = 'ส่งใบสมัครเรียบร้อย — เราส่งอีเมลยืนยันให้แล้ว เจ้าหน้าที่จะติดต่อกลับภายใน 1-2 วันทำการ';
+          msg.className = 'msg ok';
+        } else {
+          var detail = body.error && body.error.message ? body.error.message : 'ส่งใบสมัครไม่สำเร็จ กรุณาลองใหม่';
+          msg.textContent = detail;
+          msg.className = 'msg err';
+        }
+      } catch (err) {
+        msg.textContent = 'เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่อีกครั้ง';
+        msg.className = 'msg err';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'ส่งใบสมัคร';
+      }
+    });
+  </script>
+</body>
+</html>

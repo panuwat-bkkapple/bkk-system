@@ -470,6 +470,17 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       updated_at: nowMs(),
     };
     await db.ref(`dealers/${authUser.uid}`).set(record);
+
+    // ออกบัญชีจากใบสมัครหน้า landing → ปิดใบสมัครเป็น approved
+    const applicationId = String(data.applicationId || "");
+    if (applicationId) {
+      await db.ref(`dealer_applications/${applicationId}`).update({
+        status: "approved",
+        approved_at: nowMs(),
+        approved_by: caller.name || null,
+        dealer_uid: authUser.uid,
+      });
+    }
     console.log(`[dealer] created dealer ${email} (uid ${authUser.uid}) tier ${tier}`);
     return { ok: true, uid: authUser.uid };
   });
@@ -561,6 +572,136 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     if (!snap.exists()) throw new HttpsError("not-found", "ไม่พบดีลเลอร์");
     await getAuth().updateUser(uid, { password: data.password });
     await getAuth().revokeRefreshTokens(uid);
+    return { ok: true };
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // สมัครดีลเลอร์จากหน้า landing getmobie.com (ไม่ต้อง login)
+  // ไม่สร้างบัญชี Auth ทันที — เก็บเป็นใบสมัครที่ dealer_applications (rules ปิด
+  // read/write ฝั่ง client ยกเว้น admin read) ให้ CEO/MANAGER ตรวจแล้วออกบัญชี
+  // ผ่าน adminDealerCreate (ส่ง applicationId มาปิดใบสมัคร) — แอดมินยังเป็นคน
+  // คุม credential เหมือนเดิม และไม่มี auth user ค้างจาก bot/สมัครเล่น
+  // ───────────────────────────────────────────────────────────────────────────
+  fns.dealerRegister = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const data = request.data || {};
+
+    // honeypot: ฟิลด์ 'website' ซ่อนอยู่ในฟอร์ม — คนจริงไม่เห็น/ไม่กรอก
+    if (String(data.website || "").trim()) return { ok: true };
+
+    const company = String(data.company_name || "").trim();
+    const contact = String(data.contact_name || "").trim();
+    const phone = String(data.phone || "").trim();
+    const email = normEmail(data.email);
+    if (!company || company.length > 200) {
+      throw new HttpsError("invalid-argument", "กรุณาระบุชื่อบริษัท/ร้าน");
+    }
+    if (!isValidEmail(email)) throw new HttpsError("invalid-argument", "อีเมลไม่ถูกต้อง");
+    if (!phone || phone.length > 30) throw new HttpsError("invalid-argument", "กรุณาระบุเบอร์โทรติดต่อ");
+
+    // กันซ้ำ: เป็นดีลเลอร์อยู่แล้ว / มีใบสมัครค้างอยู่แล้ว
+    const dealersSnap = await db.ref("dealers").orderByChild("email").equalTo(email).once("value");
+    if (dealersSnap.exists()) {
+      throw new HttpsError("already-exists", "อีเมลนี้เป็นดีลเลอร์ในระบบแล้ว — เข้าสู่ระบบได้ที่ portal หรือติดต่อเจ้าหน้าที่");
+    }
+    const appsSnap = await db.ref("dealer_applications").orderByChild("email").equalTo(email).once("value");
+    if (appsSnap.exists()) {
+      let hasPending = false;
+      appsSnap.forEach((c) => {
+        if ((c.val() || {}).status === "pending") hasPending = true;
+      });
+      if (hasPending) {
+        throw new HttpsError("already-exists", "อีเมลนี้มีใบสมัครรอตรวจสอบอยู่แล้ว — เจ้าหน้าที่จะติดต่อกลับโดยเร็ว");
+      }
+    }
+
+    const appRef = db.ref("dealer_applications").push();
+    await appRef.set({
+      company_name: company.slice(0, 200),
+      tax_id: String(data.tax_id || "").trim().slice(0, 20) || null,
+      address: String(data.address || "").trim().slice(0, 500) || null,
+      contact_name: contact.slice(0, 100) || null,
+      phone: phone.slice(0, 30),
+      line_id: String(data.line_id || "").trim().slice(0, 100) || null,
+      email,
+      note: String(data.note || "").trim().slice(0, 1000) || null,
+      status: "pending",
+      created_at: nowMs(),
+    });
+
+    // แจ้งแอดมิน (CEO/MANAGER) + Telegram, และอีเมลยืนยันไปหาผู้สมัคร — best-effort
+    try {
+      const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+      await dispatchAdminPush(
+        {
+          data: {
+            type: "dealer_register",
+            title: "ใบสมัครดีลเลอร์ใหม่",
+            body: `${company} (${contact || phone}) — รอตรวจสอบ`,
+            url: "/dealers",
+          },
+        },
+        "dealerRegister",
+        "admin",
+        targets
+      );
+      await dispatchTelegram(
+        `📋 <b>ใบสมัครดีลเลอร์ใหม่</b>\n${company}\n${contact || "-"} · ${phone}\n${email}`,
+        "dealerRegister"
+      );
+    } catch (e) {
+      console.error("[dealer] register notify failed:", e?.message || e);
+    }
+    try {
+      await sendEmail({
+        to: email,
+        from: dealerEmailFrom(),
+        subject: "GETMOBIE ได้รับใบสมัครดีลเลอร์ของคุณแล้ว",
+        html: dealerShell({
+          heading: "ได้รับใบสมัครแล้ว",
+          intro: `ขอบคุณที่สนใจร่วมเป็นดีลเลอร์กับ ${esc(DEALER_LEGAL_NAME)} — เจ้าหน้าที่กำลังตรวจสอบข้อมูลของ <strong>${esc(company)}</strong>`,
+          bodyHtml: `<p style="margin:0;font-size:14px;color:#374151;">เมื่อผ่านการตรวจสอบ คุณจะได้รับอีเมลพร้อมบัญชีเข้าใช้งาน Dealer Portal เพื่อดูล็อตสินค้าและเสนอราคา โดยปกติใช้เวลาไม่เกิน 1-2 วันทำการ</p>`,
+        }),
+      });
+    } catch (e) {
+      console.error("[dealer] register confirm email failed:", e?.message || e);
+    }
+    console.log(`[dealer] application received ${email} (${company})`);
+    return { ok: true };
+  });
+
+  // ปฏิเสธใบสมัคร (CEO/MANAGER) — แจ้งผู้สมัครทางอีเมล best-effort
+  fns.adminDealerApplicationReject = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { caller } = await requireStaffRole(db, request.auth, ["CEO", "MANAGER"]);
+    const data = request.data || {};
+    const appId = String(data.applicationId || "");
+    const app = (await db.ref(`dealer_applications/${appId}`).once("value")).val();
+    if (!app) throw new HttpsError("not-found", "ไม่พบใบสมัคร");
+    if (app.status !== "pending") throw new HttpsError("failed-precondition", "ใบสมัครนี้ถูกจัดการไปแล้ว");
+
+    await db.ref(`dealer_applications/${appId}`).update({
+      status: "rejected",
+      rejected_at: nowMs(),
+      rejected_by: caller.name || null,
+      rejected_reason: String(data.reason || "").trim() || null,
+    });
+    if (app.email) {
+      try {
+        await sendEmail({
+          to: app.email,
+          from: dealerEmailFrom(),
+          subject: "ผลการสมัครดีลเลอร์ GETMOBIE",
+          html: dealerShell({
+            heading: "ขออภัย — ใบสมัครยังไม่ผ่านการตรวจสอบ",
+            intro: `ขอบคุณที่สนใจร่วมเป็นดีลเลอร์กับ ${esc(DEALER_LEGAL_NAME)} ครั้งนี้เรายังไม่สามารถเปิดบัญชีให้ได้`,
+            bodyHtml: `<p style="margin:0;font-size:14px;color:#374151;">หากต้องการข้อมูลเพิ่มเติมหรือคิดว่าเกิดความผิดพลาด กรุณาติดต่อเจ้าหน้าที่เพื่อยื่นใหม่อีกครั้ง</p>`,
+          }),
+        });
+      } catch (e) {
+        console.error("[dealer] reject email failed:", e?.message || e);
+      }
+    }
     return { ok: true };
   });
 

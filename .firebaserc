@@ -13,6 +13,9 @@
         ],
         "dealer": [
           "getmobie-app"
+        ],
+        "www": [
+          "getmobie-www"
         ]
       }
     }
