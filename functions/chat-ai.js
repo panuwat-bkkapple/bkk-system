@@ -1489,7 +1489,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     ``,
     `บุคลิกและน้ำเสียง:`,
     `- คุณคือพนักงานรับซื้อมืออาชีพที่อบอุ่น เป็นกันเอง และมั่นใจ เหมือนพนักงานหน้าร้านที่บริการดีที่สุด ไม่ใช่บอทตอบอัตโนมัติ`,
-    `- ภาษา: ตอบเป็น "ภาษาเดียวกับข้อความล่าสุดของลูกค้า" เสมอ — ลูกค้าพิมพ์อังกฤษ = ตอบอังกฤษลื่นไหลเป็นธรรมชาติ โทนเดียวกับเวอร์ชันไทย (อบอุ่น มืออาชีพ ไม่ใช้ bullet) ลูกค้าสลับภาษากลางคัน = สลับตามทันที และ "ห้ามอ้างว่าร้านให้บริการเฉพาะภาษาไทย" เด็ดขาด (ไม่ใช่นโยบายร้าน — เคยมีเคสปฏิเสธลูกค้าต่างชาติทั้งที่ตอบได้). กติกาข้อมูลไม่เปลี่ยนทุกภาษา: ราคา/ค่าบริการ/โปร/นโยบายยังต้องมาจากระบบเท่านั้น. ปุ่ม [ตัวเลือก: ...] แปลเป็นภาษาลูกค้าได้เพื่อให้กดง่าย แต่ตอนใส่ answers ให้ tools (create_quote_card ฯลฯ) ต้องใช้ label ภาษาไทยตรงตามชุดคำถามจริงจาก get_condition_questions เสมอ — ระบบจับคู่ตัวเลือกด้วยข้อความไทย`,
+    `- ภาษา: ตอบเป็น "ภาษาเดียวกับข้อความล่าสุดของลูกค้า" เสมอ — **ยกเว้นข้อความที่เป็นภาษากลาง** คือมีแต่ชื่อรุ่น/ตัวเลข/ความจุ (เช่น "IPhone 15 128", "apple watch se2", "256GB", เบอร์โทร) ซึ่งคนไทยก็พิมพ์แบบนี้กันปกติ — กรณีนี้ให้ยึด "ภาษาเดิมของบทสนทนา" ต่อไป ห้ามสลับเป็นอังกฤษ (เคสจริง: ลูกค้าทักไทยทั้งห้อง พอพิมพ์ชื่อรุ่นเป็นอังกฤษคำเดียว มาตินตอบอังกฤษยาวทั้งย่อหน้า). สลับภาษาเมื่อลูกค้าพิมพ์ประโยคภาษานั้นจริงๆ เท่านั้น — ลูกค้าพิมพ์อังกฤษ = ตอบอังกฤษลื่นไหลเป็นธรรมชาติ โทนเดียวกับเวอร์ชันไทย (อบอุ่น มืออาชีพ ไม่ใช้ bullet) ลูกค้าสลับภาษากลางคัน = สลับตามทันที และ "ห้ามอ้างว่าร้านให้บริการเฉพาะภาษาไทย" เด็ดขาด (ไม่ใช่นโยบายร้าน — เคยมีเคสปฏิเสธลูกค้าต่างชาติทั้งที่ตอบได้). กติกาข้อมูลไม่เปลี่ยนทุกภาษา: ราคา/ค่าบริการ/โปร/นโยบายยังต้องมาจากระบบเท่านั้น. ปุ่ม [ตัวเลือก: ...] แปลเป็นภาษาลูกค้าได้เพื่อให้กดง่าย แต่ตอนใส่ answers ให้ tools (create_quote_card ฯลฯ) ต้องใช้ label ภาษาไทยตรงตามชุดคำถามจริงจาก get_condition_questions เสมอ — ระบบจับคู่ตัวเลือกด้วยข้อความไทย`,
     `- ก่อนถามหรือให้ข้อมูลต่อ ให้รับทราบสิ่งที่ลูกค้าเพิ่งบอกสั้นๆ (เช่น "สภาพไม่มีรอยเลย ดีมากครับ" "แบต 90% ยังดีอยู่ครับ") ให้ลูกค้ารู้สึกว่ามีคนฟังอยู่จริง`,
     `- แต่ห้ามให้การรับทราบกลายเป็นสูตรซ้ำ (ปัญหาจริงที่ลูกค้ารำคาญ: ทุกข้อความขึ้นต้น "ดีครับ ... ขอถามต่อนะครับ" เหมือนหุ่นยนต์): (ก) ห้ามพูดประโยคเชื่อมประเภท "ขอถามต่อนะครับ/ขอถามอีกนิดนะครับ/ขอถามเรื่องถัดไปนะครับ" ซ้ำเกิน 1 ครั้งต่อบทสนทนา — คนจริงไม่ประกาศทุกครั้งว่ากำลังจะถามต่อ รับทราบสั้นๆ แล้วถามคำถามถัดไปตรงๆ ได้เลย (ข) เปลี่ยนคำรับทราบไปเรื่อยๆ อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้าของตัวเอง (ค) บางจังหวะรับทราบในเนื้อคำถามเลยก็ได้ เช่น "แบต 100% สภาพนางฟ้าเลยครับ แล้วกล่องอุปกรณ์ยังอยู่ครบไหมครับ" (ง) คำตอบกลางๆ ของลูกค้า (เช่น เลือกตัวเลือกเฉยๆ) ไม่ต้องชมหรือรับทราบทุกครั้ง ถามต่อได้เลย`,
     `- สรรพนามเรียกลูกค้า (มาตรฐานร้าน ห้ามพลาด): รู้ชื่อ = เรียก "คุณ" ตามด้วยชื่อ (เช่น "คุณต้น") เสมอ, ยังไม่รู้ชื่อ = "คุณลูกค้า" หรือ "คุณ" — ห้ามเรียก "น้อง/พี่/ลุง/ป้า/เธอ/นาย" เด็ดขาดทุกกรณี (บั๊กจริง: AI เรียกลูกค้าว่า "น้อง" — สุภาพเป็นกลางเท่านั้น ไม่ตีสนิทเกิน ไม่เดาอายุ/เพศ)`,
@@ -1691,8 +1691,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-07-30.3";
+const LOGIC_VERSION = "2026-07-30.4";
 const LOGIC_CHANGELOG = [
+  { at: "2026-07-30", text: "แก้เคสตอบอังกฤษทั้งที่คุยไทยกันอยู่ (เคสจริง 2 ห้อง: ลูกค้าทักไทย พอพิมพ์ชื่อรุ่นว่า \"IPhone 15 128\" หรือ \"apple watch se2\" มาตินตอบอังกฤษยาวทั้งย่อหน้า): ชื่อรุ่น/ความจุ/เบอร์โทร เป็น \"ภาษากลาง\" คนไทยก็พิมพ์แบบนี้ปกติ — ตัวเลือกภาษาเดิมดูแค่ข้อความล่าสุดว่ามีอักษรไทยไหม เลยตัดสินผิด. ตอนนี้ระบบดูบริบททั้งห้อง: ข้อความล่าสุดที่ไม่มีคำภาษาอังกฤษจริงๆ (มีแต่ชื่อรุ่น/ตัวเลข) จะยึดภาษาเดิมของบทสนทนา และสลับเป็นอังกฤษเฉพาะตอนลูกค้าพิมพ์ประโยคอังกฤษจริง — มีผลทั้งข้อความบังคับของระบบและกติกาใน persona" },
   { at: "2026-07-30", text: "มาตินระบุรุ่นจากรูปได้เอง ไม่ใช่แค่บอกว่า \"ในรูปไม่เห็นชื่อรุ่น\" แล้วจบ: ขั้นตอนใหม่คือ อ่านลักษณะที่เห็น (จำนวนเลนส์ ทรงโมดูลกล้อง สี ดีไซน์กล่อง) → เดารุ่นที่เป็นไปได้ → **เรียกค้นหาในระบบเทียบกับรุ่นที่ร้านมีจริง** → เสนอเป็นปุ่มให้ลูกค้ากดยืนยัน (ห้ามฟันธงจากความจำโดยไม่เทียบระบบ). สิ่งที่รูปกล่องบอกไม่ได้จริงๆ คือความจุ และการแยก Pro กับ Pro Max (ต่างกันแค่ขนาด) — กติกาใหม่ให้ขอ \"รูปสติกเกอร์ข้างกล่อง\" ซึ่งมีรุ่น+ความจุ+part number+ซีเรียลครบในรูปเดียว และถ้าอ่าน part number ได้ ตัวท้าย (TH/A ศูนย์ไทย, ZP เอเชีย, LL อเมริกา, J ญี่ปุ่น, CH จีน) ใช้ถามยืนยันเรื่องเครื่องศูนย์/เครื่องนอกได้ทันที (ยังต้องให้ลูกค้ายืนยันก่อนหักราคาเหมือนเดิม)" },
   { at: "2026-07-30", text: "มาตินดูรูปที่ลูกค้าส่งได้จริงแล้ว (เดิมตอบว่า \"ผมไม่สามารถดูรูปภาพที่ส่งมาได้\" ทั้งที่รูปกล่อง+ใบกำกับภาษีบอกรุ่น/ความจุ/ที่มาเครื่องครบในใบเดียว): รูปที่ลูกค้าแนบจะถูกส่งเข้าโมเดลพร้อมข้อความในเทิร์นนั้น ใช้อ่านชื่อรุ่น/ความจุจากกล่องหรือใบเสร็จ, อ่านเลขซีเรียล/IMEI, ดูสภาพรอยเบื้องต้น, ดูว่าซีลแกะแล้วหรือยัง. เพดานที่วางไว้กันค่าใช้จ่าย: แนบเฉพาะรูปล่าสุด (สูงสุด 2 ใบ จาก 8 ข้อความท้าย) ไม่ลากรูปเก่าไปทุกเทิร์น + cache ไม่ให้โหลดซ้ำ + โหลดไม่สำเร็จก็ตอบจากข้อความได้เหมือนเดิม. กฎเหล็กที่ยังคุมอยู่: ราคารับซื้อมาจากระบบเท่านั้น ห้ามอ่านราคาจากใบเสร็จ/กล่องมาใช้ และสิ่งที่เห็นจากรูปต้องให้ลูกค้ายืนยันก่อน ห้ามเอาไปหักราคาเอง" },
   { at: "2026-07-30", text: "ปิดช่องที่ทำให้ราคาในการ์ดต่ำกว่าความจริง (เคสจริง iPhone 16 Pro Max 256GB: ราคาจริง 28,500 แต่การ์ดออก 21,375): ลูกค้าพิมพ์ \"0655610223 จีน\" ตอบคำถามขอชื่อ+เบอร์ — คำว่า \"จีน\" คือชื่อเล่นลูกค้า แต่ AI ตีความเป็นเครื่องนอกจีน (CH) แล้วหักราคา 25% เอง ทั้งที่ไม่มีใครถามเรื่องประเทศเลย. ตอนนี้ระบบบังคับว่า \"ทุกการหักราคาต้องมีที่มา\": ถ้า AI ส่งคำตอบสภาพเครื่องที่หักเงิน โดยเรื่องนั้นลูกค้าไม่เคยพูดและไม่มีใครถาม ระบบจะไม่หัก (คิดเป็นสภาพปกติ + ระบุบนการ์ดว่าเป็นค่าประเมิน) และเตือน AI ให้ไปถามลูกค้าก่อน. ข้อความที่มีเบอร์โทรไม่ถูกใช้เป็นหลักฐานสภาพเครื่องอีก (ชื่อคนมักมาคู่กับเบอร์)" },
@@ -1824,6 +1825,43 @@ function isEnglishText(text) {
   const thai = (t.match(/[ก-๙]/g) || []).length;
   const latin = (t.match(/[a-zA-Z]/g) || []).length;
   return thai === 0 && latin >= 3;
+}
+
+// Product names are language-neutral: every Thai customer types "iPhone 15
+// 128" or "apple watch se2" in Latin script. isEnglishText() alone sees no
+// Thai characters and flips the canned replies to English mid-conversation —
+// live bug (#R3H2 / #FOH1): the customer opened in Thai, answered "IPhone 15
+// 128", and got the English contact ask. A message counts as ENGLISH only
+// when it carries an actual English function word; otherwise it is neutral
+// and the conversation's established language wins.
+const EN_FUNCTION_WORDS = /\b(i|you|we|my|me|your|the|a|an|is|are|am|was|were|do|does|did|can|could|would|should|will|want|need|have|has|how|what|when|where|which|who|why|please|thanks|thank|hello|hi|hey|sell|selling|buy|price|quote|much|about|for|with|from|and|or|but|not|no|yes|ok|okay|sorry|help|talk|speak|english|human|agent|staff|condition|battery|screen|damage|scratch|box|charger|warranty|trade|value|worth|still|available|send|photo|picture)\b/i;
+function hasEnglishWords(text) {
+  return EN_FUNCTION_WORDS.test(String(text || ""));
+}
+function isLanguageNeutralText(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  if (/[ก-๙]/.test(t)) return false;
+  return !hasEnglishWords(t);
+}
+
+// Which language should a DETERMINISTIC (canned) reply use? Latest message
+// decides when it actually carries a language; a neutral one (bare model
+// name, storage size, a phone number) inherits the conversation. Thai is the
+// shop's default when nothing indicates otherwise.
+function preferEnglishReply(latestText, history) {
+  if (/[ก-๙]/.test(String(latestText || ""))) return false;
+  if (isEnglishText(latestText) && hasEnglishWords(latestText)) return true;
+  // Neutral — walk back through the customer's own messages, newest first.
+  const list = Array.isArray(history) ? history : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || m.senderRole !== "customer") continue;
+    const t = String(m.text || "");
+    if (/[ก-๙]/.test(t)) return false;
+    if (isEnglishText(t) && hasEnglishWords(t)) return true;
+  }
+  return false;
 }
 
 // Deterministic reply when the offer-mode contact gate bounced an escalate
@@ -2044,7 +2082,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText, replyInEnglish }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -3203,7 +3241,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         // No callback number = a dead lead ("จะติดต่อกลับ" with nothing to
         // dial). Deterministic nudge whenever we escalate contact-less.
         const hasCallback = !!(convo.customer_phone || state.savedPhone);
-        const enCustomer = isEnglishText(lastCustomerText);
+        const enCustomer = replyInEnglish === true;
         await writeSystemMessage(
           db,
           convoId,
@@ -4007,7 +4045,11 @@ function registerChatAi({ dispatchAdminPush }) {
           .filter((m) => m.senderRole === "ai" || m.senderRole === "admin")
           .map((m) => String(m.text || ""))
           .join(" \n ");
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText });
+        // Language for DETERMINISTIC replies. A bare model name ("IPhone 15
+        // 128") carries no language, so it must not flip a Thai conversation
+        // to English — see preferEnglishReply.
+        const replyInEnglish = preferEnglishReply(text, history);
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText, replyInEnglish });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
@@ -4258,7 +4300,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // tail AND the final pre-send assertion below the verifier: swap a
         // dead-air "รอสักครู่" for the flow's real next step.
         const overrideWaitPromise = async () => {
-          const en = isEnglishText(text);
+          const en = replyInEnglish;
           const sealed = brandNewSealedIntent(text);
           if (state.ambCandidates && state.ambCandidates.length >= 2) {
             // Model still ambiguous this turn (live case #YDD2 "ipad 6": the
@@ -4306,7 +4348,7 @@ function registerChatAi({ dispatchAdminPush }) {
         // condition questions, no card this turn.
         if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote && contactGateWillBlock) {
           console.warn(`[${tag}] ${convoId} narrated a quote pre-contact-gate — asking contact instead of forcing a card`);
-          finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
+          finalText = contactFirstAskText(replyInEnglish, brandNewSealedIntent(text));
           state.cannedFinal = true;
           await markContactAsked();
         } else if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote) {
@@ -4372,7 +4414,7 @@ function registerChatAi({ dispatchAdminPush }) {
           if (!quoteOk && gateBlockedInRecovery) {
             // Not a failure — the contact-first policy fired. Continue the
             // sales flow instead of abandoning the lead to a human queue.
-            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
+            finalText = contactFirstAskText(replyInEnglish, brandNewSealedIntent(text));
             state.cannedFinal = true;
           } else if (!quoteOk) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
@@ -4480,7 +4522,7 @@ function registerChatAi({ dispatchAdminPush }) {
               // queued for staff, so the "เดี๋ยวแจ้งกลับ" draft is now a lie.
               // Swap it for the contact ask the gate demanded.
               console.warn(`[${tag}] ${convoId} forced escalate bounced by offer-mode gate — asking contact instead`);
-              finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
+              finalText = offerContactAskText(replyInEnglish, brandNewSealedIntent(text));
               state.cannedFinal = true;
             }
           }
@@ -4499,7 +4541,7 @@ function registerChatAi({ dispatchAdminPush }) {
           !/เบอร์|phone/i.test(finalText)
         ) {
           console.warn(`[${tag}] ${convoId} offer-mode gate fired but draft never asks for contact — overriding`);
-          finalText = offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));
+          finalText = offerContactAskText(replyInEnglish, brandNewSealedIntent(text));
           state.cannedFinal = true;
         }
 
@@ -4538,16 +4580,16 @@ function registerChatAi({ dispatchAdminPush }) {
           if (scrubbed && !priceLeakBeforeCard(scrubbed)) {
             finalText = scrubbed;
           } else if (contactGateWillBlock) {
-            finalText = contactFirstAskText(isEnglishText(text), brandNewSealedIntent(text));
+            finalText = contactFirstAskText(replyInEnglish, brandNewSealedIntent(text));
             state.cannedFinal = true;
             await markContactAsked();
           } else if (brandNewSealedIntent(text)) {
-            finalText = isEnglishText(text)
+            finalText = replyInEnglish
               ? "Sure — the exact amount will be on your quote card. One more thing: do you have the receipt or proof of purchase?"
               : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามต่อครับ — มีใบเสร็จหรือหลักฐานการซื้อไหมครับ";
             state.cannedFinal = true;
           } else {
-            finalText = isEnglishText(text)
+            finalText = replyInEnglish
               ? "Sure — the exact amount will be on your quote card. One more question about the device: any scratches or damage on the screen or body?"
               : "ได้ครับ ยอดที่แน่นอนจะสรุปบนใบเสนอราคาให้เลยครับ ขอถามสภาพเครื่องต่อครับ — จอหรือตัวเครื่องมีรอยหรือความเสียหายไหมครับ";
             state.cannedFinal = true;
@@ -4998,6 +5040,9 @@ module.exports = {
     yearOnlyDecline,
     modelFamilyLabel,
     looksLikeContactReply,
+    hasEnglishWords,
+    isLanguageNeutralText,
+    preferEnglishReply,
     attachCustomerImages,
     conditionTopicWords,
     conditionAnswerUnsupported,
