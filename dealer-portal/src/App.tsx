@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
-import { Boxes, ClipboardList, UserRound, LogOut } from 'lucide-react';
+import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
 import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
 import { LotList } from './pages/LotList';
 import { LotDetailPage } from './pages/LotDetailPage';
 import { Orders } from './pages/Orders';
@@ -24,7 +25,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       </header>
       <main className="shell">{children}</main>
       <nav className="tabbar">
-        <NavLink to="/" className={loc.pathname === '/' || loc.pathname.startsWith('/lots') ? 'active' : ''}>
+        <NavLink to="/" className={loc.pathname === '/' ? 'active' : ''}>
+          <LayoutDashboard size={20} /> หน้าหลัก
+        </NavLink>
+        <NavLink to="/lots" className={loc.pathname.startsWith('/lots') ? 'active' : ''}>
           <Boxes size={20} /> ล็อตสินค้า
         </NavLink>
         <NavLink to="/orders" className={loc.pathname.startsWith('/orders') ? 'active' : ''}>
@@ -45,7 +49,8 @@ const Guarded = () => {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<LotList />} />
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/lots" element={<LotList />} />
         <Route path="/lots/:id" element={<LotDetailPage />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderDetail />} />

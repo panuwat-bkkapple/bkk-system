@@ -6,11 +6,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref } from 'firebase/database';
-import { ArrowLeft, Lock, ShieldCheck, Trophy, ArrowRight, Clock3 } from 'lucide-react';
+import { ArrowLeft, Lock, ShieldCheck, Trophy, ArrowRight, Clock3, X, Check, Info, BatteryMedium } from 'lucide-react';
 import { db } from '../firebase';
 import { getMyBid, placeBid } from '../api';
 import {
-  LOT_STATUS_LABEL, fmtBaht, fmtDateTime,
+  LOT_STATUS_LABEL, QC_CHECK_LABEL, CLEAN_STATUS_LABEL, fmtBaht, fmtDateTime,
   type LotBidMode, type LotItem, type LotStatus, type MyBid, type MyLotOrder,
 } from '../types';
 
@@ -48,6 +48,8 @@ export const LotDetailPage = () => {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  // sheet สเปก + Diagnostic Report ของเครื่องที่แตะดู
+  const [sheetItem, setSheetItem] = useState<{ id: string; item: LotItem } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -156,7 +158,7 @@ export const LotDetailPage = () => {
 
   return (
     <div>
-      <button className="btn ghost small" style={{ marginTop: 16 }} onClick={() => navigate('/')}>
+      <button className="btn ghost small" style={{ marginTop: 16 }} onClick={() => navigate('/lots')}>
         <ArrowLeft size={14} /> กลับ
       </button>
 
@@ -244,14 +246,22 @@ export const LotDetailPage = () => {
             {items.map(([jobId, it]) => (
               <tr key={jobId} style={decided && wonItemIds.size > 0 && !wonItemIds.has(jobId) ? { opacity: 0.45 } : undefined}>
                 <td>
-                  <div className="bold">
+                  <div
+                    className="bold"
+                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => setSheetItem({ id: jobId, item: it })}
+                  >
                     {it.model}
+                    <Info size={13} style={{ color: 'var(--info)', flexShrink: 0 }} />
                     {decided && wonItemIds.has(jobId) && (
-                      <span className="pill green" style={{ marginLeft: 6, padding: '2px 8px', fontSize: 10 }}>ของคุณ</span>
+                      <span className="pill green" style={{ padding: '2px 8px', fontSize: 10 }}>ของคุณ</span>
                     )}
                   </div>
-                  <div className="tiny muted">
-                    เกรด {it.grade || '-'}{it.parts_condition ? ` · ${it.parts_condition}` : ''} · SN {it.serial_masked || '-'}
+                  <div className="tiny muted" style={{ marginTop: 2 }}>
+                    เกรด {it.grade || '-'}
+                    {it.battery_pct != null ? ` · แบต ${it.battery_pct}%` : ''}
+                    {it.color ? ` · ${it.color}` : ''}
+                    {' · SN '}{it.serial_masked || '-'}
                   </div>
                 </td>
                 <td className="amt bold money">{fmtBaht(it.asking_price)}</td>
@@ -350,6 +360,115 @@ export const LotDetailPage = () => {
           </div>
         )
       )}
+
+      {sheetItem && <DeviceSheet id={sheetItem.id} item={sheetItem.item} onClose={() => setSheetItem(null)} />}
+    </div>
+  );
+};
+
+// ─── สเปกเครื่อง + Diagnostic Report (bottom sheet) ───
+const DeviceSheet = ({ item, onClose }: { id: string; item: LotItem; onClose: () => void }) => {
+  const checks = Object.entries(item.qc_checks || {});
+  const clean = Object.entries(item.clean_status || {});
+  const bat = item.battery_pct;
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="grab" />
+        <div className="row" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <div className="black" style={{ fontSize: 17 }}>{item.model}</div>
+            <div className="tiny muted bold mt8">
+              {item.ref_no} · SN {item.serial_masked || '-'}
+              {item.qc_date ? ` · ตรวจเมื่อ ${fmtDateTime(item.qc_date)}` : ''}
+            </div>
+          </div>
+          <button className="btn ghost small" onClick={onClose} style={{ padding: 7 }}><X size={16} /></button>
+        </div>
+
+        <div className="row mt12" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+          {item.grade && <span className="pill blue">เกรด {item.grade}</span>}
+          {item.qc_passed === true && <span className="pill green">ผ่านการตรวจ QC</span>}
+          {item.qc_passed === false && <span className="pill red">มีตำหนิ — ดูหมายเหตุ</span>}
+          {item.asking_price != null && <span className="pill">ราคาตั้ง {fmtBaht(item.asking_price)}</span>}
+        </div>
+
+        {/* Device Specifications */}
+        <div className="sec-title" style={{ marginTop: 18 }}>สเปกเครื่อง</div>
+        <div className="spec-grid">
+          {item.capacity && <div className="cell"><div className="k">ความจุ</div><div className="v">{item.capacity}</div></div>}
+          {item.color && <div className="cell"><div className="k">สี</div><div className="v">{item.color}</div></div>}
+          {item.model_code && <div className="cell"><div className="k">รหัสรุ่น</div><div className="v mono">{item.model_code}</div></div>}
+          {item.parts_condition && <div className="cell"><div className="k">อะไหล่</div><div className="v">{item.parts_condition}</div></div>}
+          {item.accessories && <div className="cell"><div className="k">อุปกรณ์ที่ให้</div><div className="v">{item.accessories}</div></div>}
+          {item.warranty_days != null && <div className="cell"><div className="k">ประกันร้าน</div><div className="v">{item.warranty_days} วัน</div></div>}
+        </div>
+
+        {/* แบตเตอรี่ */}
+        {bat != null && (
+          <>
+            <div className="sec-title" style={{ marginTop: 16 }}>แบตเตอรี่</div>
+            <div className="row mt8">
+              <span className="small bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BatteryMedium size={16} style={{ color: bat >= 80 ? 'var(--accent)' : '#f79009' }} />
+                สุขภาพแบต {bat}%{item.battery_cycles != null ? ` · ${item.battery_cycles} รอบชาร์จ` : ''}
+              </span>
+            </div>
+            <div className={`bat-bar ${bat < 80 ? 'low' : ''}`}><span style={{ width: `${Math.min(100, Math.max(0, bat))}%` }} /></div>
+          </>
+        )}
+
+        {/* Diagnostic Report */}
+        {checks.length > 0 && (
+          <>
+            <div className="sec-title" style={{ marginTop: 16 }}>ผลตรวจการทำงาน ({checks.filter(([, v]) => v).length}/{checks.length} ผ่าน)</div>
+            <div className="check-grid">
+              {checks.map(([k, v]) => (
+                <span key={k} className={`check ${v ? '' : 'bad'}`}>
+                  {v ? <Check size={13} /> : <X size={13} />} {QC_CHECK_LABEL[k] || k}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* อะไหล่แท้/เปลี่ยน */}
+        {item.parts && (
+          <>
+            <div className="sec-title" style={{ marginTop: 16 }}>ชิ้นส่วนหลัก</div>
+            <div className="spec-grid">
+              {item.parts.screen && <div className="cell"><div className="k">จอ</div><div className="v">{item.parts.screen}</div></div>}
+              {item.parts.battery && <div className="cell"><div className="k">แบต</div><div className="v">{item.parts.battery}</div></div>}
+              {item.parts.camera && <div className="cell"><div className="k">กล้อง</div><div className="v">{item.parts.camera}</div></div>}
+            </div>
+          </>
+        )}
+
+        {/* ความพร้อมขายต่อ */}
+        {clean.length > 0 && (
+          <>
+            <div className="sec-title" style={{ marginTop: 16 }}>พร้อมขายต่อ</div>
+            <div className="check-grid">
+              {clean.map(([k, v]) => (
+                <span key={k} className={`check ${v ? '' : 'bad'}`}>
+                  {v ? <Check size={13} /> : <X size={13} />} {CLEAN_STATUS_LABEL[k] || k}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        {item.qc_notes && (
+          <>
+            <div className="sec-title" style={{ marginTop: 16 }}>หมายเหตุจากผู้ตรวจ</div>
+            <div className="notice mt8">{item.qc_notes}</div>
+          </>
+        )}
+
+        {checks.length === 0 && bat == null && !item.parts && (
+          <div className="notice mt16">เครื่องนี้ยังไม่มีรายงานผลตรวจละเอียดในระบบ — สอบถามเพิ่มเติมได้ที่เจ้าหน้าที่</div>
+        )}
+      </div>
     </div>
   );
 };

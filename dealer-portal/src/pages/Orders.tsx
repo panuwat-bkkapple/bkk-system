@@ -83,6 +83,16 @@ export const Orders = () => {
       {loading && (<><div className="skel" /><div className="skel" /></>)}
       {error && <div className="error">{error}</div>}
 
+      {/* สรุปประวัติสะสมในแท็บ "สำเร็จ" */}
+      {!loading && tab === 'done' && counts.done > 0 && (
+        <div className="card row">
+          <span className="small bold muted">ซื้อสำเร็จ {orders.filter((o) => o.status === 'completed').length} ดีล</span>
+          <span className="black money" style={{ fontSize: 17, color: 'var(--accent-deep)' }}>
+            {fmtBaht(orders.filter((o) => o.status === 'completed').reduce((s, o) => s + o.amount, 0))}
+          </span>
+        </div>
+      )}
+
       {!loading && visible.length === 0 && (
         <div className="empty">
           <ClipboardList size={28} style={{ color: 'var(--faint)', marginBottom: 8 }} />

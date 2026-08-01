@@ -205,6 +205,26 @@ function lotItemSnapshot(job, askingPrice) {
     askingPrice != null
       ? Number(askingPrice) || null
       : Number(job.promo_price) || Number(job.selling_price) || null;
+
+  // สเปก + ผลตรวจ QC (Diagnostic Report) ให้ดีลเลอร์ดูก่อนเสนอราคา —
+  // เอาเฉพาะข้อมูลเครื่อง ห้ามมี PII/serial เต็ม/ผล SickW (PDPA)
+  const qc = job.qc_details && typeof job.qc_details === "object" ? job.qc_details : {};
+  const pickBool = (v) => (typeof v === "boolean" ? v : null);
+  const checks = {};
+  for (const k of [
+    "screen_touch", "screen_display", "truetone", "faceid", "camera_front",
+    "camera_rear", "speaker_mic", "wifi_bt", "buttons", "charging",
+  ]) {
+    const v = pickBool(qc[k]);
+    if (v !== null) checks[k] = v;
+  }
+  const clean = {};
+  for (const k of ["icloud_off", "find_my_off", "mdm_clear", "sim_unlocked"]) {
+    const v = pickBool(qc[k]);
+    if (v !== null) clean[k] = v;
+  }
+  const battery = job.battery_health ?? job.battery_health_pct ?? null;
+
   return {
     model: job.model || "-",
     ref_no: job.ref_no || null,
@@ -214,6 +234,25 @@ function lotItemSnapshot(job, askingPrice) {
     warranty_days: job.warranty_days != null ? Number(job.warranty_days) : null,
     serial_masked: maskTail(job.serial || job.imei),
     asking_price: asking,
+    // Device Specifications
+    color: job.color || null,
+    capacity: job.capacity || null,
+    model_code: job.model_code || null,
+    battery_pct: battery != null ? Number(battery) : null,
+    battery_cycles: job.battery_cycle_count != null ? Number(job.battery_cycle_count) : null,
+    // Diagnostic Report (จากผลตรวจ QC จริง)
+    qc_passed: typeof job.qc_passed === "boolean" ? job.qc_passed : null,
+    qc_date: job.qc_date || null,
+    qc_checks: Object.keys(checks).length > 0 ? checks : null,
+    parts: qc.part_screen || qc.part_battery || qc.part_camera
+      ? {
+          screen: qc.part_screen || null,
+          battery: qc.part_battery || null,
+          camera: qc.part_camera || null,
+        }
+      : null,
+    clean_status: Object.keys(clean).length > 0 ? clean : null,
+    qc_notes: String(qc.notes || "").trim() || null,
   };
 }
 
@@ -1117,6 +1156,20 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       result,
       order,
     };
+  });
+
+  // ดีลเลอร์แก้ข้อมูลผู้ติดต่อของตัวเอง — เฉพาะฟิลด์ติดต่อเท่านั้น ข้อมูลนิติบุคคล
+  // (company_name/tax_id/address) ผูกกับเอกสารภาษี ต้องให้แอดมินแก้ (กันสวมสิทธิ์ใบกำกับ)
+  fns.dealerUpdateContact = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const data = request.data || {};
+    const patch = { updated_at: nowMs() };
+    if (data.contact_name !== undefined) patch.contact_name = String(data.contact_name || "").trim().slice(0, 100) || null;
+    if (data.phone !== undefined) patch.phone = String(data.phone || "").trim().slice(0, 30) || null;
+    if (data.line_id !== undefined) patch.line_id = String(data.line_id || "").trim().slice(0, 100) || null;
+    await db.ref(`dealers/${dealerUid}`).update(patch);
+    return { ok: true };
   });
 
   // ลิสต์คำสั่งซื้อของดีลเลอร์เอง — collection read ของ dealer_orders เป็น
