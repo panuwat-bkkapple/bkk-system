@@ -40,7 +40,7 @@ export const LoginScreen = ({ onLogin }: { onLogin: (staff: any) => void }) => {
             const newStaffRef = push(ref(db, 'staff'));
             const newStaff = {
               name: staffName,
-              email: user.email,
+              email: (user.email || '').trim().toLowerCase(),
               role: 'CEO',
               status: 'ACTIVE',
               pin: '0000',

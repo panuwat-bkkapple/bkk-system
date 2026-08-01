@@ -31,8 +31,10 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const [pendingDiscrepancies, setPendingDiscrepancies] = useState(0);
   const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
-  // Register admin FCM token for push notifications
-  useAdminPushNotifications(currentUser?.uid || currentUser?.id || null);
+  // Register admin FCM token for push notifications — keyed by staff push id
+  // (admin_fcm_tokens/{staffId}) because role-targeted pushes on the server
+  // (staffIdsByRoles) filter by that key, not by Firebase uid.
+  useAdminPushNotifications(currentUser?.id || currentUser?.uid || null);
 
   // Real-time new ticket alerts (in-app toast + sound + browser notification)
   const handleNewTicket = useCallback((ticket: any) => {

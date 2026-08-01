@@ -23,9 +23,15 @@ export async function getStaffByEmail(email: string) {
   const snapshot = await get(ref(db, 'staff'));
   if (!snapshot.exists()) return null;
 
+  const wanted = email.trim().toLowerCase();
   const data = snapshot.val();
   for (const [id, val] of Object.entries(data) as [string, any][]) {
-    if (val.email === email && val.active !== false) {
+    // staff records ใช้ status: ACTIVE/INACTIVE (ไม่ใช่ฟิลด์ active) —
+    // record เก่าที่ไม่มี status ถือว่ายังใช้งานได้ เทียบอีเมลแบบ normalize
+    // ให้เหมือน useStaffSession/lookupStaffByAuth
+    const status = String(val.status || '').toUpperCase();
+    const active = status === '' || status === 'ACTIVE';
+    if (wanted && String(val.email || '').trim().toLowerCase() === wanted && active) {
       return { id, ...val };
     }
   }

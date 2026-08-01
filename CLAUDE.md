@@ -163,10 +163,13 @@
 - **หน้า reconcile:** `/issued-coupons` (`src/pages/admin/IssuedCoupons.tsx`, CEO/MANAGER/FINANCE) — ตาราง issued vs used vs expired + มูลค่า + cross-check กับ `/reviews` (flag ใบที่ used แต่ไม่พบรีวิว) + export CSV
 
 ## Role-Based Access
+- Role ที่ระบบรู้จักมี **4 ค่าเท่านั้น**: CEO / MANAGER / STAFF / FINANCE (route guard ใน `App.tsx`, `settingsNav.tsx`, `AdminLayout`, `canReviewAdjustments`, `functions/staffIdsByRoles`) — ค่าเก่า CASHIER/QC ถูกเลิกใช้ หน้า `/staff` จะ flag ให้แก้
 - **CEO:** เข้าถึงทุกฟีเจอร์
-- **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings)
-- **STAFF:** เข้าถึงฟีเจอร์พื้นฐาน
-- **FINANCE:** เข้าถึง Finance, Daily Expenses
+- **MANAGER:** เข้าถึงเกือบทุกฟีเจอร์ (ยกเว้น Staff Management, Global Settings, รายงานการเงิน/ภาษี)
+- **STAFF:** เข้าถึงฟีเจอร์พื้นฐาน (Tickets, QC, คลัง, POS) — เสนอ Offer ได้แต่ต้องรอ CEO/MANAGER อนุมัติ
+- **FINANCE:** เข้าถึง Finance, Daily Expenses, P&L, ภ.พ.30, สมุดรายวัน, ตั้งค่าระบบบัญชี
+- **การผูก role ใช้อีเมล:** staff record ต้องมี `email` ตรงกับอีเมล Firebase Auth ที่ login (เก็บ lowercase — `useStaffSession` ฝั่ง client และ `lookupStaffByAuth` ฝั่ง functions จับคู่ด้วยอีเมล) ไม่มีอีเมล = login แล้วได้ role default STAFF
+- **FCM token ต้อง key ด้วย staff push id** (`admin_fcm_tokens/{staffId}`) ไม่ใช่ Firebase uid — push แบบเจาะ role (`staffIdsByRoles` → `dispatchAdminPush(allowStaffIds)`) ฟิลเตอร์ด้วย staff id; session จาก `useStaffSession`/PIN login มี `id` แล้ว call sites ใช้ `currentUser?.id || currentUser?.uid`
 
 ## RTDB Cost Rules (บทเรียนจากบิล ก.ค. 2026 — อย่าทำพัง)
 - **ห้าม scheduler อ่าน `/jobs` ทั้งก้อน** — ใช้ `fetchJobsByStatuses()` (query ตาม `.indexOn: status`) เสมอ. `checkOverdueReturns` รันทุก 5 นาที เคยกวาดทั้ง node = ~288 full download/วัน ลงบิลตรงๆ. ข้อยกเว้นที่ตั้งใจ: `autoFlagRiders` (วันละครั้ง ต้องดูทุกงานใน lookback) และ endpoint migration แบบ manual

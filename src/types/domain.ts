@@ -94,14 +94,20 @@ export enum PaymentMethod {
   CREDIT = 'CREDIT',
 }
 
-/** บทบาทผู้ใช้งาน */
+/**
+ * บทบาทผู้ใช้งาน — role ที่ route guard ทั้งระบบรู้จักมีแค่ 4 ค่า:
+ * CEO / MANAGER / STAFF / FINANCE (ดู App.tsx, settingsNav, AdminLayout,
+ * canReviewAdjustments, functions/staffIdsByRoles)
+ */
 export enum UserRole {
   CEO = 'CEO',
   MANAGER = 'MANAGER',
-  CASHIER = 'CASHIER',
-  QC = 'QC',
   FINANCE = 'FINANCE',
   STAFF = 'STAFF',
+  /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
+  CASHIER = 'CASHIER',
+  /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
+  QC = 'QC',
 }
 
 /** สถานะพนักงาน */

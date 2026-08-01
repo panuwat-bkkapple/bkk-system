@@ -15,8 +15,21 @@ import {
 // is fragile (the token dies when the app is closed), so this panel lets the
 // admin see the live state, force a token refresh, and fire a test push that
 // reports back whether delivery succeeded (token alive) or failed (token dead).
+// Same key preference as useAdminPushNotifications call sites: staff push id
+// (bkk_session) first — that's the admin_fcm_tokens key server-side pushes
+// filter by — falling back to the Firebase auth uid for legacy sessions.
+const sessionStaffId = (): string | null => {
+  try {
+    const saved = sessionStorage.getItem('bkk_session');
+    const s = saved ? JSON.parse(saved) : null;
+    return s?.id || null;
+  } catch {
+    return null;
+  }
+};
+
 export const NotificationStatusCard = () => {
-  const staffId = auth.currentUser?.uid || null;
+  const staffId = sessionStaffId() || auth.currentUser?.uid || null;
   const [health, setHealth] = useState<AdminTokenHealth | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [testing, setTesting] = useState(false);

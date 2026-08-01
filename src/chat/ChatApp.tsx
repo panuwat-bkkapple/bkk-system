@@ -59,7 +59,7 @@ function PushPermissionStrip({ staffId }: { staffId: string }) {
 }
 
 function ChatShell({ currentUser, onLogout }: { currentUser: StaffUser; onLogout: () => void }) {
-  const staffId = currentUser?.uid || currentUser?.id || '';
+  const staffId = currentUser?.id || currentUser?.uid || '';
   useAdminPushNotifications(staffId || null, 'chat');
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F5F5F7]">

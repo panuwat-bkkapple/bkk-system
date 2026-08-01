@@ -27,15 +27,24 @@ export function useStaffSession() {
           const staffSnap = await get(ref(db, 'staff'));
           let role = 'STAFF';
           let staffName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Admin';
+          // staff push key — admin_fcm_tokens และ role-targeted push ฝั่ง
+          // functions (staffIdsByRoles) ใช้ key นี้ ไม่ใช่ Firebase uid
+          let staffId: string | null = null;
+          const authEmail = (firebaseUser.email || '').trim().toLowerCase();
 
           if (staffSnap.exists()) {
             const staffData = staffSnap.val();
-            const matched = Object.values(staffData).find(
+            const matchedEntry = Object.entries(staffData).find(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (s: any) => s.email === firebaseUser.email && s.status === 'ACTIVE'
+              ([, s]: [string, any]) =>
+                String(s?.email || '').trim().toLowerCase() === authEmail &&
+                authEmail !== '' &&
+                s?.status === 'ACTIVE'
+            );
+            if (matchedEntry) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ) as any;
-            if (matched) {
+              const matched = matchedEntry[1] as any;
+              staffId = matchedEntry[0];
               role = matched.role || 'STAFF';
               staffName = matched.name || staffName;
             }
@@ -44,16 +53,18 @@ export function useStaffSession() {
             const newStaffRef = push(ref(db, 'staff'));
             await set(newStaffRef, {
               name: staffName,
-              email: firebaseUser.email,
+              email: authEmail,
               role: 'CEO',
               status: 'ACTIVE',
               createdAt: new Date().toISOString(),
             });
             role = 'CEO';
+            staffId = newStaffRef.key;
           }
 
           const autoUser = {
             uid: firebaseUser.uid,
+            ...(staffId ? { id: staffId } : {}),
             name: staffName,
             email: firebaseUser.email || '',
             role,
