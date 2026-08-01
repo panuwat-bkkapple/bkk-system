@@ -10,6 +10,7 @@ export interface DealerProfile {
   address?: string | null;
   contact_name?: string | null;
   phone?: string | null;
+  line_id?: string | null;
   email: string;
   tier: DealerTier;
   status: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
@@ -27,7 +28,40 @@ export interface LotItem {
   warranty_days?: number | null;
   serial_masked?: string | null;
   asking_price?: number | null;
+  // Device Specifications
+  color?: string | null;
+  capacity?: string | null;
+  model_code?: string | null;
+  battery_pct?: number | null;
+  battery_cycles?: number | null;
+  // Diagnostic Report (ผลตรวจ QC)
+  qc_passed?: boolean | null;
+  qc_date?: number | null;
+  qc_checks?: Record<string, boolean> | null;
+  parts?: { screen?: string | null; battery?: string | null; camera?: string | null } | null;
+  clean_status?: Record<string, boolean> | null;
+  qc_notes?: string | null;
 }
+
+export const QC_CHECK_LABEL: Record<string, string> = {
+  screen_touch: 'ทัชสกรีน',
+  screen_display: 'จอแสดงผล',
+  truetone: 'True Tone',
+  faceid: 'Face ID',
+  camera_front: 'กล้องหน้า',
+  camera_rear: 'กล้องหลัง',
+  speaker_mic: 'ลำโพง/ไมค์',
+  wifi_bt: 'WiFi/Bluetooth',
+  buttons: 'ปุ่มกด',
+  charging: 'การชาร์จ',
+};
+
+export const CLEAN_STATUS_LABEL: Record<string, string> = {
+  icloud_off: 'ออก iCloud แล้ว',
+  find_my_off: 'ปิด Find My แล้ว',
+  mdm_clear: 'ไม่ติด MDM',
+  sim_unlocked: 'ไม่ติดล็อกซิม',
+};
 
 export interface LotSummary {
   id: string;

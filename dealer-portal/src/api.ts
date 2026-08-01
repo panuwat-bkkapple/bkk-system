@@ -28,3 +28,6 @@ export const listOrders = () => call<{ orders: DealerOrderSummary[] }>('dealerLi
 
 export const submitPaymentSlip = (orderId: string, slipUrl: string) =>
   call<{ ok: boolean }>('dealerSubmitPaymentSlip', { orderId, slip_url: slipUrl });
+
+export const updateContact = (payload: { contact_name?: string; phone?: string; line_id?: string }) =>
+  call<{ ok: boolean }>('dealerUpdateContact', payload);
