@@ -1307,15 +1307,39 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("a bare model+storage line still cannot justify a fault answer", unsup("iPhone 12 Pro 256GB"));
   check("a contact reply still cannot justify a fault answer", unsup("0655610223 จีน"));
   // Ambiguous symptoms: 86% battery + unexpected shutdown maps to BOTH
-  // "แบตเตอรี่เสื่อม" (pct 20, still buyable) and "ดับเอง" (reject). Guessing
-  // either way is wrong, so the persona must ask one splitting question built
-  // from the set's real options, and treat "ไม่แน่ใจ" as the worse branch.
-  check("persona has the ambiguous-symptom rule", sysNoCust.includes("6.10.1"));
-  check("rule reads the real condition set before judging", /6\.10\.1[\s\S]{0,900}get_condition_questions/.test(sysNoCust));
-  check("rule forbids inventing a price for a symptom", /6\.10\.1[\s\S]{0,1400}ห้ามเดาราคาให้อาการเด็ดขาด/.test(sysNoCust));
-  check("unsure defaults to the worse branch", /6\.10\.1[\s\S]{0,1400}ถือว่าเป็นอาการที่หนักกว่า/.test(sysNoCust));
-  check("splitting question is asked once, then move on", /6\.10\.1[\s\S]{0,1500}ถามแยกทางได้ "ครั้งเดียว"/.test(sysNoCust));
-  check("owner-visible behaviors mention the two-way symptom", src.includes("ตีความได้ 2 ทาง"));
+  // "แบตเตอรี่เสื่อม" (pct 20, still buyable) and "ดับเอง" (reject). The first
+  // cut asked the customer to pick a branch — but a customer who could name
+  // the cause would have named it already. Owner's steer: diagnose like a
+  // technician instead — hypothesise the COMMONEST cause, then ask what
+  // actually discriminates, battery health first, repair history second.
+  const R = (re) => new RegExp(`6\\.10\\.1[\\s\\S]{0,3000}${re}`).test(sysNoCust);
+  check("persona has the symptom-diagnosis rule", sysNoCust.includes("6.10.1"));
+  check("rule reads the real condition set before judging", R("get_condition_questions"));
+  check("rule hypothesises the commonest cause, not the worst", R("พบบ่อยที่สุด") && R("อย่าเดาสาเหตุที่แย่ที่สุด"));
+  check("shutdown-at-86% points at a battery that cannot hold charge", R("แบตเสื่อม เก็บประจุไม่อยู่"));
+  check("battery health is asked first", R("สุขภาพแบตกี่ %"));
+  check("repair history is asked next, battery replacement specifically", R("เคยซ่อมหรือเปลี่ยนอะไหล่ไหม โดยเฉพาะเคยเปลี่ยนแบตมาหรือยัง"));
+  check("customer is told why we are asking, in plain words", R("พูดสมมติฐานให้ลูกค้าฟังสั้นๆ เป็นภาษาคน"));
+  // The playbook must cover the other faults a buyback desk actually meets,
+  // otherwise only the battery case is diagnosed and the rest fall back to
+  // guessing.
+  for (const [sym, probe] of [
+    ["เปิดไม่ติด จอดำ", "ชาร์จทิ้งไว้สักพักแล้วติดไหม"],
+    ["ค้าง/รีเอง", "อัปเดต iOS ล่าสุดแล้วยังเป็นไหม"],
+    ["ร้อน/ชาร์จไม่เข้า", "เปลี่ยนสาย/หัวชาร์จแล้วยังเป็นไหม"],
+    ["จอลาย/ทัชไม่ติด", "เคยเปลี่ยนจอมาไหม"],
+  ]) check(`playbook covers "${sym}"`, R(probe));
+  // Guardrails: diagnosing must not turn into repair advice, an interrogation,
+  // or a made-up number.
+  check("rule forbids inventing a price for a symptom", R("ห้ามเดาราคาให้อาการเด็ดขาด"));
+  check("we price the device, we do not diagnose for the service centre", R("ห้ามให้คำแนะนำเชิงซ่อม"));
+  check("unsure defaults to the worse branch plus a staff inspection", R("ยึดทางที่หนักกว่าไว้ก่อน") && R("เจ้าหน้าที่ตรวจเครื่อง"));
+  check("questioning is capped at two, then move on", R("ซักได้ไม่เกิน 2 คำถามแล้วต้องเดินหน้าต่อ"));
+  // Diagnosis reuses the standard condition questions (battery %, repair
+  // history) reordered — it must not read as a second round, which rule 6.3
+  // forbids outright.
+  check("diagnosis reuses the standard questions instead of a second round", R("ไม่ใช่ถามเพิ่มเป็นรอบใหม่"));
+  check("owner-visible behaviors describe the specialist questioning", src.includes("ซักแบบช่าง") && src.includes("แบตเก็บประจุไม่อยู่"));
 }
 
 // --- year-only decline: old years never become a which-model quiz ------------
