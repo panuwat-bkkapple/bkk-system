@@ -72,6 +72,7 @@ const LotManager = lazy(() => import('./pages/dealers/LotManager').then(m => ({ 
 const LotDetail = lazy(() => import('./pages/dealers/LotDetail').then(m => ({ default: m.LotDetail })));
 const DealerOrders = lazy(() => import('./pages/dealers/DealerOrders').then(m => ({ default: m.DealerOrders })));
 const DealerSettings = lazy(() => import('./pages/admin/DealerSettings'));
+const DealerAnalytics = lazy(() => import('./pages/dealers/DealerAnalytics').then(m => ({ default: m.DealerAnalytics })));
 
 // ==========================================
 // Main App Router
@@ -147,6 +148,7 @@ export default function App() {
               <Route path="/lots" element={<LotManager />} />
               <Route path="/lots/:id" element={<LotDetail />} />
               <Route path="/dealer-orders" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' || currentUser?.role === 'STAFF' ? <DealerOrders /> : <Navigate to="/" replace />} />
+              <Route path="/dealer-analytics" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <DealerAnalytics /> : <Navigate to="/" replace />} />
               <Route path="/warranty" element={<WarrantyClaims />} />
               {/* Catalog เป็นหน้า immersive เต็มความกว้าง — อยู่นอก SettingsLayout
                   แต่ยังถูกลิงก์จากเมนู Settings (hub + sidebar) */}

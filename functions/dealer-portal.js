@@ -669,6 +669,18 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     const dealers = await loadActiveDealers(db);
     const eligible = eligibleDealersOf(dealers, lot.visible_tiers || {});
 
+    // Early access ตาม tier: tier ที่ตั้ง early_access_min มากสุดเปิดทันที
+    // tier อื่นเปิดช้ากว่าตามส่วนต่าง (settings/dealer/tiers/{t}/early_access_min)
+    const tiersCfg = settings.tiers || {};
+    const visibleTierKeys = Object.keys(lot.visible_tiers || {});
+    const earlyOf = (t) => Number(tiersCfg[t] && tiersCfg[t].early_access_min) || 0;
+    const maxEarly = Math.max(0, ...visibleTierKeys.map(earlyOf));
+    const publishAt = nowMs();
+    const tierOpenAt = {};
+    for (const t of visibleTierKeys) {
+      tierOpenAt[t] = publishAt + (maxEarly - earlyOf(t)) * 60000;
+    }
+
     // multi-path update เดียว: เปิด lot + ล็อกทุกเครื่อง (atomic — ไม่มีเครื่อง
     // ครึ่งล็อกครึ่งหลุดถ้าพังกลางทาง)
     const updates = {};
@@ -679,6 +691,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     updates[`lots/${lotId}/open_at`] = nowMs();
     updates[`lots/${lotId}/published_at`] = nowMs();
     updates[`lots/${lotId}/eligible_count`] = eligible.length;
+    updates[`lots/${lotId}/tier_open_at`] = tierOpenAt;
     if (lot.show_bid_stats === true) {
       updates[`lots/${lotId}/bid_stats`] = { bid_count: 0 };
     }
@@ -701,11 +714,18 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       by: caller.name || null,
     });
 
-    // แจ้งดีลเลอร์ tier ที่มีสิทธิ์ (best-effort — อีเมลพังไม่ทำให้ publish ล้ม)
+    // แจ้งดีลเลอร์ (best-effort — อีเมลพังไม่ทำให้ publish ล้ม): ส่งทันทีเฉพาะ
+    // tier ที่หน้าต่างเปิดแล้ว — tier ที่รอ early access ให้ scheduler ส่งเมื่อถึงเวลา
+    // (กันอีเมลลิงก์ไป lot ที่ตัวเองยังเปิดไม่ได้)
     const mail = buildLotOpenEmail({ ...lot, id: lotId, lot_no: lotNo, items, item_count: itemIds.length });
-    const results = await Promise.allSettled(
-      eligible.filter((d) => d.email).map((d) => sendEmail({ to: d.email, ...mail }))
+    const openNowTiers = visibleTierKeys.filter((t) => tierOpenAt[t] <= publishAt);
+    const notifyNow = eligible.filter(
+      (d) => d.email && openNowTiers.includes(String(d.tier || "").toUpperCase())
     );
+    const results = await Promise.allSettled(notifyNow.map((d) => sendEmail({ to: d.email, ...mail })));
+    for (const t of openNowTiers) {
+      await db.ref(`lots/${lotId}/tier_notified/${t}`).set(nowMs());
+    }
     const sent = results.filter((r) => r.status === "fulfilled").length;
     await dispatchTelegram(
       `📦 <b>เปิดประมูล ${lotNo}</b>\n${lot.title || ""}\n${itemIds.length} เครื่อง · แจ้งดีลเลอร์ ${sent}/${eligible.length} ราย`,
@@ -801,10 +821,13 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     for (const [lotId, lot] of Object.entries(lots)) {
       if (!lot || lot.status === "draft" || lot.status === "cancelled") continue;
       const tierVisible = lot.visible_tiers && lot.visible_tiers[tier] === true;
+      // Early access: tier ที่หน้าต่างยังไม่เปิด มองไม่เห็น lot (เว้นแต่เคยเสนอแล้ว)
+      const tierOpenAt = (lot.tier_open_at && lot.tier_open_at[tier]) || 0;
+      const tierOpenNow = tierOpenAt <= nowMs();
       const myBidSnap = await db.ref(`lot_bids/${lotId}/${dealerUid}`).once("value");
       const myBid = myBidSnap.val();
       const isOpen = lot.status === "open" && Number(lot.close_at) > nowMs();
-      if (!(isOpen && tierVisible) && !myBid) continue;
+      if (!(isOpen && tierVisible && tierOpenNow) && !myBid) continue;
 
       out.push({
         id: lotId,
@@ -912,6 +935,14 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     const tier = String(dealer.tier || "").toUpperCase();
     if (!(lot.visible_tiers && lot.visible_tiers[tier] === true)) {
       throw new HttpsError("permission-denied", "lot นี้ไม่เปิดสำหรับ tier ของคุณ");
+    }
+    // Early access: บังคับซ้ำฝั่ง server (ชั้นแสดงผลอย่างเดียวไว้ใจไม่ได้)
+    const tierOpenAtBid = (lot.tier_open_at && lot.tier_open_at[tier]) || 0;
+    if (nowMs() < Number(tierOpenAtBid)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `lot นี้จะเปิดให้ tier ของคุณเวลา ${new Date(Number(tierOpenAtBid)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`
+      );
     }
 
     const type = data.type === "per_item" ? "per_item" : "whole_lot";
@@ -1378,6 +1409,12 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         by: caller.name || null,
       });
     }
+    // สถิติสะสมของดีลเลอร์ (server เขียนคนเดียว) — โชว์ในหน้า /dealers + analytics
+    await db.ref(`dealers/${order.dealer_uid}/stats`).transaction((cur) => ({
+      orders: ((cur && cur.orders) || 0) + 1,
+      total_amount: ((cur && cur.total_amount) || 0) + (Number(order.amount) || 0),
+      last_order_at: nowMs(),
+    }));
     return { ok: true, sale_id: saleRef.key };
   });
 
@@ -1515,6 +1552,8 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
   // Scheduler — ปิดรับอัตโนมัติเมื่อถึง close_at (+ เตือนใกล้ปิดรับ Phase 3)
   // query ตาม .indexOn: status เฉพาะ lot ที่ open — node เล็ก ไม่ผิดกฎ RTDB cost
   // ───────────────────────────────────────────────────────────────────────────
+  const CLOSING_SOON_MS = 60 * 60 * 1000; // เตือน 1 ชม.ก่อนปิดรับ
+
   fns.dealerLotScheduler = onSchedule(
     { schedule: "every 5 minutes", region: REGION, timeZone: "Asia/Bangkok" },
     async () => {
@@ -1523,15 +1562,69 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         const snap = await db.ref("lots").orderByChild("status").equalTo("open").once("value");
         if (!snap.exists()) return;
         const now = nowMs();
-        const tasks = [];
+        const openLots = [];
         snap.forEach((child) => {
-          const lot = child.val();
-          if (lot && Number(lot.close_at) > 0 && now >= Number(lot.close_at)) {
-            tasks.push(closeLotInternal(db, child.key, lot, null));
-          }
+          openLots.push({ id: child.key, lot: child.val() });
         });
-        await Promise.all(tasks);
-        if (tasks.length > 0) console.log(`[dealer] scheduler closed ${tasks.length} lot(s)`);
+
+        // 1) ปิดรับอัตโนมัติเมื่อเลย close_at
+        const toClose = openLots.filter(({ lot }) => lot && Number(lot.close_at) > 0 && now >= Number(lot.close_at));
+        await Promise.all(toClose.map(({ id, lot }) => closeLotInternal(db, id, lot, null)));
+        if (toClose.length > 0) console.log(`[dealer] scheduler closed ${toClose.length} lot(s)`);
+
+        const stillOpen = openLots.filter(({ lot }) => lot && now < Number(lot.close_at));
+        if (stillOpen.length === 0) return;
+        const dealers = await loadActiveDealers(db);
+
+        for (const { id, lot } of stillOpen) {
+          // 2) Early access: tier ที่หน้าต่างเพิ่งเปิด → ส่งอีเมลเปิด lot (ครั้งเดียวต่อ tier)
+          const tierOpenAt = lot.tier_open_at || {};
+          const notified = lot.tier_notified || {};
+          const dueTiers = Object.keys(lot.visible_tiers || {}).filter(
+            (t) => !notified[t] && Number(tierOpenAt[t] || 0) <= now
+          );
+          if (dueTiers.length > 0) {
+            const mail = buildLotOpenEmail({ ...lot, id });
+            const targets = dealers.filter(
+              (d) => d.email && dueTiers.includes(String(d.tier || "").toUpperCase())
+            );
+            await Promise.allSettled(targets.map((d) => sendEmail({ to: d.email, ...mail })));
+            for (const t of dueTiers) await db.ref(`lots/${id}/tier_notified/${t}`).set(now);
+            console.log(`[dealer] early-access mail ${lot.lot_no || id} tiers=${dueTiers.join(",")} sent=${targets.length}`);
+          }
+
+          // 3) ใกล้ปิดรับ (1 ชม.) → เตือนเฉพาะดีลเลอร์ที่มีสิทธิ์แต่ยังไม่เสนอ (ครั้งเดียว)
+          if (!lot.closing_soon_at && Number(lot.close_at) - now <= CLOSING_SOON_MS) {
+            const bidsSnap = await db.ref(`lot_bids/${id}`).once("value");
+            const bidderUids = new Set(bidsSnap.exists() ? Object.keys(bidsSnap.val()) : []);
+            const targets = eligibleDealersOf(dealers, lot.visible_tiers || {}).filter(
+              (d) =>
+                d.email &&
+                !bidderUids.has(d.uid) &&
+                Number((lot.tier_open_at || {})[String(d.tier || "").toUpperCase()] || 0) <= now
+            );
+            const closeText = new Date(Number(lot.close_at)).toLocaleString("th-TH", {
+              timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short",
+            });
+            await Promise.allSettled(
+              targets.map((d) =>
+                sendEmail({
+                  to: d.email,
+                  subject: `ใกล้ปิดรับราคา ${lot.lot_no || ""} — เหลือไม่ถึง 1 ชั่วโมง`,
+                  html: shell({
+                    heading: `ล็อต ${esc(lot.lot_no || "")} ใกล้ปิดรับราคา`,
+                    intro: `${esc(lot.title || "")} · ปิดรับ ${esc(closeText)} — คุณยังไม่ได้เสนอราคา`,
+                    bodyHtml: `<div style="text-align:center;margin-top:8px;">
+                      <a href="${portalBaseUrl()}/lots/${esc(id)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">เสนอราคาตอนนี้</a>
+                    </div>`,
+                  }),
+                })
+              )
+            );
+            await db.ref(`lots/${id}/closing_soon_at`).set(now);
+            console.log(`[dealer] closing-soon mail ${lot.lot_no || id} sent=${targets.length}`);
+          }
+        }
       } catch (e) {
         console.error("[dealer] scheduler failed:", e?.message || e);
       }

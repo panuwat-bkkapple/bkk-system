@@ -160,6 +160,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <NavButton collapsed={isCollapsed} to="/lots" icon={<Package size={18} />} label="ล็อตขายส่ง (Lots)" />
               <NavButton collapsed={isCollapsed} to="/dealer-orders" icon={<Receipt size={18} />} label="คำสั่งซื้อดีลเลอร์" />
               {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/dealers" icon={<Users size={18} />} label="ทะเบียนดีลเลอร์" />}
+              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/dealer-analytics" icon={<TrendingUp size={18} />} label="วิเคราะห์ขายส่ง" />}
             </div>
           </div>
 
