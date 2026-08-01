@@ -835,7 +835,7 @@ check("different-gen e never cross-matches", !__test.rankModels(E_CATALOG2, "iph
   check("offer-mode backstop exists after the guard", backstop > guard);
   check("backstop keys on the gate having fired this turn", src.indexOf("state.offerContactPromptedThisTurn &&", backstop) > backstop);
   check("backstop keeps drafts that already ask for a number", src.indexOf("!/เบอร์|phone/i.test(finalText)", backstop) > backstop);
-  check("backstop overrides with the canned contact ask", src.indexOf("offerContactAskText(isEnglishText(text), brandNewSealedIntent(text));", backstop) > backstop);
+  check("backstop overrides with the canned contact ask", src.indexOf("offerContactAskText(replyInEnglish, brandNewSealedIntent(text));", backstop) > backstop);
   check("OFFER_CONTACT_ASK asks for name+phone+device details", /const OFFER_CONTACT_ASK\s*=\s*\n?\s*"[^"]*เบอร์โทร[^"]*ความจุ/.test(src));
 }
 
@@ -1125,6 +1125,36 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("sealed canned texts are not dead promises themselves", !__test.waitPromiseIntent(sealedAsk) && !__test.waitPromiseIntent(sealedOffer));
   check("override tail has a sealed branch", src.includes("รบกวนบอกความจุ และมีใบเสร็จหรือหลักฐานการซื้อไหมครับ"));
   check("persona: sealed units skip the condition series", sysNoCust.includes("เครื่องมือ 1 ที่ยังไม่แกะกล่อง/ยังไม่แกะซีล: ข้ามชุดคำถามสภาพมือสองทั้งหมด"));
+}
+
+// --- a bare model name must not flip a Thai conversation to English ----------
+// Live bug (#R3H2 / #FOH1): the customer opened in Thai, answered "IPhone 15
+// 128" / "apple watch se2", and got the ENGLISH canned contact ask — product
+// names are Latin script for Thai customers too, and the language decision
+// only looked at the latest message. Now: a message with no real English word
+// is language-NEUTRAL and inherits the conversation's language.
+{
+  const thaiConvo = [
+    { senderRole: 'customer', text: 'สวัสดีครับ อยากประเมินราคาขายเครื่องครับ' },
+    { senderRole: 'ai', text: 'สวัสดีครับ อยากขายรุ่นไหนแจ้งมาได้เลยครับ' },
+  ];
+  const en = (t, h) => __test.preferEnglishReply(t, h);
+  check('#R3H2 "IPhone 15 128" after Thai stays Thai', en('IPhone 15 128', [...thaiConvo, { senderRole: 'customer', text: 'IPhone 15 128' }]) === false);
+  check('#FOH1 "apple watch se2" after Thai stays Thai', en('apple watch se2', [...thaiConvo, { senderRole: 'customer', text: 'apple watch se2' }]) === false);
+  check('a bare storage size stays Thai', en('256GB', thaiConvo) === false);
+  check('a phone + nickname stays Thai', en('0655610223 จีน', thaiConvo) === false);
+  // The multilingual feature must not regress: real English still gets English.
+  const enConvo = [{ senderRole: 'customer', text: 'Hi, I want to sell my iPhone' }];
+  check('a genuine English opener gets English', en('Hi, I want to sell my iPhone', enConvo) === true);
+  check('a bare model name inside an English convo stays English', en('iPhone 15 128', [...enConvo, { senderRole: 'customer', text: 'iPhone 15 128' }]) === true);
+  check('switching to English mid-Thai is honoured', en('can you speak english please', thaiConvo) === true);
+  check('any Thai characters always mean Thai', en('แบต 89 สวย ครบกล่อง', enConvo) === false);
+  check('no history + neutral text defaults to Thai', en('iPhone 15', []) === false);
+  check('neutral detector: model names are neutral', __test.isLanguageNeutralText('apple watch se2') === true);
+  check('neutral detector: real English is not', __test.isLanguageNeutralText('how much') === false);
+  check('canned replies use the conversation-aware decision', !/= isEnglishText\(text\)/.test(src) && !/\(isEnglishText\(text\)/.test(src));
+  check('the escalation system message uses it too', src.includes('const enCustomer = replyInEnglish === true;'));
+  check('persona carries the neutral-language rule', sysNoCust.includes('ยกเว้นข้อความที่เป็นภาษากลาง'));
 }
 
 // --- Martin can actually see customer photos ---------------------------------
