@@ -1,6 +1,7 @@
 import { CONDITION_TEMPLATES, FUNCTIONAL_TEMPLATES } from './assessmentSeedTemplates';
 import { fillEnFields } from './assessmentEnSeed';
 import { writeConditionSet } from './conditionSets';
+import { representativeBasePrice } from './perModelConditionSets';
 
 /**
  * Auto-apply the generation battery/warranty/region templates to every
@@ -228,13 +229,75 @@ export function buildFunctionalScreeningGroups(tier: IphoneGeneration): any[] {
 }
 
 /**
+ * นโยบายค่าหักกล่อง/อุปกรณ์ราย line ของ iPad (เจ้าของร้าน ส.ค. 2026) —
+ * หัวข้อกล่องเป็นหัวข้อที่ "ปรับตามรุ่น" เป็นเจ้าของ (อยู่ใน REPLACED_TITLE_RES)
+ * เลขที่กรอกมือใน Engine จะถูกรีเซ็ตทุกครั้งที่กดปุ่ม จึงต้องฝังเป็น policy
+ * ที่นี่ให้ survive การกดซ้ำ:
+ *   iPad Air รุ่น 6-8 (M2-M4)  -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
+ *   iPad Pro M4-M5             -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
+ *   iPad Generation 10         -> คงค่าที่แอดมินตั้งไว้เดิม (500/800)
+ *   iPad อื่นทุกรุ่น           -> กันไว้ที่ ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ *     (ครอบคลุม Air 4-5, Pro M1-M2, Gen 11 ตามนโยบาย และเป็น fallback ของ
+ *      mini/Gen/รุ่นเก่าที่ไม่ระบุ — เจ้าของร้านสั่งไม่ให้ปล่อย 0)
+ */
+export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDevice: number } | null {
+  const name = String(modelName || '').trim();
+  if (!/^ipad/i.test(name)) return null;
+  const chip = name.match(/ชิป\s*M(\d)|(?:^|[\s("])M(\d)\b/i);
+  const m = chip ? Number(chip[1] || chip[2]) : null;
+  if (/^ipad air/i.test(name) && m != null && m >= 2) return { missingBox: 1000, bareDevice: 1500 };
+  if (/^ipad pro/i.test(name) && m != null && m >= 4) return { missingBox: 1000, bareDevice: 1500 };
+  if (/^ipad generation 10\b/i.test(name)) return { missingBox: 500, bareDevice: 800 };
+  return { missingBox: 500, bareDevice: 1000 };
+}
+
+/**
+ * Mac "เครื่องเปล่า (ไม่มีอะแดปเตอร์/กล่อง)" — นโยบายเจ้าของร้าน: 3% ของราคา
+ * แต่**ขั้นต่ำ 1,000 บาท** (อะแดปเตอร์แท้ 2,000-3,500 บาท เครื่องถูกก็ต้องซื้อ
+ * อยู่ดี). schema ของ option ไม่มีฟิลด์ขั้นต่ำ จึง bake เป็นบาทต่อรุ่นที่ราคา
+ * กลางของรุ่น (median used price) ตอนกด "ปรับตามรุ่น" — ปัดขึ้นเป็นหลักร้อย.
+ */
+export function macBareDeviceDeduct(model: any): number {
+  const rep = representativeBasePrice(model);
+  const pctBaht = rep > 0 ? Math.ceil((rep * 0.03) / 100) * 100 : 0;
+  return Math.max(1000, pctBaht);
+}
+
+/** Overlay the per-line box deducts onto a materialized groups array. */
+function applyBoxDeducts(groups: any[], model: unknown): any[] {
+  const name = String((typeof model === 'object' && model !== null ? (model as any).name : model) || '').trim();
+  const ipadBox = ipadBoxDeducts(name);
+  const macBare = /^(macbook|imac|mac\s)/i.test(name)
+    ? macBareDeviceDeduct(typeof model === 'object' ? model : { name })
+    : null;
+  if (!ipadBox && macBare == null) return groups;
+  return groups.map((g) => {
+    if (!/กล่อง|อุปกรณ์เสริม/.test(String(g?.title || ''))) return g;
+    return {
+      ...g,
+      options: (g.options || []).map((o: any) => {
+        const label = String(o?.label || '');
+        if (ipadBox && /^ขาดกล่อง/.test(label)) return { ...o, deduct: ipadBox.missingBox };
+        if (ipadBox && /^เครื่องเปล่า/.test(label)) return { ...o, deduct: ipadBox.bareDevice };
+        if (macBare != null && /^เครื่องเปล่า/.test(label)) {
+          const { pct: _pct, ...rest } = o;
+          return { ...rest, deduct: macBare };
+        }
+        return o;
+      }),
+    };
+  });
+}
+
+/**
  * Replace one set's functional-screening groups AND its
  * battery/warranty/region/cosmetic groups with the tier's template groups.
  * Each batch is inserted where its first removed group used to be, so the
  * customer flow keeps its shape (screening first, then deduction topics);
- * untouched groups (กล่อง/อุปกรณ์, ประวัติซ่อม, custom topics) stay put.
+ * untouched groups (custom topics) stay put. `model` (optional; model object
+ * or plain name string) applies the per-line iPad/Mac box-deduct policy above.
  */
-export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration): {
+export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration, model?: unknown): {
   groups: any[];
   removedTitles: string[];
 } {
@@ -254,7 +317,7 @@ export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGener
     }
   });
   const freshFn = buildFunctionalScreeningGroups(tier);
-  const freshPrice = buildGenerationGroups(tier);
+  const freshPrice = applyBoxDeducts(buildGenerationGroups(tier), model);
   // Screening leads the flow when the set never had it; pricing appends.
   if (fnInsertAt === -1) fnInsertAt = 0;
   if (priceInsertAt === -1) priceInsertAt = kept.length;
@@ -318,7 +381,7 @@ export function planGenerationApply(models: any[], sets: any[]): GenerationApply
       continue;
     }
     const existing = JSON.parse(JSON.stringify(set.groups || []));
-    const { groups, removedTitles } = applyGenerationToGroups(existing, tier);
+    const { groups, removedTitles } = applyGenerationToGroups(existing, tier, m);
     if (JSON.stringify(groups) === JSON.stringify(set.groups || [])) { plan.alreadyApplied++; continue; }
     plan.tierCounts[tier]++;
     plan.actions.push({

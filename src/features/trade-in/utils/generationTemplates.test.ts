@@ -5,6 +5,8 @@ import {
   buildFunctionalScreeningGroups,
   applyGenerationToGroups,
   planGenerationApply,
+  ipadBoxDeducts,
+  macBareDeviceDeduct,
 } from './generationTemplates';
 
 describe('classifyIphoneGeneration', () => {
@@ -229,6 +231,53 @@ describe('applyGenerationToGroups', () => {
   });
 });
 
+describe('ipadBoxDeducts (นโยบายค่าหักกล่องราย line ของ iPad)', () => {
+  const cases: [string, { missingBox: number; bareDevice: number } | null][] = [
+    ['iPad Air 4 (2020)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air 5 (ชิป M1, 2022)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air 11" (ชิป M2, 2024)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Air 13" (ชิป M3, 2025)', { missingBox: 1000, bareDevice: 1500 }],
+    [' iPad Air 11" (ชิป M4, 2026)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Pro 11" (ชิป M1, 2021)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 12.9" (ชิป M2, 2022)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 13" (ชิป M4, 2024)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Pro 11" (ชิป M5, 2025)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Generation 10', { missingBox: 500, bareDevice: 800 }],
+    ['iPad Generation 11', { missingBox: 500, bareDevice: 1000 }],
+    // นอกตาราง -> กันไว้ที่ 500/1,000 (นโยบายเจ้าของร้าน: ห้ามปล่อย 0)
+    ['iPad Air 3 (2019)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air (2013)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 12.9" (2020)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad mini รุ่นที่ 7 (ชิป A17 Pro)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Generation 9', { missingBox: 500, bareDevice: 1000 }],
+    ['iPhone 15 Pro', null],
+  ];
+  for (const [name, expected] of cases) {
+    it(`${name.trim()} -> ${expected ? `${expected.missingBox}/${expected.bareDevice}` : 'default 0'}`, () => {
+      expect(ipadBoxDeducts(name)).toEqual(expected);
+    });
+  }
+  it('applyGenerationToGroups overlays the box deducts for a policy model', () => {
+    const { groups } = applyGenerationToGroups([], 'ipad_new', 'iPad Pro 13" (ชิป M4, 2024)');
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    const byLabel = (re: RegExp) => box.options.find((o: any) => re.test(o.label))!;
+    expect(byLabel(/^ครบกล่อง/).deduct).toBe(0);
+    expect(byLabel(/^ขาดกล่อง/).deduct).toBe(1000);
+    expect(byLabel(/^เครื่องเปล่า/).deduct).toBe(1500);
+  });
+  it('unlisted iPads get the 500/1000 floor and stay idempotent; iPhones keep 0', () => {
+    const { groups } = applyGenerationToGroups([], 'ipad_old', 'iPad mini 5 (2019)');
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    expect(box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!.deduct).toBe(500);
+    expect(box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!.deduct).toBe(1000);
+    const again = applyGenerationToGroups(groups, 'ipad_old', 'iPad mini 5 (2019)');
+    expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
+    const iphone = applyGenerationToGroups([], 'mid', 'iPhone 15');
+    const iphoneBox = iphone.groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    for (const o of iphoneBox.options) expect(o.deduct).toBe(0);
+  });
+});
+
 describe('Mac tiers', () => {
   it('mac_new carries battery/screen/body/warranty/keyboard-region/repair/box in order', () => {
     const groups = buildGenerationGroups('mac_new');
@@ -268,6 +317,23 @@ describe('Mac tiers', () => {
       .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'พอร์ต + Wi-Fi / Bluetooth']);
     expect(buildFunctionalScreeningGroups('mac_imac').map((g: any) => g.title))
       .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'หน้าจอแสดงผล', 'พอร์ต + Wi-Fi / Bluetooth']);
+  });
+  it('bare-device deduct is baked in baht with a 1,000 floor (3% of median price, rounded up to 100)', () => {
+    // Cheap Intel MacBook: 3% ของ 10,000 = 300 -> floor ดันขึ้น 1,000
+    const cheap = { name: 'MacBook Pro 13" (2019)', variants: [{ usedPrice: 10000 }] };
+    expect(macBareDeviceDeduct(cheap)).toBe(1000);
+    // Expensive M4 Pro: 3% ของ 60,000 = 1,800 -> ใช้ตาม % (เกิน floor)
+    const pricey = { name: 'MacBook Pro 16" M4 Pro', variants: [{ usedPrice: 60000 }] };
+    expect(macBareDeviceDeduct(pricey)).toBe(1800);
+    // ไม่มีราคา -> floor 1,000
+    expect(macBareDeviceDeduct({ name: 'MacBook Air M2 (2022)' })).toBe(1000);
+    const { groups } = applyGenerationToGroups([], 'mac_intel', cheap);
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    const bare = box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!;
+    expect(bare.deduct).toBe(1000);
+    expect(bare.pct).toBeUndefined();
+    const again = applyGenerationToGroups(groups, 'mac_intel', cheap);
+    expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
   });
   it('the keyboard-region group replaces an old ประเทศที่ซื้อ topic and is never treated as screening', () => {
     const old = [
