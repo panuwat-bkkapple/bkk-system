@@ -38,12 +38,22 @@ const EMPTY_FORM = {
 export const DealerManager = () => {
   const toast = useToast();
   const { data: dealersRaw, loading } = useDatabase('dealers');
+  const { data: applicationsRaw } = useDatabase('dealer_applications');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // ออกบัญชีจากใบสมัครหน้า landing — ส่ง id ไปปิดใบสมัครเป็น approved ฝั่ง server
+  const [applicationId, setApplicationId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [busy, setBusy] = useState(false);
   // รหัสผ่านที่เพิ่งออก — โชว์ครั้งเดียวให้ส่งต่อดีลเลอร์
   const [issued, setIssued] = useState<{ company: string; email: string; password: string } | null>(null);
+
+  const pendingApplications = useMemo(() => {
+    const list = Array.isArray(applicationsRaw) ? applicationsRaw : [];
+    return list
+      .filter((a: any) => a.status === 'pending')
+      .sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0));
+  }, [applicationsRaw]);
 
   const dealers: Dealer[] = useMemo(() => {
     if (!dealersRaw) return [];
@@ -67,8 +77,35 @@ export const DealerManager = () => {
 
   const openCreate = () => {
     setEditingId(null);
+    setApplicationId(null);
     setForm({ ...EMPTY_FORM, password: generatePassword() });
     setIsModalOpen(true);
+  };
+
+  const openCreateFromApplication = (app: any) => {
+    setEditingId(null);
+    setApplicationId(app.id);
+    setForm({
+      company_name: app.company_name || '',
+      tax_id: app.tax_id || '',
+      address: app.address || '',
+      contact_name: app.contact_name || '',
+      phone: app.phone || '',
+      line_id: app.line_id || '',
+      email: app.email || '',
+      tier: 'C',
+      password: generatePassword(),
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleRejectApplication = (app: any) => {
+    const reason = prompt(`ปฏิเสธใบสมัครของ ${app.company_name}? ระบุเหตุผล (แจ้งผู้สมัครทางอีเมล):`);
+    if (reason === null) return;
+    run(async () => {
+      await call('adminDealerApplicationReject', { applicationId: app.id, reason });
+      toast.success('ปฏิเสธใบสมัครแล้ว');
+    });
   };
 
   const openEdit = (d: Dealer) => {
@@ -95,11 +132,12 @@ export const DealerManager = () => {
         await call('adminDealerUpdate', { uid: editingId, ...form, password: undefined });
         toast.success('บันทึกข้อมูลดีลเลอร์แล้ว');
       } else {
-        await call('adminDealerCreate', form);
+        await call('adminDealerCreate', { ...form, applicationId: applicationId || undefined });
         setIssued({ company: form.company_name, email: form.email, password: form.password });
-        toast.success('สร้างบัญชีดีลเลอร์แล้ว');
+        toast.success(applicationId ? 'อนุมัติใบสมัคร + สร้างบัญชีแล้ว' : 'สร้างบัญชีดีลเลอร์แล้ว');
       }
       setIsModalOpen(false);
+      setApplicationId(null);
     });
 
   const handleToggleStatus = (d: Dealer) => {
@@ -138,6 +176,38 @@ export const DealerManager = () => {
           <Plus size={16} /> เพิ่มดีลเลอร์
         </button>
       </div>
+
+      {/* ใบสมัครจากหน้า landing getmobie.com — รอตรวจสอบ */}
+      {pendingApplications.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 mb-6">
+          <div className="font-black text-xs uppercase tracking-widest text-amber-700 mb-3">
+            ใบสมัครดีลเลอร์รอตรวจสอบ ({pendingApplications.length})
+          </div>
+          <div className="space-y-3">
+            {pendingApplications.map((app: any) => (
+              <div key={app.id} className="bg-white rounded-xl border border-amber-200 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-black text-sm text-slate-800">{app.company_name}</div>
+                  <div className="text-xs font-bold text-slate-500">
+                    {app.contact_name || '-'} · {app.phone} · {app.email}
+                    {app.tax_id && <span className="font-mono"> · Tax {app.tax_id}</span>}
+                  </div>
+                  {app.note && <div className="text-[11px] text-slate-400 font-bold mt-1">"{app.note}"</div>}
+                  <div className="text-[10px] text-slate-400 font-bold mt-1">สมัครเมื่อ {fmtDateTime(app.created_at)}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openCreateFromApplication(app)} disabled={busy} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-700 disabled:opacity-50">
+                    อนุมัติ + ออกบัญชี
+                  </button>
+                  <button onClick={() => handleRejectApplication(app)} disabled={busy} className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-[10px] font-black uppercase hover:bg-red-100 disabled:opacity-50">
+                    ปฏิเสธ
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
