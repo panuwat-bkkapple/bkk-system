@@ -15,7 +15,11 @@ import {
 // is fragile (the token dies when the app is closed), so this panel lets the
 // admin see the live state, force a token refresh, and fire a test push that
 // reports back whether delivery succeeded (token alive) or failed (token dead).
-export const NotificationStatusCard = () => {
+// `className` lets the desktop settings page (/notification-settings) drop the
+// mobile-feed margins — same diagnostic, two layouts, one implementation.
+export const NotificationStatusCard = ({
+  className = 'mx-4 mt-3 mb-1 rounded-2xl border border-slate-200 bg-white overflow-hidden',
+}: { className?: string } = {}) => {
   const staffId = auth.currentUser?.uid || null;
   const [health, setHealth] = useState<AdminTokenHealth | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -81,7 +85,7 @@ export const NotificationStatusCard = () => {
   const permDenied = health?.permission === 'denied';
 
   return (
-    <div className="mx-4 mt-3 mb-1 rounded-2xl border border-slate-200 bg-white overflow-hidden">
+    <div className={className}>
       <div className="px-4 py-3 flex items-center gap-2 border-b border-slate-100">
         {permGranted ? (
           <BellRing size={16} className="text-emerald-500" />
