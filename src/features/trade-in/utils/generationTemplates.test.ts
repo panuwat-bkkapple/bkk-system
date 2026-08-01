@@ -5,6 +5,7 @@ import {
   buildFunctionalScreeningGroups,
   applyGenerationToGroups,
   planGenerationApply,
+  ipadBoxDeducts,
 } from './generationTemplates';
 
 describe('classifyIphoneGeneration', () => {
@@ -226,6 +227,49 @@ describe('applyGenerationToGroups', () => {
       'กันรอยติดมาให้',
       'สุขภาพแบตเตอรี่', 'สภาพจอภาพและกระจก', 'สภาพตัวเครื่องและฝาหลัง', 'ประกัน', 'ประเทศที่ซื้อ', 'ประวัติการซ่อม', 'อุปกรณ์เสริมที่นำมาด้วย',
     ]);
+  });
+});
+
+describe('ipadBoxDeducts (นโยบายค่าหักกล่องราย line ของ iPad)', () => {
+  const cases: [string, { missingBox: number; bareDevice: number } | null][] = [
+    ['iPad Air 4 (2020)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air 5 (ชิป M1, 2022)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Air 11" (ชิป M2, 2024)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Air 13" (ชิป M3, 2025)', { missingBox: 1000, bareDevice: 1500 }],
+    [' iPad Air 11" (ชิป M4, 2026)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Pro 11" (ชิป M1, 2021)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 12.9" (ชิป M2, 2022)', { missingBox: 500, bareDevice: 1000 }],
+    ['iPad Pro 13" (ชิป M4, 2024)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Pro 11" (ชิป M5, 2025)', { missingBox: 1000, bareDevice: 1500 }],
+    ['iPad Generation 10', { missingBox: 500, bareDevice: 800 }],
+    ['iPad Generation 11', { missingBox: 500, bareDevice: 1000 }],
+    // นอกนโยบาย -> ใช้ default ของ template (0)
+    ['iPad Air 3 (2019)', null],
+    ['iPad Air (2013)', null],
+    ['iPad Pro 12.9" (2020)', null],
+    ['iPad mini รุ่นที่ 7 (ชิป A17 Pro)', null],
+    ['iPad Generation 9', null],
+    ['iPhone 15 Pro', null],
+  ];
+  for (const [name, expected] of cases) {
+    it(`${name.trim()} -> ${expected ? `${expected.missingBox}/${expected.bareDevice}` : 'default 0'}`, () => {
+      expect(ipadBoxDeducts(name)).toEqual(expected);
+    });
+  }
+  it('applyGenerationToGroups overlays the box deducts for a policy model', () => {
+    const { groups } = applyGenerationToGroups([], 'ipad_new', 'iPad Pro 13" (ชิป M4, 2024)');
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    const byLabel = (re: RegExp) => box.options.find((o: any) => re.test(o.label))!;
+    expect(byLabel(/^ครบกล่อง/).deduct).toBe(0);
+    expect(byLabel(/^ขาดกล่อง/).deduct).toBe(1000);
+    expect(byLabel(/^เครื่องเปล่า/).deduct).toBe(1500);
+  });
+  it('non-policy models keep the template default of 0 and stay idempotent', () => {
+    const { groups } = applyGenerationToGroups([], 'ipad_old', 'iPad mini 5 (2019)');
+    const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+    for (const o of box.options) expect(o.deduct).toBe(0);
+    const again = applyGenerationToGroups(groups, 'ipad_old', 'iPad mini 5 (2019)');
+    expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
   });
 });
 

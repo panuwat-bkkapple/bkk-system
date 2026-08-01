@@ -228,13 +228,62 @@ export function buildFunctionalScreeningGroups(tier: IphoneGeneration): any[] {
 }
 
 /**
+ * นโยบายค่าหักกล่อง/อุปกรณ์ราย line ของ iPad (เจ้าของร้าน ส.ค. 2026) —
+ * หัวข้อกล่องเป็นหัวข้อที่ "ปรับตามรุ่น" เป็นเจ้าของ (อยู่ใน REPLACED_TITLE_RES)
+ * เลขที่กรอกมือใน Engine จะถูกรีเซ็ตทุกครั้งที่กดปุ่ม จึงต้องฝังเป็น policy
+ * ที่นี่ให้ survive การกดซ้ำ. รุ่นนอกตารางนี้ใช้ default ของ template (0):
+ *   iPad Air 4-5 (M1)          -> ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ *   iPad Air รุ่น 6-8 (M2-M4)  -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
+ *   iPad Pro M1-M2             -> ขาดกล่อง 500 / เครื่องเปล่า 1,000
+ *   iPad Pro M4-M5             -> ขาดกล่อง 1,000 / เครื่องเปล่า 1,500
+ *   iPad Generation 10 / 11    -> คงค่าที่แอดมินตั้งไว้เดิม (500/800, 500/1000)
+ */
+export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDevice: number } | null {
+  const name = String(modelName || '').trim();
+  if (!/^ipad/i.test(name)) return null;
+  const chip = name.match(/ชิป\s*M(\d)|(?:^|[\s("])M(\d)\b/i);
+  const m = chip ? Number(chip[1] || chip[2]) : null;
+  if (/^ipad air/i.test(name)) {
+    if (/\bair\s*4\b/i.test(name) || m === 1) return { missingBox: 500, bareDevice: 1000 };
+    if (m != null && m >= 2) return { missingBox: 1000, bareDevice: 1500 };
+    return null;
+  }
+  if (/^ipad pro/i.test(name)) {
+    if (m === 1 || m === 2) return { missingBox: 500, bareDevice: 1000 };
+    if (m != null && m >= 4) return { missingBox: 1000, bareDevice: 1500 };
+    return null;
+  }
+  if (/^ipad generation 10\b/i.test(name)) return { missingBox: 500, bareDevice: 800 };
+  if (/^ipad generation 11\b/i.test(name)) return { missingBox: 500, bareDevice: 1000 };
+  return null;
+}
+
+/** Overlay the per-line box deducts onto a materialized groups array. */
+function applyBoxDeducts(groups: any[], modelName: unknown): any[] {
+  const box = ipadBoxDeducts(modelName);
+  if (!box) return groups;
+  return groups.map((g) => {
+    if (!/กล่อง|อุปกรณ์เสริม/.test(String(g?.title || ''))) return g;
+    return {
+      ...g,
+      options: (g.options || []).map((o: any) => {
+        if (/^ขาดกล่อง/.test(String(o?.label || ''))) return { ...o, deduct: box.missingBox };
+        if (/^เครื่องเปล่า/.test(String(o?.label || ''))) return { ...o, deduct: box.bareDevice };
+        return o;
+      }),
+    };
+  });
+}
+
+/**
  * Replace one set's functional-screening groups AND its
  * battery/warranty/region/cosmetic groups with the tier's template groups.
  * Each batch is inserted where its first removed group used to be, so the
  * customer flow keeps its shape (screening first, then deduction topics);
- * untouched groups (กล่อง/อุปกรณ์, ประวัติซ่อม, custom topics) stay put.
+ * untouched groups (custom topics) stay put. `modelName` (optional) applies
+ * the per-line iPad box-deduct policy above.
  */
-export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration): {
+export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGeneration, modelName?: unknown): {
   groups: any[];
   removedTitles: string[];
 } {
@@ -254,7 +303,7 @@ export function applyGenerationToGroups(existingGroups: any[], tier: IphoneGener
     }
   });
   const freshFn = buildFunctionalScreeningGroups(tier);
-  const freshPrice = buildGenerationGroups(tier);
+  const freshPrice = applyBoxDeducts(buildGenerationGroups(tier), modelName);
   // Screening leads the flow when the set never had it; pricing appends.
   if (fnInsertAt === -1) fnInsertAt = 0;
   if (priceInsertAt === -1) priceInsertAt = kept.length;
@@ -318,7 +367,7 @@ export function planGenerationApply(models: any[], sets: any[]): GenerationApply
       continue;
     }
     const existing = JSON.parse(JSON.stringify(set.groups || []));
-    const { groups, removedTitles } = applyGenerationToGroups(existing, tier);
+    const { groups, removedTitles } = applyGenerationToGroups(existing, tier, m?.name);
     if (JSON.stringify(groups) === JSON.stringify(set.groups || [])) { plan.alreadyApplied++; continue; }
     plan.tierCounts[tier]++;
     plan.actions.push({
