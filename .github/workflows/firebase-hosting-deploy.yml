@@ -86,11 +86,11 @@ jobs:
           target: chat
 
       # ── Dealer Portal (แอปแยก dealer-portal/, site แยก, ซับโดเมน
-      # dealer.bkkapple.com) ─────────────────────────────────────────────────
+      # app.getmobie.com — แบรนด์ GETMOBIE ฝั่งขายส่ง ไม่ใช่ BKK APPLE) ───────
       # continue-on-error ทั้งชุดเช่นเดียวกับ chat — ปัญหาของ portal ห้าม block
       # การ deploy แอปแอดมิน. custom domain ต้องผูกครั้งเดียวใน Firebase console
-      # (Hosting > bkk-dealer-portal > Add custom domain) + เพิ่ม
-      # dealer.bkkapple.com ใน Auth > Authorized domains
+      # (Hosting > getmobie-app > Add custom domain) + เพิ่ม
+      # app.getmobie.com ใน Auth > Authorized domains
       - name: Build Dealer Portal
         continue-on-error: true
         run: cd dealer-portal && npm ci && npm run build
@@ -108,7 +108,7 @@ jobs:
         run: |
           printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
-          npx firebase-tools@13 hosting:sites:create bkk-dealer-portal --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
+          npx firebase-tools@13 hosting:sites:create getmobie-app --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
         env:
           FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
 

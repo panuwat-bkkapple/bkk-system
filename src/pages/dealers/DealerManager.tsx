@@ -269,14 +269,14 @@ export const DealerManager = () => {
             <h3 className="font-black text-lg text-slate-800 mb-2">ข้อมูลเข้าระบบของ {issued.company}</h3>
             <p className="text-xs font-bold text-amber-600 mb-4">แสดงครั้งเดียว — คัดลอกส่งให้ดีลเลอร์ทันที</p>
             <div className="bg-slate-50 rounded-xl p-4 font-mono text-sm space-y-1">
-              <div>URL: https://dealer.bkkapple.com</div>
+              <div>URL: https://app.getmobie.com</div>
               <div>Email: {issued.email}</div>
               <div>Password: <span className="font-black">{issued.password}</span></div>
             </div>
             <div className="flex gap-3 mt-4">
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`Dealer Portal: https://dealer.bkkapple.com\nEmail: ${issued.email}\nPassword: ${issued.password}`);
+                  navigator.clipboard.writeText(`Dealer Portal: https://app.getmobie.com\nEmail: ${issued.email}\nPassword: ${issued.password}`);
                 }}
                 className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 hover:bg-black"
               >

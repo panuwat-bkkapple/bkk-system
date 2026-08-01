@@ -35,8 +35,50 @@ const { onValueUpdated } = require("firebase-functions/v2/database");
 const { getAuth } = require("firebase-admin/auth");
 const { getDatabase } = require("firebase-admin/database");
 const { getStorage } = require("firebase-admin/storage");
-const { sendEmail, shell, esc, formatTHB } = require("./email");
+const { sendEmail, esc, formatTHB } = require("./email");
 const { buildQuotationPdf } = require("./voucher-pdf");
+
+// ─── แบรนด์ฝั่งขายส่ง ────────────────────────────────────────────────────────
+// BKK APPLE = แบรนด์ฝั่ง "รับซื้อ" (B2C) เท่านั้น — การเสนอขายส่งให้ดีลเลอร์ทำใน
+// นามนิติบุคคลจดทะเบียนโดยตรง: บริษัท เก็ทโมบี้ จำกัด (GETMOBIE / getmobie.com)
+// ทุก touchpoint ฝั่งดีลเลอร์ (portal, อีเมล, ใบเสนอราคา) ต้องเป็นแบรนด์นี้
+// ห้ามหลุด BKK APPLE. อีเมลใช้ sender แยกได้ผ่าน env DEALER_EMAIL_FROM
+// (เช่น "GETMOBIE <noreply@getmobie.com>" — ต้อง verify โดเมนใน Resend ก่อน)
+// ไม่ตั้ง = fallback ไป EMAIL_FROM เดิม
+const DEALER_BRAND = "GETMOBIE";
+const DEALER_LEGAL_NAME = "บริษัท เก็ทโมบี้ จำกัด";
+const dealerEmailFrom = () => process.env.DEALER_EMAIL_FROM || undefined;
+
+// template อีเมลของโดเมน dealer — โครงเดียวกับ shell() ใน email.js แต่หัว/ท้าย
+// เป็น GETMOBIE (จงใจไม่ reuse ตัวเดิมเพื่อไม่ให้แบรนด์ฝั่งรับซื้อรั่วมาฝั่งขายส่ง)
+function dealerShell({ heading, intro, bodyHtml }) {
+  return `<!DOCTYPE html>
+<html lang="th">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans Thai',sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <tr><td style="background:#111827;padding:20px 32px;">
+          <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">${esc(DEALER_BRAND)}</span>
+          <span style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:2px;margin-left:8px;">DEALER</span>
+        </td></tr>
+        <tr><td style="padding:32px 32px 8px;">
+          <h1 style="margin:0 0 8px;font-size:20px;line-height:1.4;color:#111827;">${esc(heading)}</h1>
+          ${intro ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4b5563;">${intro}</p>` : ""}
+        </td></tr>
+        <tr><td style="padding:0 32px 24px;">${bodyHtml}</td></tr>
+        <tr><td style="padding:16px 32px 28px;border-top:1px solid #eef0f3;">
+          <p style="margin:0;font-size:12px;line-height:1.6;color:#9ca3af;">
+            อีเมลฉบับนี้ส่งอัตโนมัติจากระบบ Dealer Portal ของ ${esc(DEALER_LEGAL_NAME)} (${esc(DEALER_BRAND)}) — กรุณาอย่าตอบกลับโดยตรง
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
 
 const REGION = "asia-southeast1";
 const DEALER_TIERS = ["A", "B", "C"];
@@ -71,7 +113,7 @@ function bangkokYM(now) {
 }
 
 const portalBaseUrl = () =>
-  (process.env.DEALER_PORTAL_BASE_URL || "https://dealer.bkkapple.com").replace(/\/$/, "");
+  (process.env.DEALER_PORTAL_BASE_URL || "https://app.getmobie.com").replace(/\/$/, "");
 
 // ── auth gates ───────────────────────────────────────────────────────────────
 
@@ -259,7 +301,7 @@ function buildLotOpenEmail(lot) {
     : "-";
   return {
     subject: `เปิดประมูลล็อตใหม่ ${lot.lot_no} — ${lot.title || ""}`,
-    html: shell({
+    html: dealerShell({
       heading: `เปิดรับเสนอราคา ${esc(lot.lot_no)}`,
       intro: `${esc(lot.title || "")} จำนวน ${lot.item_count} เครื่อง · ปิดรับราคา ${esc(closeAt)}`,
       bodyHtml:
@@ -278,7 +320,7 @@ function buildAwardEmail(order, lot, paymentInfo) {
     : "";
   return {
     subject: `คุณได้รับเลือกใน ${lot.lot_no} — ใบเสนอราคา ${order.quotation.number}`,
-    html: shell({
+    html: dealerShell({
       heading: "ยินดีด้วย — ข้อเสนอของคุณได้รับการอนุมัติ",
       intro: `ล็อต ${esc(lot.lot_no)} · คำสั่งซื้อ ${esc(order.order_no)} · ยอดรวม <strong>${esc(formatTHB(order.amount))}</strong> (รวม VAT)`,
       bodyHtml:
@@ -294,7 +336,7 @@ function buildAwardEmail(order, lot, paymentInfo) {
 function buildLoseEmail(lot) {
   return {
     subject: `ผลการเสนอราคา ${lot.lot_no}`,
-    html: shell({
+    html: dealerShell({
       heading: `ล็อต ${esc(lot.lot_no)} ปิดการขายแล้ว`,
       intro: "ขอบคุณที่ร่วมเสนอราคา — ครั้งนี้ข้อเสนอของท่านไม่ได้รับเลือก แล้วพบกันในล็อตถัดไป",
       bodyHtml: `<div style="text-align:center;margin-top:8px;">
@@ -722,7 +764,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     const notifyNow = eligible.filter(
       (d) => d.email && openNowTiers.includes(String(d.tier || "").toUpperCase())
     );
-    const results = await Promise.allSettled(notifyNow.map((d) => sendEmail({ to: d.email, ...mail })));
+    const results = await Promise.allSettled(notifyNow.map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...mail })));
     for (const t of openNowTiers) {
       await db.ref(`lots/${lotId}/tier_notified/${t}`).set(nowMs());
     }
@@ -1212,7 +1254,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       // ใบเสนอราคา PDF (best-effort — พังแล้วออเดอร์ยังเกิด แนบทีหลังได้)
       let pdfBuffer = null;
       try {
-        pdfBuffer = await buildQuotationPdf({ ...order, id: orderId }, null);
+        // ใบเสนอราคาออกในนามนิติบุคคล (เก็ทโมบี้) โดย trade name = GETMOBIE
+        // ไม่ใช่ BKK APPLE (แบรนด์ฝั่งรับซื้อ)
+        pdfBuffer = await buildQuotationPdf({ ...order, id: orderId }, { tradeName: DEALER_BRAND });
         const url = await archivePdf(`dealer_quotations/${orderId}.pdf`, pdfBuffer, orderId);
         order.quotation.storage_path = `dealer_quotations/${orderId}.pdf`;
         order.quotation.url = url;
@@ -1229,6 +1273,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
           const mail = buildAwardEmail({ ...order, id: orderId }, lot, settings.payment_info);
           await sendEmail({
             to: d.email,
+            from: dealerEmailFrom(),
             ...mail,
             attachments: pdfBuffer
               ? [{ filename: `ใบเสนอราคา-${qtNo}.pdf`, content: pdfBuffer.toString("base64") }]
@@ -1278,7 +1323,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       loserUids
         .map((uid) => dealersMap[uid])
         .filter((d) => d && d.email)
-        .map((d) => sendEmail({ to: d.email, ...buildLoseEmail(lot) }))
+        .map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...buildLoseEmail(lot) }))
     );
 
     await dispatchTelegram(
@@ -1533,8 +1578,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
 
         await sendEmail({
           to: email,
+          from: dealerEmailFrom(),
           subject: `${copy.heading} — ${order.order_no}`,
-          html: shell({
+          html: dealerShell({
             heading: copy.heading,
             intro: copy.intro({ ...order, id: orderId }),
             bodyHtml: `<div style="text-align:center;margin-top:8px;">
@@ -1588,7 +1634,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
             const targets = dealers.filter(
               (d) => d.email && dueTiers.includes(String(d.tier || "").toUpperCase())
             );
-            await Promise.allSettled(targets.map((d) => sendEmail({ to: d.email, ...mail })));
+            await Promise.allSettled(targets.map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...mail })));
             for (const t of dueTiers) await db.ref(`lots/${id}/tier_notified/${t}`).set(now);
             console.log(`[dealer] early-access mail ${lot.lot_no || id} tiers=${dueTiers.join(",")} sent=${targets.length}`);
           }
@@ -1610,8 +1656,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
               targets.map((d) =>
                 sendEmail({
                   to: d.email,
+                  from: dealerEmailFrom(),
                   subject: `ใกล้ปิดรับราคา ${lot.lot_no || ""} — เหลือไม่ถึง 1 ชั่วโมง`,
-                  html: shell({
+                  html: dealerShell({
                     heading: `ล็อต ${esc(lot.lot_no || "")} ใกล้ปิดรับราคา`,
                     intro: `${esc(lot.title || "")} · ปิดรับ ${esc(closeText)} — คุณยังไม่ได้เสนอราคา`,
                     bodyHtml: `<div style="text-align:center;margin-top:8px;">

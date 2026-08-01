@@ -14,7 +14,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
       <header className="topbar">
-        <div className="brand">BKK APPLE <span>DEALER</span></div>
+        <div className="brand">GETMOBIE <span>DEALER</span></div>
         <div className="who">
           <div>{dealer?.company_name}</div>
           <button

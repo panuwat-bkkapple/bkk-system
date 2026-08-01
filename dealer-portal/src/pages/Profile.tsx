@@ -27,7 +27,7 @@ export const Profile = () => {
         ))}
       </div>
       <div className="notice mt12">
-        ต้องการแก้ไขข้อมูลบริษัท/เลขผู้เสียภาษี กรุณาติดต่อเจ้าหน้าที่ BKK APPLE
+        ต้องการแก้ไขข้อมูลบริษัท/เลขผู้เสียภาษี กรุณาติดต่อเจ้าหน้าที่ GETMOBIE
         (ข้อมูลชุดนี้ผูกกับเอกสารภาษี จึงแก้เองไม่ได้)
       </div>
       <button className="btn ghost" style={{ marginTop: 16 }} onClick={() => void logout()}>ออกจากระบบ</button>

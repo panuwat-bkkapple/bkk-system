@@ -54,9 +54,11 @@ function companyOf(job) {
  * to "no email" rather than crashing the order pipeline. Throws on a real
  * Resend API error so the caller can log it.
  */
-async function sendEmail({ to, subject, html, replyTo, attachments }) {
+async function sendEmail({ to, subject, html, replyTo, attachments, from: fromOverride }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  // fromOverride: ใช้โดยโดเมน dealer (GETMOBIE) ที่ส่งในนามแบรนด์/โดเมนอื่น —
+  // โดเมนผู้ส่งต้อง verify ใน Resend เช่นกัน ไม่งั้นถูก reject
+  const from = fromOverride || process.env.EMAIL_FROM;
   if (!apiKey || !from) {
     console.warn("[email] RESEND_API_KEY or EMAIL_FROM not set — skipping send");
     return { skipped: true, reason: "not_configured" };

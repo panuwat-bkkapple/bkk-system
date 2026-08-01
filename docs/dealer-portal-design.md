@@ -3,7 +3,7 @@
 > สถานะ: **Implement แล้วครบ Phase 1–3** (ส.ค. 2026) — เอกสารนี้คือดีไซน์อ้างอิง; สรุปการใช้งานจริง+จุดที่ต่างเล็กน้อยดู section "Dealer Portal" ใน `CLAUDE.md`. จุดต่างจากดีไซน์: (1) การสร้าง lot ใช้ item picker ในหน้า `/lots` แทน multi-select ใน Inventory (ครอบคลุมกว่า) (2) shared types ใช้ pattern mirror 3 ที่ตามธรรมเนียม repo แทนโฟลเดอร์ `shared/` (3) เพิ่ม `dealerListOrders` (ดีลเลอร์ query ลิสต์ order ตรงไม่ได้เพราะ collection read เป็น admin-only) (4) เพิ่มหน้า `/dealer-analytics`
 > การตัดสินใจที่ยืนยันแล้ว: แก้ซองได้จนปิดรับ (เก็บ history) · มี reserve price ต่อ lot (เก็บใน lot_private) · ตัวเลข 5/30 default เห็นเฉพาะแอดมิน + toggle `show_bid_stats` ต่อ lot · ราคาเสนอ = รวม VAT
 > เขียน: ส.ค. 2026
-> Dealer Portal เป็น**แอปแยก + ซับโดเมนแยก** (`dealer.bkkapple.com`) — โค้ดอยู่ใน `bkk-system/dealer-portal/`, business logic อยู่ `bkk-system/functions/`, database rules ยัง deploy จาก `bkk-frontend-next` (canonical เดิม). **เว็บลูกค้า (`bkk-frontend-next`) ไม่ถูกแตะเลยนอกจากไฟล์ rules**
+> Dealer Portal เป็น**แอปแยก + ซับโดเมนแยก** (`app.getmobie.com`) — โค้ดอยู่ใน `bkk-system/dealer-portal/`, business logic อยู่ `bkk-system/functions/`, database rules ยัง deploy จาก `bkk-frontend-next` (canonical เดิม). **เว็บลูกค้า (`bkk-frontend-next`) ไม่ถูกแตะเลยนอกจากไฟล์ rules**
 
 ---
 
@@ -41,7 +41,7 @@ flowchart TB
     subgraph sites [Firebase Hosting — multi-site]
       H1["bkk-apple-admin.web.app<br/>(admin — เดิม)"]
       H2["bkkapple.com<br/>(เว็บลูกค้า — เดิม, ไม่แตะ)"]
-      H3["dealer.bkkapple.com<br/>(site ใหม่: bkk-dealer-portal)"]
+      H3["app.getmobie.com<br/>(site ใหม่: getmobie-app)"]
     end
     RTDB[(Realtime DB)]
     FN["Cloud Functions<br/>asia-southeast1"]
@@ -57,10 +57,10 @@ flowchart TB
 
 | เรื่อง | ตัดสินใจ | เหตุผล |
 |---|---|---|
-| โดเมน | **ซับโดเมนแยก `dealer.bkkapple.com`** — Firebase Hosting **site ใหม่** (multi-site ในโปรเจกต์เดิม) | แยกขาดจากเว็บลูกค้า (SEO/cache/robots คนละโลก), แยกจาก admin (คนละ audience คนละความเสี่ยง) แต่ยังอยู่โปรเจกต์ Firebase เดิม → ใช้ RTDB/Auth/Storage ก้อนเดียว ไม่ต้อง sync ข้อมูลข้ามโปรเจกต์ |
+| โดเมน | **ซับโดเมนแยก `app.getmobie.com`** — Firebase Hosting **site ใหม่** (multi-site ในโปรเจกต์เดิม) | แยกขาดจากเว็บลูกค้า (SEO/cache/robots คนละโลก), แยกจาก admin (คนละ audience คนละความเสี่ยง) แต่ยังอยู่โปรเจกต์ Firebase เดิม → ใช้ RTDB/Auth/Storage ก้อนเดียว ไม่ต้อง sync ข้อมูลข้ามโปรเจกต์ |
 | โค้ดของ portal | **แอป Vite+React ใหม่ที่ `bkk-system/dealer-portal/`** (package.json ของตัวเอง — ไม่ปน `src/` ของ admin) | ฝั่งขาย (admin lot manager + dealer portal + functions) เป็น bounded context เดียวกัน อยู่ repo เดียว → แชร์ types/utils ได้ (`shared/` ดู 3.2), CI เดียว, ไม่ต้องเปิด repo ใหม่. **เว็บลูกค้าไม่เกี่ยวกับ context นี้เลย** — bkk-frontend-next ถูกแตะแค่ไฟล์ `database.rules.json`/`storage.rules` (canonical เดิม) |
 | Business logic | ทั้งหมดอยู่ `bkk-system/functions/dealer-portal.js` — portal **เขียนอะไรตรงๆ ไม่ได้เลย** (rules ปิด) ทุก write ผ่าน callable | pattern เดิมของระบบ (staff-accounts) + จำเป็นต่อ sealed bid |
-| Auth | Firebase Auth โปรเจกต์เดิม, ดีลเลอร์ login email/password | ต้องเพิ่ม `dealer.bkkapple.com` ใน **Authorized domains** ของ Firebase Auth. ใช้ `signInWithEmailAndPassword` ตรงๆ ไม่มี redirect flow → ไม่เจอปัญหา authDomain ข้าม site |
+| Auth | Firebase Auth โปรเจกต์เดิม, ดีลเลอร์ login email/password | ต้องเพิ่ม `app.getmobie.com` ใน **Authorized domains** ของ Firebase Auth. ใช้ `signInWithEmailAndPassword` ตรงๆ ไม่มี redirect flow → ไม่เจอปัญหา authDomain ข้าม site |
 | เว็บลูกค้า | route `/portal` ของเว็บลูกค้าเป็นหน้า marketing อยู่แล้ว — **ไม่ยุ่ง** | กันสับสน: dealer portal ไม่มีตัวตนบนโดเมนหลัก |
 
 ### 3.2 การแบ่ง Bounded Context ในระดับโค้ดและข้อมูล
@@ -98,11 +98,11 @@ bkk-system/
 
 ### 3.3 Deployment / CI
 
-- `firebase.json`: เพิ่ม hosting target ใหม่ → `"target": "dealer", "public": "dealer-portal/dist"` และผูก target กับ site `bkk-dealer-portal` (`firebase target:apply hosting dealer bkk-dealer-portal`)
-- ตั้ง custom domain `dealer.bkkapple.com` ชี้ site ใหม่ใน Firebase console (DNS: A/TXT ตามที่ console บอก)
+- `firebase.json`: เพิ่ม hosting target ใหม่ → `"target": "dealer", "public": "dealer-portal/dist"` และผูก target กับ site `getmobie-app` (`firebase target:apply hosting dealer getmobie-app`)
+- ตั้ง custom domain `app.getmobie.com` ชี้ site ใหม่ใน Firebase console (DNS: A/TXT ตามที่ console บอก)
 - `.github/workflows/firebase-hosting-deploy.yml`: เพิ่ม step build `dealer-portal/` (`npm ci && npm run build` ใน subdir) + deploy `--only hosting:dealer` — ใช้ secrets ชุด `VITE_FIREBASE_*` เดิม
 - Functions ใหม่ deploy ไปกับ workflow เดิมอยู่แล้ว (functions อยู่ codebase เดิม — ชื่อไม่ชนกับ rider ตามกฎ naming ข้อ 7)
-- เพิ่ม `dealer.bkkapple.com` ใน Firebase Auth → Settings → Authorized domains
+- เพิ่ม `app.getmobie.com` ใน Firebase Auth → Settings → Authorized domains
 
 ### 3.4 Flow หลัก
 
@@ -120,7 +120,7 @@ flowchart LR
     F4[adminDealerLotAward]
     F5[adminDealerOrderMarkPaid]
   end
-  subgraph portal [dealer.bkkapple.com — Dealer Portal]
+  subgraph portal [app.getmobie.com — Dealer Portal]
     P1[Login ดีลเลอร์]
     P2[รายการ Lot ตาม tier]
     P3[เสนอราคา ยกล็อต/รายตัว]
@@ -409,7 +409,7 @@ stateDiagram-v2
 - จุดสร้าง lot ที่ธรรมชาติที่สุด: **multi-select ใน `Inventory.tsx`** → ปุ่ม "รวมเป็น Lot" ส่ง jobIds ไปหน้า Lot draft
 - ใช้ shared keep-alive store `useDatabase` ตามเดิม (ห้าม subscribe/unsubscribe ต่อหน้า)
 
-### 9.2 Dealer Portal (`dealer.bkkapple.com` — แอปแยก `bkk-system/dealer-portal/`)
+### 9.2 Dealer Portal (`app.getmobie.com` — แอปแยก `bkk-system/dealer-portal/`)
 
 | หน้า | เนื้อหา |
 |---|---|
@@ -451,7 +451,7 @@ stateDiagram-v2
 ## 12. แผนการทำ (Phases)
 
 **Phase 1 — Core (ตอบ pain หลัก: track ได้ + เลิกคีย์ใบเสนอราคามือ)**
-- Infra: scaffold `dealer-portal/` + hosting site `bkk-dealer-portal` + subdomain `dealer.bkkapple.com` + CI step + Authorized domain
+- Infra: scaffold `dealer-portal/` + hosting site `getmobie-app` + subdomain `app.getmobie.com` + CI step + Authorized domain
 - `dealers` + callables วงจรบัญชี + หน้า `/dealers`
 - `lots` + publish/lock เครื่อง + หน้า `/lots` + multi-select ใน Inventory
 - `lot_bids` sealed + `dealerPlaceBid` + `bid_stats` + เปิดซอง/award (CEO/MANAGER)
