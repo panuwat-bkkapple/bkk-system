@@ -554,4 +554,140 @@ async function buildSalesTaxInvoicePdf(sale, ti, company) {
   return Buffer.from(bytes);
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf };
+/**
+ * ใบเสนอราคา (Quotation) สำหรับคำสั่งซื้อดีลเลอร์ (dealer_orders record).
+ * แทนที่การคีย์ใบเสนอราคามือในโปรแกรมแยก — ออกอัตโนมัติตอน award.
+ * ยอด order.amount เป็น VAT-inclusive; แตก base/VAT ให้เห็นเพื่อความชัดเจน
+ * (ใบกำกับภาษีจริงออกทีหลังตอนชำระเงินผ่าน onSaleCreated)
+ */
+async function buildQuotationPdf(order, company) {
+  const CO = companyOf({ _company: company || {} });
+  const ds = order.dealer_snapshot || {};
+  const vatRate = Number(order.vat_rate) > 0 ? Number(order.vat_rate) : 0.07;
+  const total = Number(order.amount) || 0;
+  const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const base = round2(total / (1 + vatRate));
+  const vat = round2(total - base);
+
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  let y = height - M;
+
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) =>
+    page.drawText(String(t == null ? "" : t), { x, y: opts.y != null ? opts.y : y, size, font: opts.bold ? fontB : font, color: opts.color || black });
+  const drawRight = (t, rightX, size, opts = {}) => draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const s = String(t == null ? "" : t); const out = []; let cur = "";
+    for (const ch of s) { if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
+    if (cur) out.push(cur); return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  // Seller header
+  draw(CO.legalName, M, 16, { bold: true });
+  y -= 18;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M, 10, contentW, 13, { color: gray });
+
+  // Title
+  y -= 14;
+  const title = "ใบเสนอราคา / Quotation";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 26;
+
+  // Meta
+  draw(`เลขที่: ${(order.quotation && order.quotation.number) || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่: ${formatDate((order.quotation && order.quotation.issued_at) || Date.now()) || "-"}`, width - M, 11);
+  y -= 15;
+  draw(`อ้างอิง: ล็อต ${order.lot_no || "-"} · คำสั่งซื้อ ${order.order_no || "-"}`, M, 10, { color: gray });
+  y -= 16;
+
+  // Buyer
+  draw("เสนอต่อ:", M, 11, { color: gray });
+  draw(ds.company_name || "-", M + 52, 11, { bold: true });
+  y -= 15;
+  if (ds.tax_id) { draw(`เลขผู้เสียภาษี: ${ds.tax_id}`, M, 10, { color: gray }); y -= 14; }
+  if (ds.address) { draw("ที่อยู่:", M, 10, { color: gray }); drawWrapped(ds.address, M + 36, 10, contentW - 36, 13); }
+  y -= 10;
+
+  // Items table
+  const colAmt = width - M;
+  hr(y + 4); y -= 12;
+  draw("รายการ", M, 11, { bold: true, color: gray });
+  drawRight("ราคาเสนอ", colAmt, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+
+  const items = Object.values(order.items || {});
+  const wholeLot = order.type === "whole_lot";
+  for (const it of items) {
+    if (y < 170) break; // กันตกขอบหน้า (lot ใหญ่มากใช้บรรทัดสรุปแทน)
+    const label = `${it.model || "สินค้า"}${it.ref_no ? ` (${it.ref_no})` : ""}`;
+    const nameLines = wrap(label, 10, font, contentW - 120);
+    nameLines.forEach((ln, i) => {
+      draw(ln, M, 10);
+      if (i === 0) drawRight(wholeLot ? "-" : thb(it.amount), colAmt, 10);
+      y -= 15;
+    });
+  }
+  if (wholeLot) {
+    draw(`เหมายกล็อต ${items.length} เครื่อง`, M, 10, { color: gray });
+    drawRight(thb(total), colAmt, 10, { bold: true });
+    y -= 15;
+  }
+
+  y -= 4; hr(y + 6); y -= 14;
+  draw("มูลค่าก่อนภาษี", M, 11, { color: gray });
+  drawRight(thb(base), colAmt, 11, { color: gray });
+  y -= 16;
+  draw(`ภาษีมูลค่าเพิ่ม ${Math.round(vatRate * 100)}%`, M, 11, { color: gray });
+  drawRight(thb(vat), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("ยอดรวมทั้งสิ้น (รวม VAT)", M, 13, { bold: true });
+  drawRight(thb(total), colAmt, 13, { bold: true, color: rgb(0.02, 0.45, 0.34) });
+  y -= 20;
+
+  const words = bahtText(total);
+  if (words) { draw(`(${words})`, M, 11); y -= 18; }
+
+  // Payment info + validity
+  const pay = order.payment_info || {};
+  if (pay.account_no) {
+    draw(`ชำระเงิน: ${pay.bank || ""} ${pay.account_no} (${pay.account_name || ""})`, M, 10, { color: gray });
+    y -= 14;
+  }
+  draw("ใบเสนอราคานี้ออกจากผลการเสนอราคาในระบบ Dealer Portal — กรุณาชำระเงินตามยอดข้างต้นและแนบหลักฐานผ่านระบบ", M, 9, { color: gray });
+  y -= 13;
+  draw("ใบกำกับภาษี/ใบเสร็จรับเงินฉบับจริงจะออกให้เมื่อยืนยันการชำระเงินแล้ว", M, 9, { color: gray });
+
+  // Signature
+  const sigY = Math.max(y - 60, 110);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้มีอำนาจอนุมัติ";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+  if (order.created_by) {
+    page.drawText(`อนุมัติโดย: ${order.created_by}`, { x: cx - 75, y: sigY - 30, size: 8, font, color: gray });
+  }
+  page.drawText(`${CO.legalName} (${CO.tradeName}) • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+
+  const bytes = await pdf.save();
+  return Buffer.from(bytes);
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf };

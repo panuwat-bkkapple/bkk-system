@@ -6022,3 +6022,17 @@ exports.backfillCrmContacts = onCall(
     return { scanned, linked, strayCustomerIdsForReview };
   }
 );
+
+// =============================================================================
+// Dealer Portal (ขายส่งยกล็อต + ประมูลปิดซอง) — logic ทั้งหมดอยู่ dealer-portal.js
+// inject helper กลางของไฟล์นี้เข้าไป (เลี่ยง circular require + ให้ notification
+// gate/token prune ทำงานที่เดียว) แล้ว spread functions เข้า exports
+// =============================================================================
+Object.assign(
+  exports,
+  require("./dealer-portal").registerDealerPortal({
+    dispatchAdminPush,
+    dispatchTelegram,
+    staffIdsByRoles,
+  })
+);

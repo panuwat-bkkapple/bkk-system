@@ -18,7 +18,8 @@ export type NotificationEventKey =
   | 'chat_message'
   | 'approval'
   | 'field_ops'
-  | 'system_alert';
+  | 'system_alert'
+  | 'dealer';
 
 export interface NotificationSettings {
   channels: Record<NotificationChannelKey, boolean>;
@@ -79,6 +80,11 @@ export const NOTIFICATION_EVENTS: NotificationOptionMeta<NotificationEventKey>[]
     key: 'system_alert',
     label: 'แจ้งเตือนระบบ',
     description: 'เรื่องของระบบเอง เช่น โควตา Sickw IMEI ใกล้หมด',
+  },
+  {
+    key: 'dealer',
+    label: 'Dealer Portal',
+    description: 'ประมูลขายส่ง: มีผู้เสนอราคา, ปิดรับราคา (CEO/MANAGER), สลิปเข้า (CEO/FINANCE), สถานะคำสั่งซื้อดีลเลอร์',
   },
 ];
 

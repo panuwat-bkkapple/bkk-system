@@ -51,6 +51,11 @@ const EVENT_CATEGORY = {
   rider_auto_flagged: "field_ops",
 
   sickw_usage_alert: "system_alert",
+
+  dealer_bid: "dealer",
+  dealer_lot: "dealer",
+  dealer_payment: "dealer",
+  dealer_order: "dealer",
 };
 
 const CHANNELS = ["admin_push", "rider_push", "telegram"];
@@ -61,6 +66,7 @@ const CATEGORIES = [
   "approval",
   "field_ops",
   "system_alert",
+  "dealer",
 ];
 
 let cache = null; // { at: number, value: object }
