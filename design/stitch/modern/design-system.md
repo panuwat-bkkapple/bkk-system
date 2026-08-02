@@ -30,7 +30,6 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 | `lot-detail.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `orders.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `specs.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-<<<<<<< HEAD:design/stitch/modern/design-system.md
 | `../dealerportal/grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
 
 > ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
@@ -39,16 +38,6 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 > Hanken Grotesk, `primary` `#041627`, `secondary` `#006d37`, `surface` `#f9f9ff`
 > และ `borderRadius` `0.125 / 0.25 / 0.5rem` ซึ่งแคบกว่าทุกไฟล์
 > อ่านสเปกที่ [`../dealerportal/design-system.md`](../dealerportal/design-system.md) แทน
-=======
-| `grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
-
-> ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
->
-> ไฟล์นี้อยู่ในโฟลเดอร์เดียวกันแต่เป็นของ **DealerPortal** เต็มตัว —
-> Hanken Grotesk, `primary` `#041627`, `secondary` `#006d37`, `surface` `#f9f9ff`
-> และ `borderRadius` `0.125 / 0.25 / 0.5rem` ซึ่งแคบกว่าทุกไฟล์
-> อ่านสเปกที่ [`design-system-dealerportal.md`](./design-system-dealerportal.md) แทน
->>>>>>> origin/main:design/stitch/design-system.md
 >
 > `<title>` ของไฟล์ยังใช้ชื่อแบรนด์ที่สาม — **"ElectroWholesale Pro"** ไม่ใช่ทั้ง
 > DealerPortal และ iWholesale Pro
