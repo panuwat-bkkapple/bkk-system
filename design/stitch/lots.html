@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>iWholesale Pro | Active Lots</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-container": "#7c839b",
+                    "surface-container-low": "#eff4ff",
+                    "on-primary-fixed-variant": "#3f465c",
+                    "on-tertiary-fixed": "#271901",
+                    "secondary-fixed-dim": "#4edea3",
+                    "on-surface": "#0b1c30",
+                    "on-primary": "#ffffff",
+                    "surface-bright": "#f8f9ff",
+                    "on-error-container": "#93000a",
+                    "outline-variant": "#c6c6cd",
+                    "primary-fixed": "#dae2fd",
+                    "on-tertiary-fixed-variant": "#574425",
+                    "surface-variant": "#d3e4fe",
+                    "on-surface-variant": "#45464d",
+                    "primary": "#000000",
+                    "inverse-surface": "#213145",
+                    "surface-container-highest": "#d3e4fe",
+                    "secondary": "#006c49",
+                    "outline": "#76777d",
+                    "tertiary-container": "#271901",
+                    "error-container": "#ffdad6",
+                    "surface-container": "#e5eeff",
+                    "inverse-primary": "#bec6e0",
+                    "error": "#ba1a1a",
+                    "surface-dim": "#cbdbf5",
+                    "on-secondary-container": "#00714d",
+                    "secondary-container": "#6cf8bb",
+                    "tertiary": "#000000",
+                    "on-secondary-fixed-variant": "#005236",
+                    "on-background": "#0b1c30",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary": "#ffffff",
+                    "tertiary-fixed-dim": "#dec29a",
+                    "on-error": "#ffffff",
+                    "surface-tint": "#565e74",
+                    "on-primary-fixed": "#131b2e",
+                    "on-secondary-fixed": "#002113",
+                    "secondary-fixed": "#6ffbbe",
+                    "inverse-on-surface": "#eaf1ff",
+                    "primary-fixed-dim": "#bec6e0",
+                    "primary-container": "#131b2e",
+                    "tertiary-fixed": "#fcdeb5",
+                    "background": "#f8f9ff",
+                    "surface-container-high": "#dce9ff",
+                    "on-tertiary-container": "#98805d",
+                    "surface": "#f8f9ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "stack-xl": "64px",
+                    "stack-lg": "32px",
+                    "stack-sm": "8px",
+                    "stack-md": "16px",
+                    "margin-desktop": "48px",
+                    "gutter": "24px",
+                    "margin-mobile": "16px"
+            },
+            "fontFamily": {
+                    "headline-md": ["Plus Jakarta Sans"],
+                    "body-lg": ["Inter"],
+                    "headline-lg": ["Plus Jakarta Sans"],
+                    "label-caps": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "display-lg": ["Plus Jakarta Sans"],
+                    "technical-id": ["JetBrains Mono"],
+                    "headline-lg-mobile": ["Plus Jakarta Sans"]
+            },
+            "fontSize": {
+                    "headline-md": ["24px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.25", "fontWeight": "700"}],
+                    "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "display-lg": ["48px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "technical-id": ["13px", {"lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "1.3", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); }
+        .lot-card-shadow { box-shadow: 0px 4px 20px rgba(15, 23, 42, 0.04); }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/70 dark:bg-on-primary-container/70 backdrop-blur-xl border-b border-white/20 dark:border-outline-variant/20 shadow-[0_4px_20px_rgba(15,23,42,0.04)] h-16 flex justify-between items-center px-margin-mobile md:px-margin-desktop">
+<div class="flex items-center gap-stack-md">
+<span class="material-symbols-outlined text-primary text-2xl" data-icon="devices_apple">drive_file_rename</span>
+<span class="font-headline-md text-headline-md text-primary dark:text-primary-fixed font-bold tracking-tight">iWholesale Pro</span>
+</div>
+<!-- Desktop Nav -->
+<nav class="hidden md:flex items-center space-x-8">
+<a class="text-on-surface-variant dark:text-on-primary-container font-label-caps text-label-caps hover:opacity-80 transition-opacity" href="#">Home</a>
+<a class="text-primary dark:text-primary-fixed font-label-caps text-label-caps font-bold" href="#">Lots</a>
+<a class="text-on-surface-variant dark:text-on-primary-container font-label-caps text-label-caps hover:opacity-80 transition-opacity" href="#">Orders</a>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden border border-outline-variant/30">
+<img class="w-full h-full object-cover" data-alt="Professional studio portrait of a corporate B2B executive for an avatar placeholder, high-end lighting, minimalist background, corporate professional aesthetic in line with a high-efficiency wholesale platform." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWgd7ZUB4jEUX1lE2VrU8qRi2weWAi5DhIYIitL5Fd1JL5rDwV_S_pC4mNu3z40CNF-nrTlDs3Abk3m4teHX6ETq8uLBkcHI3Svp-qUKtsduSft3LpqoNs4u_5V5iNsJdxrsLuqt8MRxYTkURASQngCnREa68WL-2Ueai2YTYy5N_VW1hAmVLcj2zoBCBT8NIdIssvnrNDqof9DWds1lLKRq77eLucnzXnqqREr4P8ApD-2WZl5aLJlA"/>
+</div>
+</nav>
+</header>
+<main class="pt-24 pb-20 px-margin-mobile md:px-margin-desktop max-w-7xl mx-auto">
+<!-- Header Section -->
+<section class="mb-stack-lg animate-fade-in">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-stack-md">
+<div>
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-surface tracking-tight">Active Lots</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Daily available inventory for bidding</p>
+</div>
+<!-- Filters -->
+<div class="flex flex-wrap gap-2">
+<button class="px-6 py-2 rounded-full bg-primary text-on-primary font-label-caps text-label-caps transition-all active:scale-95">All Lots</button>
+<button class="px-6 py-2 rounded-full border border-outline-variant text-on-surface-variant font-label-caps text-label-caps hover:bg-surface-container-low transition-all">Whole Lot</button>
+<button class="px-6 py-2 rounded-full border border-outline-variant text-on-surface-variant font-label-caps text-label-caps hover:bg-surface-container-low transition-all">Individual</button>
+</div>
+</div>
+</section>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Lot Card 1 -->
+<article class="bg-surface-container-lowest border border-white/20 rounded-xl overflow-hidden lot-card-shadow group">
+<div class="relative h-64 overflow-hidden">
+<img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" data-alt="A clean, cinematic photograph of a pristine logistics warehouse filled with stacked boxes of iPhone 15 series devices. The lighting is crisp and cool, highlighting the premium quality of the inventory. The composition is professional and balanced, showcasing a high-volume B2B wholesale environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJVGASfL0EXmT_3AHy02IIRAAKqL233pzjX-Jui6XxbkQITiFKuhZNEE7GYSiZcMGyAUMZ9Xu1_yb_Eo4_QUmn0aT0gj7_GX8z0wwdixEr8YnWAPlgj6YWO3D71nzV8UsJUq-zfjUNrb27Pr8TWGfqH0sYn9_B2juLzRzv9NRT66kaYokEU8lyMUhnyXw1RlDnkuVZ7tMwHqXYZj-Z3a41zrcUuMV2TPFj24_uK4ipbZDcqFSWqnGssw"/>
+<div class="absolute top-4 left-4 flex gap-2">
+<div class="glass px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-white/40 shadow-sm">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="timer">timer</span>
+<span class="font-technical-id text-technical-id text-primary">04:59</span>
+</div>
+<div class="glass px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-white/40 shadow-sm">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="groups">groups</span>
+<span class="font-technical-id text-technical-id text-primary">5/30</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent">
+<span class="font-technical-id text-technical-id text-white bg-primary/40 backdrop-blur px-2 py-0.5 rounded">LOT #882A</span>
+</div>
+</div>
+<div class="p-stack-md">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-headline-md text-on-surface">Bulk iPhone 15 Series</h2>
+<span class="font-technical-id text-technical-id text-secondary bg-secondary-container/30 px-2 py-1 rounded-full uppercase">Pristine</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-stack-md">Assorted 128GB, 256GB, and Pro Max units. Factory unlocked, non-active, original seals intact. Grade A++ stock.</p>
+<div class="flex items-center justify-between mt-stack-md pt-stack-md border-t border-outline-variant/10">
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Current Bid</p>
+<p class="font-headline-md text-headline-md text-primary">$42,500.00</p>
+</div>
+<button class="bg-primary text-on-primary px-8 py-3 rounded-lg font-label-caps text-label-caps hover:opacity-90 active:scale-95 transition-all">View &amp; Bid</button>
+</div>
+</div>
+</article>
+<!-- Lot Card 2 -->
+<article class="bg-surface-container-lowest border border-white/20 rounded-xl overflow-hidden lot-card-shadow group">
+<div class="relative h-64 overflow-hidden">
+<img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" data-alt="A sophisticated commercial shot of stacked iPad Pro and iPad Air boxes in a high-tech storage facility. The lighting is dramatic yet clear, focusing on the product packaging details. The background shows a modern warehouse with a clean, organized B2B aesthetic, emphasizing reliability and professional logistics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCBYUJad-EjrGjQvz-mqk8xMtnMS7_3JYe-xYxrINaEhvQcM3L7uFKAVZ4-jPHhmVSnOwJszN2H6F0N9fVrquDcF7SNSQqNXjbXqR7fl6sQkFmvkV9huyo85vkNyIdLrw5OrpFQc-sUJ4-2aqoWkYJ6IBunXzMm11pGnQOnEBHx_bGyRlfknKoGlf45tpxgXJwC6zNeTirDfsHB2Z0jJz5hSh0cnu2ZEpfg9xVZ0GBpWC4odkiNUcSWFA"/>
+<div class="absolute top-4 left-4 flex gap-2">
+<div class="glass px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-white/40 shadow-sm">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="timer">timer</span>
+<span class="font-technical-id text-technical-id text-primary">02:14</span>
+</div>
+<div class="glass px-3 py-1.5 rounded-lg flex items-center gap-1.5 border border-white/40 shadow-sm">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="groups">groups</span>
+<span class="font-technical-id text-technical-id text-primary">12/30</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent">
+<span class="font-technical-id text-technical-id text-white bg-primary/40 backdrop-blur px-2 py-0.5 rounded">LOT #883B</span>
+</div>
+</div>
+<div class="p-stack-md">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-headline-md text-on-surface">iPad Pro &amp; Air Mix Lot</h2>
+<span class="font-technical-id text-technical-id text-on-surface-variant bg-surface-container-high px-2 py-1 rounded-full uppercase">Mixed</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-stack-md">M2 iPad Pro 11" and 12.9" configurations mixed with iPad Air 5th Gen. All retail boxed, verified serials.</p>
+<div class="flex items-center justify-between mt-stack-md pt-stack-md border-t border-outline-variant/10">
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase mb-1">Current Bid</p>
+<p class="font-headline-md text-headline-md text-primary">$18,750.00</p>
+</div>
+<button class="bg-primary text-on-primary px-8 py-3 rounded-lg font-label-caps text-label-caps hover:opacity-90 active:scale-95 transition-all">View &amp; Bid</button>
+</div>
+</div>
+</article>
+<!-- Secondary List Section (Bento Extension) -->
+<div class="md:col-span-2 mt-stack-md">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-stack-md flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="schedule">schedule</span>
+                    Coming Soon
+                </h3>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-stack-md">
+<div class="bg-surface-container/50 border border-outline-variant/20 p-stack-md rounded-xl flex items-center justify-between group cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-stack-md">
+<div class="w-12 h-12 rounded-lg bg-white flex items-center justify-center border border-outline-variant/10">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="watch">watch</span>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-primary font-bold">Apple Watch Ultra</p>
+<p class="font-technical-id text-technical-id text-on-surface-variant">40 Units • 08:00 AM</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline transition-transform group-hover:translate-x-1" data-icon="chevron_right">chevron_right</span>
+</div>
+<div class="bg-surface-container/50 border border-outline-variant/20 p-stack-md rounded-xl flex items-center justify-between group cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-stack-md">
+<div class="w-12 h-12 rounded-lg bg-white flex items-center justify-center border border-outline-variant/10">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="laptop_mac">laptop_mac</span>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-primary font-bold">MacBook Pro M3</p>
+<p class="font-technical-id text-technical-id text-on-surface-variant">15 Units • 09:30 AM</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline transition-transform group-hover:translate-x-1" data-icon="chevron_right">chevron_right</span>
+</div>
+<div class="bg-surface-container/50 border border-outline-variant/20 p-stack-md rounded-xl flex items-center justify-between group cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-stack-md">
+<div class="w-12 h-12 rounded-lg bg-white flex items-center justify-center border border-outline-variant/10">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="headphones">headphones</span>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-primary font-bold">AirPods Pro Gen 2</p>
+<p class="font-technical-id text-technical-id text-on-surface-variant">100 Units • 11:00 AM</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline transition-transform group-hover:translate-x-1" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-surface/70 backdrop-blur-xl border-t border-white/20 shadow-[0_-4px_20px_rgba(15,23,42,0.04)] py-2 px-4 flex justify-around items-center z-50">
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-caps text-[10px] mt-1">Home</span>
+</div>
+<div class="flex flex-col items-center justify-center text-primary font-bold transition-colors">
+<span class="material-symbols-outlined" data-icon="inventory_2" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="font-label-caps text-[10px] mt-1">Lots</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="font-label-caps text-[10px] mt-1">Orders</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-caps text-[10px] mt-1">Profile</span>
+</div>
+</nav>
+<script>
+        // Micro-interaction for BID buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if(btn.innerText.includes('Bid')) {
+                    console.log('Bid logic initiated...');
+                }
+            });
+        });
+        
+        // Simple countdown logic simulation
+        setInterval(() => {
+            document.querySelectorAll('.font-technical-id').forEach(el => {
+                if(el.innerText.includes(':')) {
+                    let parts = el.innerText.split(':');
+                    let min = parseInt(parts[0]);
+                    let sec = parseInt(parts[1]);
+                    
+                    if(sec > 0) sec--;
+                    else if(min > 0) { min--; sec = 59; }
+                    
+                    el.innerText = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+                }
+            });
+        }, 1000);
+    </script>
+</body></html>

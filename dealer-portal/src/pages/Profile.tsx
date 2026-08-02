@@ -151,7 +151,7 @@ export const Profile = () => {
           <Building2 size={14} /> ข้อมูลบริษัท (ใช้ในเอกสารภาษี)
         </div>
         {companyRows.map(([k, v]) => (
-          <div key={k} className="row" style={{ padding: '9px 0', borderBottom: '1px solid #f2f4f7' }}>
+          <div key={k} className="row" style={{ padding: '9px 0', borderBottom: '1px solid #eef1f5' }}>
             <span className="tiny muted bold">{k}</span>
             <span className="small bold" style={{ textAlign: 'right', maxWidth: '60%' }}>{v || '-'}</span>
           </div>
@@ -183,7 +183,7 @@ export const Profile = () => {
           )}
 
           {members.map((m) => (
-            <div key={m.uid} className="row" style={{ padding: '11px 0', borderBottom: '1px solid #f2f4f7' }}>
+            <div key={m.uid} className="row" style={{ padding: '11px 0', borderBottom: '1px solid #eef1f5' }}>
               <div>
                 <div className="bold small" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {m.name || '-'}

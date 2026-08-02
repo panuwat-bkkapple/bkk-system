@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Device Specifications - iPhone 15 Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                            "surface-container": "#e7eeff",
+                            "on-error": "#ffffff",
+                            "primary-container": "#131b2e",
+                            "on-background": "#0b1c30",
+                            "on-error-container": "#93000a",
+                            "surface-dim": "#cfdaf1",
+                            "on-secondary-fixed": "#00210c",
+                            "secondary-container": "#6cf8bb",
+                            "on-secondary-fixed-variant": "#005228",
+                            "on-secondary": "#ffffff",
+                            "tertiary": "#121617",
+                            "on-surface": "#0b1c30",
+                            "surface-container-highest": "#d8e3fa",
+                            "error": "#ba1a1a",
+                            "surface": "#f8f9ff",
+                            "secondary": "#006c49",
+                            "surface-container-high": "#dee8ff",
+                            "primary-fixed-dim": "#b7c8de",
+                            "inverse-primary": "#b7c8de",
+                            "on-secondary-container": "#00714d",
+                            "on-tertiary-container": "#8d9193",
+                            "outline": "#74777d",
+                            "background": "#f8f9ff",
+                            "tertiary-container": "#262a2c",
+                            "error-container": "#ffdad6",
+                            "tertiary-fixed-dim": "#c4c7c9",
+                            "surface-container-low": "#f0f3ff",
+                            "secondary-fixed": "#7efba4",
+                            "on-tertiary-fixed-variant": "#434749",
+                            "on-tertiary-fixed": "#181c1e",
+                            "on-primary-fixed-variant": "#38485a",
+                            "surface-variant": "#d8e3fa",
+                            "outline-variant": "#c4c6cd",
+                            "primary-fixed": "#d2e4fb",
+                            "surface-bright": "#f8f9ff",
+                            "surface-container-lowest": "#ffffff",
+                            "on-surface-variant": "#45464d",
+                            "on-primary-container": "#8192a7",
+                            "tertiary-fixed": "#e0e3e5",
+                            "on-primary": "#ffffff",
+                            "inverse-surface": "#263142",
+                            "surface-tint": "#565e74",
+                            "on-primary-fixed": "#131b2e",
+                            "on-tertiary": "#ffffff",
+                            "primary": "#000000",
+                            "secondary-fixed-dim": "#4edea3",
+                            "inverse-on-surface": "#eaf1ff"
+                    },
+                    "borderRadius": {
+                            "DEFAULT": "0.25rem",
+                            "lg": "0.5rem",
+                            "xl": "0.75rem",
+                            "full": "9999px"
+                    },
+                    "spacing": {
+                            "stack-sm": "8px",
+                            "gutter": "24px",
+                            "base": "8px",
+                            "stack-md": "16px",
+                            "margin-desktop": "48px",
+                            "stack-lg": "32px",
+                            "container-max": "1440px",
+                            "margin-mobile": "16px"
+                    },
+                    "fontFamily": {
+                            "body-lg": ["Inter"],
+                            "data-mono": ["JetBrains Mono"],
+                            "body-md": ["Inter"],
+                            "label-caps": ["Inter"],
+                            "display": ["Plus Jakarta Sans"],
+                            "headline-lg": ["Plus Jakarta Sans"],
+                            "headline-md": ["Plus Jakarta Sans"],
+                            "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                            "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                            "data-mono": ["13px", {"lineHeight": "18px", "fontWeight": "500"}],
+                            "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                            "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                            "display": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                            "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
+                            "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .mesh-gradient {
+            background-color: #000000;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(56, 72, 90, 0.4) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(0, 108, 73, 0.2) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(26, 43, 60, 0.4) 0px, transparent 50%);
+        }
+        .refined-grid {
+            background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+        .glass-badge {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 15px rgba(108, 248, 187, 0.1);
+        }
+        .battery-ring {
+            transition: stroke-dashoffset 1s ease-in-out;
+        }
+    </style>
+<style data-stitch-css-vh="
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  ">
+    body {
+      min-height: max(884px, 1024px);
+    }
+  </style></head>
+<body class="bg-background text-on-background font-body-md min-h-[1024px] flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-surface/80 backdrop-blur-xl border-b border-outline-variant flex justify-between items-center px-margin-mobile md:px-margin-desktop h-16 w-full sticky top-0 z-50">
+<div class="flex items-center gap-4">
+<button aria-label="Close" class="text-on-surface-variant hover:bg-surface-container-low p-2 rounded-full transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-xl">close</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-primary font-bold tracking-tight">Device Specifications</h1>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-data-mono text-data-mono text-on-surface-variant bg-surface-container px-3 py-1 rounded-lg">LOT ID: APL-9928-1X</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 w-full max-w-container-max mx-auto md:px-margin-desktop px-margin-mobile py-stack-lg">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Left Column: Primary Specs & diagnostics -->
+<div class="lg:col-span-5 flex flex-col gap-gutter">
+<!-- Hero Card with Mesh Gradient -->
+<div class="mesh-gradient text-on-primary rounded-xl p-stack-lg shadow-xl relative overflow-hidden">
+<div class="refined-grid absolute inset-0"></div>
+<div class="relative z-10 flex flex-col gap-stack-md">
+<div class="flex justify-between items-start">
+<div>
+<h2 class="font-display text-display font-bold leading-tight">iPhone 15 Pro</h2>
+<p class="font-body-lg text-primary-fixed-dim opacity-80 mt-1">256GB • Natural Titanium</p>
+</div>
+<div class="flex flex-col items-end gap-2">
+<div class="glass-badge px-4 py-1.5 rounded-full flex items-center gap-2 border border-secondary/30">
+<span class="w-2 h-2 rounded-full bg-secondary-fixed-dim shadow-[0_0_8px_rgba(78,222,163,0.6)]"></span>
+<span class="font-bold text-label-caps text-secondary-fixed-dim uppercase tracking-widest">Grade A++</span>
+</div>
+<span class="bg-white/5 backdrop-blur-md text-white/60 font-data-mono text-[11px] px-3 py-1 rounded border border-white/10 uppercase">A2848</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-y-stack-lg gap-x-4 mt-stack-lg pt-stack-lg border-t border-white/10">
+<div class="flex flex-col gap-1">
+<p class="font-label-caps text-[10px] text-white/50 uppercase tracking-widest">Processor</p>
+<p class="font-headline-md text-body-md font-semibold text-white">A17 Pro chip</p>
+</div>
+<div class="flex flex-col gap-1">
+<p class="font-label-caps text-[10px] text-white/50 uppercase tracking-widest">Display</p>
+<p class="font-headline-md text-body-md font-semibold text-white">6.1" Super Retina XDR</p>
+</div>
+<div class="flex flex-col gap-1">
+<p class="font-label-caps text-[10px] text-white/50 uppercase tracking-widest">Battery Health</p>
+<p class="font-headline-md text-body-md font-semibold text-secondary-fixed-dim flex items-center gap-1.5">
+                            100%
+                            <span class="material-symbols-outlined text-sm">verified</span>
+</p>
+</div>
+<div class="flex flex-col gap-1">
+<p class="font-label-caps text-[10px] text-white/50 uppercase tracking-widest">Connectivity</p>
+<p class="font-headline-md text-body-md font-semibold text-white">5G • Wi-Fi 6E • USB-C</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Material Composition -->
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-stack-lg shadow-sm">
+<h3 class="font-headline-md text-headline-md text-primary mb-stack-lg flex items-center gap-3">
+<span class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">layers</span>
+</span>
+                Material Composition
+            </h3>
+<div class="space-y-4">
+<div class="flex flex-col gap-1.5 pb-4 border-b border-surface-variant">
+<div class="flex justify-between items-center">
+<span class="font-headline-md text-[15px] text-on-surface">Chassis</span>
+<span class="font-data-mono text-data-mono text-secondary font-semibold">Aerospace Titanium</span>
+</div>
+<p class="text-body-sm text-on-surface-variant text-[13px]">No visible cosmetic wear or impact marks detected.</p>
+</div>
+<div class="flex flex-col gap-1.5 pb-4 border-b border-surface-variant">
+<div class="flex justify-between items-center">
+<span class="font-headline-md text-[15px] text-on-surface">Internal Frame</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant">100% Recycled Aluminum</span>
+</div>
+</div>
+<div class="flex flex-col gap-1.5 pb-4 border-b border-surface-variant">
+<div class="flex justify-between items-center">
+<span class="font-headline-md text-[15px] text-on-surface">Front Cover</span>
+<span class="font-data-mono text-data-mono text-secondary font-semibold">Ceramic Shield</span>
+</div>
+<p class="text-body-sm text-on-surface-variant text-[13px]">Surface integrity verified; pristine condition.</p>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-center">
+<span class="font-headline-md text-[15px] text-on-surface">Back Glass</span>
+<span class="font-data-mono text-data-mono text-secondary font-semibold">Textured Matte Glass</span>
+</div>
+<p class="text-body-sm text-on-surface-variant text-[13px]">Original factory seal and finish maintained.</p>
+</div>
+</div>
+</div>
+<!-- Diagnostic Check -->
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-stack-lg shadow-sm">
+<h3 class="font-headline-md text-headline-md text-primary mb-stack-lg flex items-center gap-3">
+<span class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">health_and_safety</span>
+</span>
+                Diagnostic Check
+            </h3>
+<div class="grid grid-cols-2 gap-stack-md">
+<div class="flex items-center justify-between p-4 bg-surface-container-low/50 border border-outline-variant/30 rounded-xl transition-all hover:bg-surface-container-low">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-xl">face</span>
+<span class="font-body-md text-on-surface font-medium">Face ID</span>
+</div>
+<span class="material-symbols-outlined text-secondary text-lg">check_circle</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-container-low/50 border border-outline-variant/30 rounded-xl transition-all hover:bg-surface-container-low">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-xl">photo_camera</span>
+<span class="font-body-md text-on-surface font-medium">Cameras</span>
+</div>
+<span class="material-symbols-outlined text-secondary text-lg">check_circle</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-container-low/50 border border-outline-variant/30 rounded-xl transition-all hover:bg-surface-container-low">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-xl">sensors</span>
+<span class="font-body-md text-on-surface font-medium">Sensors</span>
+</div>
+<span class="material-symbols-outlined text-secondary text-lg">check_circle</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-surface-container-low/50 border border-outline-variant/30 rounded-xl transition-all hover:bg-surface-container-low">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary text-xl">volume_up</span>
+<span class="font-body-md text-on-surface font-medium">Audio</span>
+</div>
+<span class="material-symbols-outlined text-secondary text-lg">check_circle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Visuals & Battery -->
+<div class="lg:col-span-7 flex flex-col gap-gutter">
+<!-- Visual Inspection Gallery -->
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl overflow-hidden shadow-sm flex flex-col">
+<div class="px-stack-lg py-5 border-b border-surface-variant flex justify-between items-center bg-white">
+<h3 class="font-headline-md text-headline-md text-primary">Visual Inspection</h3>
+<div class="flex gap-1 bg-surface-container-low p-1 rounded-lg">
+<button class="p-2 rounded hover:bg-white transition-all"><span class="material-symbols-outlined text-lg text-on-surface-variant">zoom_in</span></button>
+<button class="p-2 rounded hover:bg-white transition-all"><span class="material-symbols-outlined text-lg text-on-surface-variant">fullscreen</span></button>
+</div>
+</div>
+<!-- Main Display Area -->
+<div class="relative w-full aspect-[16/10] bg-gradient-to-b from-[#fdfdfd] to-[#f5f8ff] flex items-center justify-center p-stack-lg">
+<img class="w-4/5 h-4/5 object-contain drop-shadow-[0_20px_50px_rgba(0,0,0,0.12)]" data-alt="High-resolution professional product photography of iPhone 15 Pro in Natural Titanium." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCp8kdAAo7hDkxeST5JkVzmmzv_IO4ST8sbbDqFVK7n50RZ-_cFNFsPsNe5i_T03S-a_M39CFZSFluDJptsS3PIhgQKpWzH6EA3znOQ3nJPCXnwS1X45LHPyjYqQfCzl6FwPnBZc7FW2xdUSbQBPu0bfCUrksiuyR36DkCZ6BAVdpUZZPO_L-BVUGVaFe-BYX5YYOm30BXqobLMOvDCYCGWkDsUbRzAfdBvyq1M_BUilOU7ntgxbEAiQg"/>
+<div class="absolute bottom-6 right-6 bg-primary/90 text-white px-3 py-1 rounded-full text-[10px] font-label-caps tracking-widest flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary-fixed-dim animate-pulse"></span>
+                    VERIFIED SCAN
+                </div>
+</div>
+<!-- Thumbnails -->
+<div class="flex gap-4 p-stack-md bg-surface-container-low/30 border-t border-surface-variant overflow-x-auto px-stack-lg">
+<div class="w-24 h-24 flex-shrink-0 p-1 bg-white border-2 border-primary rounded-xl overflow-hidden cursor-pointer shadow-md">
+<img class="w-full h-full object-cover rounded-lg" data-alt="Front view" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBI913TBiPWmP25FRZA5aZgF5rqf3d53WwDXrFe8bKBkXq6-J-HuSOSELZUJ-fBoKo7s1vnw33FF9k9J_gPCho2HGbnqY1jeYcF3mTMCG1znc0mRAFEdPKu8t6Z5MbFr2BLKCI1P7BpBbMRfmAQef4Le2jPbYnveIbXHH2TycOtwF-zp1M7sgjzMjt7AQnqbUxpSS_-qTvJxB_7WAPEtbxozmrlBwDDOk9IAe1Pw4gqmcVgpgh5FoUKhg"/>
+</div>
+<div class="w-24 h-24 flex-shrink-0 p-1 bg-white border border-outline-variant rounded-xl overflow-hidden cursor-pointer opacity-60 hover:opacity-100 transition-opacity">
+<img class="w-full h-full object-cover rounded-lg" data-alt="Back view" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB8DCihOd4vJCEmAkKzoSUc5H1m01HKL3KnCQqDCvhNf6KC__k_0NNlSVU4Ew5CHpJ9onoxPVHbmi63RQAfclEDlGf5VvT8a-CieIK7plaIsEQRQOzyW_kFoNVYneaqoHL4Cj5XP7BeVJVmuepB4C_Xun3puz-gkP9jLjyjD_gHyJXX9hSsStcbeqoIsVrnMGfINaPr55eAlA1Jb5pbdfswRYtDDftiAPU9NlsufgBtTODX0vma7MXO9w"/>
+</div>
+<div class="w-24 h-24 flex-shrink-0 p-1 bg-white border border-outline-variant rounded-xl overflow-hidden cursor-pointer opacity-60 hover:opacity-100 transition-opacity">
+<img class="w-full h-full object-cover rounded-lg" data-alt="Side profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9Oo2TPx5t-lIRUjzljV4ItLj32-D2t6lKGWWRONcqXBgmlIXV626HAUqgcZT4RtpvgbYBAYr80lGvbQNxCqzUQjzOOnrKfU2eGIVxI-tWbMIN_kC1YbC4QRYLO8sC-kPr0YI1-CHpAJOIj5NqoGBIu2kgz-F3memvPi_sxqx_0X7qjgcHsjLe2B1qjTrEaM7T8q8I5w4QlnMavCOURXA8NUZbExFkoNzNBKaxO4u2x-ih9NT3QvULvw"/>
+</div>
+<div class="w-24 h-24 flex-shrink-0 p-1 bg-white border border-outline-variant rounded-xl overflow-hidden cursor-pointer opacity-60 hover:opacity-100 transition-opacity">
+<img class="w-full h-full object-cover rounded-lg" data-alt="USB-C Detail" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDVYlcSsUwLoiBnCeakKW32ouYXoRxS-J9rDtYZC9U8zOkR-3SqQuruix0oPvRnoBsIiauVXK7aQYcnRaQ6qcZFzsFkCBlL5BdKGkvKESdb6j6-BKQwQ-PKvbc220t0GMPjC39VOTWcuWprCYrvGnniRx3XO04glox_xRVDedePPEBJmSjxT_JuzK9oWRViJRY16hmnnjikTxSkxKz6mQmv9rZFxaIPzHEpRlwsq_5BQsjACgq4WZCQA"/>
+</div>
+</div>
+</div>
+<!-- Battery & Power Health -->
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-stack-lg shadow-sm">
+<h3 class="font-headline-md text-headline-md text-primary mb-stack-lg flex items-center gap-3">
+<span class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">battery_charging_full</span>
+</span>
+                Battery &amp; Power Health
+            </h3>
+<div class="flex flex-col md:flex-row items-center gap-stack-lg">
+<!-- High-Fidelity Progress Indicator -->
+<div class="relative flex items-center justify-center w-40 h-40">
+<svg class="w-full h-full transform -rotate-90 filter drop-shadow-[0_0_12px_rgba(0,108,73,0.1)]">
+<circle class="text-surface-container" cx="80" cy="80" fill="transparent" r="72" stroke="currentColor" stroke-width="6"></circle>
+<circle class="text-secondary battery-ring" cx="80" cy="80" fill="transparent" r="72" stroke="currentColor" stroke-dasharray="452.39" stroke-dashoffset="0" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<div class="absolute flex flex-col items-center">
+<span class="font-display text-[44px] font-extrabold text-primary leading-none">100%</span>
+<span class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-[0.2em] mt-1">Health</span>
+</div>
+</div>
+<div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+<div class="p-4 bg-surface-container-low/40 border border-outline-variant/20 rounded-2xl transition-all hover:shadow-md">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase tracking-widest mb-2">Cycle Count</p>
+<p class="text-headline-md font-bold text-primary">42</p>
+</div>
+<div class="p-4 bg-surface-container-low/40 border border-outline-variant/20 rounded-2xl transition-all hover:shadow-md">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase tracking-widest mb-2">Capacity</p>
+<p class="text-headline-md font-bold text-primary">3274 <span class="text-sm font-medium">mAh</span></p>
+</div>
+<div class="p-4 bg-surface-container-low/40 border border-outline-variant/20 rounded-2xl transition-all hover:shadow-md">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase tracking-widest mb-2">Status</p>
+<p class="text-headline-md font-bold text-secondary flex items-center gap-1.5">
+                            Normal
+                            <span class="material-symbols-outlined text-sm">verified</span>
+</p>
+</div>
+</div>
+</div>
+<div class="mt-stack-lg p-4 bg-surface-container-low rounded-xl flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary">info</span>
+<p class="text-body-md text-on-surface-variant italic text-[14px]">
+                    Diagnostic test completed 04:12:35. Battery performance is consistent with factory-new specifications.
+                </p>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-stack-lg shadow-sm">
+    <h3 class="font-headline-md text-headline-md text-primary mb-stack-lg flex items-center gap-3">
+        <span class="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center">
+            <span class="material-symbols-outlined text-primary text-xl">architecture</span>
+        </span>
+        Schematics &amp; Dimensions
+    </h3>
+    <div class="relative bg-primary h-64 rounded-2xl overflow-hidden flex flex-col border border-outline-variant/20">
+        <!-- Technical Grid Background -->
+        <div class="absolute inset-0 opacity-20" style="background-image: linear-gradient(#38485a 1px, transparent 1px), linear-gradient(90deg, #38485a 1px, transparent 1px); background-size: 20px 20px;"></div>
+
+        <!-- CAD Callout Brackets -->
+        <div class="absolute top-4 left-4 w-8 h-8 border-t border-l border-white/60"></div>
+        <div class="absolute bottom-4 right-4 w-8 h-8 border-b border-r border-white/60"></div>
+
+        <!-- Center Content -->
+        <div class="relative z-10 flex-1 flex flex-col items-center justify-center gap-4">
+            <span class="material-symbols-outlined text-white/40 text-[64px]">straighten</span>
+            <div class="flex flex-col items-center gap-1">
+                <p class="font-data-mono text-data-mono text-white/80 tracking-wider">H: 146.6mm x W: 70.6mm x D: 8.25mm</p>
+                <p class="font-data-mono text-data-mono text-white/80 tracking-wider">Weight: 187g</p>
+            </div>
+        </div>
+
+        <!-- Glassmorphism Header Strip -->
+        <div class="absolute top-0 left-0 right-0 h-10 bg-white/5 backdrop-blur-md border-b border-white/10 flex items-center px-4">
+            <span class="font-label-caps text-[10px] text-white/60 uppercase tracking-widest">Technical CAD View v2.4</span>
+        </div>
+    </div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

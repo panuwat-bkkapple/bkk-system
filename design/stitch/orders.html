@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Order Status &amp; History | iWholesale Pro</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-container": "#7c839b",
+                    "surface-container-low": "#eff4ff",
+                    "on-primary-fixed-variant": "#3f465c",
+                    "on-tertiary-fixed": "#271901",
+                    "secondary-fixed-dim": "#4edea3",
+                    "on-surface": "#0b1c30",
+                    "on-primary": "#ffffff",
+                    "surface-bright": "#f8f9ff",
+                    "on-error-container": "#93000a",
+                    "outline-variant": "#c6c6cd",
+                    "primary-fixed": "#dae2fd",
+                    "on-tertiary-fixed-variant": "#574425",
+                    "surface-variant": "#d3e4fe",
+                    "on-surface-variant": "#45464d",
+                    "primary": "#000000",
+                    "inverse-surface": "#213145",
+                    "surface-container-highest": "#d3e4fe",
+                    "secondary": "#006c49",
+                    "outline": "#76777d",
+                    "tertiary-container": "#271901",
+                    "error-container": "#ffdad6",
+                    "surface-container": "#e5eeff",
+                    "inverse-primary": "#bec6e0",
+                    "error": "#ba1a1a",
+                    "surface-dim": "#cbdbf5",
+                    "on-secondary-container": "#00714d",
+                    "secondary-container": "#6cf8bb",
+                    "tertiary": "#000000",
+                    "on-secondary-fixed-variant": "#005236",
+                    "on-background": "#0b1c30",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary": "#ffffff",
+                    "tertiary-fixed-dim": "#dec29a",
+                    "on-error": "#ffffff",
+                    "surface-tint": "#565e74",
+                    "on-primary-fixed": "#131b2e",
+                    "on-secondary-fixed": "#002113",
+                    "secondary-fixed": "#6ffbbe",
+                    "inverse-on-surface": "#eaf1ff",
+                    "primary-fixed-dim": "#bec6e0",
+                    "primary-container": "#131b2e",
+                    "tertiary-fixed": "#fcdeb5",
+                    "background": "#f8f9ff",
+                    "surface-container-high": "#dce9ff",
+                    "on-tertiary-container": "#98805d",
+                    "surface": "#f8f9ff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "stack-xl": "64px",
+                    "stack-lg": "32px",
+                    "stack-sm": "8px",
+                    "stack-md": "16px",
+                    "margin-desktop": "48px",
+                    "gutter": "24px",
+                    "margin-mobile": "16px"
+            },
+            "fontFamily": {
+                    "headline-md": ["Plus Jakarta Sans"],
+                    "body-lg": ["Inter"],
+                    "headline-lg": ["Plus Jakarta Sans"],
+                    "label-caps": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "display-lg": ["Plus Jakarta Sans"],
+                    "technical-id": ["JetBrains Mono"],
+                    "headline-lg-mobile": ["Plus Jakarta Sans"]
+            },
+            "fontSize": {
+                    "headline-md": ["24px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.25", "fontWeight": "700"}],
+                    "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "display-lg": ["48px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "technical-id": ["13px", {"lineHeight": "1", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "1.3", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .order-timeline-line::before {
+            content: '';
+            position: absolute;
+            left: 11px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #e5eeff;
+            z-index: 0;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md min-h-screen pb-24">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/70 backdrop-blur-xl border-b border-white/20 shadow-[0_4px_20px_rgba(15,23,42,0.04)] h-16 flex justify-between items-center px-margin-mobile md:px-margin-desktop">
+<div class="flex items-center gap-stack-sm">
+<span class="material-symbols-outlined text-primary" data-icon="devices_apple">drive_file_rename</span>
+<span class="font-headline-md text-headline-md text-primary font-bold tracking-tight">iWholesale Pro</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden md:flex gap-6 items-center">
+<span class="text-on-surface-variant font-label-caps text-label-caps cursor-pointer hover:opacity-80 transition-opacity">DASHBOARD</span>
+<span class="text-primary font-label-caps text-label-caps cursor-pointer font-bold border-b-2 border-primary">ORDERS</span>
+<span class="text-on-surface-variant font-label-caps text-label-caps cursor-pointer hover:opacity-80 transition-opacity">INVENTORY</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center overflow-hidden border border-outline-variant/30">
+<img class="w-full h-full object-cover" data-alt="A clean, professional close-up headshot of a corporate logistics manager for an Apple wholesale company, high-key studio lighting, modern minimalist office background, 8k resolution, cinematic quality." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDXIQeGWIfjrN61LxxgWG2AmByTOk_wsD29-RxNCGGJyIRGtNilegDxFV6LANagMUY9f6nS9rh3ZI7B86RkYdHWRc2NOQ27Hmj0MhZYOEpGtCVa1bMaGJ0lEdo_6Xq1181IsCP1KGa1MF2sGVuXf68ZlKQuuiUWZsgwPeCX3fScqAN3UPuKnEtRPiOPzoCQwaNWyKt7hdGiXyDxO75nAwc18Ho_JjCEfrjoKimhr3w2r_jgqGjq_jimOw"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-24 px-margin-mobile md:px-margin-desktop max-w-7xl mx-auto space-y-stack-lg">
+<!-- Search & Filter Section -->
+<section class="flex flex-col md:flex-row md:items-center justify-between gap-stack-md">
+<div class="relative flex-grow max-w-2xl">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-primary-container" data-icon="search">search</span>
+<input class="w-full pl-12 pr-4 py-3 bg-surface-container-low border border-outline-variant/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-on-primary-container/20 focus:border-on-primary-container transition-all font-body-md" placeholder="Search orders, serial numbers, or customers..." type="text"/>
+</div>
+<button class="flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white rounded-lg font-label-caps text-label-caps hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]" data-icon="filter_list">filter_list</span>
+                ADVANCED FILTERS
+            </button>
+</section>
+<!-- Main Dashboard Layout (Asymmetric/Bento) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Left Column: Order List -->
+<div class="lg:col-span-7 space-y-stack-md">
+<h2 class="font-headline-md text-headline-md-mobile md:text-headline-md flex items-center gap-2">
+                    Recent Orders 
+                    <span class="bg-surface-container text-on-primary-container px-2 py-0.5 rounded text-label-caps font-label-caps">24 TOTAL</span>
+</h2>
+<!-- Order Card: Primary/Active -->
+<div class="glass-card border border-on-primary-container/10 rounded-xl p-stack-md shadow-[0_4px_20px_rgba(15,23,42,0.04)] cursor-pointer hover:border-on-primary-container/30 transition-all border-l-4 border-l-secondary-fixed-dim">
+<div class="flex justify-between items-start mb-stack-sm">
+<div class="space-y-1">
+<span class="font-technical-id text-technical-id text-on-primary-container uppercase">ORD-2023-8891</span>
+<h3 class="font-headline-md text-headline-md-mobile md:text-headline-md">iPhone 15 Pro Max - 50 Units</h3>
+</div>
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded-full text-label-caps font-label-caps">PROCESSING</span>
+</div>
+<div class="flex items-center gap-stack-md text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span> Nov 12, 2023</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="location_on">location_on</span> Logistics Hub A</span>
+</div>
+</div>
+<!-- Order Card: Completed -->
+<div class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-stack-md hover:shadow-[0_4px_20px_rgba(15,23,42,0.04)] transition-all">
+<div class="flex justify-between items-start mb-stack-sm">
+<div class="space-y-1">
+<span class="font-technical-id text-technical-id text-on-primary-container uppercase">ORD-2023-8885</span>
+<h3 class="font-headline-md text-headline-md-mobile md:text-headline-md">iPad Pro M2 12.9" - 12 Units</h3>
+</div>
+<span class="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-label-caps font-label-caps">COMPLETED</span>
+</div>
+<div class="flex items-center gap-stack-md text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="done_all">done_all</span> Delivered Nov 08</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="payments">payments</span> Paid: $14,400.00</span>
+</div>
+</div>
+<!-- Order Card: Completed -->
+<div class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-stack-md hover:shadow-[0_4px_20px_rgba(15,23,42,0.04)] transition-all">
+<div class="flex justify-between items-start mb-stack-sm">
+<div class="space-y-1">
+<span class="font-technical-id text-technical-id text-on-primary-container uppercase">ORD-2023-8872</span>
+<h3 class="font-headline-md text-headline-md-mobile md:text-headline-md">MacBook Pro 14" - 5 Units</h3>
+</div>
+<span class="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-label-caps font-label-caps">COMPLETED</span>
+</div>
+<div class="flex items-center gap-stack-md text-body-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="done_all">done_all</span> Delivered Nov 02</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[16px]" data-icon="inventory">inventory</span> Lot: WH-992-B</span>
+</div>
+</div>
+</div>
+<!-- Right Column: Timeline Detail -->
+<div class="lg:col-span-5">
+<div class="sticky top-24 bg-surface-container-low rounded-2xl p-stack-lg border border-outline-variant/20 shadow-sm overflow-hidden">
+<div class="relative z-10 space-y-stack-lg">
+<div>
+<span class="text-label-caps font-label-caps text-on-primary-container">DETAILED TRACKING</span>
+<h2 class="font-headline-md text-headline-md mt-1">Status Timeline</h2>
+</div>
+<!-- Timeline -->
+<div class="relative order-timeline-line pl-stack-md space-y-stack-lg">
+<!-- Approved -->
+<div class="relative z-10 flex gap-stack-md">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed-dim flex items-center justify-center ring-4 ring-background">
+<span class="material-symbols-outlined text-[14px] text-white" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex-grow">
+<h4 class="font-body-md font-semibold text-on-surface">Order Approved</h4>
+<p class="text-body-sm text-on-surface-variant">Nov 12, 2023 • 09:14 AM</p>
+<p class="text-body-sm text-on-primary-container mt-1">Verified by Account Executive.</p>
+</div>
+</div>
+<!-- Approved -->
+<div class="relative z-10 flex gap-stack-md">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed-dim flex items-center justify-center ring-4 ring-background">
+<span class="material-symbols-outlined text-[14px] text-white" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex-grow">
+<h4 class="font-body-md font-semibold text-on-surface">Payment Verified</h4>
+<p class="text-body-sm text-on-surface-variant">Nov 12, 2023 • 11:30 AM</p>
+<p class="text-body-sm text-on-primary-container mt-1">Wire transfer received and logged.</p>
+</div>
+</div>
+<!-- Processing (Active) -->
+<div class="relative z-10 flex gap-stack-md">
+<div class="w-6 h-6 rounded-full bg-on-primary-container flex items-center justify-center ring-4 ring-background animate-pulse">
+<span class="material-symbols-outlined text-[14px] text-white" style="font-variation-settings: 'FILL' 1;">sync</span>
+</div>
+<div class="flex-grow p-4 glass-card border border-on-primary-container/20 rounded-xl">
+<div class="flex justify-between items-center mb-2">
+<h4 class="font-body-md font-bold text-on-surface">Warehouse Processing</h4>
+<span class="text-label-caps font-bold text-on-primary-container">ACTIVE</span>
+</div>
+<p class="text-body-sm text-on-surface-variant leading-relaxed">
+                                        Inventory is being picked from Sector 4B. IMEI/Serial verification in progress for 50 units.
+                                    </p>
+<div class="mt-3 w-full bg-outline-variant/30 h-1 rounded-full overflow-hidden">
+<div class="bg-secondary-fixed-dim h-full w-[65%]" id="progress-bar"></div>
+</div>
+</div>
+</div>
+<!-- Waiting -->
+<div class="relative z-10 flex gap-stack-md opacity-40">
+<div class="w-6 h-6 rounded-full bg-surface-container-highest border-2 border-outline-variant flex items-center justify-center ring-4 ring-background">
+<div class="w-2 h-2 rounded-full bg-outline-variant"></div>
+</div>
+<div class="flex-grow">
+<h4 class="font-body-md font-semibold text-on-surface">Carrier Dispatch</h4>
+<p class="text-body-sm text-on-surface-variant">Pending...</p>
+</div>
+</div>
+</div>
+<!-- Mini Logistics Map (Visual Reference from prompt) -->
+<div class="mt-stack-lg rounded-xl overflow-hidden border border-outline-variant/20 h-48 relative shadow-inner">
+<img class="w-full h-full object-cover opacity-80" data-alt="A stylized, modern transport logistics map visualization showing a route between two cities with minimalist icons representing supply chain movement. The colors are muted blues and indigos, with clean vector lines and subtle grid overlays. Professional corporate aesthetic for a B2B dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDl6pZnzS_MlXa6BbB82FG4Lhx_E9JV4lBL7lGDvyBv47AJ9YST3zEYF6k-M9iIHAVjsNvnnbDT8fshY2Un0KviWLWPwiM4s9OgB1gFp6Nu1fvrOtdAjrQ_0qZeVCiRL7aG9910XEHPbNQLnAltgV8OLVW-znR0XAKADXRI_siGEJMeEJuRb_57N7rbiHLJiZmucIHdDB6cFRv_ZWnaHCiTn-xX_piipKS69oCVJBccZAc4ZsXtSFOwcQ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-low to-transparent pointer-events-none"></div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+<div>
+<p class="text-label-caps font-label-caps text-on-primary-container">ROUTE A-B</p>
+<p class="font-headline-md text-on-surface">Hub A → Terminal B</p>
+</div>
+<button class="p-2 bg-white/80 backdrop-blur rounded-lg shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="fullscreen">fullscreen</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center py-2 px-4 bg-surface/70 backdrop-blur-xl border-t border-white/20 shadow-[0_-4px_20px_rgba(15,23,42,0.04)] z-50 md:hidden">
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-caps text-label-caps mt-1">Home</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span class="font-label-caps text-label-caps mt-1">Lots</span>
+</div>
+<div class="flex flex-col items-center justify-center text-primary font-bold active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="receipt_long" style="font-variation-settings: 'FILL' 1;">receipt_long</span>
+<span class="font-label-caps text-label-caps mt-1">Orders</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant transition-colors hover:text-primary">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-caps text-label-caps mt-1">Profile</span>
+</div>
+</nav>
+<script>
+        // Micro-interaction for progress bar
+        const progressBar = document.getElementById('progress-bar');
+        if(progressBar) {
+            let width = 65;
+            setInterval(() => {
+                width = 65 + (Math.sin(Date.now() / 1000) * 5);
+                progressBar.style.width = width + '%';
+            }, 50);
+        }
+
+        // Search bar interaction
+        const searchInput = document.querySelector('input[type="text"]');
+        searchInput.addEventListener('focus', () => {
+            searchInput.parentElement.classList.add('scale-[1.01]');
+        });
+        searchInput.addEventListener('blur', () => {
+            searchInput.parentElement.classList.remove('scale-[1.01]');
+        });
+    </script>
+</body></html>

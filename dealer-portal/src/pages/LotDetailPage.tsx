@@ -412,7 +412,7 @@ const DeviceSheet = ({ item, onClose }: { id: string; item: LotItem; onClose: ()
             <div className="sec-title" style={{ marginTop: 16 }}>แบตเตอรี่</div>
             <div className="row mt8">
               <span className="small bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <BatteryMedium size={16} style={{ color: bat >= 80 ? 'var(--accent)' : '#f79009' }} />
+                <BatteryMedium size={16} style={{ color: bat >= 80 ? 'var(--accent)' : 'var(--warn)' }} />
                 สุขภาพแบต {bat}%{item.battery_cycles != null ? ` · ${item.battery_cycles} รอบชาร์จ` : ''}
               </span>
             </div>
