@@ -553,6 +553,20 @@ button { font-family: inherit; }
   font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--accent-deep);
   letter-spacing: -0.3px;
 }
+/* ป้ายเกรดตัวใหญ่มุมขวาของ hero */
+.grade-tile {
+  width: 64px; height: 64px; flex-shrink: 0; border-radius: var(--r);
+  background: var(--brand-deep); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+}
+.grade-tile .gl {
+  font-family: var(--font-head); font-size: 26px; font-weight: 800; line-height: 1;
+  letter-spacing: -0.5px;
+}
+.grade-tile .gc {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
 @media (min-width: 760px) {
   .report-hero { flex-direction: row; align-items: center; justify-content: space-between; padding: 24px; }
   .report-hero .func { padding-top: 0; border-top: none; text-align: right; }
