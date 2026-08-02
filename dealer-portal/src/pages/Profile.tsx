@@ -14,15 +14,12 @@ import { useDealerSession } from '../hooks/useDealerSession';
 import {
   updateContact, listMembers, createMember, setMemberStatus, resetMemberPassword, deleteMember,
 } from '../api';
-import { MEMBER_ROLE_LABEL, type DealerMemberRole, type TeamMember } from '../types';
+import { MEMBER_ROLE_LABEL, TIER_COLOR, type DealerMemberRole, type TeamMember } from '../types';
 
 const genPassword = () => {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 };
-
-// สี tier แบบโลหะตาม design-system 2.4 (A=Gold, B=Silver, C=Bronze)
-const TIER_COLOR: Record<string, string> = { A: '#C6A34F', B: '#718096', C: '#A8705C' };
 
 export const Profile = () => {
   const { dealer, memberRole, memberName, logout } = useDealerSession();

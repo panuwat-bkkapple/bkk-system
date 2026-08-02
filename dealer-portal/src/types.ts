@@ -62,6 +62,9 @@ export interface LotItem {
   qc_notes?: string | null;
 }
 
+// สี tier แบบโลหะตาม design-system (A=Gold, B=Silver, C=Bronze) — ใช้ทั้ง Profile และ sidebar
+export const TIER_COLOR: Record<string, string> = { A: '#C6A34F', B: '#718096', C: '#A8705C' };
+
 // คำอธิบายเกรดสภาพ (display-only ฝั่งดีลเลอร์ — เกรดจริงมาจากขั้น QC)
 export const GRADE_DESC: Record<string, string> = {
   New: 'เครื่องใหม่ ยังไม่ผ่านการใช้งาน',
