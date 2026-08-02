@@ -811,8 +811,17 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       }
     }
 
+    // ปริมาณสั่งซื้อคาดการณ์/เดือน — allowlist ตามฟอร์ม landing (chip เลือกค่าเดียว)
+    const MONTHLY_VOLUMES = ["<50", "50-200", "200+"];
+    const monthlyVolume = MONTHLY_VOLUMES.includes(String(data.monthly_volume || "").trim())
+      ? String(data.monthly_volume).trim()
+      : null;
+
+    // เลขอ้างอิงใบสมัคร REG-YYYYMM-#### (โชว์หน้ายืนยัน + การ์ดแอดมิน)
+    const appNo = await allocateDealerNumber(db, "application", "REG-", nowMs());
     const appRef = db.ref("dealer_applications").push();
     await appRef.set({
+      app_no: appNo,
       company_name: company.slice(0, 200),
       tax_id: String(data.tax_id || "").trim().slice(0, 20) || null,
       address: String(data.address || "").trim().slice(0, 500) || null,
@@ -820,6 +829,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       phone: phone.slice(0, 30),
       line_id: String(data.line_id || "").trim().slice(0, 100) || null,
       email,
+      monthly_volume: monthlyVolume,
       note: String(data.note || "").trim().slice(0, 1000) || null,
       status: "pending",
       created_at: nowMs(),
@@ -856,14 +866,14 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         html: dealerShell({
           heading: "ได้รับใบสมัครแล้ว",
           intro: `ขอบคุณที่สนใจร่วมเป็นดีลเลอร์กับ ${esc(DEALER_LEGAL_NAME)} — เจ้าหน้าที่กำลังตรวจสอบข้อมูลของ <strong>${esc(company)}</strong>`,
-          bodyHtml: `<p style="margin:0;font-size:14px;color:#374151;">เมื่อผ่านการตรวจสอบ คุณจะได้รับอีเมลพร้อมบัญชีเข้าใช้งาน Dealer Portal เพื่อดูล็อตสินค้าและเสนอราคา โดยปกติใช้เวลาไม่เกิน 1-2 วันทำการ</p>`,
+          bodyHtml: `<p style="margin:0 0 8px;font-size:14px;color:#374151;">เลขอ้างอิงใบสมัคร: <strong style="font-family:monospace;">${esc(appNo)}</strong></p><p style="margin:0;font-size:14px;color:#374151;">เมื่อผ่านการตรวจสอบ คุณจะได้รับอีเมลพร้อมบัญชีเข้าใช้งาน Dealer Portal เพื่อดูล็อตสินค้าและเสนอราคา โดยปกติใช้เวลาไม่เกิน 1-2 วันทำการ</p>`,
         }),
       });
     } catch (e) {
       console.error("[dealer] register confirm email failed:", e?.message || e);
     }
-    console.log(`[dealer] application received ${email} (${company})`);
-    return { ok: true };
+    console.log(`[dealer] application received ${email} (${company}) ${appNo}`);
+    return { ok: true, app_no: appNo };
   });
 
   // ปฏิเสธใบสมัคร (CEO/MANAGER) — แจ้งผู้สมัครทางอีเมล best-effort

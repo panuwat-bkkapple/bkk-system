@@ -49,18 +49,52 @@
     .card h3 { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
     .card p { font-size: 13.5px; line-height: 1.65; color: var(--muted); }
 
-    .form-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 32px; max-width: 640px; margin: 0 auto; box-shadow: 0 8px 30px rgba(15,23,42,0.06); }
+    .form-card { max-width: 640px; margin: 0 auto; }
+    /* การ์ดหมวดของฟอร์ม — ตามจอ Stitch register.html (หมวดละการ์ด หัวข้อ + ช่องกรอก) */
+    .fsec { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-top: 14px; box-shadow: 0 4px 20px rgba(15,23,42,0.04); }
+    .fsec h3 { font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .fsec h3 .ic { width: 26px; height: 26px; border-radius: 8px; background: var(--ink); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
     .frow { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
     @media (max-width: 560px) { .frow { grid-template-columns: 1fr; } }
     .field { margin-top: 14px; }
     .field label { display: block; font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
     .field label b { color: var(--accent); }
     .field input, .field textarea { width: 100%; padding: 13px; border: 1px solid var(--line); border-radius: 12px; font-size: 15px; font-family: inherit; font-weight: 600; outline: none; }
-    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    /* chip เลือกปริมาณสั่งซื้อ/เดือน (radio ซ่อน — label เป็นปุ่ม) */
+    .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .chips label { cursor: pointer; }
+    .chips input { position: absolute; opacity: 0; pointer-events: none; }
+    .chips .chip { display: block; text-align: center; padding: 11px 4px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--ink2); background: #fff; transition: all 0.15s; }
+    .chips input:checked + .chip { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .form-note { margin-top: 14px; background: rgba(37,99,235,0.05); border: 1px solid rgba(37,99,235,0.2); border-radius: 12px; padding: 14px; font-size: 13px; line-height: 1.6; color: var(--ink2); font-weight: 600; }
     .hp { position: absolute; left: -9999px; top: -9999px; }
     .msg { margin-top: 14px; font-size: 14px; font-weight: 700; display: none; padding: 12px 14px; border-radius: 12px; }
     .msg.ok { display: block; background: #ecfdf5; color: var(--green); border: 1px solid #a7f3d0; }
     .msg.err { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    /* หน้ายืนยันหลังส่งใบสมัคร — ตามจอ Stitch application-status.html */
+    .done-card { display: none; background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 32px 24px; max-width: 520px; margin: 0 auto; box-shadow: 0 8px 30px rgba(15,23,42,0.06); text-align: center; }
+    .done-card.show { display: block; }
+    .done-ic { width: 76px; height: 76px; border-radius: 50%; background: #ecfdf5; color: var(--green); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 38px; }
+    .done-card h3 { font-size: 22px; font-weight: 800; }
+    .done-card .sub { margin-top: 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
+    .app-no { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 16px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+    .tl { text-align: left; margin-top: 24px; border: 1px solid var(--line); border-radius: 16px; padding: 20px 20px 20px 16px; }
+    .tl-step { position: relative; padding-left: 34px; padding-bottom: 22px; }
+    .tl-step:last-child { padding-bottom: 0; }
+    .tl-step::before { content: ''; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--line); }
+    .tl-step:last-child::before { display: none; }
+    .tl-dot { position: absolute; left: 0; top: 1px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .tl-step.done .tl-dot { background: var(--ink); color: #fff; }
+    .tl-step.now .tl-dot { background: #fff; border: 2px solid var(--ink); }
+    .tl-step.now .tl-dot::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); animation: tlpulse 1.6s ease-out infinite; }
+    @keyframes tlpulse { 0% { box-shadow: 0 0 0 0 rgba(15,23,42,0.35); } 100% { box-shadow: 0 0 0 9px rgba(15,23,42,0); } }
+    .tl-step.wait .tl-dot { background: #fff; border: 2px solid var(--line); }
+    .tl-step.wait { opacity: 0.6; }
+    .tl-step h4 { font-size: 14px; font-weight: 800; }
+    .tl-step p { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+    .tl-badge { display: inline-block; margin-top: 5px; background: rgba(15,23,42,0.07); border-radius: 6px; padding: 3px 8px; font-size: 11.5px; font-weight: 800; color: var(--ink); }
+    .done-contact { margin-top: 22px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
 
     footer { border-top: 1px solid var(--line); padding: 32px 0; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
     footer .brand { font-weight: 800; color: var(--ink); font-size: 14px; }
@@ -142,44 +176,58 @@
         <h2>สมัครเป็นดีลเลอร์</h2>
         <p>กรอกข้อมูลธุรกิจของคุณ — เจ้าหน้าที่ตรวจสอบและส่งบัญชีเข้าใช้งานให้ทางอีเมลภายใน 1-2 วันทำการ</p>
       </div>
+      <!-- โครงฟอร์มตามจอ Stitch register.html: การ์ดหมวด ข้อมูลธุรกิจ / ผู้ติดต่อ / ปริมาณสั่งซื้อ -->
       <form class="form-card" id="regForm" novalidate>
-        <div class="frow">
+        <div class="fsec">
+          <h3><span class="ic">1</span> ข้อมูลธุรกิจ</h3>
           <div class="field">
-            <label>ชื่อบริษัท / ร้าน <b>*</b></label>
+            <label>ชื่อจดทะเบียนบริษัท / ร้าน <b>*</b></label>
             <input name="company_name" required maxlength="200" placeholder="เช่น หจก. โฟนช็อป" />
           </div>
           <div class="field">
-            <label>เลขผู้เสียภาษี (ถ้ามี — ใช้ออกใบกำกับเต็มรูป)</label>
+            <label>เลขประจำตัวผู้เสียภาษี (ถ้ามี — ใช้ออกใบกำกับเต็มรูป)</label>
             <input name="tax_id" maxlength="20" inputmode="numeric" placeholder="0105561234567" />
           </div>
-        </div>
-        <div class="field">
-          <label>ที่อยู่ (ตามจดทะเบียน)</label>
-          <textarea name="address" rows="2" maxlength="500"></textarea>
-        </div>
-        <div class="frow">
           <div class="field">
-            <label>ชื่อผู้ติดต่อ <b>*</b></label>
+            <label>ที่อยู่สถานประกอบการ (ตามจดทะเบียน)</label>
+            <textarea name="address" rows="2" maxlength="500"></textarea>
+          </div>
+        </div>
+        <div class="fsec">
+          <h3><span class="ic">2</span> ผู้ติดต่อประสานงาน</h3>
+          <div class="field">
+            <label>ชื่อ-นามสกุล <b>*</b></label>
             <input name="contact_name" required maxlength="100" />
           </div>
-          <div class="field">
-            <label>เบอร์โทร <b>*</b></label>
-            <input name="phone" required maxlength="30" inputmode="tel" />
+          <div class="frow">
+            <div class="field">
+              <label>เบอร์โทรศัพท์ <b>*</b></label>
+              <input name="phone" required maxlength="30" inputmode="tel" />
+            </div>
+            <div class="field">
+              <label>LINE ID</label>
+              <input name="line_id" maxlength="100" />
+            </div>
           </div>
-        </div>
-        <div class="frow">
           <div class="field">
             <label>อีเมล (ใช้รับบัญชีเข้าระบบ) <b>*</b></label>
             <input name="email" type="email" required maxlength="200" />
           </div>
+        </div>
+        <div class="fsec">
+          <h3><span class="ic">3</span> ปริมาณการสั่งซื้อที่คาดการณ์ต่อเดือน</h3>
+          <div class="chips">
+            <label><input type="radio" name="monthly_volume" value="<50" /><span class="chip">&lt;50 เครื่อง</span></label>
+            <label><input type="radio" name="monthly_volume" value="50-200" /><span class="chip">50-200 เครื่อง</span></label>
+            <label><input type="radio" name="monthly_volume" value="200+" /><span class="chip">200+ เครื่อง</span></label>
+          </div>
           <div class="field">
-            <label>LINE ID</label>
-            <input name="line_id" maxlength="100" />
+            <label>ข้อมูลเพิ่มเติม (ประเภทสินค้าที่สนใจ ฯลฯ)</label>
+            <textarea name="note" rows="2" maxlength="1000"></textarea>
           </div>
         </div>
-        <div class="field">
-          <label>ข้อมูลเพิ่มเติม (ประเภทสินค้าที่สนใจ ปริมาณรับซื้อต่อเดือน ฯลฯ)</label>
-          <textarea name="note" rows="3" maxlength="1000"></textarea>
+        <div class="form-note">
+          เจ้าหน้าที่จะตรวจสอบข้อมูลภายใน 1-2 วันทำการ และส่งบัญชีเข้าใช้งานให้ทางอีเมลหลังได้รับการอนุมัติ
         </div>
         <!-- honeypot กัน bot — ผู้ใช้จริงมองไม่เห็น -->
         <div class="hp" aria-hidden="true">
@@ -187,10 +235,37 @@
           <input name="website" tabindex="-1" autocomplete="off" />
         </div>
         <div class="field" style="margin-top:20px;">
-          <button class="btn btn-accent" type="submit" id="submitBtn" style="width:100%; padding:15px; font-size:15px;">ส่งใบสมัคร</button>
+          <button class="btn btn-primary" type="submit" id="submitBtn" style="width:100%; padding:15px; font-size:15px;">ส่งใบสมัคร</button>
         </div>
         <div class="msg" id="formMsg"></div>
       </form>
+
+      <!-- หน้ายืนยันหลังส่งสำเร็จ (แทนที่ฟอร์ม) — ตามจอ Stitch application-status.html -->
+      <div class="done-card" id="doneCard">
+        <div class="done-ic">✓</div>
+        <h3>ได้รับใบสมัครแล้ว</h3>
+        <div class="sub">เรากำลังดำเนินการตรวจสอบข้อมูลของคุณ</div>
+        <div class="app-no" id="appNo" style="display:none;"></div>
+        <div class="tl">
+          <div class="tl-step done">
+            <span class="tl-dot">✓</span>
+            <h4>ส่งใบสมัครเรียบร้อย</h4>
+            <p>เราส่งอีเมลยืนยันการรับใบสมัครให้แล้ว</p>
+          </div>
+          <div class="tl-step now">
+            <span class="tl-dot"></span>
+            <h4>เจ้าหน้าที่กำลังตรวจสอบข้อมูล</h4>
+            <span class="tl-badge">ภายใน 1-2 วันทำการ</span>
+            <p>ผ่านการตรวจสอบแล้วจะส่งบัญชีเข้าใช้งานให้ทางอีเมล</p>
+          </div>
+          <div class="tl-step wait">
+            <span class="tl-dot"></span>
+            <h4>เข้าใช้งานที่ app.getmobie.com</h4>
+            <p>ดูล็อตสินค้าและเสนอราคาได้ทันทีที่ได้รับบัญชี</p>
+          </div>
+        </div>
+        <div class="done-contact">หากมีข้อสงสัย ติดต่อเจ้าหน้าที่ได้ตามช่องทางในอีเมลยืนยัน</div>
+      </div>
     </div>
   </section>
 
@@ -232,8 +307,16 @@
         var body = await res.json().catch(function () { return {}; });
         if (res.ok && body.result && body.result.ok) {
           form.reset();
-          msg.textContent = 'ส่งใบสมัครเรียบร้อย — เราส่งอีเมลยืนยันให้แล้ว เจ้าหน้าที่จะติดต่อกลับภายใน 1-2 วันทำการ';
-          msg.className = 'msg ok';
+          // แทนที่ฟอร์มด้วยหน้ายืนยัน + เลขอ้างอิงใบสมัคร (ตามจอ application-status)
+          var done = document.getElementById('doneCard');
+          var appNoEl = document.getElementById('appNo');
+          if (body.result.app_no) {
+            appNoEl.textContent = body.result.app_no;
+            appNoEl.style.display = 'inline-flex';
+          }
+          form.style.display = 'none';
+          done.className = 'done-card show';
+          done.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
           var detail = body.error && body.error.message ? body.error.message : 'ส่งใบสมัครไม่สำเร็จ กรุณาลองใหม่';
           msg.textContent = detail;

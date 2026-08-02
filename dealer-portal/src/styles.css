@@ -478,14 +478,95 @@ button { font-family: inherit; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .loading { padding: 60px 0; text-align: center; color: var(--muted); font-weight: 700; }
 
-/* ── login (navy ทึบสองชั้น) ── */
-.login-wrap {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
-  background: radial-gradient(1200px 600px at 20% -10%, #1a2b3c 0%, var(--brand-deep) 60%);
+/* ── login — ตามจอ Stitch login.html: hero navy + grid pattern ด้านบน,
+   การ์ดขาวซ้อนเกยขึ้นมา, ช่องกรอกมีไอคอนซ้าย, ไม่มี forgot-password/remember
+   (ระบบไม่มี flow นั้น — บัญชีออกโดยเจ้าหน้าที่เท่านั้น) ── */
+.login-wrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; background: var(--bg); }
+.login-hero {
+  width: 100%; position: relative; overflow: hidden; text-align: center;
+  background: linear-gradient(160deg, #1a2b3c 0%, var(--brand-deep) 70%);
+  color: #fff; padding: 64px 24px 72px;
 }
+.login-hero::before {
+  content: ""; position: absolute; inset: 0; opacity: 0.28; pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(120, 160, 220, 0.25) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 160, 220, 0.25) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.login-hero > * { position: relative; z-index: 1; }
+.login-hero .t {
+  font-family: var(--font-head); font-size: 23px; font-weight: 800; letter-spacing: 0.5px; margin-top: 10px;
+}
+.login-hero .s {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 2.2px; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55); margin-top: 6px;
+}
+.login-main { width: 100%; max-width: 420px; padding: 0 20px; margin-top: -36px; position: relative; z-index: 2; flex: 1; }
 .login-card {
   background: #fff; border-radius: var(--r); border: 1px solid var(--line);
-  padding: 30px 26px; width: 100%; max-width: 380px; box-shadow: var(--shadow-lift);
+  padding: 26px 24px; width: 100%; box-shadow: var(--shadow-lift);
+}
+.input-ic { position: relative; }
+.input-ic > svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+.input-ic input { padding-left: 38px !important; }
+.input-ic .eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; padding: 6px; cursor: pointer; color: var(--muted);
+  display: flex; align-items: center;
+}
+.input-ic .eye:hover { color: var(--ink); }
+.login-foot {
+  text-align: center; padding: 26px 20px 34px; color: var(--muted);
+  font-size: 12px; font-weight: 600; line-height: 1.7; max-width: 300px; margin: 0 auto;
+}
+
+/* ── onboarding carousel (ครั้งแรกหลัง login — ตามจอ Stitch onboarding.html) ── */
+.onb { position: fixed; inset: 0; z-index: 200; background: #fff; display: flex; flex-direction: column; }
+.onb-top { display: flex; justify-content: flex-end; padding: 18px 16px 0; }
+.onb-skip {
+  background: none; border: none; cursor: pointer; color: var(--brand-deep);
+  font-size: 13.5px; font-weight: 700; padding: 8px 16px; border-radius: 999px;
+}
+.onb-skip:hover { background: var(--zebra); }
+.onb-track {
+  flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.onb-track::-webkit-scrollbar { display: none; }
+.onb-slide {
+  min-width: 100%; scroll-snap-align: center; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 24px 32px 40px; text-align: center;
+}
+.onb-visual { position: relative; margin-bottom: 36px; }
+.onb-visual .blur {
+  position: absolute; inset: 0; margin: auto; width: 190px; height: 190px; border-radius: 50%;
+  background: rgba(26, 43, 60, 0.09); filter: blur(28px);
+}
+.onb-visual .frame {
+  position: relative; width: 230px; height: 230px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lift);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+}
+.onb-slide h2 { font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--brand-deep); }
+.onb-slide p { margin-top: 10px; font-size: 14.5px; line-height: 1.7; color: var(--ink-2); font-weight: 600; max-width: 300px; }
+.onb-foot { padding: 14px 24px 40px; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.onb-dots { display: flex; gap: 7px; }
+.onb-dots span { width: 8px; height: 8px; border-radius: 999px; background: var(--line); transition: all 0.25s; }
+.onb-dots span.on { width: 24px; background: var(--brand-deep); }
+.onb-foot .btn { max-width: 340px; }
+/* ป้าย tier ตัวอย่างในสไลด์ 1 */
+.onb-tier {
+  display: inline-flex; align-items: center; gap: 5px; background: #ffd700; color: #8b6508;
+  font-size: 12px; font-weight: 800; padding: 5px 12px; border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(198, 163, 79, 0.35);
+}
+@media (min-width: 1024px) {
+  .onb-slide h2 { font-size: 25px; }
+  .onb-visual .frame { width: 260px; height: 260px; }
 }
 
 /* ── Bento grid (ตาม dashboard.html: main hero 8 คอลัมน์ + widget navy 4 คอลัมน์, arrival cards 6+6) ── */

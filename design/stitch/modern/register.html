@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+
+<html class="light" lang="th"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>GETMOBIE - ลงทะเบียนตัวแทนจำหน่าย</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700&amp;family=Inter:wght@400;500;700&amp;family=Jetbrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">tailwind.config = {darkMode: "class", theme: {extend: {colors: {"outline-variant": "#c6c6cd", "secondary-fixed-dim": "#4edea3", "on-surface": "#0b1c30", "on-error": "#ffffff", "surface-variant": "#d3e4fe", surface: "#f8f9ff", "on-secondary-fixed": "#002113", "on-tertiary-fixed": "#271901", "on-tertiary-fixed-variant": "#574425", "secondary-fixed": "#6ffbbe", outline: "#76777d", "error-container": "#ffdad6", "on-surface-variant": "#45464d", "secondary-container": "#6cf8bb", error: "#ba1a1a", background: "#f8f9ff", "surface-container-highest": "#d3e4fe", "on-primary-fixed-variant": "#3f465c", "surface-container-lowest": "#ffffff", "surface-container-high": "#dce9ff", "on-error-container": "#93000a", "on-primary-fixed": "#131b2e", "tertiary-fixed": "#fcdeb5", "on-tertiary-container": "#98805d", "surface-tint": "#565e74", "on-secondary-container": "#00714d", "tertiary-fixed-dim": "#dec29a", "primary-fixed-dim": "#bec6e0", "tertiary-container": "#271901", "inverse-on-surface": "#eaf1ff", "on-background": "#0b1c30", "on-secondary-fixed-variant": "#005236", tertiary: "#000000", "primary-fixed": "#dae2fd", "surface-container": "#e5eeff", "surface-bright": "#f8f9ff", "inverse-surface": "#213145", "on-primary": "#ffffff", secondary: "#006c49", "on-secondary": "#ffffff", "surface-container-low": "#eff4ff", "inverse-primary": "#bec6e0", "on-primary-container": "#7c839b", "surface-dim": "#cbdbf5", "on-tertiary": "#ffffff", primary: "#000000", "primary-container": "#131b2e"}, borderRadius: {DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px"}, spacing: {md: "16px", "container-max": "1280px", lg: "24px", sm: "8px", gutter: "24px", xs: "4px", xl: "48px", base: "4px", unit: "4px", "stack-sm": "8px", "stack-xl": "64px", "margin-desktop": "48px", "stack-lg": "32px", "stack-md": "16px", "margin-mobile": "16px"}, fontFamily: {"body-md": ["Inter"], "label-sm": ["Plus Jakarta Sans", "sans-serif"], "display-lg": ["Plus Jakarta Sans"], "headline-lg-mobile": ["Plus Jakarta Sans"], "body-lg": ["Inter"], "headline-lg": ["Plus Jakarta Sans"], "data-mono": ["Space Mono", "monospace"], "label-md": ["Plus Jakarta Sans", "sans-serif"], "headline-md": ["Plus Jakarta Sans"], "label-caps": ["Inter"], "technical-id": ["JetBrains Mono"], "body-sm": ["Inter"]}, fontSize: {"body-md": ["16px", {lineHeight: "1.5", fontWeight: "400"}], "label-sm": ["12px", {lineHeight: "16px", fontWeight: "500"}], "display-lg": ["48px", {lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "700"}], "headline-lg-mobile": ["24px", {lineHeight: "1.3", fontWeight: "700"}], "body-lg": ["18px", {lineHeight: "1.6", fontWeight: "400"}], "headline-lg": ["32px", {lineHeight: "1.25", fontWeight: "700"}], "data-mono": ["14px", {lineHeight: "20px", fontWeight: "400"}], "label-md": ["14px", {lineHeight: "20px", fontWeight: "600"}], "headline-md": ["24px", {lineHeight: "1.4", fontWeight: "600"}], "label-caps": ["12px", {lineHeight: "1", letterSpacing: "0.05em", fontWeight: "600"}], "technical-id": ["13px", {lineHeight: "1", letterSpacing: "0.02em", fontWeight: "500"}], "body-sm": ["14px", {lineHeight: "1.5", fontWeight: "400"}]}}}};</script>
+<style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .input-glow:focus {
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface min-h-screen antialiased flex justify-center">
+<div class="w-full max-w-[390px] min-h-screen bg-background relative flex flex-col">
+<!-- Header: Linear/Transactional intent, no global nav -->
+<header class="bg-surface-container-lowest/80 backdrop-blur-xl border-b border-outline-variant/20 sticky top-0 z-50 px-md py-md flex items-center justify-between shadow-[0_4px_20px_rgba(15,23,42,0.04)]">
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center">
+<span class="material-symbols-outlined text-2xl">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md-mobile text-on-surface flex-1 text-center font-bold tracking-tight">ลงทะเบียนตัวแทนจำหน่าย</h1>
+<div class="w-[24px]"></div> <!-- Spacer for centering -->
+</header>
+<main class="flex-1 overflow-y-auto pb-[100px]">
+<form class="p-md space-y-lg">
+<!-- Section 1: Business Info -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/50 p-md space-y-md">
+<h2 class="font-label-md text-label-md text-primary flex items-center gap-sm">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">storefront</span>
+                        ข้อมูลธุรกิจ
+                    </h2>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">ชื่อจดทะเบียนบริษัท</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:border-primary input-glow transition-all outline-none placeholder:text-on-surface-variant/50" placeholder="ระบุชื่อบริษัท..." type="text"/>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">เลขประจำตัวผู้เสียภาษี</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-md py-sm font-data-mono text-data-mono text-on-surface focus:border-primary input-glow transition-all outline-none placeholder:text-on-surface-variant/50" placeholder="0-0000-00000-00-0" type="text"/>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">ที่อยู่สถานประกอบการ</label>
+<textarea class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:border-primary input-glow transition-all outline-none resize-none placeholder:text-on-surface-variant/50" placeholder="ระบุที่อยู่ครบถ้วน..." rows="3"></textarea>
+</div>
+</section>
+<!-- Section 2: Contact Person -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/50 p-md space-y-md">
+<h2 class="font-label-md text-label-md text-primary flex items-center gap-sm">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">person</span>
+                        ผู้ติดต่อประสานงาน
+                    </h2>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">ชื่อ-นามสกุล</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:border-primary input-glow transition-all outline-none" type="text"/>
+</div>
+<div class="grid grid-cols-2 gap-md">
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">เบอร์โทรศัพท์</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-sm py-sm font-data-mono text-data-mono text-on-surface focus:border-primary input-glow transition-all outline-none" type="tel"/>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">LINE ID</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-sm py-sm font-body-md text-body-md text-on-surface focus:border-primary input-glow transition-all outline-none" type="text"/>
+</div>
+</div>
+<div class="space-y-sm">
+<label class="font-label-sm text-label-sm text-on-surface-variant block">อีเมล</label>
+<input class="w-full bg-surface-container-lowest border border-outline-variant/60 rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:border-primary input-glow transition-all outline-none" type="email"/>
+</div>
+</section>
+<!-- Section 3: Expected Volume -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/50 p-md space-y-md">
+<h2 class="font-label-md text-label-md text-primary flex items-center gap-sm">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">trending_up</span>
+                        ปริมาณการสั่งซื้อที่คาดการณ์ต่อเดือน
+                    </h2>
+<div class="grid grid-cols-3 gap-sm">
+<!-- Chip 1 (Active state example) -->
+<label class="cursor-pointer relative">
+<input checked="" class="peer sr-only" name="volume" type="radio" value="&lt;50"/>
+<div class="rounded-lg border border-primary bg-primary/10 text-primary font-label-md text-label-md py-sm text-center transition-all peer-checked:bg-primary peer-checked:text-white peer-checked:border-primary">
+                                &lt;50 หน่วย
+                            </div>
+</label>
+<!-- Chip 2 -->
+<label class="cursor-pointer relative">
+<input class="peer sr-only" name="volume" type="radio" value="50-200"/>
+<div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant font-label-md text-label-md py-sm text-center transition-all peer-checked:bg-primary peer-checked:text-white peer-checked:border-primary">
+                                50-200 หน่วย
+                            </div>
+</label>
+<!-- Chip 3 -->
+<label class="cursor-pointer relative">
+<input class="peer sr-only" name="volume" type="radio" value="200+"/>
+<div class="rounded-lg border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant font-label-md text-label-md py-sm text-center transition-all peer-checked:bg-primary peer-checked:text-white peer-checked:border-primary">
+                                200+ หน่วย
+                            </div>
+</label>
+</div>
+</section>
+<!-- Notice Box -->
+<div class="bg-primary/5 rounded-lg border border-primary/20 p-md flex items-start gap-md">
+<span class="material-symbols-outlined text-primary mt-1" style="font-variation-settings: 'FILL' 1;">info</span>
+<p class="font-body-md text-[14px] leading-[22px] text-on-surface-variant">
+                        เจ้าหน้าที่จะตรวจสอบข้อมูลภายใน 1 วันทำการ และจะส่งข้อมูลเข้าใช้งานให้หลังจากได้รับการอนุมัติ
+                    </p>
+</div>
+</form>
+</main>
+<!-- Fixed Bottom Action -->
+<div class="fixed bottom-0 w-full max-w-[390px] bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/20 p-md z-50">
+<button class="w-full bg-primary-container text-white font-label-md text-label-md py-3 px-6 rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-sm shadow-[0_4px_20px_rgba(15,23,42,0.1)]">
+                ส่งใบสมัคร
+                <span class="material-symbols-outlined text-[20px]">send</span>
+</button>
+</div>
+</div>
+</body></html>

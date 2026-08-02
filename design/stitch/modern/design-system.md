@@ -21,16 +21,47 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 
 ### ความครอบคลุม — ทวนกับไฟล์จริงแล้ว
 
-เทียบ color token 20 ตัวของแต่ละไฟล์กับ design system ทั้งสองตัว:
+เทียบ color token 20 ตัวของแต่ละไฟล์กับ design system ที่มีในโปรเจกต์:
 
-| ไฟล์ | ตรงกับ Modern | ตรงกับ DealerPortal | `display-lg` |
-|---|---|---|---|
-| `dashboard.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `lots.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `lot-detail.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `orders.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `specs.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `../dealerportal/grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
+| ไฟล์ | ตรงกับ Modern | DealerPortal | พาเลตที่สาม | Mono font |
+|---|---|---|---|---|
+| `dashboard.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `lots.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `lot-detail.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `orders.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `specs.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `onboarding.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `login.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `register.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
+| `application-status.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `documents-hub.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `../dealerportal/grading-standards.html` | **0 / 17 ❌** | **17 / 17** | 0 | — |
+
+> ⚠️ **`register.html` มี mono font ตกค้าง**
+>
+> ไฟล์นี้แมป token `data-mono` ไปที่ **Space Mono** (ของ design system ตัวที่สาม)
+> ไม่ใช่ JetBrains Mono เหมือนอีก 9 ไฟล์ และใช้ `font-data-mono` อยู่ 4 จุด
+> ตัว `technical-id` ประกาศเป็น JetBrains Mono ไว้แต่ไม่ได้ถูกเรียกใช้เลย
+>
+> `apply_design_system` ย้ายสีมาครบ 20/20 แต่ไม่ได้ล้าง mapping ของฟอนต์ mono
+> บันทึกไว้แทนการแก้มือ เพื่อให้ไฟล์ยังตรงกับ Stitch
+
+### ห้าหน้าของชุด GETMOBIE เคยอยู่บน design system ตัวที่สาม
+
+`onboarding` · `login` · `register` · `application-status` · `documents-hub`
+เดิม generate ด้วย `assets/0a3f8f33dbf84f7fb3a2766a32457a1e` (การ์ด DS วางอยู่ที่
+canvas `y=27716`) ซึ่งเป็นคนละชุดกับทั้ง Modern และ DealerPortal:
+
+| | พาเลตที่สาม | Modern |
+|---|---|---|
+| `primary` | `#004ac6` | `#000000` |
+| `secondary` | `#565e74` | `#006c49` |
+| `surface` | `#f7f9fb` | `#f8f9ff` |
+| `on-surface` | `#191c1e` | `#0b1c30` |
+| Mono | Space Mono | JetBrains Mono |
+
+หลัง `apply_design_system` ทั้งห้าหน้าตรง Modern 20/20 — เหลือแต่ mono font
+ของ `register.html` ตามที่ระบุด้านบน
 
 > ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
 >
