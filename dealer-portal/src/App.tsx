@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck, FolderOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck, FolderOpen, Bell, LifeBuoy } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
 import { MEMBER_ROLE_LABEL, TIER_COLOR, TIER_LABEL } from './types';
 import { Login } from './pages/Login';
@@ -14,15 +14,30 @@ import { Profile } from './pages/Profile';
 import { GradingStandards } from './pages/GradingStandards';
 import { Onboarding, shouldShowOnboarding } from './pages/Onboarding';
 import { Documents } from './pages/Documents';
+import { Notifications } from './pages/Notifications';
+import { Help } from './pages/Help';
+import { listNotifications } from './api';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { dealer, memberName, memberRole, logout } = useDealerSession();
   const loc = useLocation();
+  const navigate = useNavigate();
+  // จำนวนยังไม่อ่าน — ดึงครั้งเดียวตอนเข้าแอป + รีเฟรชเมื่อออกจากหน้าแจ้งเตือน
+  const [unread, setUnread] = useState(0);
+  const onNotifPage = loc.pathname === '/notifications';
+  useEffect(() => {
+    if (onNotifPage) return; // หน้าแจ้งเตือนมาร์คอ่านเอง — ออกจากหน้าแล้วค่อย sync ตัวเลข
+    let alive = true;
+    listNotifications().then((r) => { if (alive) setUnread(r.unread); }).catch(() => {});
+    return () => { alive = false; };
+  }, [onNotifPage]);
   const active = {
     home: loc.pathname === '/',
     lots: loc.pathname.startsWith('/lots'),
     orders: loc.pathname.startsWith('/orders'),
     documents: loc.pathname === '/documents',
+    notifications: onNotifPage,
+    help: loc.pathname === '/help',
     profile: loc.pathname === '/profile',
     grading: loc.pathname === '/grading',
   };
@@ -37,6 +52,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             <LogOut size={11} /> ออกจากระบบ
           </button>
         </div>
+        <button className="bell" title="การแจ้งเตือน" onClick={() => navigate('/notifications')}>
+          <Bell size={18} />
+          {unread > 0 && <span className="bell-dot">{unread > 9 ? '9+' : unread}</span>}
+        </button>
       </header>
 
       {/* desktop ≥1024px: side navigation (ตาม SideNavBar ในจอ Stitch ชุด DealerPortal, render ธีม Modern) */}
@@ -65,12 +84,19 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           <NavLink to="/documents" className={`nav ${active.documents ? 'on' : ''}`}>
             <FolderOpen size={17} /> คลังเอกสาร
           </NavLink>
+          <NavLink to="/notifications" className={`nav ${active.notifications ? 'on' : ''}`}>
+            <Bell size={17} /> การแจ้งเตือน
+            {unread > 0 && <span className="nav-cnt">{unread > 9 ? '9+' : unread}</span>}
+          </NavLink>
           <NavLink to="/profile" className={`nav ${active.profile ? 'on' : ''}`}>
             <UserRound size={17} /> โปรไฟล์
           </NavLink>
           <div className="side-sep" />
           <NavLink to="/grading" className={`nav ${active.grading ? 'on' : ''}`}>
             <BadgeCheck size={17} /> เกณฑ์การเกรด
+          </NavLink>
+          <NavLink to="/help" className={`nav ${active.help ? 'on' : ''}`}>
+            <LifeBuoy size={17} /> ช่วยเหลือ
           </NavLink>
         </nav>
         <div className="side-foot">
@@ -136,6 +162,8 @@ const Guarded = () => {
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/documents" element={<Documents />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/help" element={<Help />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/grading" element={<GradingStandards />} />
         <Route path="*" element={<Navigate to="/" replace />} />

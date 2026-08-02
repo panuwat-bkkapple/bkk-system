@@ -29,6 +29,8 @@ const DealerSettings = () => {
   const [orderPrefix, setOrderPrefix] = useState('DO-');
   const [quotationPrefix, setQuotationPrefix] = useState('QT-');
   const [payment, setPayment] = useState({ bank: '', account_no: '', account_name: '' });
+  // ช่องทางติดต่อที่โชว์ในหน้า Help & Support ของ portal — ว่าง = portal ซ่อนการ์ดนั้น
+  const [support, setSupport] = useState({ line_id: '', phone: '', hours: '' });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -45,6 +47,7 @@ const DealerSettings = () => {
       if (v.order_prefix) setOrderPrefix(v.order_prefix);
       if (v.quotation_prefix) setQuotationPrefix(v.quotation_prefix);
       if (v.payment_info) setPayment({ bank: '', account_no: '', account_name: '', ...v.payment_info });
+      if (v.support) setSupport({ line_id: '', phone: '', hours: '', ...v.support });
       setLoaded(true);
     });
     return unsub;
@@ -60,6 +63,11 @@ const DealerSettings = () => {
         order_prefix: orderPrefix.trim() || 'DO-',
         quotation_prefix: quotationPrefix.trim() || 'QT-',
         payment_info: payment,
+        support: {
+          line_id: support.line_id.trim() || null,
+          phone: support.phone.trim() || null,
+          hours: support.hours.trim() || null,
+        },
       });
       toast.success('บันทึกการตั้งค่า Dealer แล้ว');
     } catch (err: any) {
@@ -167,6 +175,16 @@ const DealerSettings = () => {
             <input value={payment.account_no} onChange={(e) => setPayment({ ...payment, account_no: e.target.value })} placeholder="เลขบัญชี" className="p-3 rounded-xl border border-slate-200 font-mono font-bold text-sm outline-none" />
             <input value={payment.account_name} onChange={(e) => setPayment({ ...payment, account_name: e.target.value })} placeholder="ชื่อบัญชี" className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none" />
           </div>
+        </section>
+
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <h2 className="font-black text-xs uppercase tracking-widest text-slate-500 mb-4">ช่องทางติดต่อ (โชว์ในหน้า Help ของ Portal)</h2>
+          <div className="grid grid-cols-3 gap-3">
+            <input value={support.line_id} onChange={(e) => setSupport({ ...support, line_id: e.target.value })} placeholder="LINE ID เช่น @getmobie" className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none" />
+            <input value={support.phone} onChange={(e) => setSupport({ ...support, phone: e.target.value })} placeholder="เบอร์โทร" className="p-3 rounded-xl border border-slate-200 font-mono font-bold text-sm outline-none" />
+            <input value={support.hours} onChange={(e) => setSupport({ ...support, hours: e.target.value })} placeholder="เวลาทำการ เช่น จ-ส 9:00-18:00" className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none" />
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 mt-2">ช่องที่เว้นว่าง portal จะไม่โชว์การ์ดช่องทางนั้น</p>
         </section>
 
         <button onClick={handleSave} disabled={busy} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50">

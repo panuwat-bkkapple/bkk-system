@@ -168,6 +168,19 @@ export interface DealerOrderSummary {
   created_at: number | null;
 }
 
+// การแจ้งเตือนในแอป (server เขียนคนเดียว — อ่านผ่าน dealerListNotifications)
+// cat = หมวด filter: lot | result | payment | shipping
+export interface DealerNotification {
+  id: string;
+  type: string;
+  cat: 'lot' | 'result' | 'payment' | 'shipping';
+  title: string;
+  body: string;
+  ref: string | null;
+  created_at: number;
+  read: boolean;
+}
+
 // เอกสารในคลังเอกสาร (จาก dealerListDocuments — server รวมให้)
 export interface DealerDocument {
   type: 'quotation' | 'tax_invoice';

@@ -261,6 +261,32 @@ async function logLotAudit(db, lotId, event, detail) {
   }
 }
 
+// ── in-app notifications ของดีลเลอร์ (จอ Notification Center) ────────────────
+// เขียนโดย server เท่านั้น — rules ไม่เปิด read/write ที่ dealer_notifications
+// (client อ่าน/มาร์คอ่านผ่าน callable dealerListNotifications/MarkRead เพราะ
+// สมาชิกทีม login ด้วย uid ตัวเอง ไม่ใช่ uid ร้าน — rule auth.uid==$uid ใช้ไม่ได้)
+// cat = หมวด filter ใน UI: lot | result | payment | shipping
+async function pushDealerNotification(db, dealerUid, notif) {
+  if (!dealerUid) return;
+  try {
+    const ref = db.ref(`dealer_notifications/${dealerUid}`);
+    await ref.push({ ...notif, created_at: nowMs(), read: false });
+    // prune best-effort — push key เรียงตามเวลาอยู่แล้ว เกิน 60 ตัดเหลือ 50
+    const snap = await ref.once("value");
+    const keys = [];
+    snap.forEach((c) => {
+      keys.push(c.key);
+    });
+    if (keys.length > 60) {
+      const updates = {};
+      for (const k of keys.slice(0, keys.length - 50)) updates[k] = null;
+      await ref.update(updates);
+    }
+  } catch (e) {
+    console.error(`[dealer] notification write failed ${dealerUid}:`, e?.message || e);
+  }
+}
+
 async function pushStatusLog(db, orderId, status, byName) {
   try {
     await db.ref(`dealer_orders/${orderId}/status_log`).push({
@@ -1112,6 +1138,19 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       (d) => d.email && openNowTiers.includes(String(d.tier || "").toUpperCase())
     );
     const results = await Promise.allSettled(notifyNow.map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...mail })));
+    await Promise.allSettled(
+      eligible
+        .filter((d) => openNowTiers.includes(String(d.tier || "").toUpperCase()))
+        .map((d) =>
+          pushDealerNotification(db, d.uid, {
+            type: "lot_open",
+            cat: "lot",
+            title: "ล็อตใหม่เปิดรับราคา",
+            body: `${lotNo}${lot.title ? ` · ${lot.title}` : ""} · ${itemIds.length} เครื่อง`,
+            ref: `/lots/${lotId}`,
+          })
+        )
+    );
     for (const t of openNowTiers) {
       await db.ref(`lots/${lotId}/tier_notified/${t}`).set(nowMs());
     }
@@ -1581,6 +1620,59 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     return { documents: docs };
   });
 
+  // การแจ้งเตือนในแอป — อ่านของร้านตัวเอง (ล่าสุด 50) + จำนวนยังไม่อ่าน
+  fns.dealerListNotifications = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const snap = await db.ref(`dealer_notifications/${dealerUid}`).limitToLast(50).once("value");
+    const out = [];
+    if (snap.exists()) {
+      snap.forEach((c) => {
+        out.push({ id: c.key, ...(c.val() || {}) });
+      });
+    }
+    out.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return { notifications: out, unread: out.filter((n) => n.read !== true).length };
+  });
+
+  fns.dealerNotificationsMarkRead = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const data = request.data || {};
+    const ref = db.ref(`dealer_notifications/${dealerUid}`);
+    const updates = {};
+    if (data.all === true) {
+      const snap = await ref.once("value");
+      if (snap.exists()) {
+        snap.forEach((c) => {
+          if ((c.val() || {}).read !== true) updates[`${c.key}/read`] = true;
+        });
+      }
+    } else if (Array.isArray(data.ids)) {
+      for (const id of data.ids.slice(0, 100)) {
+        const key = String(id).replace(/[.#$/[\]]/g, "");
+        if (key) updates[`${key}/read`] = true;
+      }
+    }
+    if (Object.keys(updates).length > 0) await ref.update(updates);
+    return { ok: true };
+  });
+
+  // ช่องทางติดต่อสำหรับหน้า Help & Support — แอดมินตั้งที่ /dealer-settings
+  // (settings/dealer/support) ไม่ตั้ง = portal ซ่อนการ์ดช่องทางนั้น ไม่โชว์ค่า placeholder
+  fns.dealerGetSupportInfo = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    await requireDealerCaller(db, request.auth);
+    const support = (await loadDealerSettings(db)).support || {};
+    return {
+      support: {
+        line_id: support.line_id || null,
+        phone: support.phone || null,
+        hours: support.hours || null,
+      },
+    };
+  });
+
   // เสนอ/แก้ซอง — แก้ได้จนกว่าจะปิดรับ ทุก revision ต่อท้าย history (ลบไม่ได้)
   fns.dealerPlaceBid = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
@@ -1907,6 +1999,13 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
           console.error(`[dealer] award email failed ${orderId}:`, e?.message || e);
         }
       }
+      await pushDealerNotification(db, dealerUid, {
+        type: "won",
+        cat: "result",
+        title: "ยินดีด้วย คุณชนะประมูล",
+        body: `${orderNo} · ยอด ${formatTHB(alloc.amount)} — ดูใบเสนอราคาและชำระเงิน`,
+        ref: `/orders/${orderId}`,
+      });
     }
 
     // ปลดเครื่องที่ไม่ถูกซื้อกลับสต๊อก + ปิดสถานะ lot
@@ -1948,6 +2047,17 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         .map((uid) => dealersMap[uid])
         .filter((d) => d && d.email)
         .map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...buildLoseEmail(lot) }))
+    );
+    await Promise.allSettled(
+      loserUids.map((uid) =>
+        pushDealerNotification(db, uid, {
+          type: "lost",
+          cat: "result",
+          title: `ประกาศผล ${lot.lot_no || ""}`,
+          body: "ครั้งนี้ข้อเสนอของคุณไม่ได้รับเลือก — แล้วพบกันในล็อตถัดไป",
+          ref: "/lots",
+        })
+      )
     );
 
     await dispatchTelegram(
@@ -2209,9 +2319,23 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
 
         const guardRef = db.ref(`dealer_orders/${orderId}/email_sent/${status}`);
         if ((await guardRef.once("value")).exists()) return;
+        await guardRef.set(nowMs());
+
+        // in-app notification (หมวดตามสถานะ) — ส่งแม้ไม่มีอีเมล
+        const NOTIF_CAT = { paid: "payment", shipped: "shipping", completed: "shipping", cancelled: "result" };
+        await pushDealerNotification(db, order.dealer_uid, {
+          type: `order_${status}`,
+          cat: NOTIF_CAT[status] || "payment",
+          title: copy.heading,
+          body:
+            status === "shipped" && order.shipping && order.shipping.tracking_no
+              ? `${order.order_no} · ${order.shipping.method || ""} เลขพัสดุ ${order.shipping.tracking_no}`.trim()
+              : `${order.order_no} · ยอด ${formatTHB(order.amount)}`,
+          ref: `/orders/${orderId}`,
+        });
+
         const email = order.dealer_snapshot && order.dealer_snapshot.email;
         if (!email) return;
-        await guardRef.set(nowMs());
 
         await sendEmail({
           to: email,
@@ -2272,6 +2396,19 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
               (d) => d.email && dueTiers.includes(String(d.tier || "").toUpperCase())
             );
             await Promise.allSettled(targets.map((d) => sendEmail({ to: d.email, from: dealerEmailFrom(), ...mail })));
+            await Promise.allSettled(
+              dealers
+                .filter((d) => dueTiers.includes(String(d.tier || "").toUpperCase()))
+                .map((d) =>
+                  pushDealerNotification(db, d.uid, {
+                    type: "lot_open",
+                    cat: "lot",
+                    title: "ล็อตใหม่เปิดรับราคา",
+                    body: `${lot.lot_no || ""}${lot.title ? ` · ${lot.title}` : ""} · ${lot.item_count || "-"} เครื่อง`,
+                    ref: `/lots/${id}`,
+                  })
+                )
+            );
             for (const t of dueTiers) await db.ref(`lots/${id}/tier_notified/${t}`).set(now);
             console.log(`[dealer] early-access mail ${lot.lot_no || id} tiers=${dueTiers.join(",")} sent=${targets.length}`);
           }
@@ -2302,6 +2439,17 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
                       <a href="${portalBaseUrl()}/lots/${esc(id)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">เสนอราคาตอนนี้</a>
                     </div>`,
                   }),
+                })
+              )
+            );
+            await Promise.allSettled(
+              targets.map((d) =>
+                pushDealerNotification(db, d.uid, {
+                  type: "lot_closing",
+                  cat: "lot",
+                  title: "อีก 1 ชั่วโมงจะปิดรับราคา",
+                  body: `คุณยังไม่ได้เสนอราคา ${lot.lot_no || ""}`,
+                  ref: `/lots/${id}`,
                 })
               )
             );

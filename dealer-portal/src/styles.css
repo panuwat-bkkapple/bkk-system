@@ -133,6 +133,28 @@ button { font-family: inherit; }
   border: 1px solid rgba(26, 43, 60, 0.3); border-radius: var(--r-sm); padding: 2px 6px;
 }
 .sidenav .side-co { padding: 14px 8px 16px; border-bottom: 1px solid var(--line); }
+/* กระดิ่งแจ้งเตือนบน topbar (mobile) + badge เลขยังไม่อ่าน */
+.topbar .bell {
+  position: relative; flex-shrink: 0; margin-left: 10px;
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--line); background: #fff; color: var(--brand-deep);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.topbar .bell:active { transform: scale(0.94); }
+.bell-dot {
+  position: absolute; top: -4px; right: -5px; min-width: 17px; height: 17px;
+  border-radius: 999px; background: var(--danger); color: #fff;
+  font-size: 10px; font-weight: 800; display: flex; align-items: center;
+  justify-content: center; padding: 0 4px; border: 2px solid var(--bg);
+}
+/* badge เลขในเมนู sidenav */
+.nav-cnt {
+  margin-left: auto; min-width: 19px; height: 19px; border-radius: 999px;
+  background: var(--danger); color: #fff; font-size: 10.5px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0 5px;
+}
+.sidenav .side-links .nav.on .nav-cnt { background: rgba(255, 255, 255, 0.25); }
+
 .sidenav .side-links { display: flex; flex-direction: column; gap: 3px; margin-top: 14px; }
 .sidenav .side-links .nav {
   display: flex; align-items: center; gap: 10px;
