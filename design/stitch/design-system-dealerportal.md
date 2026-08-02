@@ -1,13 +1,21 @@
 # Core Ledger (DealerPortal) — Design System
 
-> ⚠️ **ไฟล์นี้ไม่ได้อธิบาย HTML ที่อยู่ในโฟลเดอร์เดียวกัน**
+> **เอกสารนี้อธิบายไฟล์เดียวในโฟลเดอร์: `grading-standards.html`**
 >
 > โปรเจกต์ Stitch นี้มี design system **สองตัวที่ชื่อ "Core Ledger" เหมือนกันทั้งคู่**
 > เอกสารนี้อธิบายตัวแรก `assets/1509b1a6f2194039b9436ac973e85dda` ซึ่งใช้กับชุดหน้าจอ
-> **DealerPortal** (แถว y=0 และ y=2179 บน canvas) — ชุดที่ **ไม่ได้** export มาไว้ที่นี่
+> **DealerPortal** (แถว y=0 และ y=2179 บน canvas)
 >
-> ไฟล์ `*.html` ในโฟลเดอร์นี้เป็นชุด **Modern / iWholesale Pro** ซึ่งใช้ design system
-> อีกตัวหนึ่ง — ดู [`design-system.md`](./design-system.md)
+> | ไฟล์ในโฟลเดอร์นี้ | design system |
+> |---|---|
+> | `grading-standards.html` | **ตัวนี้** (DealerPortal) — ทวนแล้วตรง 17/17 |
+> | `dashboard` · `lots` · `lot-detail` · `orders` · `specs` | Modern / iWholesale Pro — ดู [`design-system.md`](./design-system.md) |
+>
+> ⚠️ `grading-standards.html` มี `borderRadius` เป็น `0.125 / 0.25 / 0.5rem`
+> ซึ่งไม่ตรงกับสเปกในหัวข้อ [Shapes](#5-shapes) (`0.25 / 0.5 / 0.75rem`)
+> และ `<title>` ใช้ชื่อแบรนด์ที่สาม **"ElectroWholesale Pro"**
+> หน้าจอ `Grading & Quality Standards` · screen `f9c0f40b62ca4baa82aab5e3b814c667`
+> · DESKTOP 2560×2048 · canvas `y=26436`
 >
 > `get_project` คืน `designTheme` มาแค่ตัวเดียว (ตัวนี้) และเพราะชื่อซ้ำกัน
 > ชื่อจึงแยกไม่ออก ต้องดู `list_design_systems` หรือ `tailwind.config` ที่ inline
