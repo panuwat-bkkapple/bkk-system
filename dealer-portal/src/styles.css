@@ -649,6 +649,14 @@ button { font-family: inherit; }
   display: flex; align-items: center; justify-content: center;
 }
 
+/* การ์ดเกรด (หน้า /grading — แถบสีบนการ์ดตามจอ Grading & Quality Standards) */
+.gcard {
+  position: relative; overflow: hidden;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 16px; box-shadow: var(--shadow);
+}
+.gcard .bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+
 /* avatar อักษรย่อของสมาชิกทีม */
 .avatar {
   width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;

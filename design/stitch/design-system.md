@@ -30,21 +30,33 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 | `lot-detail.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `orders.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `specs.html` | 20 / 20 ✅ | 0 | 48px ✅ |
+| `grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
+
+> ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
+>
+> ไฟล์นี้อยู่ในโฟลเดอร์เดียวกันแต่เป็นของ **DealerPortal** เต็มตัว —
+> Hanken Grotesk, `primary` `#041627`, `secondary` `#006d37`, `surface` `#f9f9ff`
+> และ `borderRadius` `0.125 / 0.25 / 0.5rem` ซึ่งแคบกว่าทุกไฟล์
+> อ่านสเปกที่ [`design-system-dealerportal.md`](./design-system-dealerportal.md) แทน
+>
+> `<title>` ของไฟล์ยังใช้ชื่อแบรนด์ที่สาม — **"ElectroWholesale Pro"** ไม่ใช่ทั้ง
+> DealerPortal และ iWholesale Pro
 
 > **`specs.html` เคยเป็นลูกผสม — แก้แล้ว**
 >
 > เวอร์ชันแรกที่ export มามีสีกลางค้างอยู่ที่ DealerPortal 10 ตัว และ `display-lg`
 > เป็น 40px จึงสั่ง `apply_design_system` ด้วย `assets/d22a51a3…` ใหม่
 >
-> Stitch **ไม่ได้แก้ทับ screen เดิม แต่สร้าง screen ใหม่** — ตอนนี้โปรเจกต์มีหน้า
-> ชื่อ `iPhone 15 Pro: Technical Specs & Hardware Grading (Modern)` สองหน้า
+> Stitch สร้าง screen resource ใหม่ **แล้วชี้ instance เดิมบน canvas ไปที่ใบใหม่**
+> ตำแหน่ง `y=22183` จึงยังมีหน้าเดียว ไม่ได้ซ้ำซ้อนบน canvas
 >
-> | | screen ID |
-> |---|---|
-> | เดิม (ลูกผสม) | `653c6be88ed641738dcc6fd02f0971bc` |
-> | **ใหม่ — ไฟล์นี้มาจากหน้านี้** | `ff4e0d291a774be98cc6eb48a265cca3` |
+> | | screen ID | สถานะ |
+> |---|---|---|
+> | เดิม (ลูกผสม) | `653c6be88ed641738dcc6fd02f0971bc` | ยังมีอยู่เป็น resource แต่หลุดจาก canvas แล้ว |
+> | **ใหม่ — ไฟล์นี้มาจากหน้านี้** | `ff4e0d291a774be98cc6eb48a265cca3` | อยู่บน canvas ที่ `y=22183` |
 >
-> ควรลบหน้าเก่าทิ้งใน Stitch UI เพื่อไม่ให้ซ้ำซ้อน
+> instance บน canvas ยังใช้ id `653c6be8…` อยู่ แต่ field `sourceScreen` ชี้ไป
+> `ff4e0d29…` — ถ้าดูแค่ instance id จะเข้าใจผิดว่ายังเป็นใบเก่า
 
 ### ข้อควรรู้ — `borderRadius` ในไฟล์ export ไม่ตรงกับสเปก
 

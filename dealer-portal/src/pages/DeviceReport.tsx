@@ -122,7 +122,17 @@ export const DeviceReport = () => {
         {/* สภาพเครื่องและตำหนิ — คำอธิบายเกรด + รายการที่ไม่ผ่านการตรวจ + หมายเหตุผู้ตรวจ (เต็มแถว) */}
         {(item.grade || item.qc_notes || checks.some(([, v]) => v === false)) && (
           <div className="rsec rspan">
-            <div className="rsec-head"><Sparkles size={16} /> สภาพเครื่องและตำหนิที่พบ</div>
+            <div className="rsec-head">
+              <Sparkles size={16} /> สภาพเครื่องและตำหนิที่พบ
+              <a
+                className="cnt2"
+                style={{ color: 'var(--info)', fontFamily: 'var(--font-body)', cursor: 'pointer' }}
+                onClick={(e) => { e.preventDefault(); navigate('/grading'); }}
+                href="/grading"
+              >
+                เกณฑ์การเกรด →
+              </a>
+            </div>
             {item.grade && (
               <div className="rrow">
                 <span className="nm" style={{ flexShrink: 0 }}>เกรดสภาพ</span>
