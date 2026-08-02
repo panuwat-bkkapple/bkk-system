@@ -1,27 +1,65 @@
-# Core Ledger — Design System
+# Core Ledger (Modern / iWholesale Pro) — Design System
 
-Design system ของโปรเจกต์ Stitch **Wholesale Dealer Auction Portal**
-(`projects/17067141965117549720`)
+Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเดอร์นี้ใช้จริง
 
+- **โปรเจกต์:** Stitch — Wholesale Dealer Auction Portal (`projects/17067141965117549720`)
+- **Asset:** `assets/d22a51a3e69d436bb434128c37d22e35` (version 1)
 - **Color mode:** Light · **Color variant:** Fidelity
-- **Brand seed color:** `#1a2b3c`
-- **Roundness preset:** ROUND_FOUR (0.25rem) · **Spacing scale:** 2
+- **Brand seed color:** `#0f172a`
+- **Roundness preset:** ROUND_EIGHT (0.5rem) · **Spacing scale:** 2
+- **Fonts:** Plus Jakarta Sans (headline) · Inter (body) · JetBrains Mono (label/technical)
 
-หน้าจอที่ export ไว้ในโฟลเดอร์นี้เป็นชุด **"Modern" / iWholesale Pro** ซึ่ง generate
-ด้วย design system ตัวนี้ — token ทั้งหมดด้านล่างตรงกับ `tailwind.config` ที่ inline
-อยู่ในไฟล์ HTML แต่ละไฟล์
+> **หมายเหตุสำคัญ** — โปรเจกต์นี้มี design system **สองตัวที่ชื่อ "Core Ledger" เหมือนกัน**
+>
+> | | asset | ใช้กับ |
+> |---|---|---|
+> | ตัวนี้ | `assets/d22a51a3…` | ชุด **Modern / iWholesale Pro** ← ไฟล์ในโฟลเดอร์นี้ |
+> | อีกตัว | `assets/1509b1a6…` | ชุด **DealerPortal** — ดู [`design-system-dealerportal.md`](./design-system-dealerportal.md) |
+>
+> `get_project` คืน `designTheme` มาแค่ตัวแรกเท่านั้น ต้องใช้ `list_design_systems`
+> หรืออ่าน `tailwind.config` ที่ inline อยู่ในไฟล์ HTML ถึงจะเห็นตัวที่สอง
+
+### ความครอบคลุม — ทวนกับไฟล์จริงแล้ว
+
+เทียบ color token 18 ตัวของแต่ละไฟล์กับ design system ทั้งสองตัว:
+
+| ไฟล์ | ตรงกับ Modern | ตรงกับ DealerPortal |
+|---|---|---|
+| `dashboard.html` | 18 / 18 ✅ | 0 |
+| `lots.html` | 18 / 18 ✅ | 0 |
+| `lot-detail.html` | 18 / 18 ✅ | 0 |
+| `orders.html` | 18 / 18 ✅ | 0 |
+| **`specs.html`** | **8 / 18 ⚠️** | **10** |
+
+> ⚠️ **`specs.html` เป็นลูกผสม (hybrid) — ย้าย design system ไม่สมบูรณ์**
+>
+> สีแบรนด์ย้ายมาเป็น Modern แล้ว (`primary` `#000000`, `secondary` `#006c49`,
+> `surface` `#f8f9ff`, `on-surface` `#0b1c30`) และฟอนต์เป็น Plus Jakarta Sans
+> แต่ **ชุดสีกลางยังค้างอยู่ที่ DealerPortal** ได้แก่
+> `surface-container` `#e7eeff` · `surface-container-low` `#f0f3ff` ·
+> `surface-container-high` `#dee8ff` · `surface-dim` `#cfdaf1` ·
+> `surface-variant` `#d8e3fa` · `outline` `#74777d` · `outline-variant` `#c4c6cd` ·
+> `inverse-surface` `#263142` · `inverse-primary` `#b7c8de` ·
+> `on-primary-container` `#8192a7`
+>
+> นอกจากนี้ `display-lg` ในไฟล์นี้เป็น **40px** ไม่ใช่ 48px ตามสเปก
+>
+> ผลคือพื้นหลังการ์ด เส้นขอบ และโทนเทาของหน้านี้จะเพี้ยนจากอีก 4 หน้าเล็กน้อย
+> ถ้าต้องการให้เข้าชุดจริง ๆ ต้อง re-apply design system `assets/d22a51a3…`
+> กับ screen `653c6be88ed641738dcc6fd02f0971bc` ใน Stitch แล้ว export ใหม่
 
 ---
 
 ## 1. Brand & Style
 
-ระบบออกแบบสำหรับงาน wholesale ที่มีเดิมพันสูง เน้น **ความน่าเชื่อถือแบบมืออาชีพ
-และประสิทธิภาพในการทำงาน** มากกว่าความสวยตามเทรนด์ สไตล์เป็น **Corporate / Modern**
-คุณลักษณะเด่นคือความชัดเจนเชิงโครงสร้าง ลำดับชั้นที่เป็นระบบ และความหนาแน่นของข้อมูลสูง
+ระบบออกแบบสะท้อนสภาพแวดล้อม B2B ระดับพรีเมียมที่เน้นประสิทธิภาพสูง ออกแบบมาเฉพาะ
+สำหรับงานค้าส่งอุปกรณ์ Apple บุคลิกแบรนด์คือ *professional, precise และ sophisticated*
+มุ่งสร้างความรู้สึกน่าเชื่อถือและการเข้าถึงแบบ exclusive
 
-บุคลิกแบรนด์คือ *authoritative และ reliable* ทำงานเหมือนเครื่องมือระดับ enterprise
-กลุ่มเป้าหมายคือดีลเลอร์มืออาชีพที่ต้องการ workspace ซึ่งลด cognitive load
-แต่ยังให้ข้อมูลครบสำหรับการตัดสินใจอย่างรวดเร็ว
+สุนทรียะคือ **Corporate Modern with Glassmorphic accents** — ใช้ whitespace คุณภาพสูง
+เพื่อลด cognitive load ระหว่างจัดการสต็อกที่ซับซ้อน ขณะที่เลเยอร์กึ่งโปร่งใสให้ความรู้สึก
+ถึงมิติและความทันสมัย อินเทอร์เฟซให้ความรู้สึกเบาแต่มีโครงสร้างมั่นคง ให้ความสำคัญกับ
+ความชัดเจนและงานเก็บรายละเอียดระดับพรีเมียมมากกว่าการตกแต่งที่รกตา
 
 ---
 
@@ -29,12 +67,22 @@ Design system ของโปรเจกต์ Stitch **Wholesale Dealer Auctio
 
 ### 2.1 Brand overrides
 
-| บทบาท | ค่า | ใช้ตรงไหน |
+| บทบาท | ค่า | ชื่อเรียก |
 |---|---|---|
-| Primary | `#1a2b3c` | navigation หลัก, CTA หลัก, header หนัก ๆ |
-| Secondary (Success) | `#27ae60` | สถานะ "Approved", จ่ายเงินสำเร็จ, ยืนยัน bid สำเร็จ |
-| Neutral | `#4a5568` | โทนกลาง |
-| Tertiary | `#f4f7f9` | พื้นหลังรอง / zebra striping |
+| Primary | `#0f172a` | Indigo-950 |
+| Secondary | `#10b981` | Emerald |
+| Neutral | `#64748b` | Slate-500 |
+
+**แนวทางการใช้**
+
+- **Primary (Indigo-950)** — navigation หลัก, ปุ่ม action หลัก, หัวข้อสถานะสำคัญ
+  ทำหน้าที่เป็น anchor คอนทราสต์สูงที่ยึดทั้ง UI ไว้
+- **Surface (Slate-50)** — สีพื้นหลังหลัก เป็น off-white สะอาดตา ลดอาการล้าตาเมื่อเทียบกับ
+  ขาวล้วน และช่วยขับ container ที่ซ้อนเป็นชั้น
+- **Success / Highlights (Emerald + Electric Blue)** — Emerald สงวนไว้สำหรับสถานะสต็อก
+  เชิงบวกและธุรกรรมสำเร็จ ส่วน Electric Blue ใช้กับ accent รอง, ลิงก์ และ focus state
+- **Neutral (Slate-500/700)** — ข้อความรองและเส้นขอบ เพื่อคงลำดับชั้นแบบคอนทราสต์ต่ำ
+  สำหรับข้อมูลที่ไม่ใช่สาระสำคัญ
 
 ### 2.2 Semantic tokens
 
@@ -42,61 +90,61 @@ Design system ของโปรเจกต์ Stitch **Wholesale Dealer Auctio
 
 | Token | Hex |
 |---|---|
-| `primary` | `#041627` |
+| `primary` | `#000000` |
 | `on-primary` | `#ffffff` |
-| `primary-container` | `#1a2b3c` |
-| `on-primary-container` | `#8192a7` |
-| `primary-fixed` | `#d2e4fb` |
-| `primary-fixed-dim` | `#b7c8de` |
-| `on-primary-fixed` | `#0b1d2d` |
-| `on-primary-fixed-variant` | `#38485a` |
-| `inverse-primary` | `#b7c8de` |
+| `primary-container` | `#131b2e` |
+| `on-primary-container` | `#7c839b` |
+| `primary-fixed` | `#dae2fd` |
+| `primary-fixed-dim` | `#bec6e0` |
+| `on-primary-fixed` | `#131b2e` |
+| `on-primary-fixed-variant` | `#3f465c` |
+| `inverse-primary` | `#bec6e0` |
 
-**Secondary (success green)**
+**Secondary (Emerald)**
 
 | Token | Hex |
 |---|---|
-| `secondary` | `#006d37` |
+| `secondary` | `#006c49` |
 | `on-secondary` | `#ffffff` |
-| `secondary-container` | `#7bf8a1` |
-| `on-secondary-container` | `#007239` |
-| `secondary-fixed` | `#7efba4` |
-| `secondary-fixed-dim` | `#61de8a` |
-| `on-secondary-fixed` | `#00210c` |
-| `on-secondary-fixed-variant` | `#005228` |
+| `secondary-container` | `#6cf8bb` |
+| `on-secondary-container` | `#00714d` |
+| `secondary-fixed` | `#6ffbbe` |
+| `secondary-fixed-dim` | `#4edea3` |
+| `on-secondary-fixed` | `#002113` |
+| `on-secondary-fixed-variant` | `#005236` |
 
-**Tertiary (near-black)**
+**Tertiary (warm amber)**
 
 | Token | Hex |
 |---|---|
-| `tertiary` | `#121617` |
+| `tertiary` | `#000000` |
 | `on-tertiary` | `#ffffff` |
-| `tertiary-container` | `#262a2c` |
-| `on-tertiary-container` | `#8d9193` |
-| `tertiary-fixed` | `#e0e3e5` |
-| `tertiary-fixed-dim` | `#c4c7c9` |
-| `on-tertiary-fixed` | `#181c1e` |
-| `on-tertiary-fixed-variant` | `#434749` |
+| `tertiary-container` | `#271901` |
+| `on-tertiary-container` | `#98805d` |
+| `tertiary-fixed` | `#fcdeb5` |
+| `tertiary-fixed-dim` | `#dec29a` |
+| `on-tertiary-fixed` | `#271901` |
+| `on-tertiary-fixed-variant` | `#574425` |
 
 **Surface & background**
 
 | Token | Hex |
 |---|---|
-| `background` / `surface` / `surface-bright` | `#f9f9ff` |
+| `background` / `surface` / `surface-bright` | `#f8f9ff` |
 | `surface-container-lowest` | `#ffffff` |
-| `surface-container-low` | `#f0f3ff` |
-| `surface-container` | `#e7eeff` |
-| `surface-container-high` | `#dee8ff` |
-| `surface-container-highest` | `#d8e3fa` |
-| `surface-dim` | `#cfdaf1` |
-| `surface-variant` | `#d8e3fa` |
-| `surface-tint` | `#4f6073` |
-| `on-background` / `on-surface` | `#111c2c` |
-| `on-surface-variant` | `#44474c` |
-| `inverse-surface` | `#263142` |
-| `inverse-on-surface` | `#ebf1ff` |
-| `outline` | `#74777d` |
-| `outline-variant` | `#c4c6cd` |
+| `surface-container-low` | `#eff4ff` |
+| `surface-container` | `#e5eeff` |
+| `surface-container-high` | `#dce9ff` |
+| `surface-container-highest` | `#d3e4fe` |
+| `surface-dim` | `#cbdbf5` |
+| `surface-variant` | `#d3e4fe` |
+| `surface-tint` | `#565e74` |
+| `on-background` / `on-surface` | `#0b1c30` |
+| `on-surface-variant` | `#45464d` |
+| `inverse-surface` | `#213145` |
+| `inverse-on-surface` | `#eaf1ff` |
+| `outline` | `#76777d` |
+| `outline-variant` | `#c6c6cd` |
 
 **Error**
 
@@ -107,143 +155,143 @@ Design system ของโปรเจกต์ Stitch **Wholesale Dealer Auctio
 | `error-container` | `#ffdad6` |
 | `on-error-container` | `#93000a` |
 
-### 2.3 Status accents
-
-ใช้เฉพาะกับ timeline / badge สถานะ เพื่อให้แยกออกจากกันชัดเจน
-
-| สถานะ | สี |
-|---|---|
-| Pending | `#D97706` (amber) |
-| Shipping | `#3182CE` (systematic blue) |
-| Approved / Completed | `#27AE60` |
-| Warning (timer < 5 นาที) | `#E53E3E` |
-| Text charcoal | `#2D3748` |
-| Border cool-grey | `#E2E8F0` |
-| Canvas | `#F8FAFC` |
-| Zebra stripe | `#F4F7F9` |
-
-### 2.4 Dealer tier badges
-
-โทน monochrome แนวโลหะ ตัวอักษรสีขาว · small caps · bold · radius 4px
-
-| Tier | สี |
-|---|---|
-| Bronze | `#A8705C` |
-| Silver | `#718096` |
-| Gold | `#C6A34F` |
-| Platinum | `#4A5568` |
-
 ---
 
 ## 3. Typography
 
-ฟอนต์ 3 ตัว แบ่งหน้าที่ชัดเจน
+กลยุทธ์ตัวอักษรสร้างสมดุลระหว่างบุคลิกกับประโยชน์ใช้สอย
 
-- **Hanken Grotesk** — headline ทั้งหมด ให้ความรู้สึกคม ทันสมัย แบบผู้บริหาร
-- **Inter** — body และ label ทุกชนิด เลือกเพราะอ่านง่ายมากในสภาพแวดล้อมข้อมูลหนาแน่น
-- **JetBrains Mono** — เฉพาะตัวเลข, countdown timer, SKU เพื่อให้ตัวอักษรเรียงตรงกัน สแกนตัวเลขได้เร็ว
+- **Plus Jakarta Sans** — หัวข้อทั้งหมด ให้ลุคเป็นมิตรแต่ยังเรขาคณิตและดูมืออาชีพ
+  ช่อง aperture กว้างกว่าเล็กน้อยทำให้หัวข้อดูทันสมัยและเข้าถึงง่าย
+- **Inter** — ข้อความใช้งานทั้งหมด เพื่อความอ่านง่ายสูงสุดในทุกขนาด โดยเฉพาะในตาราง
+  ข้อมูลหนาแน่นและสรุปคำสั่งซื้อ
+- **JetBrains Mono** — เฉพาะ Serial Number, SKU และ IMEI การเลือก monospace
+  ทำให้แยก `0`/`O` และ `1`/`l` ออกจากกันได้ ซึ่งสำคัญมากกับงานโลจิสติกส์ค้าส่ง
 
 | Token | Font | Size | Weight | Line height | Letter spacing |
 |---|---|---|---|---|---|
-| `display` | Hanken Grotesk | 36px | 700 | 44px | −0.02em |
-| `headline-lg` | Hanken Grotesk | 28px | 600 | 36px | — |
-| `headline-lg-mobile` | Hanken Grotesk | 24px | 600 | 32px | — |
-| `headline-md` | Hanken Grotesk | 20px | 600 | 28px | — |
-| `body-lg` | Inter | 16px | 400 | 24px | — |
-| `body-md` | Inter | 14px | 400 | 20px | — |
-| `label-caps` | Inter | 12px | 700 | 16px | 0.05em |
-| `data-mono` | JetBrains Mono | 13px | 500 | 18px | — |
-
-> ใช้ **`label-caps`** (ตัวพิมพ์ใหญ่ + tracking กว้าง) กับ section header และหัวคอลัมน์ตาราง
-> เพื่อสร้างการแบ่งเชิงโครงสร้างให้ต่างจากเนื้อหาอย่างชัดเจน
+| `display-lg` | Plus Jakarta Sans | 48px | 700 | 1.2 | −0.02em |
+| `headline-lg` | Plus Jakarta Sans | 32px | 700 | 1.25 | — |
+| `headline-lg-mobile` | Plus Jakarta Sans | 24px | 700 | 1.3 | — |
+| `headline-md` | Plus Jakarta Sans | 24px | 600 | 1.4 | — |
+| `body-lg` | Inter | 18px | 400 | 1.6 | — |
+| `body-md` | Inter | 16px | 400 | 1.5 | — |
+| `body-sm` | Inter | 14px | 400 | 1.5 | — |
+| `technical-id` | JetBrains Mono | 13px | 500 | 1 | 0.02em |
+| `label-caps` | Inter | 12px | 600 | 1 | 0.05em |
 
 ---
 
 ## 4. Layout & Spacing
 
-ใช้โมเดล **Fixed Grid** สำหรับ desktop dashboard เพื่อให้ความหนาแน่นของข้อมูลคาดเดาได้
-เนื้อหาจัดกึ่งกลางใน container 1440px บน 12-column grid
+ใช้โมเดล **Fluid Grid** พร้อมระยะ "Stack" ที่ใจกว้าง เพื่อให้ได้ความรู้สึกพรีเมียม
 
 | Token | ค่า |
 |---|---|
-| `base` | 8px |
-| `container-max` | 1440px |
+| `unit` | 4px |
+| `stack-sm` | 8px |
+| `stack-md` | 16px |
+| `stack-lg` | 32px |
+| `stack-xl` | 64px |
 | `gutter` | 24px |
-| `margin-desktop` | 40px |
 | `margin-mobile` | 16px |
-| `stack-sm` | 4px |
-| `stack-md` | 12px |
-| `stack-lg` | 24px |
+| `margin-desktop` | 48px |
 
 **Responsive grid**
 
-| Breakpoint | Columns | Gutter | Side margin |
+| Breakpoint | Columns | Gutter | Margin |
 |---|---|---|---|
-| Desktop | 12 | 24px | 40px |
-| Tablet | 8 | 16px | 24px |
+| Desktop | 12 | 24px | 48px |
+| Tablet | 8 | 20px | — |
 | Mobile | 4 | 16px | 16px |
 
-ระยะแนวนอนเดินตามจังหวะ 8px — สำหรับตารางข้อมูลหนาแน่นลด padding แนวตั้งเหลือ
-4px (`stack-sm`) ได้ ส่วน layout แบบการ์ด (เช่น Lot Card) ให้ใช้ 24px (`stack-lg`)
-เพื่อการแยกทางสายตาที่ดีกว่า
+- ใช้ `stack-lg` (32px) เป็นจังหวะแนวตั้งเริ่มต้นระหว่าง section หลัก เพื่อกันไม่ให้หน้าดูรก
+- **Inventory view** — ใช้ `stack-sm` กับรายการที่หนาแน่น แต่ครอบ container ทั้งก้อน
+  ด้วย padding `stack-lg` เพื่อคงลุค editorial ระดับสูงของพอร์ทัล
 
 ---
 
 ## 5. Shapes
 
-ภาษารูปทรงเป็นแบบ **Soft (0.25rem)** — ให้ความทันสมัยเล็กน้อยแต่ยังคงโครงสร้าง
-เชิงเรขาคณิตที่มีวินัย เหมาะกับงาน B2B
+ภาษารูปทรงเป็นแบบ **Rounded** เพื่อลดทอนความแข็งเชิงเทคนิคของพอร์ทัล
 
 | Token | ค่า |
 |---|---|
-| `rounded-sm` | 0.125rem |
-| `rounded` (DEFAULT) | 0.25rem |
-| `rounded-md` | 0.375rem |
-| `rounded-lg` | 0.5rem |
-| `rounded-xl` | 0.75rem |
+| `rounded-sm` | 0.25rem |
+| `rounded` (DEFAULT) | 0.5rem |
+| `rounded-md` | 0.75rem |
+| `rounded-lg` | 1rem |
+| `rounded-xl` | 1.5rem |
 | `rounded-full` | 9999px |
 
-- **องค์ประกอบเล็ก** (ปุ่ม, input, checkbox) → 4px
-- **องค์ประกอบกลาง** (Lot Card, status container) → 8px
-- **Dealer Tier badge** → 4px เท่านั้น **หลีกเลี่ยงทรง pill** เพื่อคงภาษาแบบ "เครื่องมือมืออาชีพ"
+- **องค์ประกอบมาตรฐาน** (ปุ่ม, input, chip) → radius ฐาน 8px
+- **Container** — การ์ดใหญ่และ modal surface ใช้ 16px (`rounded-lg`) ถึง 24px (`rounded-xl`)
+  เพื่อสร้างเอกลักษณ์ container ที่ทันสมัยและชัดเจน
+- **Focus state** — ตามรัศมีของ container โดยเว้น offset 2px
 
 ---
 
 ## 6. Elevation & Depth
 
-สื่อความลึกด้วย **Tonal Layers** ไม่ใช่เงาหนัก ๆ เพื่อรักษาความรู้สึกแบบ professional tool
+จัดการความลึกด้วยสองวิธีที่แยกจากกันชัดเจน
 
-1. **Level 0 (Canvas)** — พื้นหลังฐานใช้เทาอ่อนมาก `#F8FAFC` ลดอาการล้าตา
-2. **Level 1 (Surface)** — การ์ดและ container หลักใช้ขาวล้วน `#FFFFFF` + เส้นขอบบาง 1px `#E2E8F0`
-3. **Level 2 (Active/Hover)** — องค์ประกอบ interactive ใช้เงา ambient นุ่ม ๆ
-   (Y: 4px, Blur: 12px, opacity 5% ของสี primary) เพื่อสื่อการยกตัวโดยไม่ดูเป็นของตกแต่ง
-4. **Overlays** — modal ยืนยันการ bid ใช้ backdrop blur 20% + overlay navy กึ่งโปร่งใส
-   เพื่อคงบริบทไว้ขณะโฟกัสความสนใจ
+### 6.1 Glassmorphism
+Navigation bar และ Card Header ใช้ backdrop filter (**blur 12px**) ร่วมกับพื้นขาว
+กึ่งโปร่งใส (**opacity 70%**) สร้างเอฟเฟกต์ frosted glass ที่ให้ความรู้สึกเบาและทันสมัย
+
+### 6.2 Soft Layered Shadows
+เงาไม่ใช้ดำหนัก ๆ แต่ซ้อนเลเยอร์ opacity ต่ำของสี Primary (Indigo) เพื่อให้ได้แสงเรือง
+ที่นุ่มและกระจายตัว
+
+| ระดับ | ค่า |
+|---|---|
+| Level 1 (Cards) | `0px 4px 20px rgba(15, 23, 42, 0.04)` |
+| Level 2 (Modals) | `0px 12px 40px rgba(15, 23, 42, 0.08)` |
 
 ---
 
 ## 7. Components
 
-### Lot Cards & Bidding
-- **Countdown timer** ใช้ typography `data-mono` — ถ้าเวลาเหลือ **< 5 นาที** เปลี่ยนสีเป็นแดงเตือน `#E53E3E`
-- **Secure Bidding Input** มี prefix icon (สัญลักษณ์สกุลเงิน) และปุ่ม "Place Bid" ฝังอยู่ใน suffix ของ field
-  ต้องแสดง helper text `"Minimum Bid: $X.XX"` ด้วยขนาด `body-sm`
+### Buttons
+- **Primary** — Indigo-950 ทึบ ตัวอักษรขาว
+- **Secondary** — ghost style ขอบ Electric Blue
+- ทั้งหมดใช้ radius 8px พร้อม transition นุ่ม ๆ ตอน hover
 
-### Status Tracking Timeline
-เส้นแนวนอนหรือแนวตั้งพร้อม node
+### Input Fields
+พื้น Slate-100 + ขอบ 1px Slate-200 — ตอน focus ขอบเปลี่ยนเป็น Electric Blue
+พร้อม outer glow นุ่ม 4px
 
-- **Active node** — navy primary + วงแหวนรอบนอกแบบ pulsing
-- **Completed node** — เขียว success + ไอคอน checkmark
-- **Future node** — ขอบเทาอ่อน พื้นขาว
+### Inventory Cards
+หัวการ์ดเป็น glassmorphic สำหรับหมวดสินค้า ตัวการ์ดเป็นขาวสะอาดสำหรับสเปก
+**Serial Number แสดงด้วย JetBrains Mono เสมอ**
 
-### Dashboard & Lists
-- **Data table** — ใช้ zebra striping สลับแถวด้วย `#F4F7F9`
-- **Header** — sticky header + เส้นขอบล่าง 1px และ elevation `Level 1` แบบบาง ๆ ตอน scroll
-- **Primary button** — `#1A2B3C` ทึบ ตัวอักษรขาว **ห้ามใช้ gradient**
+### Status Chips
+ทรง **pill** — สถานะ success ใช้พื้น Emerald อ่อน + ตัวอักษร Emerald เข้ม
+ส่วน neutral/pending ใช้ Slate-100 + ตัวอักษร Slate-700
+
+### Data Tables
+แถวมี padding แนวตั้ง 16px แบบใจกว้าง ใช้ hover state Slate-50 บาง ๆ เพื่อไฮไลต์แถว
+
+### Navigation Bar
+แถบ glassmorphic ยึดด้านบนแบบ fixed มีเส้นขอบล่าง 1px สีขาว opacity 20%
+เพื่อกำหนดขอบเขตให้ชัดเมื่อวางทับเนื้อหา
+
+---
+
+## หมายเหตุเรื่องการเปิดไฟล์ HTML
+
+ไฟล์ทั้ง 5 เป็นจอ **MOBILE** (Stitch พรีวิวที่ 390px) แต่มี responsive class
+`md:` / `lg:` อยู่ในไฟล์ — เปิดเต็มจอ desktop แล้วคลาสเหล่านี้จะทำงานหมด ได้ layout
+ที่ต่างจากที่เห็นใน Stitch **ให้ย่อหน้าต่างเหลือ ~390px หรือใช้ DevTools โหมดมือถือ**
+
+ไฟล์พึ่งพา CDN ภายนอก 3 แหล่ง — `cdn.tailwindcss.com` (compile ในเบราว์เซอร์),
+Google Fonts (Plus Jakarta Sans / Inter / JetBrains Mono) และ Material Symbols
+สำหรับไอคอน หากออฟไลน์ สไตล์จะหายทั้งหมดและไอคอนจะแสดงเป็นคำ เช่น `architecture`
 
 ---
 
 ## ที่มา
 
 Export จาก Stitch เมื่อ 2 สิงหาคม 2026 · โปรเจกต์ `17067141965117549720`
-(`designTheme.designMd` + `designTheme.namedColors` / `typography` / `spacing` / `rounded`)
+· design system `assets/d22a51a3e69d436bb434128c37d22e35` (version 1)
+ดึงผ่าน `list_design_systems` และทวนกับ `tailwind.config` ที่ inline อยู่ในไฟล์ HTML
