@@ -11,6 +11,8 @@
 design system `assets/d22a51a3e69d436bb434128c37d22e35`
 Plus Jakarta Sans · `primary` `#000000` · glassmorphism · MOBILE 390px
 
+**ชุด Dealer Portal**
+
 | ไฟล์ | หน้าจอ | screen ID |
 |---|---|---|
 | `dashboard.html` | Dealer Dashboard (Modern) | `657457bd9247455f92699efc893df59f` |
@@ -18,6 +20,20 @@ Plus Jakarta Sans · `primary` `#000000` · glassmorphism · MOBILE 390px
 | `lot-detail.html` | Lot Details & Bidding (Modern) | `f2b51bc703234a799217b42756876591` |
 | `orders.html` | Order Status & History (Modern) | `a2fef80626304c3c8394ba3e2696ba26` |
 | `specs.html` | iPhone 15 Pro: Technical Specs & Hardware Grading (Modern) | `ff4e0d291a774be98cc6eb48a265cca3` |
+
+**ชุด GETMOBIE — flow สมัครและเริ่มใช้งาน**
+
+| ไฟล์ | หน้าจอ | screen ID |
+|---|---|---|
+| `onboarding.html` | Onboarding Carousel (เริ่มต้นการใช้งาน) | `2c5ea585856342b3bc4f64a2864ac0aa` |
+| `login.html` | GETMOBIE Dealer Login | `79b18098de244a2795919c01d74a376d` |
+| `register.html` | Dealer Registration Form (ลงทะเบียนดีลเลอร์) | `083570ef8f31492ca53b8a8bfae07448` |
+| `application-status.html` | Application Status (สถานะการสมัคร) | `83abd11eea5d4314a12a449d5078eaac` |
+| `documents-hub.html` | Documents Hub (คลังเอกสาร) | `cba840321eea4d4699ba789a9618d74e` |
+
+ห้าหน้านี้เดิมถูก generate ด้วย design system ตัวที่สาม `assets/0a3f8f33dbf84f7fb3a2766a32457a1e`
+(`primary` `#004ac6` · Space Mono) จึงสั่ง `apply_design_system` ด้วย `assets/d22a51a3…`
+ให้เข้าชุดกับที่เหลือ — screen ID ด้านบนเป็นของหน้าที่ generate ใหม่ ไม่ใช่หน้าตั้งต้น
 
 สเปก: [`modern/design-system.md`](./modern/design-system.md)
 

@@ -205,11 +205,17 @@ export const DealerManager = () => {
             {pendingApplications.map((app: any) => (
               <div key={app.id} className="bg-white rounded-xl border border-amber-200 p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="font-black text-sm text-slate-800">{app.company_name}</div>
+                  <div className="font-black text-sm text-slate-800 flex items-center gap-2 flex-wrap">
+                    {app.company_name}
+                    {app.app_no && <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">{app.app_no}</span>}
+                  </div>
                   <div className="text-xs font-bold text-slate-500">
                     {app.contact_name || '-'} · {app.phone} · {app.email}
                     {app.tax_id && <span className="font-mono"> · Tax {app.tax_id}</span>}
                   </div>
+                  {app.monthly_volume && (
+                    <div className="text-[11px] font-black text-blue-600 mt-1">คาดการณ์สั่งซื้อ {app.monthly_volume} เครื่อง/เดือน</div>
+                  )}
                   {app.note && <div className="text-[11px] text-slate-400 font-bold mt-1">"{app.note}"</div>}
                   <div className="text-[10px] text-slate-400 font-bold mt-1">สมัครเมื่อ {fmtDateTime(app.created_at)}</div>
                 </div>

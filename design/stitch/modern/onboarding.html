@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+
+<html lang="th"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GETMOBIE Dealer - Onboarding</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700&amp;family=Inter:wght@400;500;700&amp;family=Jetbrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Space+Mono&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">tailwind.config = {darkMode: "class", theme: {extend: {colors: {error: "#ba1a1a", "on-primary-container": "#7c839b", "surface-dim": "#cbdbf5", "tertiary-fixed": "#fcdeb5", "surface-container": "#e5eeff", "on-tertiary-container": "#98805d", "surface-container-highest": "#d3e4fe", "on-secondary-fixed": "#002113", surface: "#f8f9ff", "on-error": "#ffffff", "surface-container-lowest": "#ffffff", "secondary-fixed": "#6ffbbe", "on-primary": "#ffffff", "inverse-on-surface": "#eaf1ff", "on-secondary": "#ffffff", "on-primary-fixed": "#131b2e", primary: "#000000", "surface-container-high": "#dce9ff", "secondary-container": "#6cf8bb", "on-surface": "#0b1c30", "on-primary-fixed-variant": "#3f465c", "error-container": "#ffdad6", "surface-variant": "#d3e4fe", "on-tertiary-fixed": "#271901", "surface-tint": "#565e74", outline: "#76777d", "primary-fixed": "#dae2fd", "inverse-primary": "#bec6e0", background: "#f8f9ff", "on-error-container": "#93000a", "tertiary-fixed-dim": "#dec29a", "surface-container-low": "#eff4ff", "on-tertiary-fixed-variant": "#574425", "on-secondary-fixed-variant": "#005236", secondary: "#006c49", tertiary: "#000000", "primary-container": "#131b2e", "surface-bright": "#f8f9ff", "primary-fixed-dim": "#bec6e0", "on-surface-variant": "#45464d", "tertiary-container": "#271901", "on-secondary-container": "#00714d", "on-background": "#0b1c30", "inverse-surface": "#213145", "outline-variant": "#c6c6cd", "on-tertiary": "#ffffff", "secondary-fixed-dim": "#4edea3"}, borderRadius: {DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px"}, spacing: {md: "16px", lg: "24px", xs: "4px", xl: "48px", gutter: "24px", base: "4px", "container-max": "1280px", sm: "8px", unit: "4px", "stack-sm": "8px", "stack-xl": "64px", "margin-desktop": "48px", "stack-lg": "32px", "stack-md": "16px", "margin-mobile": "16px"}, fontFamily: {"label-md": ["Plus Jakarta Sans"], "data-mono": ["Space Mono"], "headline-md": ["Plus Jakarta Sans"], "headline-lg-mobile": ["Plus Jakarta Sans"], "display-lg": ["Plus Jakarta Sans"], "body-lg": ["Inter"], "body-md": ["Inter"], "label-sm": ["Plus Jakarta Sans"], "headline-lg": ["Plus Jakarta Sans"], "label-caps": ["Inter"], "technical-id": ["JetBrains Mono"], "body-sm": ["Inter"]}, fontSize: {"label-md": ["14px", {lineHeight: "20px", fontWeight: "600"}], "data-mono": ["14px", {lineHeight: "20px", fontWeight: "400"}], "headline-md": ["24px", {lineHeight: "1.4", fontWeight: "600"}], "headline-lg-mobile": ["24px", {lineHeight: "1.3", fontWeight: "700"}], "display-lg": ["48px", {lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "700"}], "body-lg": ["18px", {lineHeight: "1.6", fontWeight: "400"}], "body-md": ["16px", {lineHeight: "1.5", fontWeight: "400"}], "label-sm": ["12px", {lineHeight: "16px", fontWeight: "500"}], "headline-lg": ["32px", {lineHeight: "1.25", fontWeight: "700"}], "label-caps": ["12px", {lineHeight: "1", letterSpacing: "0.05em", fontWeight: "600"}], "technical-id": ["13px", {lineHeight: "1", letterSpacing: "0.02em", fontWeight: "500"}], "body-sm": ["14px", {lineHeight: "1.5", fontWeight: "400"}]}}}};</script>
+<style>
+        .hide-scroll::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scroll {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .snap-mandatory {
+            scroll-snap-type: x mandatory;
+        }
+        .snap-center {
+            scroll-snap-align: center;
+        }
+      </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background flex justify-center min-h-screen">
+<div class="w-[390px] h-[844px] bg-surface-container-lowest relative overflow-hidden shadow-2xl flex flex-col">
+<!-- Header -->
+<div class="absolute top-0 w-full flex justify-between items-center p-md z-10 pt-xl">
+<div class="w-10"></div> <!-- Spacer for centering -->
+<button class="font-label-md text-label-md text-primary bg-transparent py-2 px-4 rounded-full hover:bg-surface-container-low transition-colors" onclick="skipOnboarding()">
+                ข้าม
+            </button>
+</div>
+<!-- Carousel Container -->
+<div class="flex-1 flex overflow-x-auto snap-mandatory hide-scroll h-full" id="carousel">
+<!-- Slide 1 -->
+<div class="w-[390px] min-w-[390px] h-full flex flex-col items-center justify-center snap-center p-lg pt-24 pb-32">
+<div class="w-full h-64 mb-10 flex items-center justify-center relative">
+<!-- Stylized Visual -->
+<div class="absolute w-48 h-48 bg-primary-container/10 rounded-full blur-2xl"></div>
+<div class="relative w-64 h-64 bg-surface rounded-xl border border-outline-variant shadow-lg flex flex-col overflow-hidden items-center justify-center">
+<span class="material-symbols-outlined text-6xl text-primary mb-4" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<div class="bg-[#FFD700] text-[#8B6508] font-label-sm text-label-sm px-3 py-1 rounded-full flex items-center gap-1 shadow-sm mt-2">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span> Gold Tier Only
+                        </div>
+</div>
+</div>
+<div class="text-center px-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-sm">ดูล็อตสินค้าตามระดับของคุณ</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">เข้าถึงล็อตสินค้าขายส่งรายวันก่อนใคร ตามระดับดีลเลอร์ของคุณ</p>
+</div>
+</div>
+<!-- Slide 2 -->
+<div class="w-[390px] min-w-[390px] h-full flex flex-col items-center justify-center snap-center p-lg pt-24 pb-32">
+<div class="w-full h-64 mb-10 flex items-center justify-center relative">
+<!-- Stylized Visual -->
+<div class="absolute w-48 h-48 bg-primary-container/10 rounded-full blur-2xl"></div>
+<div class="relative w-64 h-64 bg-surface rounded-xl border border-outline-variant shadow-lg flex flex-col items-center justify-center gap-6">
+<div class="flex items-center gap-4">
+<div class="w-16 h-16 bg-surface-container-low rounded-full flex items-center justify-center shadow-inner">
+<span class="material-symbols-outlined text-3xl text-secondary" style="font-variation-settings: 'FILL' 1;">lock</span>
+</div>
+<div class="w-16 h-16 bg-primary-container rounded-full flex items-center justify-center shadow-md">
+<span class="material-symbols-outlined text-3xl text-on-primary-container" style="font-variation-settings: 'FILL' 1;">gavel</span>
+</div>
+</div>
+<div class="w-3/4 h-2 bg-surface-container-high rounded-full overflow-hidden">
+<div class="w-1/2 h-full bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+<div class="text-center px-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-sm">เสนอราคาแบบปิดซอง</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">ระบบประมูลแบบปิดซองที่ไม่มีใครเห็นราคาของคุณ คุณสามารถแก้ไขราคาได้จนกว่าจะปิดประมูล</p>
+</div>
+</div>
+<!-- Slide 3 -->
+<div class="w-[390px] min-w-[390px] h-full flex flex-col items-center justify-center snap-center p-lg pt-24 pb-32">
+<div class="w-full h-64 mb-10 flex items-center justify-center relative">
+<!-- Stylized Visual -->
+<div class="absolute w-48 h-48 bg-primary-container/10 rounded-full blur-2xl"></div>
+<div class="relative w-64 h-64 bg-surface rounded-xl border border-outline-variant shadow-lg flex items-center justify-center px-6">
+<div class="flex justify-between items-center w-full relative">
+<!-- Timeline Line -->
+<div class="absolute top-1/2 left-0 w-full h-1 bg-surface-container-highest -translate-y-1/2 z-0"></div>
+<!-- Step 1 -->
+<div class="relative z-10 flex flex-col items-center gap-2">
+<div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center shadow-md text-on-primary">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">payments</span>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="relative z-10 flex flex-col items-center gap-2">
+<div class="w-12 h-12 bg-surface-container-high border-2 border-primary rounded-full flex items-center justify-center shadow-sm text-primary">
+<span class="material-symbols-outlined text-xl">sync</span>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="relative z-10 flex flex-col items-center gap-2">
+<div class="w-12 h-12 bg-surface-container border border-outline-variant rounded-full flex items-center justify-center text-outline">
+<span class="material-symbols-outlined text-xl">local_shipping</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="text-center px-4">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-sm">ชนะแล้วจ่าย-รับของ-จบ</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">เมื่อชนะประมูล เพียงแนบหลักฐานการโอนเงิน และติดตามสถานะการจัดส่งได้จนถึงมือคุณ</p>
+</div>
+</div>
+</div>
+<!-- Footer Controls -->
+<div class="absolute bottom-0 w-full bg-surface-container-lowest pb-10 pt-4 px-lg flex flex-col items-center gap-6 z-10">
+<!-- Indicators -->
+<div class="flex gap-2">
+<div class="w-2 h-2 rounded-full bg-primary transition-all duration-300 w-6" id="dot-0"></div>
+<div class="w-2 h-2 rounded-full bg-surface-variant transition-all duration-300" id="dot-1"></div>
+<div class="w-2 h-2 rounded-full bg-surface-variant transition-all duration-300" id="dot-2"></div>
+</div>
+<!-- Action Button (Visible on Slide 3, Hidden elsewhere by JS, but keeping structural space) -->
+<div class="w-full h-14 relative">
+<button class="absolute inset-0 w-full h-full bg-primary-container text-on-primary-container font-label-md text-label-md rounded-[12px] opacity-0 pointer-events-none transition-opacity duration-300 flex items-center justify-center shadow-md active:scale-[0.98]" id="start-btn">
+                    เริ่มใช้งาน
+                </button>
+</div>
+</div>
+</div>
+<script>
+        const carousel = document.getElementById('carousel');
+        const dots = [
+            document.getElementById('dot-0'),
+            document.getElementById('dot-1'),
+            document.getElementById('dot-2')
+        ];
+        const startBtn = document.getElementById('start-btn');
+        let currentSlide = 0;
+
+        function updateIndicators() {
+            const scrollLeft = carousel.scrollLeft;
+            const slideWidth = carousel.offsetWidth;
+            currentSlide = Math.round(scrollLeft / slideWidth);
+
+            dots.forEach((dot, index) => {
+                if (index === currentSlide) {
+                    dot.classList.remove('bg-surface-variant', 'w-2');
+                    dot.classList.add('bg-primary', 'w-6');
+                } else {
+                    dot.classList.remove('bg-primary', 'w-6');
+                    dot.classList.add('bg-surface-variant', 'w-2');
+                }
+            });
+
+            // Show button on last slide
+            if (currentSlide === 2) {
+                startBtn.classList.remove('opacity-0', 'pointer-events-none');
+                startBtn.classList.add('opacity-100');
+            } else {
+                startBtn.classList.add('opacity-0', 'pointer-events-none');
+                startBtn.classList.remove('opacity-100');
+            }
+        }
+
+        carousel.addEventListener('scroll', () => {
+            // Use requestAnimationFrame for smoother performance
+            window.requestAnimationFrame(updateIndicators);
+        });
+
+        function skipOnboarding() {
+            // Scroll to last slide instantly
+            carousel.scrollTo({
+                left: carousel.offsetWidth * 2,
+                behavior: 'smooth'
+            });
+        }
+    </script>
+</body></html>

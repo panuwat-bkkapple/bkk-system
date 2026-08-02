@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
@@ -11,6 +12,7 @@ import { Orders } from './pages/Orders';
 import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
 import { GradingStandards } from './pages/GradingStandards';
+import { Onboarding, shouldShowOnboarding } from './pages/Onboarding';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { dealer, memberName, memberRole, logout } = useDealerSession();
@@ -114,8 +116,11 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
 const Guarded = () => {
   const { loading, dealer } = useDealerSession();
+  // onboarding ครั้งแรกหลัง login (state init ครั้งเดียว — จบแล้วจำใน localStorage)
+  const [showOnboard, setShowOnboard] = useState(shouldShowOnboarding);
   if (loading) return <div className="loading">กำลังโหลด...</div>;
   if (!dealer) return <Login />;
+  if (showOnboard) return <Onboarding onDone={() => setShowOnboard(false)} />;
   return (
     <Layout>
       <Routes>
