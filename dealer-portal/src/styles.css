@@ -104,6 +104,50 @@ button { font-family: inherit; }
 .tabbar a.active { color: var(--brand-deep); }
 .tabbar a.active svg { color: var(--brand); }
 
+/* ── desktop side navigation (≥1024px — ตาม SideNavBar ของจอ Stitch ชุด DealerPortal)
+   จอเล็กใช้ topbar + tabbar เดิม, จอใหญ่สลับเป็น sidebar ซ้าย เนื้อหาขยับขวา ── */
+.sidenav { display: none; }
+@media (min-width: 1024px) {
+  .topbar, .tabbar { display: none; }
+  .sidenav {
+    display: flex; flex-direction: column;
+    position: fixed; left: 0; top: 0; bottom: 0; width: 232px; z-index: 30;
+    background: rgba(248, 249, 255, 0.85);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--line);
+    padding: 22px 14px 18px;
+  }
+  .content { margin-left: 232px; }
+  .shell { padding-bottom: 40px; }
+  /* topbar หายไป — แถบกรอง/แผงข้าง sticky ขยับขึ้นตาม */
+  .filter-tabs { top: 0; }
+  .orders-side { top: 20px; }
+}
+.sidenav .brand {
+  font-family: var(--font-head); color: var(--brand-deep);
+  font-weight: 800; letter-spacing: 0.4px; font-size: 16px;
+  display: flex; align-items: baseline; gap: 7px; padding: 0 8px;
+}
+.sidenav .brand span {
+  color: var(--brand); font-size: 10px; font-weight: 700; letter-spacing: 2.5px;
+  border: 1px solid rgba(26, 43, 60, 0.3); border-radius: var(--r-sm); padding: 2px 6px;
+}
+.sidenav .side-co { padding: 14px 8px 16px; border-bottom: 1px solid var(--line); }
+.sidenav .side-links { display: flex; flex-direction: column; gap: 3px; margin-top: 14px; }
+.sidenav .side-links .nav {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--r);
+  font-size: 13.5px; font-weight: 700; color: var(--muted);
+  transition: background 0.13s, color 0.13s;
+}
+.sidenav .side-links .nav:hover { background: #eef3fc; color: var(--brand-deep); }
+.sidenav .side-links .nav.on { background: var(--brand); color: #fff; }
+.sidenav .side-sep { height: 1px; background: var(--line); margin: 8px 4px; }
+.sidenav .side-foot {
+  margin-top: auto; display: flex; align-items: center; gap: 9px;
+  padding: 12px 8px 0; border-top: 1px solid var(--line);
+}
+
 /* ── หัวเรื่อง / utility ── */
 .h1 {
   font-family: var(--font-head);
