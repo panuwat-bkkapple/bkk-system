@@ -3,20 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GETMOBIE — แหล่งรับซื้อมือถือมือสองยกล็อตสำหรับดีลเลอร์</title>
-  <meta name="description" content="GETMOBIE โดยบริษัท เก็ทโมบี้ จำกัด — เปิดประมูลมือถือมือสองยกล็อตแบบปิดซองสำหรับดีลเลอร์ ผ่านเกรดจากระบบ QC พร้อมใบเสนอราคาและใบกำกับภาษีเต็มรูปอัตโนมัติ สมัครเป็นดีลเลอร์ฟรี" />
+  <title>GETMOBIE — ล็อตขายส่ง iPhone / iPad / Mac สำหรับดีลเลอร์</title>
+  <meta name="description" content="GETMOBIE โดยบริษัท เก็ทโมบี้ จำกัด — เปิดประมูลมือถือมือสองยกล็อตแบบปิดซองสำหรับดีลเลอร์ ทุกเครื่องผ่านการตรวจ 10 จุดพร้อมรายงาน ใบเสนอราคาและใบกำกับภาษีเต็มรูปอัตโนมัติ สมัครเป็นดีลเลอร์ฟรี" />
   <meta property="og:title" content="GETMOBIE — ขายส่งมือถือมือสองยกล็อตสำหรับดีลเลอร์" />
   <meta property="og:description" content="ประมูลปิดซอง โปร่งใส ตรวจสอบได้ พร้อมเอกสารภาษีครบ — สมัครเป็นดีลเลอร์ฟรี" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0b1c30" />
   <style>
+    /* โครงตามจอ Stitch landing.html (ชุด Modern): hero navy + grid pattern,
+       trust strip, 4 ขั้นตอน, bento features, tier cards, FAQ, CTA, footer */
     :root {
-      --ink: #0f172a; --ink2: #334155; --muted: #64748b; --line: #e2e8f0;
-      --bg: #f8fafc; --accent: #2563eb; --accent2: #93c5fd; --green: #059669;
+      --ink: #0b1c30; --ink2: #334155; --muted: #64748b; --line: #e2e8f0;
+      --bg: #f8f9ff; --navy: #131b2e; --accent: #2563eb; --accent2: #93c5fd; --green: #059669;
     }
     * { box-sizing: border-box; margin: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans Thai', sans-serif; color: var(--ink); background: #fff; -webkit-font-smoothing: antialiased; }
     a { color: inherit; text-decoration: none; }
-    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
 
     header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
     .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
@@ -29,28 +31,80 @@
     .btn-accent { background: var(--accent); color: #fff; }
     .btn-accent:hover { background: #1d4ed8; }
     .btn-ghost { background: #fff; color: var(--ink2); border: 1px solid var(--line); }
+    .btn-hero-ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.35); }
+    .btn-hero-ghost:hover { background: rgba(255,255,255,0.1); }
 
-    .hero { background: linear-gradient(180deg, var(--ink) 0%, #1e293b 100%); color: #fff; padding: 72px 0 84px; }
+    /* hero navy + grid pattern ตาม .hero-pattern ของ mockup */
+    .hero {
+      background-color: #0b1c30;
+      background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 32px 32px;
+      color: #fff; padding: 76px 0 88px;
+    }
     .hero .tag { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--accent2); text-transform: uppercase; margin-bottom: 16px; }
-    .hero h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.25; font-weight: 800; max-width: 700px; }
-    .hero p { margin-top: 16px; font-size: 17px; line-height: 1.7; color: #cbd5e1; max-width: 620px; }
+    .hero h1 { font-size: clamp(28px, 5vw, 46px); line-height: 1.22; font-weight: 800; max-width: 720px; letter-spacing: -0.01em; }
+    .hero p { margin-top: 16px; font-size: 17px; line-height: 1.7; color: #cbd5e1; max-width: 640px; }
     .hero .cta { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
     .hero .note { margin-top: 14px; font-size: 12px; color: #94a3b8; }
+
+    /* trust strip 3 ช่อง */
+    .trust { border-bottom: 1px solid var(--line); background: #fff; padding: 30px 0; }
+    .trust .grid3 { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); text-align: center; }
+    .trust .t-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 10px; color: var(--ink); }
+    .trust h3 { font-size: 14.5px; font-weight: 800; }
+    .trust p { margin-top: 3px; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
 
     section { padding: 64px 0; }
     section.alt { background: var(--bg); }
     .sec-head { text-align: center; margin-bottom: 40px; }
-    .sec-head h2 { font-size: 26px; font-weight: 800; }
+    .sec-head h2 { font-size: 27px; font-weight: 800; }
     .sec-head p { margin-top: 8px; color: var(--muted); font-weight: 600; font-size: 14px; }
 
     .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
     .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
-    .card .num { width: 34px; height: 34px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; font-size: 15px; }
+    .card:hover { box-shadow: 0 8px 24px rgba(49,46,129,0.08); }
+    .card .num { width: 56px; height: 56px; border-radius: 50%; background: #fff; border: 1px solid var(--line); color: var(--ink); font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; font-size: 20px; box-shadow: 0 2px 10px rgba(15,23,42,0.06); }
     .card h3 { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
     .card p { font-size: 13.5px; line-height: 1.65; color: var(--muted); }
+    .steps .card { text-align: center; background: transparent; border: none; }
+    .steps .card:hover { box-shadow: none; }
+    .steps .card p { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
 
+    /* bento features — ใบแรก/ใบสุดท้ายกว้าง 2 ช่องบน desktop */
+    .bento { display: grid; gap: 18px; grid-template-columns: 1fr; }
+    @media (min-width: 820px) {
+      .bento { grid-template-columns: repeat(3, 1fr); }
+      .bento .span2 { grid-column: span 2; }
+    }
+
+    /* tier cards */
+    .tiers { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: start; }
+    .tier-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 26px 22px; text-align: center; position: relative; }
+    .tier-card.mid { border: 2px solid var(--ink); box-shadow: 0 10px 30px rgba(15,23,42,0.08); }
+    .tier-pop { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 999px; }
+    .medal { width: 46px; height: 46px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: #fff; font-size: 15px; }
+    .tier-card h3 { margin-top: 10px; font-size: 18px; font-weight: 800; }
+    .tier-card ul { list-style: none; padding: 0; margin: 16px 0 0; text-align: left; }
+    .tier-card li { font-size: 13.5px; color: var(--ink2); font-weight: 600; line-height: 1.6; padding: 6px 0 6px 24px; position: relative; }
+    .tier-card li::before { content: '✓'; position: absolute; left: 4px; color: var(--green); font-weight: 800; }
+
+    /* FAQ */
+    .faq { max-width: 720px; margin: 0 auto; }
+    .faq details { border: 1px solid var(--line); border-radius: 12px; background: #fff; margin-top: 12px; }
+    .faq summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 16px 18px; font-size: 14.5px; font-weight: 700; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: '⌄'; font-size: 18px; color: var(--muted); transition: transform 0.25s; line-height: 1; }
+    .faq details[open] summary::after { transform: rotate(180deg); }
+    .faq .a { padding: 0 18px 16px; font-size: 13.5px; line-height: 1.7; color: var(--muted); }
+
+    /* CTA ท้ายหน้า */
+    .final-cta { background: #0b1c30; color: #fff; text-align: center; padding: 64px 0; }
+    .final-cta h2 { font-size: 26px; font-weight: 800; }
+    .final-cta p { margin: 12px auto 24px; color: #cbd5e1; font-size: 15px; max-width: 520px; line-height: 1.7; }
+
+    /* ฟอร์มสมัคร (การ์ดหมวดตาม register.html) */
     .form-card { max-width: 640px; margin: 0 auto; }
-    /* การ์ดหมวดของฟอร์ม — ตามจอ Stitch register.html (หมวดละการ์ด หัวข้อ + ช่องกรอก) */
     .fsec { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-top: 14px; box-shadow: 0 4px 20px rgba(15,23,42,0.04); }
     .fsec h3 { font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
     .fsec h3 .ic { width: 26px; height: 26px; border-radius: 8px; background: var(--ink); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
@@ -61,7 +115,6 @@
     .field label b { color: var(--accent); }
     .field input, .field textarea { width: 100%; padding: 13px; border: 1px solid var(--line); border-radius: 12px; font-size: 15px; font-family: inherit; font-weight: 600; outline: none; }
     .field input:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
-    /* chip เลือกปริมาณสั่งซื้อ/เดือน (radio ซ่อน — label เป็นปุ่ม) */
     .chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
     .chips label { cursor: pointer; }
     .chips input { position: absolute; opacity: 0; pointer-events: none; }
@@ -72,7 +125,8 @@
     .msg { margin-top: 14px; font-size: 14px; font-weight: 700; display: none; padding: 12px 14px; border-radius: 12px; }
     .msg.ok { display: block; background: #ecfdf5; color: var(--green); border: 1px solid #a7f3d0; }
     .msg.err { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-    /* หน้ายืนยันหลังส่งใบสมัคร — ตามจอ Stitch application-status.html */
+
+    /* หน้ายืนยันหลังส่งใบสมัคร (application-status.html) */
     .done-card { display: none; background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 32px 24px; max-width: 520px; margin: 0 auto; box-shadow: 0 8px 30px rgba(15,23,42,0.06); text-align: center; }
     .done-card.show { display: block; }
     .done-ic { width: 76px; height: 76px; border-radius: 50%; background: #ecfdf5; color: var(--green); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 38px; }
@@ -96,8 +150,12 @@
     .tl-badge { display: inline-block; margin-top: 5px; background: rgba(15,23,42,0.07); border-radius: 6px; padding: 3px 8px; font-size: 11.5px; font-weight: 800; color: var(--ink); }
     .done-contact { margin-top: 22px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
 
-    footer { border-top: 1px solid var(--line); padding: 32px 0; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
-    footer .brand { font-weight: 800; color: var(--ink); font-size: 14px; }
+    footer { border-top: 1px solid var(--line); background: var(--bg); padding: 40px 0 32px; font-size: 13px; color: var(--muted); line-height: 1.8; }
+    .f-grid { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    footer .brand { font-weight: 800; color: var(--ink); font-size: 15px; }
+    footer h4 { font-size: 12px; font-weight: 800; color: var(--ink); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+    footer a:hover { color: var(--accent); }
+    .f-bottom { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -111,65 +169,161 @@
     </div>
   </header>
 
+  <!-- 1. Hero -->
   <div class="hero">
     <div class="wrap">
       <span class="tag">Wholesale · Sealed-Bid Auction</span>
-      <h1>แหล่งรับซื้อมือถือมือสอง<br />ยกล็อต สำหรับดีลเลอร์</h1>
+      <h1>ล็อตขายส่ง iPhone / iPad / Mac สำหรับดีลเลอร์</h1>
       <p>
-        GETMOBIE เปิดประมูลสินค้ายกล็อตแบบ<strong>ปิดซอง</strong> — สินค้าทุกเครื่องผ่านการตรวจสภาพและให้เกรดจากระบบ QC
-        เสนอราคาได้ทั้งเหมายกล็อตหรือเลือกรายเครื่อง ราคาของคุณเป็นความลับจนกว่าจะปิดรับและเปิดซองโดยผู้มีอำนาจ
+        ประมูลสินค้ายกล็อตแบบ<strong>ปิดซอง</strong> — ทุกเครื่องผ่านการตรวจสภาพ 10 จุดพร้อมรายงานและเกรด
+        เสนอราคาได้ทั้งเหมายกล็อตหรือรายเครื่อง ราคาของคุณเป็นความลับจนกว่าจะปิดรับและเปิดซอง
         พร้อมใบเสนอราคาและใบกำกับภาษีเต็มรูปอัตโนมัติทุกดีล
       </p>
       <div class="cta">
         <a class="btn btn-accent" href="#register">สมัครเป็นดีลเลอร์ ฟรี</a>
-        <a class="btn btn-ghost" href="#how">ดูวิธีการทำงาน</a>
+        <a class="btn btn-hero-ghost" href="https://app.getmobie.com">เข้าสู่ระบบดีลเลอร์</a>
       </div>
       <div class="note">ดำเนินการโดย บริษัท เก็ทโมบี้ จำกัด — นิติบุคคลจดทะเบียน ออกใบกำกับภาษีเต็มรูปได้ทุกรายการ</div>
     </div>
   </div>
 
-  <section id="why">
+  <!-- 2. Trust strip -->
+  <div class="trust">
+    <div class="wrap grid3">
+      <div>
+        <span class="t-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span>
+        <h3>บริษัท เก็ทโมบี้ จำกัด</h3>
+        <p>Registered Company</p>
+      </div>
+      <div>
+        <span class="t-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/></svg></span>
+        <h3>ออกใบกำกับภาษีเต็มรูปแบบ</h3>
+        <p>Full Tax Invoice</p>
+      </div>
+      <div>
+        <span class="t-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="m16 3 5 5-9 9H7v-5l9-9Z"/></svg></span>
+        <h3>ตรวจเช็ค 10 จุด พร้อมรายงาน</h3>
+        <p>10-Point QC &amp; Reports</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. How it works -->
+  <section id="how">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>ขั้นตอนการเข้าร่วมประมูล</h2>
+        <p>เรียบง่าย ปลอดภัย ติดตามได้ทุกสถานะในระบบ</p>
+      </div>
+      <div class="grid steps">
+        <div class="card"><div class="num">1</div><h3>ส่งใบสมัคร รออนุมัติ</h3><p>Apply &amp; Approve</p></div>
+        <div class="card"><div class="num">2</div><h3>ดูล็อตสินค้าตามระดับ</h3><p>View Lots by Tier</p></div>
+        <div class="card"><div class="num">3</div><h3>เสนอราคาปิดซอง</h3><p>Sealed Bid</p></div>
+        <div class="card"><div class="num">4</div><h3>ชนะ-โอน-รับเครื่อง</h3><p>Win, Pay &amp; Receive</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Features (bento) -->
+  <section class="alt" id="why">
     <div class="wrap">
       <div class="sec-head">
         <h2>ทำไมดีลเลอร์เลือก GETMOBIE</h2>
         <p>ระบบที่ออกแบบมาเพื่อการซื้อขายส่งโดยเฉพาะ</p>
       </div>
-      <div class="grid">
-        <div class="card">
+      <div class="bento">
+        <div class="card span2">
           <h3>ประมูลปิดซอง โปร่งใสจริง</h3>
-          <p>ไม่มีใครเห็นราคาของคุณ — แม้แต่เจ้าหน้าที่ — จนกว่าจะปิดรับราคาและเปิดซองโดยผู้มีอำนาจ ทุกขั้นตอนถูกบันทึกตรวจสอบย้อนหลังได้</p>
+          <p>ไม่มีใครเห็นราคาของคุณ — แม้แต่เจ้าหน้าที่ — จนกว่าจะปิดรับราคาและเปิดซองโดยผู้มีอำนาจ แก้ไขราคาได้จนถึงเวลาปิดรับ ทุกขั้นตอนถูกบันทึกตรวจสอบย้อนหลังได้</p>
         </div>
         <div class="card">
-          <h3>สินค้าผ่าน QC ทุกเครื่อง</h3>
-          <p>ทุกเครื่องในล็อตผ่านการตรวจสภาพ ให้เกรด และระบุอุปกรณ์ครบถ้วน เห็นข้อมูลก่อนตัดสินใจเสนอราคา</p>
+          <h3>รายงานผลตรวจรายเครื่อง</h3>
+          <p>เกรดสภาพ ผลตรวจ 10 จุด และ Battery Health ของทุกเครื่อง — เห็นก่อนตัดสินใจเสนอราคา</p>
+        </div>
+        <div class="card">
+          <h3>สิทธิ์เห็นล็อตก่อนตามระดับ</h3>
+          <p>ดีลเลอร์ระดับสูงได้เห็นล็อตใหม่ก่อนใคร (Early Access) ยิ่งซื้อสม่ำเสมอ ยิ่งได้เปรียบ</p>
         </div>
         <div class="card">
           <h3>เอกสารครบ ถูกภาษี</h3>
-          <p>ใบเสนอราคาออกทันทีที่ชนะประมูล และใบกำกับภาษีเต็มรูปในนามบริษัทของคุณเมื่อชำระเงิน — นำไปใช้เครดิตภาษีซื้อได้</p>
+          <p>ใบเสนอราคาออกทันทีที่ชนะประมูล ใบกำกับภาษีเต็มรูปเมื่อชำระเงิน — ดาวน์โหลดย้อนหลังได้ในคลังเอกสาร</p>
         </div>
-        <div class="card">
-          <h3>สิทธิพิเศษตามระดับ</h3>
-          <p>ดีลเลอร์ระดับสูงได้เห็นล็อตใหม่ก่อนใคร (Early Access) ยิ่งซื้อสม่ำเสมอ ยิ่งได้เปรียบ</p>
+        <div class="card span2">
+          <h3>บัญชีทีมงานในร้านเดียว</h3>
+          <p>เพิ่มทีมจัดซื้อของร้านได้สูงสุด 10 บัญชีภายใต้บัญชีนิติบุคคลเดียว กำหนดบทบาทเจ้าของร้าน ผู้จัดการ และพนักงานแยกกันได้</p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="how" class="alt">
+  <!-- 5. Dealer tiers -->
+  <section id="tiers">
     <div class="wrap">
       <div class="sec-head">
-        <h2>ขั้นตอนการทำงาน</h2>
-        <p>จากล็อตใหม่ถึงของถึงมือ — ติดตามได้ทุกสถานะในระบบ</p>
+        <h2>ระดับดีลเลอร์ (Dealer Tiers)</h2>
+        <p>ระดับพิจารณาจากยอดสั่งซื้อ — ยิ่งซื้อมาก ยิ่งเห็นล็อตก่อนใคร</p>
       </div>
-      <div class="grid">
-        <div class="card"><div class="num">1</div><h3>รับแจ้งล็อตใหม่</h3><p>ล็อตเปิดประมูลแจ้งตรงถึงอีเมลคุณ พร้อมรายการเครื่อง เกรด และเวลาปิดรับราคา</p></div>
-        <div class="card"><div class="num">2</div><h3>เสนอราคาปิดซอง</h3><p>เสนอเหมายกล็อตหรือเลือกรายเครื่อง แก้ไขราคาได้จนถึงเวลาปิดรับ</p></div>
-        <div class="card"><div class="num">3</div><h3>ประกาศผล + ใบเสนอราคา</h3><p>ชนะประมูลรับใบเสนอราคา PDF ทันที โอนชำระและแนบสลิปในระบบ</p></div>
-        <div class="card"><div class="num">4</div><h3>รับของ + ใบกำกับภาษี</h3><p>ยืนยันชำระแล้วจัดส่งพร้อมเลขติดตาม และใบกำกับภาษีเต็มรูปส่งถึงอีเมล</p></div>
+      <div class="tiers">
+        <div class="tier-card">
+          <span class="medal" style="background:#a8705c">C</span>
+          <h3>Bronze</h3>
+          <ul>
+            <li>เข้าถึงล็อตสินค้าที่เปิดขาย</li>
+            <li>รายงานผลตรวจ 10 จุดทุกเครื่อง</li>
+            <li>เอกสารภาษีครบทุกดีล</li>
+          </ul>
+        </div>
+        <div class="tier-card mid">
+          <span class="tier-pop">เริ่มที่นิยม</span>
+          <span class="medal" style="background:#718096">B</span>
+          <h3>Silver</h3>
+          <ul>
+            <li>ทุกอย่างใน Bronze</li>
+            <li>เห็นล็อตใหม่ก่อนระดับ Bronze</li>
+            <li>ระบบแนะนำอัปเกรดอัตโนมัติเมื่อยอดถึงเกณฑ์</li>
+          </ul>
+        </div>
+        <div class="tier-card">
+          <span class="medal" style="background:#c6a34f">A</span>
+          <h3>Gold</h3>
+          <ul>
+            <li>ทุกอย่างใน Silver</li>
+            <li>เห็นล็อตใหม่ก่อนใครทุกระดับ (Early Access สูงสุด)</li>
+            <li>เหมาะกับร้านที่ซื้อประจำปริมาณมาก</li>
+          </ul>
+        </div>
       </div>
     </div>
   </section>
 
+  <!-- 6. FAQ -->
+  <section class="alt" id="faq">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>คำถามที่พบบ่อย</h2>
+      </div>
+      <div class="faq">
+        <details open>
+          <summary>การสมัครเป็นดีลเลอร์ใช้เวลานานเท่าใด?</summary>
+          <div class="a">โดยปกติเจ้าหน้าที่ตรวจสอบข้อมูลภายใน 1-2 วันทำการ เมื่อผ่านการอนุมัติจะได้รับบัญชีเข้าใช้งานทางอีเมล</div>
+        </details>
+        <details>
+          <summary>มาตรฐานการตรวจสภาพ (Grading) เป็นอย่างไร?</summary>
+          <div class="a">ทุกเครื่องผ่านการตรวจ 10 จุด ครอบคลุมจอ ทัชสกรีน กล้อง Face ID ลำโพง การชาร์จ ฯลฯ พร้อมสถานะ iCloud/MDM และ Battery Health — สรุปเป็นเกรดพร้อมรายงานละเอียดให้ดูก่อนเสนอราคา</div>
+        </details>
+        <details>
+          <summary>ช่องทางการชำระเงินมีอะไรบ้าง?</summary>
+          <div class="a">รับชำระผ่านการโอนเงินเข้าบัญชีบริษัทเท่านั้น เพื่อความโปร่งใสและออกใบกำกับภาษีเต็มรูปได้ถูกต้อง — แนบสลิปในระบบแล้วเจ้าหน้าที่ยืนยันให้</div>
+        </details>
+        <details>
+          <summary>การจัดส่งและรับสินค้าทำได้อย่างไร?</summary>
+          <div class="a">หลังยืนยันการชำระเงิน สินค้าจะถูกจัดส่งพร้อมเลขติดตามพัสดุ หรือนัดรับตามที่ตกลงกับเจ้าหน้าที่ ติดตามสถานะได้ในระบบจนถึงมือคุณ</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Register -->
   <section id="register">
     <div class="wrap">
       <div class="sec-head">
@@ -269,11 +423,35 @@
     </div>
   </section>
 
+  <!-- 8. Final CTA -->
+  <div class="final-cta">
+    <div class="wrap">
+      <h2>พร้อมเริ่มซื้อล็อตแรกของคุณ?</h2>
+      <p>ร่วมเป็นดีลเลอร์กับแพลตฟอร์มขายส่งอุปกรณ์ Apple มือสองที่ตรวจสภาพทุกเครื่องและออกเอกสารภาษีครบทุกดีล</p>
+      <a class="btn btn-accent" href="#register" style="padding:14px 32px; font-size:15px;">สมัครเป็นดีลเลอร์ทันที</a>
+    </div>
+  </div>
+
   <footer>
     <div class="wrap">
-      <div class="brand">GETMOBIE</div>
-      <div>บริษัท เก็ทโมบี้ จำกัด — ผู้ให้บริการแพลตฟอร์มขายส่งอุปกรณ์มือถือมือสองสำหรับดีลเลอร์</div>
-      <div>ดีลเลอร์ที่มีบัญชีแล้ว เข้าสู่ระบบได้ที่ <a href="https://app.getmobie.com" style="color:var(--accent); font-weight:700;">app.getmobie.com</a></div>
+      <div class="f-grid">
+        <div>
+          <div class="brand">GETMOBIE</div>
+          <div>บริษัท เก็ทโมบี้ จำกัด — ผู้ให้บริการแพลตฟอร์มขายส่งอุปกรณ์มือถือมือสองสำหรับดีลเลอร์</div>
+        </div>
+        <div>
+          <h4>Platform</h4>
+          <div><a href="https://app.getmobie.com">เข้าสู่ระบบดีลเลอร์</a></div>
+          <div><a href="#register">สมัครเป็นดีลเลอร์</a></div>
+          <div><a href="#tiers">ระดับดีลเลอร์</a></div>
+        </div>
+        <div>
+          <h4>ข้อมูล</h4>
+          <div><a href="#how">ขั้นตอนการประมูล</a></div>
+          <div><a href="#faq">คำถามที่พบบ่อย</a></div>
+        </div>
+      </div>
+      <div class="f-bottom">© บริษัท เก็ทโมบี้ จำกัด สงวนลิขสิทธิ์ · ดีลเลอร์ที่มีบัญชีแล้วเข้าใช้งานได้ที่ <a href="https://app.getmobie.com" style="color:var(--accent); font-weight:700;">app.getmobie.com</a></div>
     </div>
   </footer>
 

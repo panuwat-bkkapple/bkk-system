@@ -23,32 +23,50 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 
 เทียบ color token 20 ตัวของแต่ละไฟล์กับ design system ที่มีในโปรเจกต์:
 
-| ไฟล์ | ตรงกับ Modern | DealerPortal | พาเลตที่สาม | Mono font |
+| ไฟล์ | ตรงกับ Modern | DealerPortal | พาเลตที่สาม | `data-mono` → |
 |---|---|---|---|---|
-| `dashboard.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `lots.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `lot-detail.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `orders.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `specs.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `onboarding.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `login.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `register.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
-| `application-status.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
-| `documents-hub.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono |
+| `dashboard.html` | 20 / 20 ✅ | 0 | 0 | ไม่ประกาศ |
+| `lots.html` | 20 / 20 ✅ | 0 | 0 | ไม่ประกาศ |
+| `lot-detail.html` | 20 / 20 ✅ | 0 | 0 | ไม่ประกาศ |
+| `orders.html` | 20 / 20 ✅ | 0 | 0 | ไม่ประกาศ |
+| `specs.html` | 20 / 20 ✅ | 0 | 0 | JetBrains Mono ✅ |
+| `landing.html` | 20 / 20 ✅ | 0 | 0 | Space Mono (ไม่ได้ใช้) |
+| `onboarding.html` | 20 / 20 ✅ | 0 | 0 | Space Mono (ไม่ได้ใช้) |
+| `login.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
+| `register.html` | 20 / 20 ✅ | 0 | 0 | Space Mono ✅ (โหลดฟอนต์ครบ) |
+| `application-status.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
+| `documents-hub.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
+| `notifications.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
+| `help-support.html` | 20 / 20 ✅ | 0 | 0 | **Space Mono ⚠️** |
 | `../dealerportal/grading-standards.html` | **0 / 17 ❌** | **17 / 17** | 0 | — |
 
-> ⚠️ **`register.html` มี mono font ตกค้าง**
+> ⚠️ **มอโนฟอนต์ตกค้าง — 5 ไฟล์เรียกฟอนต์ที่ไม่ได้โหลด**
 >
-> ไฟล์นี้แมป token `data-mono` ไปที่ **Space Mono** (ของ design system ตัวที่สาม)
-> ไม่ใช่ JetBrains Mono เหมือนอีก 9 ไฟล์ และใช้ `font-data-mono` อยู่ 4 จุด
-> ตัว `technical-id` ประกาศเป็น JetBrains Mono ไว้แต่ไม่ได้ถูกเรียกใช้เลย
+> ไฟล์ตระกูล GETMOBIE แมป token `data-mono` ไปที่ **Space Mono** (ของ design
+> system ตัวที่สาม) ไม่ใช่ JetBrains Mono ตามสเปก — `apply_design_system`
+> ย้ายสีมาครบ 20/20 แต่ไม่ได้ล้าง mapping ของฟอนต์
 >
-> `apply_design_system` ย้ายสีมาครบ 20/20 แต่ไม่ได้ล้าง mapping ของฟอนต์ mono
-> บันทึกไว้แทนการแก้มือ เพื่อให้ไฟล์ยังตรงกับ Stitch
+> ที่แย่กว่านั้นคือ **ส่วนใหญ่ไม่ได้โหลด Space Mono เข้ามาด้วย** โหลดแต่
+> JetBrains Mono ผลคือ element ที่ใช้ `font-data-mono` จะตกไปใช้ฟอนต์ fallback
+> ของเบราว์เซอร์ ไม่ใช่ monospace ที่ตั้งใจ
+>
+> | ไฟล์ | จุดที่ใช้ `font-data-mono` | โหลด Space Mono? |
+> |---|---|---|
+> | `documents-hub.html` | 12 | ❌ |
+> | `notifications.html` | 5 | ❌ |
+> | `help-support.html` | 4 | ❌ |
+> | `login.html` | 2 | ❌ |
+> | `application-status.html` | 2 | ❌ |
+> | `register.html` | 4 | ✅ ใช้งานได้ |
+> | `landing.html` · `onboarding.html` | 0 | — (ประกาศแต่ไม่ได้ใช้) |
+>
+> รวม **25 จุดที่แสดงผลไม่ตรงตามตั้งใจ** บันทึกไว้แทนการแก้มือ เพื่อให้ไฟล์ยังตรง
+> กับ Stitch — ทางแก้ที่ถูกคือปรับ mapping ใน Stitch แล้ว export ใหม่
 
-### ห้าหน้าของชุด GETMOBIE เคยอยู่บน design system ตัวที่สาม
+### แปดหน้าของชุด GETMOBIE เคยอยู่บน design system ตัวที่สาม
 
-`onboarding` · `login` · `register` · `application-status` · `documents-hub`
+`landing` · `onboarding` · `login` · `register` · `application-status` ·
+`documents-hub` · `notifications` · `help-support`
 เดิม generate ด้วย `assets/0a3f8f33dbf84f7fb3a2766a32457a1e` (การ์ด DS วางอยู่ที่
 canvas `y=27716`) ซึ่งเป็นคนละชุดกับทั้ง Modern และ DealerPortal:
 
@@ -60,8 +78,13 @@ canvas `y=27716`) ซึ่งเป็นคนละชุดกับทั�
 | `on-surface` | `#191c1e` | `#0b1c30` |
 | Mono | Space Mono | JetBrains Mono |
 
-หลัง `apply_design_system` ทั้งห้าหน้าตรง Modern 20/20 — เหลือแต่ mono font
-ของ `register.html` ตามที่ระบุด้านบน
+หลัง `apply_design_system` ทั้งแปดหน้าตรง Modern 20/20 — เหลือแต่ mono font
+ตามที่ระบุด้านบน
+
+**บทเรียนการใช้ `apply_design_system`:** ยิงหลายหน้าพร้อมกันในคำสั่งเดียว Stitch
+สร้าง screen ใหม่แต่ไม่ repoint instance บน canvas ทำให้ canvas ยังโชว์ของเดิม
+ต้องยิง **ทีละหน้า** ถึงจะ repoint — ทวนได้จาก field `sourceScreen` ของแต่ละ
+instance ใน `get_project`
 
 > ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
 >
