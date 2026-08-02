@@ -5,9 +5,11 @@
 //   - ทีมงานของร้าน (OWNER: จัดการทุก role / MANAGER: จัดการ STAFF)
 //   - ข้อมูลผู้ติดต่อร้าน (เจ้าของร้านแก้ได้) / เปลี่ยนรหัสผ่านตัวเอง
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import {
   Building2, UserRound, KeyRound, Save, Users, Plus, X, Copy, ShieldOff, Shield, Trash2, RotateCcw,
+  LifeBuoy, BadgeCheck, ChevronRight,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { useDealerSession } from '../hooks/useDealerSession';
@@ -22,6 +24,7 @@ const genPassword = () => {
 };
 
 export const Profile = () => {
+  const navigate = useNavigate();
   const { dealer, memberRole, memberName, logout } = useDealerSession();
   const canManageTeam = memberRole === 'OWNER' || memberRole === 'MANAGER';
   const isOwner = memberRole === 'OWNER';
@@ -301,6 +304,21 @@ export const Profile = () => {
             {pwMsg && <div className={pwMsg.kind === 'ok' ? 'success' : 'error'}>{pwMsg.text}</div>}
           </div>
         </div>
+      </div>
+
+      {/* ทางเข้า Help/เกณฑ์เกรดสำหรับมือถือ (sidenav มีเฉพาะ desktop) */}
+      <div className="card mini-row" style={{ cursor: 'pointer', alignItems: 'center' }} onClick={() => navigate('/help')}>
+        <span className="mr-ic" style={{ background: 'rgba(26,43,60,0.08)', color: 'var(--brand-deep)' }}><LifeBuoy size={18} /></span>
+        <div style={{ flex: 1 }}>
+          <div className="bold small">ช่วยเหลือ & คำถามที่พบบ่อย</div>
+          <div className="tiny muted bold" style={{ marginTop: 2 }}>ช่องทางติดต่อเจ้าหน้าที่ · วิธีใช้งานระบบ</div>
+        </div>
+        <ChevronRight size={16} style={{ color: 'var(--muted)' }} />
+      </div>
+      <div className="card mini-row" style={{ cursor: 'pointer', alignItems: 'center' }} onClick={() => navigate('/grading')}>
+        <span className="mr-ic" style={{ background: 'rgba(39,174,96,0.12)', color: 'var(--accent-deep)' }}><BadgeCheck size={18} /></span>
+        <div className="bold small" style={{ flex: 1 }}>เกณฑ์การเกรดสภาพเครื่อง</div>
+        <ChevronRight size={16} style={{ color: 'var(--muted)' }} />
       </div>
 
       <button className="btn ghost" style={{ marginTop: 16 }} onClick={() => void logout()}>ออกจากระบบ</button>
