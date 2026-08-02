@@ -31,8 +31,10 @@
   --danger-soft: #fdecec;
   --danger-line: #f6c3c3;
 
-  --font-head: 'Plus Jakarta Sans', 'Noto Sans Thai', 'Inter', sans-serif;
-  --font-body: 'Inter', 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* ไทย = Thonburi (ฟอนต์ระบบ Apple — เว็บฟอนต์แจกไม่ได้) ตกไป Noto Sans Thai บนเครื่องอื่น
+     อังกฤษ/ตัวเลขยังเป็น Plus Jakarta / Inter / JetBrains Mono ตาม Core Ledger */
+  --font-head: 'Plus Jakarta Sans', 'Thonburi', 'Noto Sans Thai', 'Inter', sans-serif;
+  --font-body: 'Inter', 'Thonburi', 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --r: 8px;
@@ -440,8 +442,50 @@ button { font-family: inherit; }
   padding: 30px 26px; width: 100%; max-width: 380px; box-shadow: var(--shadow-lift);
 }
 
+/* ── Bento grid (ตาม dashboard.html: main hero 8 คอลัมน์ + widget navy 4 คอลัมน์, arrival cards 6+6) ── */
+.bento { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
+.bento > * { margin-top: 0; }
+.bento .card, .bento .hero-card { margin-top: 0; height: 100%; }
+@media (min-width: 900px) {
+  .bento { grid-template-columns: repeat(12, 1fr); }
+  .sp8 { grid-column: span 8; }
+  .sp6 { grid-column: span 6; }
+  .sp4 { grid-column: span 4; }
+  .sp12 { grid-column: span 12; }
+}
+/* การ์ด Active Bid หลัก — ขาว + ฟิล์ม navy จางๆ (ตาม glass ACTIVE BID card) */
+.active-hero { position: relative; overflow: hidden; }
+.active-hero::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(120deg, rgba(26, 43, 60, 0.05), rgba(26, 43, 60, 0.01));
+}
+.active-hero > * { position: relative; z-index: 1; }
+/* หัวข้อ section แบบมีเส้นคั่น + ลิงก์ขวา (ตาม Daily Arrivals header) */
+.hr-title {
+  display: flex; align-items: center; gap: 12px; margin-top: 22px;
+  font-family: var(--font-head); font-size: 15px; font-weight: 700; color: var(--brand-deep);
+}
+.hr-title .line { flex: 1; height: 1px; background: var(--line); }
+.hr-title a { color: var(--info); font-size: 11.5px; font-weight: 700; font-family: var(--font-body); }
+/* แถบ progress บน widget navy */
+.navy-bar { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 6px; }
+.navy-bar > span { display: block; height: 100%; border-radius: 999px; background: #61de8a; box-shadow: 0 0 12px rgba(97, 222, 138, 0.3); }
+
+/* ── Orders: desktop สองคอลัมน์ ซ้ายรายการ / ขวา Status Timeline sticky (ตาม orders.html) ── */
+.orders-split { display: block; }
+.orders-side { display: none; }
+@media (min-width: 1000px) {
+  .orders-split {
+    display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 14px; align-items: start;
+  }
+  .orders-side { display: block; position: sticky; top: 78px; }
+  .orders-side .card { margin-top: 12px; }
+}
+
 /* ── Dashboard ── */
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+@media (min-width: 900px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
 .stat {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
   padding: 14px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s;

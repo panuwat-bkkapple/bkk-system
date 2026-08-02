@@ -104,7 +104,7 @@ export const LotList = () => {
   );
 };
 
-const remainText = (ms: number): string => {
+export const remainText = (ms: number): string => {
   const s = Math.max(0, Math.floor(ms / 1000));
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
@@ -114,7 +114,8 @@ const remainText = (ms: number): string => {
   return `อีก ${m} นาที`;
 };
 
-const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick: () => void }) => {
+// ใช้ซ้ำใน Dashboard (section "ล็อตเปิดรับตอนนี้" — arrival cards ตาม Stitch)
+export const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick: () => void }) => {
   const meta = LOT_STATUS_LABEL[lot.status] || { label: lot.status, cls: '' };
   const remain = (lot.close_at || 0) - now;
   const urgent = lot.status === 'open' && remain < 3600_000;
