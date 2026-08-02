@@ -14,7 +14,7 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 > | | asset | ใช้กับ |
 > |---|---|---|
 > | ตัวนี้ | `assets/d22a51a3…` | ชุด **Modern / iWholesale Pro** ← ไฟล์ในโฟลเดอร์นี้ |
-> | อีกตัว | `assets/1509b1a6…` | ชุด **DealerPortal** — ดู [`design-system-dealerportal.md`](./design-system-dealerportal.md) |
+> | อีกตัว | `assets/1509b1a6…` | ชุด **DealerPortal** — ดู [`../dealerportal/design-system.md`](../dealerportal/design-system.md) |
 >
 > `get_project` คืน `designTheme` มาแค่ตัวแรกเท่านั้น ต้องใช้ `list_design_systems`
 > หรืออ่าน `tailwind.config` ที่ inline อยู่ในไฟล์ HTML ถึงจะเห็นตัวที่สอง
@@ -30,14 +30,14 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 | `lot-detail.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `orders.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 | `specs.html` | 20 / 20 ✅ | 0 | 48px ✅ |
-| `grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
+| `../dealerportal/grading-standards.html` | **0 / 17 ❌** | **17 / 17** | — |
 
 > ⛔ **`grading-standards.html` ไม่ได้ใช้ design system ตัวนี้**
 >
-> ไฟล์นี้อยู่ในโฟลเดอร์เดียวกันแต่เป็นของ **DealerPortal** เต็มตัว —
+> ย้ายไปอยู่ `../dealerportal/` แล้ว เพราะเป็นของ **DealerPortal** เต็มตัว —
 > Hanken Grotesk, `primary` `#041627`, `secondary` `#006d37`, `surface` `#f9f9ff`
 > และ `borderRadius` `0.125 / 0.25 / 0.5rem` ซึ่งแคบกว่าทุกไฟล์
-> อ่านสเปกที่ [`design-system-dealerportal.md`](./design-system-dealerportal.md) แทน
+> อ่านสเปกที่ [`../dealerportal/design-system.md`](../dealerportal/design-system.md) แทน
 >
 > `<title>` ของไฟล์ยังใช้ชื่อแบรนด์ที่สาม — **"ElectroWholesale Pro"** ไม่ใช่ทั้ง
 > DealerPortal และ iWholesale Pro
