@@ -7,13 +7,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref } from 'firebase/database';
 import {
-  Lock, Trophy, ArrowRight, Clock3, X, Info, ChevronRight,
-  Package, CalendarClock, CheckCircle2, XCircle, HeartPulse, Layers, ShieldCheck, BatteryCharging,
+  Lock, Trophy, ArrowRight, Clock3, Info, ChevronRight, Package, CalendarClock,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { getMyBid, placeBid } from '../api';
 import {
-  LOT_STATUS_LABEL, QC_CHECK_LABEL, CLEAN_STATUS_LABEL, fmtBaht, fmtDateTime,
+  LOT_STATUS_LABEL, fmtBaht, fmtDateTime,
   type LotBidMode, type LotItem, type LotStatus, type MyBid, type MyLotOrder,
 } from '../types';
 
@@ -51,8 +50,6 @@ export const LotDetailPage = () => {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  // sheet สเปก + Diagnostic Report ของเครื่องที่แตะดู
-  const [sheetItem, setSheetItem] = useState<{ id: string; item: LotItem } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -258,7 +255,7 @@ export const LotDetailPage = () => {
                   <div
                     className="bold"
                     style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => setSheetItem({ id: jobId, item: it })}
+                    onClick={() => navigate(`/lots/${id}/device/${jobId}`)}
                   >
                     {it.model}
                     <Info size={13} style={{ color: 'var(--info)', flexShrink: 0 }} />
@@ -391,166 +388,6 @@ export const LotDetailPage = () => {
         )
       )}
 
-      {sheetItem && <DeviceSheet id={sheetItem.id} item={sheetItem.item} onClose={() => setSheetItem(null)} />}
-    </div>
-  );
-};
-
-// ─── Diagnostic Report รายเครื่อง (bottom sheet) — โครงตาม specs.html + จอ Detailed Diagnostic Report ───
-const RING_R = 48;
-const RING_C = 2 * Math.PI * RING_R;
-
-const DeviceSheet = ({ item, onClose }: { id: string; item: LotItem; onClose: () => void }) => {
-  const checks = Object.entries(item.qc_checks || {});
-  const passed = checks.filter(([, v]) => v).length;
-  const clean = Object.entries(item.clean_status || {});
-  const bat = item.battery_pct;
-  const batLow = bat != null && bat < 80;
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="grab" />
-        <div className="row" style={{ alignItems: 'flex-start' }}>
-          <div className="label-caps muted">Diagnostic Report</div>
-          <button className="btn ghost small" onClick={onClose} style={{ padding: 7 }}><X size={16} /></button>
-        </div>
-
-        {/* hero navy (ตาม mesh hero ของ specs.html) */}
-        <div className="hero-card">
-          <div className="row" style={{ alignItems: 'flex-start' }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--font-head)', fontSize: 19, fontWeight: 800, lineHeight: 1.3 }}>{item.model}</div>
-              <div className="tiny bold" style={{ color: 'rgba(255,255,255,0.65)', marginTop: 3 }}>
-                {[item.capacity, item.color].filter(Boolean).join(' · ') || 'สเปกตามรายการ'}
-              </div>
-            </div>
-            {item.grade && <span className="glass-badge">เกรด {item.grade}</span>}
-          </div>
-          <div className="row mt12" style={{ justifyContent: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
-            <span className="glass-chip">{item.ref_no}</span>
-            <span className="glass-chip">SN {item.serial_masked || '-'}</span>
-            {item.model_code && <span className="glass-chip">{item.model_code}</span>}
-          </div>
-          <div className="hero-specs">
-            {bat != null && (
-              <div>
-                <div className="k">สุขภาพแบต</div>
-                <div className={`v ${batLow ? '' : 'ok'}`}>{bat}%{batLow ? '' : ' '}{!batLow && <CheckCircle2 size={13} />}</div>
-              </div>
-            )}
-            {item.asking_price != null && (
-              <div><div className="k">ราคาตั้ง</div><div className="v money">{fmtBaht(item.asking_price)}</div></div>
-            )}
-            {checks.length > 0 && (
-              <div><div className="k">ผลตรวจการทำงาน</div><div className={`v ${passed === checks.length ? 'ok' : ''}`}>{passed}/{checks.length} ผ่าน</div></div>
-            )}
-            {item.warranty_days != null && (
-              <div><div className="k">ประกันร้าน</div><div className="v">{item.warranty_days} วัน</div></div>
-            )}
-          </div>
-          {item.qc_date ? (
-            <div className="tiny bold mt12" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              ตรวจสภาพเมื่อ {fmtDateTime(item.qc_date)}
-              {item.qc_passed === false ? ' · พบตำหนิ — ดูหมายเหตุด้านล่าง' : item.qc_passed ? ' · ผ่านการตรวจ QC' : ''}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Battery & Power Health — วงแหวน % (ตาม specs.html) */}
-        {bat != null && (
-          <>
-            <div className="sec-head">
-              <span className="ic"><BatteryCharging size={17} /></span> แบตเตอรี่
-            </div>
-            <div className="bat-wrap">
-              <div className="ring-wrap">
-                <svg width="116" height="116" viewBox="0 0 116 116">
-                  <circle className="ring-track" cx="58" cy="58" r={RING_R} fill="transparent" strokeWidth="8" />
-                  <circle
-                    className={`ring-val ${batLow ? 'low' : ''}`}
-                    cx="58" cy="58" r={RING_R} fill="transparent" strokeWidth="9" strokeLinecap="round"
-                    strokeDasharray={RING_C}
-                    strokeDashoffset={RING_C * (1 - Math.min(100, Math.max(0, bat)) / 100)}
-                  />
-                </svg>
-                <div className="txt">
-                  <span className="pct">{bat}%</span>
-                  <span className="cap">Health</span>
-                </div>
-              </div>
-              <div className="bat-tiles">
-                {item.battery_cycles != null && (
-                  <div className="bat-tile"><div className="k">รอบชาร์จ</div><div className="v">{item.battery_cycles}</div></div>
-                )}
-                <div className="bat-tile">
-                  <div className="k">สถานะ</div>
-                  <div className={`v ${batLow ? 'warn' : 'ok'}`}>{batLow ? 'ต่ำกว่าเกณฑ์ 80%' : 'ปกติ'}</div>
-                </div>
-                {item.parts?.battery && (
-                  <div className="bat-tile"><div className="k">แบตเตอรี่</div><div className="v" style={{ fontFamily: 'var(--font-body)', fontSize: 13.5 }}>{item.parts.battery}</div></div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Diagnostic Check — แถวผลตรวจ ชื่อซ้าย/สถานะขวา */}
-        {checks.length > 0 && (
-          <>
-            <div className="sec-head">
-              <span className="ic"><HeartPulse size={17} /></span> ผลตรวจการทำงาน
-              <span className="cnt2">{passed}/{checks.length} ผ่าน</span>
-            </div>
-            <div className="check-grid">
-              {checks.map(([k, v]) => (
-                <span key={k} className={`check ${v ? '' : 'bad'}`}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{QC_CHECK_LABEL[k] || k}</span>
-                  {v ? <CheckCircle2 className="st" size={16} /> : <XCircle className="st" size={16} />}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* สเปก/ชิ้นส่วน */}
-        {(item.parts_condition || item.accessories || item.parts?.screen || item.parts?.camera) && (
-          <>
-            <div className="sec-head"><span className="ic"><Layers size={17} /></span> สภาพเครื่องและชิ้นส่วน</div>
-            <div className="spec-grid">
-              {item.parts?.screen && <div className="cell"><div className="k">จอ</div><div className="v">{item.parts.screen}</div></div>}
-              {item.parts?.camera && <div className="cell"><div className="k">กล้อง</div><div className="v">{item.parts.camera}</div></div>}
-              {item.parts_condition && <div className="cell"><div className="k">อะไหล่</div><div className="v">{item.parts_condition}</div></div>}
-              {item.accessories && <div className="cell"><div className="k">อุปกรณ์ที่ให้</div><div className="v">{item.accessories}</div></div>}
-            </div>
-          </>
-        )}
-
-        {/* ความพร้อมขายต่อ */}
-        {clean.length > 0 && (
-          <>
-            <div className="sec-head"><span className="ic"><ShieldCheck size={17} /></span> พร้อมขายต่อ</div>
-            <div className="check-grid">
-              {clean.map(([k, v]) => (
-                <span key={k} className={`check ${v ? '' : 'bad'}`}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{CLEAN_STATUS_LABEL[k] || k}</span>
-                  {v ? <CheckCircle2 className="st" size={16} /> : <XCircle className="st" size={16} />}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
-
-        {item.qc_notes && (
-          <>
-            <div className="sec-head"><span className="ic"><Info size={17} /></span> หมายเหตุจากผู้ตรวจ</div>
-            <div className="notice mt8">{item.qc_notes}</div>
-          </>
-        )}
-
-        {checks.length === 0 && bat == null && !item.parts && (
-          <div className="notice mt16">เครื่องนี้ยังไม่มีรายงานผลตรวจละเอียดในระบบ — สอบถามเพิ่มเติมได้ที่เจ้าหน้าที่</div>
-        )}
-      </div>
     </div>
   );
 };
