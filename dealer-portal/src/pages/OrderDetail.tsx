@@ -18,6 +18,14 @@ const FLOW_LABEL: Record<string, string> = {
   shipped: 'จัดส่งแล้ว',
   completed: 'รับสินค้าสำเร็จ',
 };
+// คำอธิบายของขั้นที่กำลังทำ — แสดงในกล่อง glass บน timeline (ตาม orders.html)
+const FLOW_DESC: Record<string, string> = {
+  pending_payment: 'โอนเงินตามยอดในใบเสนอราคา แล้วแนบสลิปด้านล่างเพื่อยืนยัน',
+  payment_review: 'เจ้าหน้าที่กำลังตรวจสอบยอดโอนของคุณ โดยปกติไม่เกิน 1 วันทำการ',
+  paid: 'รับยอดเรียบร้อย — กำลังเตรียมสินค้าและเอกสารสำหรับจัดส่ง',
+  shipped: 'สินค้าอยู่ระหว่างขนส่ง ติดตามสถานะได้จากเลขพัสดุด้านล่าง',
+  completed: 'รับสินค้าเรียบร้อยแล้ว ขอบคุณที่ซื้อกับ GETMOBIE',
+};
 
 export const OrderDetail = () => {
   const { id } = useParams();
@@ -92,7 +100,19 @@ export const OrderDetail = () => {
               return (
                 <li key={s} className={done ? 'done' : nowStep ? 'now' : ''}>
                   <span className="knot">{done ? <Check size={12} /> : i + 1}</span>
-                  <span className="lbl">{FLOW_LABEL[s]}</span>
+                  {nowStep && s !== 'completed' ? (
+                    /* ขั้นที่กำลังทำ — กล่อง glass + คำอธิบาย + แถบ progress (ตาม timeline ของ Stitch) */
+                    <div className="now-box">
+                      <div className="hd">
+                        <span className="lbl">{FLOW_LABEL[s]}</span>
+                        <span className="tag">กำลังดำเนินการ</span>
+                      </div>
+                      <div className="dsc">{FLOW_DESC[s]}</div>
+                      <div className="bar"><span /></div>
+                    </div>
+                  ) : (
+                    <span className="lbl">{FLOW_LABEL[s]}</span>
+                  )}
                 </li>
               );
             })}
