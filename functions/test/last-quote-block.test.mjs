@@ -629,6 +629,33 @@ check("connector allowed at most once per conversation", sysNoCust.includes('ซ
 check("openers must vary between consecutive messages", sysNoCust.includes("อย่าขึ้นต้นข้อความเหมือนหรือคล้ายกับข้อความก่อนหน้า"));
 check("condition sequence reminds no per-message announcement", sysNoCust.includes('ห้ามประกาศ "ขอถามต่อนะครับ" ทุกข้อความ'));
 
+// --- echo the model back before doing anything else -------------------------
+// Owner's instruction: "พอลูกค้าพิมพ์ชื่อรุ่นมา ให้ทักสั้นๆ ทวนรุ่นที่เจอใน
+// ระบบก่อนเสมอ". The point is not politeness — echoing the CATALOG name
+// (customer types "ไอโฟน13", we say "iPhone 13") is the cheapest possible
+// check that the matcher understood them, before the conversation walks ten
+// turns down the wrong model and has to be unwound.
+{
+  const E = (re) => new RegExp(`6\\.1\\.1[\\s\\S]{0,2200}${re}`).test(sysNoCust);
+  check("persona has the echo-the-model rule", sysNoCust.includes("6.1.1"));
+  check("greeting + model echo opens the first reply", E("ทักทายสั้นๆ แล้ว \"ทวนรุ่นที่เจอในระบบ\""));
+  check("echo uses the catalog name, not the customer's spelling", E("ชื่อรุ่นตามที่ระบบเจอ") && E("ไอโฟน13") && E("iPhone 13"));
+  check("the reason is stated: catch a mis-match early", E("จับผิดได้ทันทีถ้าระบบเข้าใจรุ่นผิด"));
+  // Guard rails, each one an existing rule this could have broken.
+  check("echo does not stall the flow into an extra round", E("เดินหน้าต่อในข้อความเดียวกันทันที") && E("ห้ามส่งข้อความสั้นๆ แค่ทวนรุ่นแล้วหยุดรอ"));
+  check("echo message still reveals no price", E("ห้ามพูดตัวเลขราคาในข้อความนี้"));
+  check("echo message still does not ask capacity", E('"ห้ามถามความจุ" ตรงนี้'));
+  // The live "ย้ำรุ่นซ้ำๆ" bug: repeating the model every bubble reads as a bot.
+  check("echo happens once, not every bubble", E("ทวนรุ่น \"ครั้งเดียวตอนเจอรุ่น\"") && E("ห้ามขึ้นต้นทุกข้อความด้วยชื่อรุ่นซ้ำๆ"));
+  check("re-echo allowed only when the customer switches model", E("ลูกค้าเปลี่ยนไปคุยรุ่นอื่น"));
+  check("greeting only on the room's first message", E("ทักทายใส่เฉพาะข้อความแรกของห้อง"));
+  // Paths that must NOT get an echo: they have their own opening move.
+  check("declined models still decline immediately", E("รุ่นงดรับซื้อ"));
+  check("ambiguous names still ask which model first", E("ชื่อกำกวม"));
+  check("no-price models still go to offer mode", E("โหมดรับ Offer"));
+  check("owner-visible behaviors mention the model echo", src.includes("ทวนชื่อรุ่นตามที่ระบบเจอก่อนเสมอ"));
+}
+
 // --- bare single-price leak + empty quote promise (iPad mini 7 case) ---------
 // Real conversation: "เรารับซื้อมือสองในราคา 8,500 บาทครับ" shipped pre-card
 // (old regex only caught ranges and ประมาณ-numbers), then "ผมจะสร้างใบเสนอ
