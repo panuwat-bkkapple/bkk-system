@@ -1,15 +1,26 @@
 # Core Ledger (DealerPortal) — Design System
 
+<<<<<<< HEAD:design/stitch/dealerportal/design-system.md
+> **เอกสารนี้อธิบาย `grading-standards.html` ในโฟลเดอร์นี้**
+=======
 > **เอกสารนี้อธิบายไฟล์เดียวในโฟลเดอร์: `grading-standards.html`**
+>>>>>>> origin/main:design/stitch/design-system-dealerportal.md
 >
 > โปรเจกต์ Stitch นี้มี design system **สองตัวที่ชื่อ "Core Ledger" เหมือนกันทั้งคู่**
 > เอกสารนี้อธิบายตัวแรก `assets/1509b1a6f2194039b9436ac973e85dda` ซึ่งใช้กับชุดหน้าจอ
 > **DealerPortal** (แถว y=0 และ y=2179 บน canvas)
 >
+<<<<<<< HEAD:design/stitch/dealerportal/design-system.md
+> | ไฟล์ | design system |
+> |---|---|
+> | `grading-standards.html` | **ตัวนี้** (DealerPortal) — ทวนแล้วตรง 17/17 |
+> | `../modern/` — `dashboard` · `lots` · `lot-detail` · `orders` · `specs` | Modern / iWholesale Pro — ดู [`../modern/design-system.md`](../modern/design-system.md) |
+=======
 > | ไฟล์ในโฟลเดอร์นี้ | design system |
 > |---|---|
 > | `grading-standards.html` | **ตัวนี้** (DealerPortal) — ทวนแล้วตรง 17/17 |
 > | `dashboard` · `lots` · `lot-detail` · `orders` · `specs` | Modern / iWholesale Pro — ดู [`design-system.md`](./design-system.md) |
+>>>>>>> origin/main:design/stitch/design-system-dealerportal.md
 >
 > ⚠️ `grading-standards.html` มี `borderRadius` เป็น `0.125 / 0.25 / 0.5rem`
 > ซึ่งไม่ตรงกับสเปกในหัวข้อ [Shapes](#5-shapes) (`0.25 / 0.5 / 0.75rem`)
