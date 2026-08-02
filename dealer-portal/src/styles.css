@@ -55,6 +55,8 @@ button { font-family: inherit; }
 
 /* ── โครงหน้า ── */
 .shell { max-width: 680px; margin: 0 auto; padding: 0 16px 104px; }
+/* หน้าเต็มที่ต้องการพื้นที่กว้างบน desktop (เช่น Diagnostic Report) */
+.shell.wide { max-width: 1140px; }
 
 /* glass header สว่าง (ตาม TopAppBar ของ Stitch ทุกหน้า) */
 .topbar {
@@ -529,3 +531,60 @@ button { font-family: inherit; }
 .bat-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 6px; }
 .bat-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .bat-bar.low > span { background: var(--warn); }
+
+/* ── Diagnostic Report — หน้าเต็ม (ตามจอ Detailed Diagnostic Report ของ Stitch)
+   mobile เรียงลงมา / desktop เป็น grid หลายคอลัมน์ ── */
+.report-hero {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 18px;
+}
+.report-hero .dev { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.report-hero .dev-ic {
+  width: 44px; height: 44px; border-radius: var(--r); flex-shrink: 0;
+  background: #f0f3ff; color: var(--brand);
+  display: flex; align-items: center; justify-content: center;
+}
+.report-hero .func {
+  display: flex; align-items: center; gap: 14px;
+  padding-top: 14px; border-top: 1px solid var(--line);
+  justify-content: space-between;
+}
+.report-hero .fv {
+  font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--accent-deep);
+  letter-spacing: -0.3px;
+}
+@media (min-width: 760px) {
+  .report-hero { flex-direction: row; align-items: center; justify-content: space-between; padding: 24px; }
+  .report-hero .func { padding-top: 0; border-top: none; text-align: right; }
+  .report-hero .fv { font-size: 26px; }
+}
+
+.report-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+@media (min-width: 760px) { .report-grid { grid-template-columns: 1fr 1fr; align-items: start; } }
+@media (min-width: 1024px) { .report-grid { grid-template-columns: 1fr 1fr 1fr; } }
+
+.rsec {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  overflow: hidden; box-shadow: var(--shadow);
+}
+.rsec-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; background: #eef4ff; border-bottom: 1px solid var(--line);
+  font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--brand-deep);
+}
+.rsec-head svg { color: var(--brand); flex-shrink: 0; }
+.rrow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid #eef1f5;
+}
+.rrow:last-child { border-bottom: none; }
+.rrow:nth-child(odd) { background: var(--zebra); }
+.rrow .nm { font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0; }
+.rbadge {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.rbadge.ok { color: var(--accent-deep); }
+.rbadge.ok svg { color: var(--accent); }
+.rbadge.bad { color: var(--danger); }
+.rbadge.na { color: var(--faint); text-transform: none; letter-spacing: 0; }

@@ -1,0 +1,180 @@
+// Diagnostic Report รายเครื่อง — หน้าเต็มของตัวเอง (ไม่ใช่ modal/bottom sheet)
+// โครงตามจอ "Detailed Diagnostic Report" ของ Stitch: hero ขาว + % Functional วงแหวนเขียว
+// + การ์ดหมวดผลตรวจ (header แถบฟ้า, แถวชื่อซ้าย-badge ขวา, zebra)
+// Desktop = grid หลายคอลัมน์ / Mobile = เรียงลงมา (ดู .report-grid ใน styles.css)
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { onValue, ref } from 'firebase/database';
+import {
+  ArrowLeft, Smartphone, ScanFace, MonitorSmartphone, Volume2, BatteryCharging,
+  ShieldCheck, Layers, Info, CheckCircle2, XCircle, BadgeCheck,
+} from 'lucide-react';
+import { db } from '../firebase';
+import { QC_CHECK_LABEL, CLEAN_STATUS_LABEL, fmtBaht, fmtDateTime, type LotItem } from '../types';
+
+// จัดกลุ่มผลตรวจ 10 รายการเป็นหมวดแบบ Stitch (Face ID Array / Display Subsystem / ...)
+const CHECK_GROUPS: { title: string; icon: React.ReactNode; keys: string[] }[] = [
+  { title: 'จอแสดงผล', icon: <MonitorSmartphone size={16} />, keys: ['screen_display', 'screen_touch', 'truetone'] },
+  { title: 'กล้องและเซ็นเซอร์', icon: <ScanFace size={16} />, keys: ['faceid', 'camera_front', 'camera_rear'] },
+  { title: 'เสียงและการเชื่อมต่อ', icon: <Volume2 size={16} />, keys: ['speaker_mic', 'wifi_bt', 'buttons'] },
+];
+
+const RING_R = 34;
+const RING_C = 2 * Math.PI * RING_R;
+
+export const DeviceReport = () => {
+  const { id, jobId } = useParams();
+  const navigate = useNavigate();
+  const [item, setItem] = useState<LotItem | null | undefined>(undefined);
+  const [lotNo, setLotNo] = useState<string>('');
+
+  useEffect(() => {
+    if (!id || !jobId) return;
+    const unsubItem = onValue(
+      ref(db, `lots/${id}/items/${jobId}`),
+      (snap) => setItem(snap.exists() ? snap.val() : null),
+      () => setItem(null)
+    );
+    const unsubNo = onValue(ref(db, `lots/${id}/lot_no`), (snap) => setLotNo(snap.val() || ''), () => {});
+    return () => { unsubItem(); unsubNo(); };
+  }, [id, jobId]);
+
+  const checks = useMemo(() => Object.entries(item?.qc_checks || {}), [item]);
+  const passed = checks.filter(([, v]) => v).length;
+  const pct = checks.length > 0 ? Math.round((passed / checks.length) * 100) : null;
+  const clean = Object.entries(item?.clean_status || {});
+  const bat = item?.battery_pct;
+  const batLow = bat != null && bat < 80;
+  const checkMap = item?.qc_checks || {};
+
+  if (item === undefined) return (<><div className="skel" style={{ marginTop: 20 }} /><div className="skel" /></>);
+  if (item === null) return <div className="empty mt16">ไม่พบข้อมูลเครื่องนี้ หรือล็อตไม่เปิดสำหรับบัญชีของคุณ</div>;
+
+  const row = (key: string, ok: boolean | undefined, label: string) => (
+    <div key={key} className="rrow">
+      <span className="nm">{label}</span>
+      {ok == null ? (
+        <span className="rbadge na">ไม่มีข้อมูล</span>
+      ) : ok ? (
+        <span className="rbadge ok">ผ่าน <CheckCircle2 size={15} /></span>
+      ) : (
+        <span className="rbadge bad">ไม่ผ่าน <XCircle size={15} /></span>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <button className="btn ghost small" style={{ marginTop: 16 }} onClick={() => navigate(`/lots/${id}`)}>
+        <ArrowLeft size={14} /> กลับไปหน้าล็อต
+      </button>
+      <nav className="crumbs" style={{ marginTop: 12 }}>
+        <a onClick={(e) => { e.preventDefault(); navigate(`/lots/${id}`); }} href={`/lots/${id}`}>{lotNo || 'ล็อตสินค้า'}</a>
+        <span className="sep">/</span>
+        <span>Diagnostic Report</span>
+      </nav>
+
+      {/* hero ขาว: ซ้าย = เครื่อง, ขวา = % Functional + วงแหวนเขียว (ตามจอ Stitch) */}
+      <div className="card report-hero">
+        <div className="dev">
+          <span className="dev-ic"><Smartphone size={22} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div className="h1" style={{ margin: 0, fontSize: 20 }}>{item.model}</div>
+            <div className="row mt8" style={{ justifyContent: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
+              <span className="chip" style={{ background: 'var(--zebra)', color: 'var(--ink-2)', border: '1px solid var(--line)' }}>{item.ref_no}</span>
+              <span className="chip" style={{ background: 'var(--zebra)', color: 'var(--ink-2)', border: '1px solid var(--line)' }}>SN {item.serial_masked || '-'}</span>
+              {item.grade && <span className="pill blue">เกรด {item.grade}</span>}
+            </div>
+            <div className="small muted bold mt8">
+              {[item.capacity, item.color].filter(Boolean).join(' · ')}
+              {item.asking_price != null ? ` · ราคาตั้ง ${fmtBaht(item.asking_price)}` : ''}
+            </div>
+          </div>
+        </div>
+        {pct != null ? (
+          <div className="func">
+            <div>
+              <div className="fv">{pct}% Functional</div>
+              <div className="label-caps muted">Test Complete</div>
+              {item.qc_date ? <div className="tiny muted bold" style={{ marginTop: 2 }}>{fmtDateTime(item.qc_date)}</div> : null}
+            </div>
+            <div className="ring-wrap" style={{ width: 76, height: 76 }}>
+              <svg width="76" height="76" viewBox="0 0 76 76">
+                <circle className="ring-track" cx="38" cy="38" r={RING_R} fill="transparent" strokeWidth="6" />
+                <circle
+                  className={`ring-val ${pct === 100 ? '' : pct >= 70 ? '' : 'low'}`}
+                  cx="38" cy="38" r={RING_R} fill="transparent" strokeWidth="7" strokeLinecap="round"
+                  strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - pct / 100)}
+                />
+              </svg>
+              <div className="txt"><BadgeCheck size={26} style={{ color: pct >= 70 ? 'var(--accent)' : 'var(--warn)' }} /></div>
+            </div>
+          </div>
+        ) : (
+          <div className="func"><div className="label-caps muted">ยังไม่มีผลตรวจละเอียด</div></div>
+        )}
+      </div>
+
+      {checks.length === 0 && bat == null && !item.parts && (
+        <div className="notice mt12">เครื่องนี้ยังไม่มีรายงานผลตรวจละเอียดในระบบ — สอบถามเพิ่มเติมได้ที่เจ้าหน้าที่</div>
+      )}
+
+      {/* การ์ดหมวดผลตรวจ — desktop เป็น grid, mobile เรียงลงมา */}
+      <div className="report-grid">
+        {checks.length > 0 && CHECK_GROUPS.map((g) => {
+          const keys = g.keys.filter((k) => checkMap[k] != null);
+          if (keys.length === 0) return null;
+          return (
+            <div key={g.title} className="rsec">
+              <div className="rsec-head">{g.icon} {g.title}</div>
+              {keys.map((k) => row(k, checkMap[k], QC_CHECK_LABEL[k] || k))}
+            </div>
+          );
+        })}
+
+        {/* Power Systems: การชาร์จ + Battery Health */}
+        {(checkMap.charging != null || bat != null) && (
+          <div className="rsec">
+            <div className="rsec-head"><BatteryCharging size={16} /> ระบบพลังงาน</div>
+            {checkMap.charging != null && row('charging', checkMap.charging, QC_CHECK_LABEL.charging)}
+            {bat != null && (
+              <div className="rrow">
+                <span className="nm">Battery Health{item.battery_cycles != null ? ` · ${item.battery_cycles} รอบชาร์จ` : ''}</span>
+                <span className={`rbadge ${batLow ? 'bad' : 'ok'} mono`} style={{ fontSize: 13 }}>{bat}%</span>
+              </div>
+            )}
+            {item.parts?.battery && (
+              <div className="rrow"><span className="nm">สถานะแบตเตอรี่</span><span className="small bold">{item.parts.battery}</span></div>
+            )}
+          </div>
+        )}
+
+        {/* ความพร้อมขายต่อ */}
+        {clean.length > 0 && (
+          <div className="rsec">
+            <div className="rsec-head"><ShieldCheck size={16} /> พร้อมขายต่อ</div>
+            {clean.map(([k, v]) => row(k, v, CLEAN_STATUS_LABEL[k] || k))}
+          </div>
+        )}
+
+        {/* ชิ้นส่วนหลัก / อุปกรณ์ */}
+        {(item.parts?.screen || item.parts?.camera || item.parts_condition || item.accessories || item.warranty_days != null) && (
+          <div className="rsec">
+            <div className="rsec-head"><Layers size={16} /> ชิ้นส่วนและอุปกรณ์</div>
+            {item.parts?.screen && <div className="rrow"><span className="nm">จอ</span><span className="small bold">{item.parts.screen}</span></div>}
+            {item.parts?.camera && <div className="rrow"><span className="nm">กล้อง</span><span className="small bold">{item.parts.camera}</span></div>}
+            {item.parts_condition && <div className="rrow"><span className="nm">อะไหล่</span><span className="small bold">{item.parts_condition}</span></div>}
+            {item.accessories && <div className="rrow"><span className="nm">อุปกรณ์ที่ให้</span><span className="small bold">{item.accessories}</span></div>}
+            {item.warranty_days != null && <div className="rrow"><span className="nm">ประกันร้าน</span><span className="small bold">{item.warranty_days} วัน</span></div>}
+          </div>
+        )}
+      </div>
+
+      {item.qc_notes && (
+        <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <Info size={15} style={{ flexShrink: 0, marginTop: 2 }} /> <span><b>หมายเหตุจากผู้ตรวจ:</b> {item.qc_notes}</span>
+        </div>
+      )}
+    </div>
+  );
+};

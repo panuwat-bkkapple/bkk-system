@@ -5,6 +5,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { LotList } from './pages/LotList';
 import { LotDetailPage } from './pages/LotDetailPage';
+import { DeviceReport } from './pages/DeviceReport';
 import { Orders } from './pages/Orders';
 import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
@@ -23,7 +24,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </button>
         </div>
       </header>
-      <main className="shell">{children}</main>
+      {/* หน้า Diagnostic Report เป็นหน้าเต็ม — desktop ขยาย container ให้ grid หลายคอลัมน์ */}
+      <main className={/^\/lots\/[^/]+\/device\//.test(loc.pathname) ? 'shell wide' : 'shell'}>{children}</main>
       <nav className="tabbar">
         <NavLink to="/" className={loc.pathname === '/' ? 'active' : ''}>
           <LayoutDashboard size={20} /> หน้าหลัก
@@ -52,6 +54,7 @@ const Guarded = () => {
         <Route path="/" element={<Dashboard />} />
         <Route path="/lots" element={<LotList />} />
         <Route path="/lots/:id" element={<LotDetailPage />} />
+        <Route path="/lots/:id/device/:jobId" element={<DeviceReport />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/profile" element={<Profile />} />
