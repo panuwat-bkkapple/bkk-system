@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref } from 'firebase/database';
 import {
   ArrowLeft, Smartphone, ScanFace, MonitorSmartphone, Volume2, BatteryCharging,
-  ShieldCheck, Layers, Info, CheckCircle2, XCircle, BadgeCheck,
+  ShieldCheck, Layers, Info, CheckCircle2, XCircle,
 } from 'lucide-react';
 import { db } from '../firebase';
 import { QC_CHECK_LABEL, CLEAN_STATUS_LABEL, fmtBaht, fmtDateTime, type LotItem } from '../types';
@@ -18,9 +18,6 @@ const CHECK_GROUPS: { title: string; icon: React.ReactNode; keys: string[] }[] =
   { title: 'กล้องและเซ็นเซอร์', icon: <ScanFace size={16} />, keys: ['faceid', 'camera_front', 'camera_rear'] },
   { title: 'เสียงและการเชื่อมต่อ', icon: <Volume2 size={16} />, keys: ['speaker_mic', 'wifi_bt', 'buttons'] },
 ];
-
-const RING_R = 34;
-const RING_C = 2 * Math.PI * RING_R;
 
 export const DeviceReport = () => {
   const { id, jobId } = useParams();
@@ -83,7 +80,6 @@ export const DeviceReport = () => {
             <div className="row mt8" style={{ justifyContent: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
               <span className="chip" style={{ background: 'var(--zebra)', color: 'var(--ink-2)', border: '1px solid var(--line)' }}>{item.ref_no}</span>
               <span className="chip" style={{ background: 'var(--zebra)', color: 'var(--ink-2)', border: '1px solid var(--line)' }}>SN {item.serial_masked || '-'}</span>
-              {item.grade && <span className="pill blue">เกรด {item.grade}</span>}
             </div>
             <div className="small muted bold mt8">
               {[item.capacity, item.color].filter(Boolean).join(' · ')}
@@ -91,24 +87,26 @@ export const DeviceReport = () => {
             </div>
           </div>
         </div>
-        {pct != null ? (
+        {pct != null || item.grade ? (
           <div className="func">
             <div>
-              <div className="fv">{pct}% Functional</div>
-              <div className="label-caps muted">Test Complete</div>
-              {item.qc_date ? <div className="tiny muted bold" style={{ marginTop: 2 }}>{fmtDateTime(item.qc_date)}</div> : null}
+              {pct != null ? (
+                <>
+                  <div className="fv">{pct}% Functional</div>
+                  <div className="label-caps muted">Test Complete</div>
+                  {item.qc_date ? <div className="tiny muted bold" style={{ marginTop: 2 }}>{fmtDateTime(item.qc_date)}</div> : null}
+                </>
+              ) : (
+                <div className="label-caps muted">ยังไม่มีผลตรวจละเอียด</div>
+              )}
             </div>
-            <div className="ring-wrap" style={{ width: 76, height: 76 }}>
-              <svg width="76" height="76" viewBox="0 0 76 76">
-                <circle className="ring-track" cx="38" cy="38" r={RING_R} fill="transparent" strokeWidth="6" />
-                <circle
-                  className={`ring-val ${pct === 100 ? '' : pct >= 70 ? '' : 'low'}`}
-                  cx="38" cy="38" r={RING_R} fill="transparent" strokeWidth="7" strokeLinecap="round"
-                  strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - pct / 100)}
-                />
-              </svg>
-              <div className="txt"><BadgeCheck size={26} style={{ color: pct >= 70 ? 'var(--accent)' : 'var(--warn)' }} /></div>
-            </div>
+            {/* ป้ายเกรดตัวใหญ่ (แทนวงแหวน — grading คือสิ่งที่ดีลเลอร์ใช้ตัดสินใจ) */}
+            {item.grade && (
+              <div className="grade-tile">
+                <span className="gl">{item.grade}</span>
+                <span className="gc">Grade</span>
+              </div>
+            )}
           </div>
         ) : (
           <div className="func"><div className="label-caps muted">ยังไม่มีผลตรวจละเอียด</div></div>
