@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck } from 'lucide-react';
+import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck, FolderOpen } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
 import { MEMBER_ROLE_LABEL, TIER_COLOR, TIER_LABEL } from './types';
 import { Login } from './pages/Login';
@@ -13,6 +13,7 @@ import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
 import { GradingStandards } from './pages/GradingStandards';
 import { Onboarding, shouldShowOnboarding } from './pages/Onboarding';
+import { Documents } from './pages/Documents';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { dealer, memberName, memberRole, logout } = useDealerSession();
@@ -21,6 +22,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     home: loc.pathname === '/',
     lots: loc.pathname.startsWith('/lots'),
     orders: loc.pathname.startsWith('/orders'),
+    documents: loc.pathname === '/documents',
     profile: loc.pathname === '/profile',
     grading: loc.pathname === '/grading',
   };
@@ -59,6 +61,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </NavLink>
           <NavLink to="/orders" className={`nav ${active.orders ? 'on' : ''}`}>
             <ClipboardList size={17} /> คำสั่งซื้อ
+          </NavLink>
+          <NavLink to="/documents" className={`nav ${active.documents ? 'on' : ''}`}>
+            <FolderOpen size={17} /> คลังเอกสาร
           </NavLink>
           <NavLink to="/profile" className={`nav ${active.profile ? 'on' : ''}`}>
             <UserRound size={17} /> โปรไฟล์
@@ -130,6 +135,7 @@ const Guarded = () => {
         <Route path="/lots/:id/device/:jobId" element={<DeviceReport />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderDetail />} />
+        <Route path="/documents" element={<Documents />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/grading" element={<GradingStandards />} />
         <Route path="*" element={<Navigate to="/" replace />} />

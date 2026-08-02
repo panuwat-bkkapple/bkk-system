@@ -168,6 +168,16 @@ export interface DealerOrderSummary {
   created_at: number | null;
 }
 
+// เอกสารในคลังเอกสาร (จาก dealerListDocuments — server รวมให้)
+export interface DealerDocument {
+  type: 'quotation' | 'tax_invoice';
+  number: string;
+  url: string | null;
+  order_no: string | null;
+  amount: number;
+  issued_at: number | null;
+}
+
 export const LOT_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   open: { label: 'เปิดรับราคา', cls: 'green' },
   closed: { label: 'ปิดรับแล้ว — รอผล', cls: 'amber' },
