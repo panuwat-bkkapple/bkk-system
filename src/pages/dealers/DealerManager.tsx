@@ -108,6 +108,24 @@ export const DealerManager = () => {
     });
   };
 
+  // ข้อเสนอแนะอัปเกรด tier (server เขียนตอน markPaid) — แอดมินยืนยัน/ปัดตกที่นี่
+  const handleConfirmTierSuggestion = (d: Dealer) => {
+    const s = d.tier_suggestion;
+    if (!s?.suggest) return;
+    const label = TIER_META[s.suggest]?.label || s.suggest;
+    if (!confirm(`อัปเกรด ${d.company_name} เป็นระดับ ${label}?`)) return;
+    run(async () => {
+      await call('adminDealerUpdate', { uid: d.id, tier: s.suggest });
+      toast.success(`อัปเกรดเป็น ${label} แล้ว`);
+    });
+  };
+
+  const handleDismissTierSuggestion = (d: Dealer) =>
+    run(async () => {
+      await call('adminDealerUpdate', { uid: d.id, clear_tier_suggestion: true });
+      toast.success('ปัดตกข้อเสนอแนะแล้ว');
+    });
+
   const openEdit = (d: Dealer) => {
     setEditingId(d.id);
     setForm({
@@ -238,6 +256,34 @@ export const DealerManager = () => {
                     <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg border ${TIER_META[d.tier]?.cls || TIER_META.C.cls}`}>
                       {TIER_META[d.tier]?.label || d.tier}
                     </span>
+                    {d.tier_suggestion?.suggest && (
+                      <div className="mt-2 space-y-1">
+                        <div className="text-[9px] font-black text-amber-600 uppercase">
+                          แนะนำอัปเกรด → {TIER_META[d.tier_suggestion.suggest]?.label || d.tier_suggestion.suggest}
+                        </div>
+                        <div className="text-[9px] font-bold text-slate-400">
+                          {d.tier_suggestion.reason === 'monthly'
+                            ? `ยอดสะสมเดือนนี้ ฿${Number(d.tier_suggestion.month_total || 0).toLocaleString()}`
+                            : `ออเดอร์ ${d.tier_suggestion.order_no || ''} ฿${Number(d.tier_suggestion.order_amount || 0).toLocaleString()}`}
+                        </div>
+                        <div className="flex justify-center gap-1">
+                          <button
+                            onClick={() => handleConfirmTierSuggestion(d)}
+                            disabled={busy}
+                            className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                          >
+                            ยืนยัน
+                          </button>
+                          <button
+                            onClick={() => handleDismissTierSuggestion(d)}
+                            disabled={busy}
+                            className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50"
+                          >
+                            ปัดตก
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </td>
                   <td className="p-5 text-center">
                     <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg border ${

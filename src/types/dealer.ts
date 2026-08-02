@@ -23,6 +23,23 @@ export interface Dealer {
   status: DealerStatus;
   created_at?: number;
   suspended_at?: number | null;
+  /** สถิติสะสม (server เขียนคนเดียวตอน markPaid) — monthly key = YYYYMM เวลาไทย */
+  stats?: {
+    orders?: number;
+    total_amount?: number;
+    last_order_at?: number;
+    monthly?: Record<string, number>;
+  } | null;
+  /** ข้อเสนอแนะอัปเกรด tier จากยอดซื้อ — ระบบเขียน แอดมินยืนยัน/ปัดตกที่ /dealers */
+  tier_suggestion?: {
+    suggest: DealerTier;
+    from?: DealerTier | null;
+    reason?: 'order' | 'monthly';
+    order_no?: string | null;
+    order_amount?: number;
+    month_total?: number;
+    at?: number;
+  } | null;
 }
 
 export type LotStatus =
@@ -158,10 +175,12 @@ export const ORDER_STATUS_META: Record<DealerOrderStatus, { label: string; cls: 
   cancelled: { label: 'ยกเลิก', cls: 'bg-red-50 text-red-600 border-red-200' },
 };
 
+// MIRROR: label tier — sync กับ TIER_LABEL ใน functions/dealer-portal.js และ
+// dealer-portal/src/types.ts (internal key ยังเป็น A/B/C — ไม่ migrate ข้อมูล)
 export const TIER_META: Record<DealerTier, { label: string; cls: string }> = {
-  A: { label: 'Tier A', cls: 'bg-purple-100 text-purple-700 border-purple-200' },
-  B: { label: 'Tier B', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
-  C: { label: 'Tier C', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+  A: { label: 'Gold', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+  B: { label: 'Silver', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+  C: { label: 'Bronze', cls: 'bg-orange-100 text-orange-700 border-orange-200' },
 };
 
 export const fmtBaht = (n: number | null | undefined): string =>

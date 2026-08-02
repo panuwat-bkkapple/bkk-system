@@ -14,7 +14,7 @@ import { useDealerSession } from '../hooks/useDealerSession';
 import {
   updateContact, listMembers, createMember, setMemberStatus, resetMemberPassword, deleteMember,
 } from '../api';
-import { MEMBER_ROLE_LABEL, TIER_COLOR, type DealerMemberRole, type TeamMember } from '../types';
+import { MEMBER_ROLE_LABEL, TIER_COLOR, TIER_LABEL, type DealerMemberRole, type TeamMember } from '../types';
 
 const genPassword = () => {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
@@ -151,7 +151,7 @@ export const Profile = () => {
             </div>
           </div>
           <span className="tier-badge" style={{ background: TIER_COLOR[dealer.tier] || 'var(--brand)' }}>
-            Tier {dealer.tier}
+            {TIER_LABEL[dealer.tier] || `Tier ${dealer.tier}`}
           </span>
         </div>
         <div className="row mt12" style={{ justifyContent: 'flex-start', gap: 6, flexWrap: 'wrap' }}>

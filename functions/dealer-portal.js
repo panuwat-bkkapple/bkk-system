@@ -82,6 +82,10 @@ function dealerShell({ heading, intro, bodyHtml }) {
 
 const REGION = "asia-southeast1";
 const DEALER_TIERS = ["A", "B", "C"];
+// MIRROR: label/ลำดับชั้น tier — sync กับ src/types/dealer.ts (TIER_META) และ
+// dealer-portal/src/types.ts (TIER_LABEL). internal key ยังเป็น A/B/C เสมอ
+const TIER_RANK = { A: 3, B: 2, C: 1 };
+const TIER_LABEL = { A: "Gold", B: "Silver", C: "Bronze" };
 const SELLABLE_STATUSES = ["In Stock", "Ready to Sell"];
 const LOT_BID_MODES = ["whole_lot", "per_item", "both"];
 // Lot lifecycle: draft → open → closed → awarding → awarded → completed | cancelled
@@ -498,6 +502,75 @@ async function archivePdf(storagePath, pdfBuffer, tokenSeed) {
 function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByRoles }) {
   const fns = {};
 
+  // ระบบ "แนะนำ" อัปเกรด tier จากยอดซื้อ — ระบบไม่เปลี่ยน tier เอง แค่เขียน
+  // dealers/{uid}/tier_suggestion + push CEO/MANAGER แล้วให้แอดมินกดยืนยันที่ /dealers.
+  // เกณฑ์ต่อ tier (settings/dealer/tiers/{t}): ผ่านอย่างใดอย่างหนึ่ง =
+  //   min_order_amount (ยอดออเดอร์เดียว) หรือ min_monthly_amount (ยอดสะสมเดือนไทย)
+  // ไม่มี auto-downgrade — เกณฑ์ไม่ถึงก็แค่ไม่แนะนำ
+  async function maybeSuggestTierUpgrade(db, order, monthTotal) {
+    try {
+      const uid = order.dealer_uid;
+      if (!uid) return;
+      const dealer = (await db.ref(`dealers/${uid}`).once("value")).val();
+      if (!dealer) return;
+      const currentRank = TIER_RANK[dealer.tier] || 0;
+      const tiers = (await loadDealerSettings(db)).tiers || {};
+      const orderAmt = Number(order.amount) || 0;
+
+      let best = null;
+      let bestReason = null;
+      for (const t of DEALER_TIERS) {
+        if ((TIER_RANK[t] || 0) <= currentRank) continue;
+        const cfg = tiers[t] || {};
+        const perOrder = Number(cfg.min_order_amount) || 0;
+        const perMonth = Number(cfg.min_monthly_amount) || 0;
+        const byOrder = perOrder > 0 && orderAmt >= perOrder;
+        const byMonth = perMonth > 0 && monthTotal >= perMonth;
+        if (!byOrder && !byMonth) continue;
+        if (!best || TIER_RANK[t] > TIER_RANK[best]) {
+          best = t;
+          bestReason = byMonth && !byOrder ? "monthly" : "order";
+        }
+      }
+      if (!best) return;
+      // มีข้อเสนอเดิมที่สูงเท่ากันหรือกว่าอยู่แล้ว = ไม่เขียนซ้ำ (กัน push รัว)
+      const prev = dealer.tier_suggestion;
+      if (prev && prev.suggest && (TIER_RANK[prev.suggest] || 0) >= TIER_RANK[best]) return;
+
+      await db.ref(`dealers/${uid}/tier_suggestion`).set({
+        suggest: best,
+        from: dealer.tier || null,
+        reason: bestReason,
+        order_no: order.order_no || null,
+        order_amount: orderAmt,
+        month_total: monthTotal,
+        at: nowMs(),
+      });
+      const label = TIER_LABEL[best] || best;
+      const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+      await dispatchAdminPush(
+        {
+          data: {
+            type: "dealer_tier",
+            title: `แนะนำอัปเกรดดีลเลอร์เป็น ${label}`,
+            body: `${dealer.company_name || "ดีลเลอร์"} ${
+              bestReason === "monthly"
+                ? `ยอดสะสมเดือนนี้ ${monthTotal.toLocaleString()} บาท`
+                : `ออเดอร์ ${order.order_no || ""} ยอด ${orderAmt.toLocaleString()} บาท`
+            } ถึงเกณฑ์ ${label} — กดยืนยันที่หน้า Dealers`,
+            url: `/dealers`,
+          },
+        },
+        "dealerTierSuggest",
+        "admin",
+        targets
+      );
+    } catch (e) {
+      // best-effort — markPaid สำเร็จไปแล้ว อย่าให้การแนะนำ tier ทำให้ callable ล้ม
+      console.error("[dealer] tier suggestion failed:", e?.message || e);
+    }
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // วงจรบัญชีดีลเลอร์ (CEO/MANAGER) — โครงเดียวกับ staff-accounts.js
   // ดีลเลอร์มี Firebase Auth ของตัวเอง แต่ "ไม่มี" /admins/{uid} (ไม่ใช่แอดมิน)
@@ -617,7 +690,11 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       const tier = String(data.tier || "").toUpperCase();
       if (!DEALER_TIERS.includes(tier)) throw new HttpsError("invalid-argument", "tier ไม่ถูกต้อง");
       patch.tier = tier;
+      // เปลี่ยน tier (ยืนยันหรือปรับเอง) = ข้อเสนอแนะเดิมหมดหน้าที่
+      patch.tier_suggestion = null;
     }
+    // แอดมินปัดตกข้อเสนอแนะอัปเกรดโดยไม่เปลี่ยน tier
+    if (data.clear_tier_suggestion === true) patch.tier_suggestion = null;
     if (data.email !== undefined) {
       const email = normEmail(data.email);
       if (!isValidEmail(email)) throw new HttpsError("invalid-argument", "อีเมลไม่ถูกต้อง");
@@ -1940,11 +2017,23 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       });
     }
     // สถิติสะสมของดีลเลอร์ (server เขียนคนเดียว) — โชว์ในหน้า /dealers + analytics
-    await db.ref(`dealers/${order.dealer_uid}/stats`).transaction((cur) => ({
-      orders: ((cur && cur.orders) || 0) + 1,
-      total_amount: ((cur && cur.total_amount) || 0) + (Number(order.amount) || 0),
-      last_order_at: nowMs(),
-    }));
+    // monthly/{YYYYMM} (เดือนไทย) ใช้เป็นฐานเกณฑ์ยอดสะสมของ tier suggestion
+    const { ym } = bangkokYM(nowMs());
+    let monthTotal = 0;
+    await db.ref(`dealers/${order.dealer_uid}/stats`).transaction((cur) => {
+      const c = cur || {};
+      const monthly = { ...(c.monthly || {}) };
+      monthly[ym] = (Number(monthly[ym]) || 0) + (Number(order.amount) || 0);
+      monthTotal = monthly[ym];
+      return {
+        ...c,
+        orders: (Number(c.orders) || 0) + 1,
+        total_amount: (Number(c.total_amount) || 0) + (Number(order.amount) || 0),
+        last_order_at: nowMs(),
+        monthly,
+      };
+    });
+    await maybeSuggestTierUpgrade(db, order, monthTotal);
     return { ok: true, sale_id: saleRef.key };
   });
 

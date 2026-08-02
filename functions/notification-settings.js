@@ -56,6 +56,7 @@ const EVENT_CATEGORY = {
   dealer_lot: "dealer",
   dealer_payment: "dealer",
   dealer_order: "dealer",
+  dealer_tier: "dealer",
   dealer_register: "dealer",
 };
 
