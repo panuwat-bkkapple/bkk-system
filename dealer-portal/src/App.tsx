@@ -9,6 +9,7 @@ import { DeviceReport } from './pages/DeviceReport';
 import { Orders } from './pages/Orders';
 import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
+import { GradingStandards } from './pages/GradingStandards';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { dealer, memberName, logout } = useDealerSession();
@@ -28,7 +29,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           Dashboard (bento), Orders (list + timeline), Diagnostic Report (grid หมวดผลตรวจ) */}
       <main
         className={
-          ['/', '/orders', '/lots', '/profile'].includes(loc.pathname) || /^\/lots\/[^/]+\/device\//.test(loc.pathname)
+          ['/', '/orders', '/lots', '/profile', '/grading'].includes(loc.pathname) || /^\/lots\/[^/]+\/device\//.test(loc.pathname)
             ? 'shell wide'
             : 'shell'
         }
@@ -67,6 +68,7 @@ const Guarded = () => {
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/grading" element={<GradingStandards />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
