@@ -109,7 +109,7 @@ export const Orders = () => {
         const flowIdx = FLOW.indexOf(o.status);
         const needSlip = o.status === 'pending_payment';
         return (
-          <div key={o.id} className="card clickable" onClick={() => navigate(`/orders/${o.id}`)}>
+          <div key={o.id} className={`card clickable ${needSlip ? 'action' : ''}`} onClick={() => navigate(`/orders/${o.id}`)}>
             <div className="row">
               <span className="mono tiny muted bold">{o.order_no} · {o.lot_no}</span>
               <span className={`pill ${meta.cls}`}>{meta.label}</span>

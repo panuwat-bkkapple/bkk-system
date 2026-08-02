@@ -104,17 +104,19 @@ export const Dashboard = () => {
             <>
               <div className="sec-title">ต้องทำตอนนี้</div>
               {pendingPay.map((o) => (
-                <div key={o.id} className="card clickable" style={{ borderColor: 'var(--warn-line)' }} onClick={() => navigate(`/orders/${o.id}`)}>
+                /* hero navy widget (ตาม Pending Orders widget ของ Stitch dashboard) */
+                <div key={o.id} className="hero-card" style={{ cursor: 'pointer' }} onClick={() => navigate(`/orders/${o.id}`)}>
                   <div className="row">
-                    <div>
-                      <div className="black" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <Trophy size={15} style={{ color: 'var(--accent)' }} /> ชนะดีล {o.lot_no} — รอชำระเงิน
-                      </div>
-                      <div className="tiny muted bold mt8">{o.order_no} · {o.item_count} เครื่อง</div>
-                    </div>
-                    <div className="black money" style={{ fontSize: 17, color: 'var(--warn)' }}>{fmtBaht(o.amount)}</div>
+                    <span className="glass-badge"><Trophy size={11} /> ชนะดีล {o.lot_no}</span>
+                    <span className="glass-chip">{o.order_no}</span>
                   </div>
-                  <button className="btn accent" style={{ marginTop: 12, padding: 12, fontSize: 14 }}
+                  <div className="money" style={{ fontSize: 30, fontWeight: 700, marginTop: 14, letterSpacing: '-0.5px' }}>
+                    {fmtBaht(o.amount)}
+                  </div>
+                  <div className="tiny bold" style={{ color: 'rgba(255,255,255,0.65)', marginTop: 4 }}>
+                    {o.item_count} เครื่อง · รอชำระเงินและแนบสลิปเพื่อเริ่มจัดส่ง
+                  </div>
+                  <button className="btn accent" style={{ marginTop: 14, padding: 13, fontSize: 14 }}
                     onClick={(e) => { e.stopPropagation(); navigate(`/orders/${o.id}`); }}>
                     <Upload size={15} /> โอนเงินและแนบสลิป
                   </button>

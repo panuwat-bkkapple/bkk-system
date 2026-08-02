@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Clock3, ChevronRight, Trophy, PackageOpen } from 'lucide-react';
+import { RefreshCw, Clock3, ChevronRight, Trophy, PackageOpen, Users } from 'lucide-react';
 import { listLots } from '../api';
 import { LOT_STATUS_LABEL, fmtBaht, fmtDateTime, type LotSummary } from '../types';
 
@@ -121,8 +121,26 @@ const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick:
 
   return (
     <div className="card clickable" onClick={onClick}>
-      <div className="row">
-        <span className="mono tiny muted bold">{lot.lot_no}</span>
+      {/* cover navy + technical grid — แถบภาพของการ์ดล็อตตามดีไซน์ Stitch (เราไม่มีรูปถ่าย ใช้แถบเทคนิคแทน) */}
+      <div className="lot-cover">
+        <div className="chips">
+          {lot.status === 'open' ? (
+            <span className={`glass-chip ${urgent ? 'urgent' : ''}`}>
+              <Clock3 size={11} /> {remainText(remain)}
+            </span>
+          ) : (
+            <span className="glass-chip">ปิดรับ {fmtDateTime(lot.close_at)}</span>
+          )}
+          {lot.bid_stats && lot.eligible_count != null && (
+            <span className="glass-chip"><Users size={11} /> {lot.bid_stats.bid_count}/{lot.eligible_count}</span>
+          )}
+          {lot.item_count ? <span className="glass-chip">{lot.item_count} เครื่อง</span> : null}
+        </div>
+        <span className="lotno">{lot.lot_no}</span>
+      </div>
+
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <div className="black" style={{ fontSize: 16.5, lineHeight: 1.35 }}>{lot.title}</div>
         {/* ผลของฉันสำคัญกว่าสถานะ lot — ชนะ/ไม่ได้รับเลือกขึ้นแทน */}
         {lot.my_result === 'won' ? (
           <span className="pill green">คุณชนะดีลนี้</span>
@@ -133,21 +151,7 @@ const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick:
         )}
       </div>
 
-      <div className="row mt8" style={{ alignItems: 'flex-start' }}>
-        <div>
-          <div className="black" style={{ fontSize: 16.5, lineHeight: 1.35 }}>{lot.title}</div>
-          <div className="small muted bold mt8">
-            {lot.item_count} เครื่อง
-            {lot.asking_total ? <> · ราคาตั้งรวม <span className="money">{fmtBaht(lot.asking_total)}</span></> : null}
-            {lot.bid_stats && lot.eligible_count != null && (
-              <> · เสนอแล้ว {lot.bid_stats.bid_count}/{lot.eligible_count} ราย</>
-            )}
-          </div>
-        </div>
-        <ChevronRight size={18} style={{ color: 'var(--faint)', flexShrink: 0, marginTop: 2 }} />
-      </div>
-
-      <div className="row mt12">
+      <div className="row mt8">
         {lot.my_result === 'won' && lot.my_order ? (
           <span className="small black" style={{ color: 'var(--accent-deep)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Trophy size={14} /> {fmtBaht(lot.my_order.amount)} · {lot.my_order.order_no}
@@ -161,14 +165,19 @@ const LotCard = ({ lot, now, onClick }: { lot: LotSummary; now: number; onClick:
         ) : (
           <span />
         )}
+      </div>
 
-        {lot.status === 'open' && (
-          <span className={`chip time ${urgent ? 'urgent' : ''}`}>
-            <Clock3 size={12} /> {remainText(remain)}
-          </span>
-        )}
-        {['closed', 'awarding'].includes(lot.status) && (
-          <span className="tiny muted bold">ปิดรับ {fmtDateTime(lot.close_at)}</span>
+      <div className="lotcard-foot">
+        <div>
+          <div className="label-caps muted">ราคาตั้งรวม</div>
+          <div className="price-big">{lot.asking_total ? fmtBaht(lot.asking_total) : 'สอบถาม'}</div>
+        </div>
+        {lot.status === 'open' && !lot.my_bid ? (
+          <button className="btn small" onClick={(e) => { e.stopPropagation(); onClick(); }}>
+            ดูและเสนอราคา <ChevronRight size={14} />
+          </button>
+        ) : (
+          <ChevronRight size={18} style={{ color: 'var(--faint)', flexShrink: 0 }} />
         )}
       </div>
     </div>

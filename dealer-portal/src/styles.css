@@ -1,6 +1,6 @@
 /* GETMOBIE Dealer Portal — "Core Ledger" design system (จาก Stitch export: design/stitch/)
-   ภาษา: professional tool สำหรับงาน wholesale เดิมพันสูง — navy primary ทึบ (ห้าม gradient),
-   การ์ดขาว + เส้นขอบ 1px, tonal elevation, radius 4px/8px (เลี่ยงทรง pill),
+   ภาษา: professional tool สำหรับงาน wholesale เดิมพันสูง — navy primary ทึบ (ปุ่มห้าม gradient),
+   glass header สว่าง, การ์ดขาว + เส้นขอบ 1px, hero/cover เป็น navy พร้อม technical grid,
    ตัวเลข/SKU ใช้ JetBrains Mono, สถานะใช้ accent แยกชัด (amber/blue/green/red) */
 :root {
   --bg: #f8f9ff;
@@ -56,32 +56,37 @@ button { font-family: inherit; }
 /* ── โครงหน้า ── */
 .shell { max-width: 680px; margin: 0 auto; padding: 0 16px 104px; }
 
+/* glass header สว่าง (ตาม TopAppBar ของ Stitch ทุกหน้า) */
 .topbar {
   position: sticky; top: 0; z-index: 30;
-  background: var(--brand-deep); color: #fff;
-  border-bottom: 1px solid rgba(129, 146, 167, 0.25);
+  background: rgba(248, 249, 255, 0.78);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  color: var(--brand-deep);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
   padding: 13px 16px;
   display: flex; align-items: center; justify-content: space-between;
 }
 .topbar .brand {
-  font-family: var(--font-head);
+  font-family: var(--font-head); color: var(--brand-deep);
   font-weight: 800; letter-spacing: 0.4px; font-size: 16px;
   display: flex; align-items: baseline; gap: 7px;
 }
 .topbar .brand span {
-  color: #b7c8de; font-size: 10px; font-weight: 700; letter-spacing: 2.5px;
-  border: 1px solid rgba(183, 200, 222, 0.35); border-radius: var(--r-sm); padding: 2px 6px;
+  color: var(--brand); font-size: 10px; font-weight: 700; letter-spacing: 2.5px;
+  border: 1px solid rgba(26, 43, 60, 0.3); border-radius: var(--r-sm); padding: 2px 6px;
 }
-.topbar .who { font-size: 11.5px; opacity: 0.92; text-align: right; line-height: 1.5; }
+.topbar .who { font-size: 11.5px; color: var(--muted); font-weight: 600; text-align: right; line-height: 1.5; }
 .topbar .who button {
-  background: none; border: none; color: #b7c8de; font-size: 11px; font-weight: 700;
+  background: none; border: none; color: var(--brand); font-size: 11px; font-weight: 700;
   cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 4px;
 }
 
 .tabbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-  background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: rgba(248, 249, 255, 0.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.04);
   display: flex; justify-content: space-around;
   padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
 }
@@ -93,14 +98,30 @@ button { font-family: inherit; }
 .tabbar a.active { color: var(--brand-deep); }
 .tabbar a.active svg { color: var(--brand); }
 
-/* ── หัวเรื่อง ── */
+/* ── หัวเรื่อง / utility ── */
 .h1 {
   font-family: var(--font-head);
   font-size: 22px; font-weight: 800; margin: 22px 0 3px; letter-spacing: -0.3px;
 }
 .sub { font-size: 13px; color: var(--muted); font-weight: 600; }
+.label-caps {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.crumbs {
+  display: flex; align-items: center; gap: 6px; margin-top: 18px;
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.crumbs a:active { opacity: 0.7; }
+.crumbs .sep { color: var(--faint); }
+.crumbs b { color: var(--ink); font-family: var(--font-mono); letter-spacing: 0.02em; }
+.meta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.meta-row span {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
 
-/* ── แท็บกรองสถานะ (sticky ใต้ topbar เลื่อนข้างได้บนมือถือ) ── */
+/* ── แท็บกรองสถานะ (pill filters ตามหน้า Active Lots ของ Stitch) ── */
 .filter-tabs {
   position: sticky; top: 54px; z-index: 20;
   margin: 14px -16px 4px; padding: 10px 16px;
@@ -111,7 +132,7 @@ button { font-family: inherit; }
 .filter-tabs::-webkit-scrollbar { display: none; }
 .ftab {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 14px; border-radius: var(--r-sm); cursor: pointer;
+  padding: 9px 15px; border-radius: 999px; cursor: pointer;
   background: #fff; border: 1px solid var(--line);
   font-size: 13px; font-weight: 700; color: var(--ink-2);
   transition: all 0.15s; white-space: nowrap;
@@ -119,7 +140,7 @@ button { font-family: inherit; }
 .ftab:active { transform: scale(0.97); }
 .ftab.on { background: var(--brand); border-color: var(--brand); color: #fff; }
 .ftab .cnt {
-  min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-sm);
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
   display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-mono);
   font-size: 11px; font-weight: 700;
@@ -137,8 +158,79 @@ button { font-family: inherit; }
 .card.clickable { cursor: pointer; transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s; }
 .card.clickable:hover { box-shadow: var(--shadow-lift); border-color: #c4c6cd; }
 .card.clickable:active { transform: scale(0.99); }
+.card.action { border-left: 4px solid var(--warn); }
 
-/* ── สถานะแบบจุดสี (radius 4px — ไม่ใช้ทรง pill ตามภาษา Core Ledger) ── */
+/* ── hero card (navy + technical grid — ตาม mesh hero ของ specs.html / widget navy ของ dashboard.html) ── */
+.hero-card {
+  position: relative; overflow: hidden; border-radius: 12px;
+  background: linear-gradient(135deg, #1a2b3c 0%, #041627 100%);
+  color: #fff; padding: 18px; margin-top: 12px;
+  box-shadow: var(--shadow-lift);
+}
+.hero-card::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.hero-card > * { position: relative; }
+.hero-card .k { color: rgba(255, 255, 255, 0.55); }
+.glass-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  padding: 4px 9px; border-radius: var(--r-sm);
+}
+.glass-chip.urgent { background: rgba(229, 62, 62, 0.85); border-color: transparent; animation: pulse 1.6s ease-in-out infinite; }
+.glass-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(123, 248, 161, 0.35);
+  color: #7bf8a1; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 999px;
+}
+.glass-badge::before {
+  content: ""; width: 7px; height: 7px; border-radius: 999px; background: #61de8a;
+  box-shadow: 0 0 8px rgba(97, 222, 138, 0.6);
+}
+.hero-specs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px;
+  margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.hero-specs .k { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.5); }
+.hero-specs .v { font-size: 13.5px; font-weight: 700; margin-top: 3px; color: #fff; }
+.hero-specs .v.ok { color: #7bf8a1; display: flex; align-items: center; gap: 4px; }
+
+/* ── lot card cover (แถบ navy บนการ์ดล็อต — แทนภาพถ่ายในดีไซน์ Stitch) ── */
+.lot-cover {
+  position: relative; overflow: hidden;
+  margin: -16px -16px 12px; padding: 13px 14px;
+  background: linear-gradient(135deg, #1a2b3c 0%, #041627 100%);
+  border-radius: 8px 8px 0 0; min-height: 84px;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 14px;
+}
+.lot-cover::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.lot-cover > * { position: relative; }
+.lot-cover .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.lot-cover .lotno {
+  align-self: flex-start;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em;
+  color: #fff; background: rgba(255, 255, 255, 0.12); padding: 3px 8px; border-radius: var(--r-sm);
+}
+.lotcard-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.price-big { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--brand-deep); }
+
+/* ── สถานะแบบจุดสี ── */
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: var(--r-sm);
@@ -197,6 +289,39 @@ button { font-family: inherit; }
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(26, 43, 60, 0.08);
 }
+/* Secure Bidding Input — ช่องกรอกใหญ่มี prefix สกุลเงิน (ตาม lot-detail.html) */
+.input-prefix { position: relative; }
+.input-prefix .cur {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  font-weight: 800; color: var(--muted); font-size: 17px; pointer-events: none;
+}
+.input-prefix input {
+  padding-left: 36px; height: 54px;
+  font-family: var(--font-mono); font-size: 19px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* หัวการ์ดเสนอราคา — แถบ navy (ตาม Bidding Card ของ Stitch) */
+.bid-head {
+  margin: -16px -16px 14px; padding: 14px 16px; border-radius: 7px 7px 0 0;
+  background: var(--brand); color: #fff;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+}
+.bid-head .k { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6); }
+.bid-head .v { font-family: var(--font-mono); font-size: 18px; font-weight: 700; margin-top: 2px; }
+/* กล่องอธิบาย sealed bid (ไอคอนแม่กุญแจในวงกลม) */
+.sealed-box {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--zebra); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 12px; margin-top: 14px;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-2); line-height: 1.6;
+}
+.sealed-box .ic {
+  width: 38px; height: 38px; border-radius: 999px; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent-deep);
+  display: flex; align-items: center; justify-content: center;
+}
+.sealed-box b { color: var(--ink); }
 
 /* ── ตารางเครื่อง / ช่องกรอกราคา (zebra striping ตามสไตล์ data table) ── */
 .itemtable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
@@ -219,7 +344,7 @@ button { font-family: inherit; }
 .itemtable input.bid-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(26, 43, 60, 0.08); }
 .itemtable input.bid-input:not(:placeholder-shown) { border-color: var(--accent-line); background: var(--accent-soft); }
 
-/* ── สเต็ปสถานะออเดอร์ (timeline: done เขียว / active navy + วงแหวน pulsing / future เทา) ── */
+/* ── สเต็ปสถานะออเดอร์ (timeline ตาม orders.html: done เขียว+check / active navy pulsing + glass box / future เทา) ── */
 .mini-steps { display: flex; align-items: center; gap: 0; margin-top: 12px; }
 .mini-steps .seg { flex: 1; height: 4px; border-radius: 999px; background: var(--line); }
 .mini-steps .seg + .seg { margin-left: 4px; }
@@ -234,24 +359,41 @@ button { font-family: inherit; }
   display: flex; align-items: center; justify-content: center;
   background: #fff; border: 2px solid var(--line); color: var(--faint);
   font-size: 11px; font-weight: 700;
+  box-shadow: 0 0 0 4px #fff;
 }
 .stepper li.done .knot { background: var(--accent); border-color: var(--accent); color: #fff; }
 .stepper li.now .knot {
-  border-color: var(--brand); color: var(--brand);
+  background: var(--brand); border-color: var(--brand); color: #fff;
   animation: ring 1.8s ease-out infinite;
 }
 @keyframes ring {
-  0% { box-shadow: 0 0 0 0 rgba(26, 43, 60, 0.28); }
-  70%, 100% { box-shadow: 0 0 0 7px rgba(26, 43, 60, 0); }
+  0% { box-shadow: 0 0 0 4px #fff, 0 0 0 4px rgba(26, 43, 60, 0.28); }
+  70%, 100% { box-shadow: 0 0 0 4px #fff, 0 0 0 10px rgba(26, 43, 60, 0); }
 }
 .stepper li::after {
-  content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--line);
+  content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: #e5eeff;
 }
 .stepper li:last-child::after { display: none; }
 .stepper li.done::after { background: var(--accent); }
 .stepper .lbl { font-size: 13.5px; font-weight: 700; color: var(--faint); padding-top: 2px; }
 .stepper li.done .lbl, .stepper li.now .lbl { color: var(--ink); }
 .stepper li.now .lbl { font-weight: 800; }
+/* กล่อง glass ของขั้นที่กำลังทำ — มีคำอธิบาย + แถบ progress เดินอยู่ */
+.now-box {
+  flex: 1; min-width: 0;
+  background: rgba(248, 249, 255, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid #d5dcf0; border-radius: var(--r); padding: 11px 13px; margin-top: -2px;
+}
+.now-box .hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.now-box .hd .lbl { padding-top: 0; }
+.now-box .tag { font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: var(--brand); flex-shrink: 0; }
+.now-box .dsc { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; line-height: 1.55; }
+.now-box .bar { margin-top: 9px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.now-box .bar > span {
+  display: block; height: 100%; border-radius: 999px; background: var(--accent);
+  animation: slidebar 1.8s ease-in-out infinite alternate;
+}
+@keyframes slidebar { from { width: 45%; } to { width: 78%; } }
 
 /* ── อื่นๆ ── */
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -286,7 +428,7 @@ button { font-family: inherit; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .loading { padding: 60px 0; text-align: center; color: var(--muted); font-weight: 700; }
 
-/* ── login (navy ทึบสองชั้น — ไม่ใช้ gradient สีสด) ── */
+/* ── login (navy ทึบสองชั้น) ── */
 .login-wrap {
   min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
   background: radial-gradient(1200px 600px at 20% -10%, #1a2b3c 0%, var(--brand-deep) 60%);
@@ -320,8 +462,19 @@ button { font-family: inherit; }
   letter-spacing: 0.05em; margin: 22px 0 2px; display: flex; align-items: center; justify-content: space-between;
 }
 .sec-title a { color: var(--info); font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 700; }
+/* หัวข้อ section แบบมีไอคอนวงกลม (ตาม specs.html) */
+.sec-head {
+  display: flex; align-items: center; gap: 10px; margin-top: 18px;
+  font-family: var(--font-head); font-size: 14.5px; font-weight: 700; color: var(--brand-deep);
+}
+.sec-head .ic {
+  width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;
+  background: #f0f3ff; color: var(--brand);
+  display: flex; align-items: center; justify-content: center;
+}
+.sec-head .cnt2 { margin-left: auto; font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--muted); }
 
-/* ── Device sheet (สเปก + Diagnostic Report รายเครื่อง) ── */
+/* ── Device sheet (Diagnostic Report รายเครื่อง — ตาม specs.html + จอ Detailed Diagnostic Report) ── */
 .sheet-backdrop {
   position: fixed; inset: 0; z-index: 50; background: rgba(4, 22, 39, 0.5);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
@@ -342,13 +495,36 @@ button { font-family: inherit; }
 .spec-grid .cell .k { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .spec-grid .cell .v { font-size: 14px; font-weight: 700; margin-top: 2px; }
 
+/* Diagnostic Check — แถวผลตรวจ: ชื่อซ้าย ไอคอนสถานะขวา (ตาม Diagnostic Check grid ของ Stitch) */
 .check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
 .check {
-  display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 700;
-  padding: 8px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-deep);
-  border: 1px solid var(--accent-line);
+  display: flex; align-items: center; justify-content: space-between; gap: 7px;
+  font-size: 12.5px; font-weight: 600; padding: 10px 12px; border-radius: var(--r);
+  background: #f6f8fd; border: 1px solid var(--line); color: var(--ink);
 }
-.check.bad { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
+.check .st { color: var(--accent); flex-shrink: 0; }
+.check.bad { background: var(--danger-soft); border-color: var(--danger-line); }
+.check.bad .st { color: var(--danger); }
+
+/* Battery & Power Health — วงแหวน % (ตาม battery-ring ของ specs.html) */
+.bat-wrap { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+.ring-wrap { position: relative; width: 116px; height: 116px; flex-shrink: 0; }
+.ring-wrap svg { transform: rotate(-90deg); display: block; }
+.ring-track { stroke: #e7eeff; }
+.ring-val { stroke: var(--accent); transition: stroke-dashoffset 0.8s ease-in-out; }
+.ring-val.low { stroke: var(--warn); }
+.ring-wrap .txt {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.ring-wrap .pct { font-family: var(--font-mono); font-size: 27px; font-weight: 700; color: var(--brand-deep); line-height: 1; }
+.ring-wrap .cap { font-size: 8.5px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.bat-tiles { flex: 1; display: grid; grid-template-columns: 1fr; gap: 8px; min-width: 0; }
+.bat-tile { background: #f6f8fd; border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; }
+.bat-tile .k { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.bat-tile .v { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--brand-deep); margin-top: 3px; }
+.bat-tile .v.ok { color: var(--accent-deep); }
+.bat-tile .v.warn { color: var(--warn); }
 
 .bat-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 6px; }
 .bat-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }

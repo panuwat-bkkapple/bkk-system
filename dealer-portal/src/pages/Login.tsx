@@ -50,7 +50,7 @@ export const Login = () => {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </div>
         {error && <div className="error">{error}</div>}
-        <button className="btn accent" style={{ marginTop: 18 }} disabled={busy}>
+        <button className="btn" style={{ marginTop: 18 }} disabled={busy}>
           {busy ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
         </button>
       </form>
