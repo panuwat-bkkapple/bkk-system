@@ -97,12 +97,65 @@ export const LotList = () => {
         </div>
       )}
 
-      {visible.map((lot) => (
-        <LotCard key={lot.id} lot={lot} now={now} onClick={() => navigate(`/lots/${lot.id}`)} />
-      ))}
+      {!loading && (() => {
+        // ล็อตที่ยังมีความเคลื่อนไหว = การ์ดใหญ่ (2 คอลัมน์บน desktop ตาม lots.html)
+        // ล็อตที่ประกาศผลแล้ว = แถวย่อแบบ Coming Soon rows — ลดความหนาแน่นของหน้า
+        const cardLots = visible.filter((l) => bucketOf(l) !== 'decided');
+        const decidedLots = visible.filter((l) => bucketOf(l) === 'decided');
+        return (
+          <>
+            {cardLots.length > 0 && (
+              <div className="bento" style={{ marginTop: 12 }}>
+                {cardLots.map((lot) => (
+                  <div key={lot.id} className="sp6">
+                    <LotCard lot={lot} now={now} onClick={() => navigate(`/lots/${lot.id}`)} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {decidedLots.length > 0 && (
+              <>
+                {tab === 'all' && cardLots.length > 0 && (
+                  <div className="hr-title">ประกาศผลแล้ว <span className="line" /></div>
+                )}
+                <div className="bento" style={{ marginTop: tab === 'all' ? 12 : 12 }}>
+                  {decidedLots.map((lot) => (
+                    <div key={lot.id} className="sp4">
+                      <DecidedRow lot={lot} onClick={() => navigate(`/lots/${lot.id}`)} />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };
+
+// แถวย่อของล็อตที่ประกาศผลแล้ว (สไตล์ Coming Soon rows ใน lots.html)
+const DecidedRow = ({ lot, onClick }: { lot: LotSummary; onClick: () => void }) => (
+  <div className="mini-row" onClick={onClick} style={{ marginTop: 0 }}>
+    <span className="mr-ic" style={lot.my_result === 'won' ? { color: 'var(--accent)', borderColor: 'var(--accent-line)', background: 'var(--accent-soft)' } : undefined}>
+      {lot.my_result === 'won' ? <Trophy size={19} /> : <PackageOpen size={19} />}
+    </span>
+    <div style={{ minWidth: 0, flex: 1 }}>
+      <div className="bold small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lot.title}</div>
+      <div className="tiny muted bold mono">{lot.lot_no} · {lot.item_count} เครื่อง</div>
+      <div className="mt8" style={{ display: 'flex', gap: 6 }}>
+        {lot.my_result === 'won' ? (
+          <span className="pill green">คุณชนะ{lot.my_order ? ` · ${fmtBaht(lot.my_order.amount)}` : ''}</span>
+        ) : lot.my_result === 'lost' ? (
+          <span className="pill">ไม่ได้รับเลือก</span>
+        ) : (
+          <span className="pill">{(LOT_STATUS_LABEL[lot.status] || { label: lot.status }).label}</span>
+        )}
+      </div>
+    </div>
+    <ChevronRight size={17} style={{ color: 'var(--faint)', flexShrink: 0 }} />
+  </div>
+);
 
 export const remainText = (ms: number): string => {
   const s = Math.max(0, Math.floor(ms / 1000));

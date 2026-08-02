@@ -1,9 +1,9 @@
-// โปรไฟล์ + ตั้งค่า:
+// โปรไฟล์ + ตั้งค่า — โครงตามภาษา Core Ledger (Stitch):
+//   hero navy = บัตรประจำตัวดีลเลอร์ (บริษัท + tier badge โทนโลหะ + ผู้ใช้ที่ login)
+//   ส่วนเนื้อหาเป็นการ์ดหมวดหัวแถบฟ้า (rsec) เรียง 2 คอลัมน์บน desktop:
 //   - ข้อมูลนิติบุคคล (อ่านอย่างเดียว — ผูกเอกสารภาษี)
-//   - ข้อมูลผู้ติดต่อร้าน (เจ้าของร้านแก้ได้)
-//   - ทีมงานของร้าน (OWNER: จัดการทุก role / MANAGER: จัดการ STAFF) — สร้างบัญชี
-//     สมาชิก, ระงับ, รีเซ็ตรหัส, ลบ — รหัสผ่านโชว์ครั้งเดียวหลังสร้าง/รีเซ็ต
-//   - เปลี่ยนรหัสผ่านของตัวเอง (ทุกคน)
+//   - ทีมงานของร้าน (OWNER: จัดการทุก role / MANAGER: จัดการ STAFF)
+//   - ข้อมูลผู้ติดต่อร้าน (เจ้าของร้านแก้ได้) / เปลี่ยนรหัสผ่านตัวเอง
 import { useCallback, useEffect, useState } from 'react';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import {
@@ -20,6 +20,9 @@ const genPassword = () => {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 };
+
+// สี tier แบบโลหะตาม design-system 2.4 (A=Gold, B=Silver, C=Bronze)
+const TIER_COLOR: Record<string, string> = { A: '#C6A34F', B: '#718096', C: '#A8705C' };
 
 export const Profile = () => {
   const { dealer, memberRole, memberName, logout } = useDealerSession();
@@ -135,147 +138,172 @@ export const Profile = () => {
     ['ชื่อบริษัท / ร้าน', dealer.company_name],
     ['เลขผู้เสียภาษี', dealer.tax_id],
     ['ที่อยู่ (ใช้ออกใบกำกับภาษี)', dealer.address],
-    ['ระดับดีลเลอร์', `Tier ${dealer.tier}`],
   ];
 
   return (
     <div>
       <h1 className="h1">โปรไฟล์ & ตั้งค่า</h1>
-      <div className="sub">
-        คุณ login ในฐานะ <b>{memberName || '-'}</b> · {MEMBER_ROLE_LABEL[memberRole]}
-      </div>
 
-      {/* ข้อมูลนิติบุคคล */}
-      <div className="card">
-        <div className="sec-title" style={{ margin: '0 0 4px', display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-start' }}>
-          <Building2 size={14} /> ข้อมูลบริษัท (ใช้ในเอกสารภาษี)
-        </div>
-        {companyRows.map(([k, v]) => (
-          <div key={k} className="row" style={{ padding: '9px 0', borderBottom: '1px solid #eef1f5' }}>
-            <span className="tiny muted bold">{k}</span>
-            <span className="small bold" style={{ textAlign: 'right', maxWidth: '60%' }}>{v || '-'}</span>
-          </div>
-        ))}
-        <div className="notice mt12">
-          ข้อมูลชุดนี้ผูกกับใบเสนอราคาและใบกำกับภาษี — ต้องการแก้ไข กรุณาติดต่อเจ้าหน้าที่ GETMOBIE
-        </div>
-      </div>
-
-      {/* ทีมงานของร้าน */}
-      {canManageTeam && (
-        <div className="card">
-          <div className="row">
-            <div className="sec-title" style={{ margin: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Users size={14} /> ทีมงานของร้าน ({members.length}/{maxMembers})
+      {/* บัตรประจำตัวดีลเลอร์ — hero navy + tier badge โลหะ */}
+      <div className="hero-card">
+        <div className="row" style={{ alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="label-caps" style={{ color: 'rgba(255,255,255,0.55)' }}>Dealer Account</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontSize: 20, fontWeight: 800, marginTop: 5, lineHeight: 1.35 }}>
+              {dealer.company_name}
             </div>
-            <button className="btn small" onClick={() => setShowAdd(true)} disabled={members.length >= maxMembers}>
-              <Plus size={13} /> เพิ่มสมาชิก
-            </button>
           </div>
-          <div className="tiny muted bold mt8">
-            {isOwner
-              ? 'เจ้าของร้านเพิ่มได้ทุกตำแหน่ง · ผู้จัดการเพิ่ม/จัดการได้เฉพาะพนักงาน'
-              : 'คุณเป็นผู้จัดการ — เพิ่ม/จัดการได้เฉพาะพนักงาน (STAFF)'}
+          <span className="tier-badge" style={{ background: TIER_COLOR[dealer.tier] || 'var(--brand)' }}>
+            Tier {dealer.tier}
+          </span>
+        </div>
+        <div className="row mt12" style={{ justifyContent: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
+          <span className="glass-chip">{memberName || '-'}</span>
+          <span className="glass-chip">{MEMBER_ROLE_LABEL[memberRole]}</span>
+        </div>
+      </div>
+
+      <div className="grid2">
+        {/* ข้อมูลนิติบุคคล */}
+        <div className="rsec">
+          <div className="rsec-head"><Building2 size={16} /> ข้อมูลบริษัท (ใช้ในเอกสารภาษี)</div>
+          {companyRows.map(([k, v]) => (
+            <div key={k} className="rrow" style={{ alignItems: 'flex-start' }}>
+              <span className="nm" style={{ flexShrink: 0, color: 'var(--muted)' }}>{k}</span>
+              <span className="small bold" style={{ textAlign: 'right' }}>{v || '-'}</span>
+            </div>
+          ))}
+          <div className="body">
+            <div className="notice">
+              ข้อมูลชุดนี้ผูกกับใบเสนอราคาและใบกำกับภาษี — ต้องการแก้ไข กรุณาติดต่อเจ้าหน้าที่ GETMOBIE
+            </div>
           </div>
+        </div>
 
-          {members.length === 0 && (
-            <div className="notice mt12">ยังไม่มีสมาชิก — เพิ่มทีมงานเพื่อให้ช่วยดูล็อต เสนอราคา และแนบสลิปได้ โดยแยกบัญชีของใครของมัน</div>
-          )}
-
-          {members.map((m) => (
-            <div key={m.uid} className="row" style={{ padding: '11px 0', borderBottom: '1px solid #eef1f5' }}>
-              <div>
-                <div className="bold small" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {m.name || '-'}
-                  <span className={`pill ${m.member_role === 'OWNER' ? 'green' : m.member_role === 'MANAGER' ? 'blue' : ''}`} style={{ padding: '2px 8px', fontSize: 10 }}>
-                    {MEMBER_ROLE_LABEL[m.member_role]}
-                  </span>
-                  {m.status === 'SUSPENDED' && <span className="pill red" style={{ padding: '2px 8px', fontSize: 10 }}>ระงับ</span>}
-                </div>
-                <div className="tiny muted bold">{m.email}</div>
+        {/* ทีมงานของร้าน */}
+        {canManageTeam && (
+          <div className="rsec">
+            <div className="rsec-head">
+              <Users size={16} /> ทีมงานของร้าน
+              <span className="cnt2">{members.length}/{maxMembers}</span>
+            </div>
+            <div className="body" style={{ paddingBottom: 0 }}>
+              <div className="row">
+                <span className="tiny muted bold">
+                  {isOwner
+                    ? 'เจ้าของร้านเพิ่มได้ทุกตำแหน่ง · ผู้จัดการจัดการได้เฉพาะพนักงาน'
+                    : 'คุณเป็นผู้จัดการ — เพิ่ม/จัดการได้เฉพาะพนักงาน (STAFF)'}
+                </span>
+                <button className="btn small" onClick={() => setShowAdd(true)} disabled={members.length >= maxMembers}>
+                  <Plus size={13} /> เพิ่ม
+                </button>
               </div>
-              {canTouch(m) && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn ghost small" style={{ padding: 8 }} title="รีเซ็ตรหัสผ่าน" disabled={teamBusy}
-                    onClick={() => {
-                      const password = genPassword();
-                      if (!confirm(`ออกรหัสผ่านใหม่ให้ ${m.name}?`)) return;
-                      void runTeam(async () => {
-                        await resetMemberPassword(m.uid, password);
-                        setIssued({ name: m.name || '', email: m.email || '', password });
-                      });
-                    }}>
-                    <RotateCcw size={14} />
-                  </button>
-                  <button className="btn ghost small" style={{ padding: 8 }} title={m.status === 'ACTIVE' ? 'ระงับ' : 'เปิดใช้'} disabled={teamBusy}
-                    onClick={() => {
-                      const suspend = m.status === 'ACTIVE';
-                      if (!confirm(suspend ? `ระงับบัญชี ${m.name}? (จะถูกเตะออกจากระบบทันที)` : `เปิดใช้บัญชี ${m.name}?`)) return;
-                      void runTeam(async () => { await setMemberStatus(m.uid, suspend ? 'SUSPENDED' : 'ACTIVE'); });
-                    }}>
-                    {m.status === 'ACTIVE' ? <ShieldOff size={14} /> : <Shield size={14} />}
-                  </button>
-                  <button className="btn ghost small" style={{ padding: 8, color: 'var(--danger)' }} title="ลบ" disabled={teamBusy}
-                    onClick={() => {
-                      if (!confirm(`ลบบัญชี ${m.name} ถาวร?`)) return;
-                      void runTeam(async () => { await deleteMember(m.uid); });
-                    }}>
-                    <Trash2 size={14} />
-                  </button>
+              {members.length === 0 && (
+                <div className="notice mt12">
+                  ยังไม่มีสมาชิก — เพิ่มทีมงานเพื่อให้ช่วยดูล็อต เสนอราคา และแนบสลิปได้ โดยแยกบัญชีของใครของมัน
                 </div>
               )}
             </div>
-          ))}
-          {teamMsg && <div className={teamMsg.kind === 'ok' ? 'success' : 'error'}>{teamMsg.text}</div>}
-        </div>
-      )}
+            <div style={{ marginTop: 10 }}>
+              {members.map((m) => (
+                <div key={m.uid} className="rrow">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <span className="avatar">{(m.name || '?').charAt(0).toUpperCase()}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="bold small" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {m.name || '-'}
+                        <span className={`pill ${m.member_role === 'OWNER' ? 'green' : m.member_role === 'MANAGER' ? 'blue' : ''}`} style={{ padding: '2px 8px', fontSize: 10 }}>
+                          {MEMBER_ROLE_LABEL[m.member_role]}
+                        </span>
+                        {m.status === 'SUSPENDED' && <span className="pill red" style={{ padding: '2px 8px', fontSize: 10 }}>ระงับ</span>}
+                      </div>
+                      <div className="tiny muted bold" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.email}</div>
+                    </div>
+                  </div>
+                  {canTouch(m) && (
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button className="btn ghost small" style={{ padding: 8 }} title="รีเซ็ตรหัสผ่าน" disabled={teamBusy}
+                        onClick={() => {
+                          const password = genPassword();
+                          if (!confirm(`ออกรหัสผ่านใหม่ให้ ${m.name}?`)) return;
+                          void runTeam(async () => {
+                            await resetMemberPassword(m.uid, password);
+                            setIssued({ name: m.name || '', email: m.email || '', password });
+                          });
+                        }}>
+                        <RotateCcw size={14} />
+                      </button>
+                      <button className="btn ghost small" style={{ padding: 8 }} title={m.status === 'ACTIVE' ? 'ระงับ' : 'เปิดใช้'} disabled={teamBusy}
+                        onClick={() => {
+                          const suspend = m.status === 'ACTIVE';
+                          if (!confirm(suspend ? `ระงับบัญชี ${m.name}? (จะถูกเตะออกจากระบบทันที)` : `เปิดใช้บัญชี ${m.name}?`)) return;
+                          void runTeam(async () => { await setMemberStatus(m.uid, suspend ? 'SUSPENDED' : 'ACTIVE'); });
+                        }}>
+                        {m.status === 'ACTIVE' ? <ShieldOff size={14} /> : <Shield size={14} />}
+                      </button>
+                      <button className="btn ghost small" style={{ padding: 8, color: 'var(--danger)' }} title="ลบ" disabled={teamBusy}
+                        onClick={() => {
+                          if (!confirm(`ลบบัญชี ${m.name} ถาวร?`)) return;
+                          void runTeam(async () => { await deleteMember(m.uid); });
+                        }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {teamMsg && <div className="body" style={{ paddingTop: 0 }}><div className={teamMsg.kind === 'ok' ? 'success' : 'error'} style={{ marginTop: 8 }}>{teamMsg.text}</div></div>}
+          </div>
+        )}
 
-      {/* ผู้ติดต่อร้าน — เจ้าของร้านเท่านั้น */}
-      {isOwner && (
-        <div className="card">
-          <div className="sec-title" style={{ margin: '0 0 4px', display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-start' }}>
-            <UserRound size={14} /> ข้อมูลผู้ติดต่อร้าน
+        {/* ผู้ติดต่อร้าน — เจ้าของร้านเท่านั้น */}
+        {isOwner && (
+          <div className="rsec">
+            <div className="rsec-head"><UserRound size={16} /> ข้อมูลผู้ติดต่อร้าน</div>
+            <div className="body">
+              <div className="field" style={{ marginTop: 4 }}>
+                <label>ชื่อผู้ติดต่อ</label>
+                <input value={contact.contact_name} onChange={(e) => setContact({ ...contact, contact_name: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>เบอร์โทร</label>
+                <input value={contact.phone} inputMode="tel" onChange={(e) => setContact({ ...contact, phone: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>LINE ID</label>
+                <input value={contact.line_id} onChange={(e) => setContact({ ...contact, line_id: e.target.value })} />
+              </div>
+              <button className="btn" style={{ marginTop: 14 }} disabled={contactBusy} onClick={() => void saveContact()}>
+                <Save size={15} /> {contactBusy ? 'กำลังบันทึก...' : 'บันทึกข้อมูลผู้ติดต่อ'}
+              </button>
+              {contactMsg && <div className={contactMsg.kind === 'ok' ? 'success' : 'error'}>{contactMsg.text}</div>}
+            </div>
           </div>
-          <div className="field">
-            <label>ชื่อผู้ติดต่อ</label>
-            <input value={contact.contact_name} onChange={(e) => setContact({ ...contact, contact_name: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>เบอร์โทร</label>
-            <input value={contact.phone} inputMode="tel" onChange={(e) => setContact({ ...contact, phone: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>LINE ID</label>
-            <input value={contact.line_id} onChange={(e) => setContact({ ...contact, line_id: e.target.value })} />
-          </div>
-          <button className="btn" style={{ marginTop: 14 }} disabled={contactBusy} onClick={() => void saveContact()}>
-            <Save size={15} /> {contactBusy ? 'กำลังบันทึก...' : 'บันทึกข้อมูลผู้ติดต่อ'}
-          </button>
-          {contactMsg && <div className={contactMsg.kind === 'ok' ? 'success' : 'error'}>{contactMsg.text}</div>}
-        </div>
-      )}
+        )}
 
-      {/* เปลี่ยนรหัสผ่านตัวเอง */}
-      <div className="card">
-        <div className="sec-title" style={{ margin: '0 0 4px', display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-start' }}>
-          <KeyRound size={14} /> เปลี่ยนรหัสผ่านของฉัน
+        {/* เปลี่ยนรหัสผ่านตัวเอง */}
+        <div className="rsec">
+          <div className="rsec-head"><KeyRound size={16} /> เปลี่ยนรหัสผ่านของฉัน</div>
+          <div className="body">
+            <div className="field" style={{ marginTop: 4 }}>
+              <label>รหัสผ่านปัจจุบัน</label>
+              <input type="password" value={pw.current} autoComplete="current-password" onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
+              <input type="password" value={pw.next} autoComplete="new-password" onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>ยืนยันรหัสผ่านใหม่</label>
+              <input type="password" value={pw.confirm} autoComplete="new-password" onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+            </div>
+            <button className="btn" style={{ marginTop: 14 }} disabled={pwBusy || !pw.current || !pw.next} onClick={() => void changePassword()}>
+              {pwBusy ? 'กำลังเปลี่ยน...' : 'เปลี่ยนรหัสผ่าน'}
+            </button>
+            {pwMsg && <div className={pwMsg.kind === 'ok' ? 'success' : 'error'}>{pwMsg.text}</div>}
+          </div>
         </div>
-        <div className="field">
-          <label>รหัสผ่านปัจจุบัน</label>
-          <input type="password" value={pw.current} autoComplete="current-password" onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-        </div>
-        <div className="field">
-          <label>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</label>
-          <input type="password" value={pw.next} autoComplete="new-password" onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-        </div>
-        <div className="field">
-          <label>ยืนยันรหัสผ่านใหม่</label>
-          <input type="password" value={pw.confirm} autoComplete="new-password" onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
-        </div>
-        <button className="btn" style={{ marginTop: 14 }} disabled={pwBusy || !pw.current || !pw.next} onClick={() => void changePassword()}>
-          {pwBusy ? 'กำลังเปลี่ยน...' : 'เปลี่ยนรหัสผ่าน'}
-        </button>
-        {pwMsg && <div className={pwMsg.kind === 'ok' ? 'success' : 'error'}>{pwMsg.text}</div>}
       </div>
 
       <button className="btn ghost" style={{ marginTop: 16 }} onClick={() => void logout()}>ออกจากระบบ</button>

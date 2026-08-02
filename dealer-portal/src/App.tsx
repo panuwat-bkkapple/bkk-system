@@ -28,7 +28,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           Dashboard (bento), Orders (list + timeline), Diagnostic Report (grid หมวดผลตรวจ) */}
       <main
         className={
-          loc.pathname === '/' || loc.pathname === '/orders' || /^\/lots\/[^/]+\/device\//.test(loc.pathname)
+          ['/', '/orders', '/lots', '/profile'].includes(loc.pathname) || /^\/lots\/[^/]+\/device\//.test(loc.pathname)
             ? 'shell wide'
             : 'shell'
         }
