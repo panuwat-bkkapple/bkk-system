@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
-import { MEMBER_ROLE_LABEL, TIER_COLOR } from './types';
+import { MEMBER_ROLE_LABEL, TIER_COLOR, TIER_LABEL } from './types';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { LotList } from './pages/LotList';
@@ -44,7 +44,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
           {dealer?.tier && (
             <span className="tier-badge" style={{ background: TIER_COLOR[dealer.tier] || 'var(--brand)', marginTop: 6 }}>
-              Tier {dealer.tier}
+              {TIER_LABEL[dealer.tier] || `Tier ${dealer.tier}`}
             </span>
           )}
         </div>

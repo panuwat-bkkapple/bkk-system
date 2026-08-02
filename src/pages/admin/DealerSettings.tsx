@@ -8,12 +8,18 @@ import { useToast } from '../../components/ui/ToastProvider';
 import { Handshake, Save } from 'lucide-react';
 import { DEALER_TIERS, TIER_META, type DealerTier } from '../../types/dealer';
 
-interface TierConfig { label: string; early_access_min: number }
+interface TierConfig {
+  label: string;
+  early_access_min: number;
+  // เกณฑ์แนะนำอัปเกรด tier (ผ่านอย่างใดอย่างหนึ่ง = ระบบเสนอให้แอดมินยืนยันที่ /dealers)
+  min_order_amount: number; // ยอดออเดอร์เดียว (บาท) — 0 = ไม่ใช้เกณฑ์นี้
+  min_monthly_amount: number; // ยอดสะสมในเดือน (บาท, เดือนไทย) — 0 = ไม่ใช้เกณฑ์นี้
+}
 
 const DEFAULT_TIERS: Record<DealerTier, TierConfig> = {
-  A: { label: 'Platinum', early_access_min: 60 },
-  B: { label: 'Gold', early_access_min: 0 },
-  C: { label: 'Silver', early_access_min: 0 },
+  A: { label: 'Gold', early_access_min: 60, min_order_amount: 500000, min_monthly_amount: 5000000 },
+  B: { label: 'Silver', early_access_min: 0, min_order_amount: 300000, min_monthly_amount: 3000000 },
+  C: { label: 'Bronze', early_access_min: 0, min_order_amount: 100000, min_monthly_amount: 1000000 },
 };
 
 const DealerSettings = () => {
@@ -79,30 +85,57 @@ const DealerSettings = () => {
       <div className="space-y-6">
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <h2 className="font-black text-xs uppercase tracking-widest text-slate-500 mb-4">Tier ดีลเลอร์</h2>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {DEALER_TIERS.map((t) => (
-              <div key={t} className="grid grid-cols-[80px_1fr_180px] gap-3 items-center">
-                <span className={`text-xs font-black uppercase px-2 py-1.5 rounded-lg border text-center ${TIER_META[t].cls}`}>Tier {t}</span>
-                <input
-                  value={tiers[t].label}
-                  onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], label: e.target.value } })}
-                  placeholder="ชื่อเรียก"
-                  className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-blue-500"
-                />
-                <div className="flex items-center gap-2">
+              <div key={t} className="border border-slate-100 rounded-xl p-3">
+                <div className="grid grid-cols-[80px_1fr_180px] gap-3 items-center">
+                  <span className={`text-xs font-black uppercase px-2 py-1.5 rounded-lg border text-center ${TIER_META[t].cls}`}>{TIER_META[t].label}</span>
                   <input
-                    type="number"
-                    value={tiers[t].early_access_min}
-                    onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], early_access_min: Number(e.target.value) || 0 } })}
-                    className="w-20 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-blue-500"
+                    value={tiers[t].label}
+                    onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], label: e.target.value } })}
+                    placeholder="ชื่อเรียก"
+                    className="p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-blue-500"
                   />
-                  <span className="text-[10px] font-bold text-slate-400">นาที เห็นก่อน (early access)</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={tiers[t].early_access_min}
+                      onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], early_access_min: Number(e.target.value) || 0 } })}
+                      className="w-20 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none focus:border-blue-500"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400">นาที เห็นก่อน (early access)</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ยอด/ออเดอร์ขั้นต่ำ (บาท)</label>
+                    <input
+                      type="number"
+                      value={tiers[t].min_order_amount}
+                      onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], min_order_amount: Number(e.target.value) || 0 } })}
+                      className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-mono font-bold text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ยอดสะสม/เดือนขั้นต่ำ (บาท)</label>
+                    <input
+                      type="number"
+                      value={tiers[t].min_monthly_amount}
+                      onChange={(e) => setTiers({ ...tiers, [t]: { ...tiers[t], min_monthly_amount: Number(e.target.value) || 0 } })}
+                      className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-mono font-bold text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
                 </div>
               </div>
             ))}
           </div>
           <p className="text-[10px] font-bold text-slate-400 mt-3">
             Early access: tier ที่ตั้งค่าไว้จะเห็น lot และเสนอราคาได้ก่อน tier อื่นตามจำนวนนาทีที่กำหนด
+          </p>
+          <p className="text-[10px] font-bold text-slate-400 mt-1">
+            เกณฑ์อัปเกรด: ดีลเลอร์ที่ชำระออเดอร์ถึง "ยอด/ออเดอร์ขั้นต่ำ" หรือยอดสะสมในเดือนถึง
+            "ยอดสะสม/เดือนขั้นต่ำ" ของ tier ที่สูงกว่า → ระบบจะแนะนำอัปเกรดที่หน้า Dealers
+            (แอดมินกดยืนยันเอง ระบบไม่เปลี่ยนให้อัตโนมัติ · ใส่ 0 = ปิดเกณฑ์นั้น)
           </p>
         </section>
 

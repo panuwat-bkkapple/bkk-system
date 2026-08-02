@@ -65,6 +65,10 @@ export interface LotItem {
 // สี tier แบบโลหะตาม design-system (A=Gold, B=Silver, C=Bronze) — ใช้ทั้ง Profile และ sidebar
 export const TIER_COLOR: Record<string, string> = { A: '#C6A34F', B: '#718096', C: '#A8705C' };
 
+// MIRROR: ชื่อ tier ที่โชว์ผู้ใช้ — sync กับ TIER_LABEL ใน functions/dealer-portal.js
+// และ TIER_META ใน bkk-system/src/types/dealer.ts (internal key ยังเป็น A/B/C)
+export const TIER_LABEL: Record<string, string> = { A: 'Gold', B: 'Silver', C: 'Bronze' };
+
 // คำอธิบายเกรดสภาพ (display-only ฝั่งดีลเลอร์ — เกรดจริงมาจากขั้น QC)
 export const GRADE_DESC: Record<string, string> = {
   New: 'เครื่องใหม่ ยังไม่ผ่านการใช้งาน',

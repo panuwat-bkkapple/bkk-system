@@ -282,7 +282,7 @@ const CreateLotModal = ({
                 {(Object.keys(tiers) as DealerTier[]).map((t) => (
                   <button key={t} onClick={() => setTiers({ ...tiers, [t]: !tiers[t] })}
                     className={`flex-1 py-2 rounded-xl border text-xs font-black uppercase ${tiers[t] ? TIER_META[t].cls : 'bg-slate-50 text-slate-300 border-slate-200'}`}>
-                    Tier {t}
+                    {TIER_META[t].label}
                   </button>
                 ))}
               </div>

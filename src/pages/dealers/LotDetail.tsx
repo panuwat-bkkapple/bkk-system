@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   LOT_STATUS_META, TIER_META, DEALER_TIERS, fmtBaht, fmtDateTime,
-  type Lot, type UnsealedBid,
+  type Lot, type UnsealedBid, type DealerTier,
 } from '../../types/dealer';
 
 const call = async (name: string, data: Record<string, unknown>) => {
@@ -191,7 +191,7 @@ export const LotDetail = () => {
           {lot.description && <p className="text-xs text-slate-400 font-bold mt-0.5">{lot.description}</p>}
           <div className="flex gap-1 mt-2">
             {DEALER_TIERS.filter((t) => lot.visible_tiers?.[t]).map((t) => (
-              <span key={t} className={`text-[9px] font-black px-2 py-0.5 rounded border ${TIER_META[t].cls}`}>Tier {t}</span>
+              <span key={t} className={`text-[9px] font-black px-2 py-0.5 rounded border ${TIER_META[t].cls}`}>{TIER_META[t].label}</span>
             ))}
             <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-slate-50 text-slate-500 border-slate-200">
               {lot.show_bid_stats ? 'ดีลเลอร์เห็นจำนวนผู้เสนอ' : 'จำนวนผู้เสนอเห็นเฉพาะแอดมิน'}
@@ -337,7 +337,7 @@ export const LotDetail = () => {
                     <label key={b.dealer_uid} className={`flex items-center gap-3 p-3 cursor-pointer ${wholeLotWinner === b.dealer_uid && awardMode === 'whole_lot' ? 'bg-purple-50' : ''}`}>
                       <input type="radio" name="wholeLotWinner" disabled={awardMode !== 'whole_lot'} checked={wholeLotWinner === b.dealer_uid} onChange={() => setWholeLotWinner(b.dealer_uid)} />
                       <div className="flex-1">
-                        <div className="font-bold text-sm">{b.company_name} <span className="text-[10px] text-slate-400">({b.bid_no} · Tier {b.tier})</span></div>
+                        <div className="font-bold text-sm">{b.company_name} <span className="text-[10px] text-slate-400">({b.bid_no} · {TIER_META[b.tier as DealerTier]?.label || b.tier})</span></div>
                         {b.note && <div className="text-[10px] text-slate-400 font-bold">"{b.note}"</div>}
                         {b.revision_count > 0 && <div className="text-[9px] text-amber-500 font-bold">แก้ไข {b.revision_count} ครั้ง</div>}
                       </div>

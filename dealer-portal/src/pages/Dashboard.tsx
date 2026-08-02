@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { listLots, listOrders } from '../api';
 import { useDealerSession } from '../hooks/useDealerSession';
-import { fmtBaht, fmtDateTime, type DealerOrderSummary, type LotSummary } from '../types';
+import { fmtBaht, fmtDateTime, TIER_LABEL, type DealerOrderSummary, type LotSummary } from '../types';
 import { LotCard, remainText } from './LotList';
 
 export const Dashboard = () => {
@@ -78,7 +78,7 @@ export const Dashboard = () => {
         <div>
           <h1 className="h1">สวัสดี, {dealer?.company_name}</h1>
           <div className="sub">
-            ดีลเลอร์ระดับ Tier {dealer?.tier}
+            ดีลเลอร์ระดับ {(dealer?.tier && TIER_LABEL[dealer.tier]) || `Tier ${dealer?.tier || '-'}`}
             {history.length > 0 && <> · ซื้อสำเร็จ {history.length} ดีล รวม {fmtBaht(totalPurchased)}</>}
           </div>
         </div>
