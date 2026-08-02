@@ -24,8 +24,17 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </button>
         </div>
       </header>
-      {/* หน้า Diagnostic Report เป็นหน้าเต็ม — desktop ขยาย container ให้ grid หลายคอลัมน์ */}
-      <main className={/^\/lots\/[^/]+\/device\//.test(loc.pathname) ? 'shell wide' : 'shell'}>{children}</main>
+      {/* หน้าที่มีเลย์เอาต์ desktop หลายคอลัมน์ตาม Stitch — ขยาย container:
+          Dashboard (bento), Orders (list + timeline), Diagnostic Report (grid หมวดผลตรวจ) */}
+      <main
+        className={
+          loc.pathname === '/' || loc.pathname === '/orders' || /^\/lots\/[^/]+\/device\//.test(loc.pathname)
+            ? 'shell wide'
+            : 'shell'
+        }
+      >
+        {children}
+      </main>
       <nav className="tabbar">
         <NavLink to="/" className={loc.pathname === '/' ? 'active' : ''}>
           <LayoutDashboard size={20} /> หน้าหลัก

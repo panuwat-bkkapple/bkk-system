@@ -9,23 +9,8 @@ import { db, storage, auth } from '../firebase';
 import { submitPaymentSlip } from '../api';
 import { ORDER_STATUS_LABEL, fmtBaht, fmtDateTime, type DealerOrderSummary, type OrderStatus } from '../types';
 
-// ลำดับ milestone สำหรับ stepper แนวตั้ง
-const FLOW: OrderStatus[] = ['pending_payment', 'payment_review', 'paid', 'shipped', 'completed'];
-const FLOW_LABEL: Record<string, string> = {
-  pending_payment: 'ชนะประมูล — รอชำระเงิน',
-  payment_review: 'ตรวจสอบการชำระ',
-  paid: 'ชำระแล้ว — เตรียมสินค้า',
-  shipped: 'จัดส่งแล้ว',
-  completed: 'รับสินค้าสำเร็จ',
-};
-// คำอธิบายของขั้นที่กำลังทำ — แสดงในกล่อง glass บน timeline (ตาม orders.html)
-const FLOW_DESC: Record<string, string> = {
-  pending_payment: 'โอนเงินตามยอดในใบเสนอราคา แล้วแนบสลิปด้านล่างเพื่อยืนยัน',
-  payment_review: 'เจ้าหน้าที่กำลังตรวจสอบยอดโอนของคุณ โดยปกติไม่เกิน 1 วันทำการ',
-  paid: 'รับยอดเรียบร้อย — กำลังเตรียมสินค้าและเอกสารสำหรับจัดส่ง',
-  shipped: 'สินค้าอยู่ระหว่างขนส่ง ติดตามสถานะได้จากเลขพัสดุด้านล่าง',
-  completed: 'รับสินค้าเรียบร้อยแล้ว ขอบคุณที่ซื้อกับ GETMOBIE',
-};
+// ลำดับ milestone + ป้าย/คำอธิบาย — ตัวจริงอยู่ที่ src/orderFlow.ts (ใช้ร่วมกับหน้า Orders)
+import { ORDER_FLOW as FLOW, ORDER_FLOW_LABEL as FLOW_LABEL, ORDER_FLOW_DESC as FLOW_DESC } from '../orderFlow';
 
 export const OrderDetail = () => {
   const { id } = useParams();

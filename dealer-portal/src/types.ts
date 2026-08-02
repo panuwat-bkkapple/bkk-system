@@ -62,6 +62,19 @@ export interface LotItem {
   qc_notes?: string | null;
 }
 
+// คำอธิบายเกรดสภาพ (display-only ฝั่งดีลเลอร์ — เกรดจริงมาจากขั้น QC)
+export const GRADE_DESC: Record<string, string> = {
+  New: 'เครื่องใหม่ ยังไม่ผ่านการใช้งาน',
+  A: 'เหมือนใหม่ — ไร้ตำหนิ หรือมีรอยจางมากที่มองแทบไม่เห็น',
+  B: 'สภาพดี — มีรอยใช้งานเล็กน้อย มองเห็นเมื่อพลิกดูใกล้',
+  C: 'มีรอยใช้งานชัดเจน — ตำหนิภายนอกมองเห็นได้ แต่การทำงานปกติ',
+  D: 'มีตำหนิมาก — สภาพภายนอกทรุด หรือกระทบการใช้งานบางส่วน ดูหมายเหตุประกอบ',
+};
+export const gradeDescOf = (grade?: string | null): string | null => {
+  if (!grade) return null;
+  return GRADE_DESC[grade] || GRADE_DESC[grade.charAt(0).toUpperCase()] || null;
+};
+
 export const QC_CHECK_LABEL: Record<string, string> = {
   screen_touch: 'ทัชสกรีน',
   screen_display: 'จอแสดงผล',

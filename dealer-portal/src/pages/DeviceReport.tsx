@@ -7,10 +7,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref } from 'firebase/database';
 import {
   ArrowLeft, Smartphone, ScanFace, MonitorSmartphone, Volume2, BatteryCharging,
-  ShieldCheck, Layers, Info, CheckCircle2, XCircle,
+  ShieldCheck, Layers, CheckCircle2, XCircle, Sparkles,
 } from 'lucide-react';
 import { db } from '../firebase';
-import { QC_CHECK_LABEL, CLEAN_STATUS_LABEL, fmtBaht, fmtDateTime, type LotItem } from '../types';
+import { QC_CHECK_LABEL, CLEAN_STATUS_LABEL, gradeDescOf, fmtBaht, fmtDateTime, type LotItem } from '../types';
 
 // จัดกลุ่มผลตรวจ 10 รายการเป็นหมวดแบบ Stitch (Face ID Array / Display Subsystem / ...)
 const CHECK_GROUPS: { title: string; icon: React.ReactNode; keys: string[] }[] = [
@@ -119,6 +119,38 @@ export const DeviceReport = () => {
 
       {/* การ์ดหมวดผลตรวจ — desktop เป็น grid, mobile เรียงลงมา */}
       <div className="report-grid">
+        {/* สภาพเครื่องและตำหนิ — คำอธิบายเกรด + รายการที่ไม่ผ่านการตรวจ + หมายเหตุผู้ตรวจ (เต็มแถว) */}
+        {(item.grade || item.qc_notes || checks.some(([, v]) => v === false)) && (
+          <div className="rsec rspan">
+            <div className="rsec-head"><Sparkles size={16} /> สภาพเครื่องและตำหนิที่พบ</div>
+            {item.grade && (
+              <div className="rrow">
+                <span className="nm" style={{ flexShrink: 0 }}>เกรดสภาพ</span>
+                <span className="small bold" style={{ textAlign: 'right' }}>
+                  เกรด {item.grade}{gradeDescOf(item.grade) ? ` — ${gradeDescOf(item.grade)}` : ''}
+                </span>
+              </div>
+            )}
+            {checks.filter(([, v]) => v === false).map(([k]) => (
+              <div key={k} className="rrow">
+                <span className="nm" style={{ color: 'var(--danger)' }}>ตำหนิ: {QC_CHECK_LABEL[k] || k} — ไม่ผ่านการตรวจ</span>
+                <XCircle size={15} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+              </div>
+            ))}
+            {item.qc_notes && (
+              <div className="rrow" style={{ alignItems: 'flex-start' }}>
+                <span className="nm" style={{ flexShrink: 0 }}>หมายเหตุผู้ตรวจ</span>
+                <span className="small bold" style={{ textAlign: 'right', whiteSpace: 'pre-wrap' }}>{item.qc_notes}</span>
+              </div>
+            )}
+            {checks.length > 0 && !checks.some(([, v]) => v === false) && !item.qc_notes && (
+              <div className="rrow">
+                <span className="nm">ตำหนิจากการตรวจ {checks.length} รายการ</span>
+                <span className="rbadge ok">ไม่พบ <CheckCircle2 size={15} /></span>
+              </div>
+            )}
+          </div>
+        )}
         {checks.length > 0 && CHECK_GROUPS.map((g) => {
           const keys = g.keys.filter((k) => checkMap[k] != null);
           if (keys.length === 0) return null;
@@ -168,11 +200,6 @@ export const DeviceReport = () => {
         )}
       </div>
 
-      {item.qc_notes && (
-        <div className="notice mt12" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <Info size={15} style={{ flexShrink: 0, marginTop: 2 }} /> <span><b>หมายเหตุจากผู้ตรวจ:</b> {item.qc_notes}</span>
-        </div>
-      )}
     </div>
   );
 };
