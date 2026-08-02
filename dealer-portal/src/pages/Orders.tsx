@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  RefreshCw, FileText, ChevronRight, Upload, Truck, ClipboardList, CalendarClock, Check,
+  RefreshCw, FileText, ChevronRight, Upload, Truck, ClipboardList, CalendarClock, Check, FolderOpen,
 } from 'lucide-react';
 import { listOrders } from '../api';
 import { ORDER_STATUS_LABEL, fmtBaht, fmtDateTime, type DealerOrderSummary, type OrderStatus } from '../types';
@@ -86,9 +86,14 @@ export const Orders = () => {
           <h1 className="h1">คำสั่งซื้อ</h1>
           <div className="sub">การชำระเงินและการจัดส่งของดีลที่คุณชนะ</div>
         </div>
-        <button className="btn ghost small" onClick={() => void load()}>
-          <RefreshCw size={13} /> รีเฟรช
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn ghost small" onClick={() => navigate('/documents')}>
+            <FolderOpen size={13} /> คลังเอกสาร
+          </button>
+          <button className="btn ghost small" onClick={() => void load()}>
+            <RefreshCw size={13} /> รีเฟรช
+          </button>
+        </div>
       </div>
 
       <div className="filter-tabs">

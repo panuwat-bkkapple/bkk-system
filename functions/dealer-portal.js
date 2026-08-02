@@ -1528,6 +1528,59 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     return { orders: out };
   });
 
+  // คลังเอกสารของดีลเลอร์ (จอ Documents Hub) — รวมใบเสนอราคา (dealer_orders)
+  // + ใบกำกับภาษีขาย ซึ่งอยู่ /sales ที่ดีลเลอร์อ่านตรงไม่ได้ตาม rules —
+  // server อ่านรายใบเฉพาะ sale_id ของออเดอร์ตัวเองเท่านั้น (ไม่กวาด /sales)
+  fns.dealerListDocuments = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const snap = await db
+      .ref("dealer_orders")
+      .orderByChild("dealer_uid")
+      .equalTo(dealerUid)
+      .once("value");
+    const docs = [];
+    const sales = [];
+    if (snap.exists()) {
+      snap.forEach((child) => {
+        const o = child.val() || {};
+        if (o.status === "cancelled") return;
+        if (o.quotation && o.quotation.number) {
+          docs.push({
+            type: "quotation",
+            number: o.quotation.number,
+            url: o.quotation.url || null,
+            order_no: o.order_no || null,
+            amount: Number(o.amount) || 0,
+            issued_at: o.created_at || null,
+          });
+        }
+        if (o.sale_id) {
+          sales.push({ saleId: o.sale_id, order_no: o.order_no || null, amount: Number(o.amount) || 0 });
+        }
+      });
+    }
+    for (const s of sales) {
+      try {
+        const ti = (await db.ref(`sales/${s.saleId}/tax_invoice`).once("value")).val();
+        if (ti && ti.number) {
+          docs.push({
+            type: "tax_invoice",
+            number: ti.number,
+            url: ti.url || null,
+            order_no: s.order_no,
+            amount: Number(ti.total) || s.amount,
+            issued_at: ti.issued_at || null,
+          });
+        }
+      } catch (e) {
+        console.error(`[dealer] doc read failed sale ${s.saleId}:`, e?.message || e);
+      }
+    }
+    docs.sort((a, b) => (b.issued_at || 0) - (a.issued_at || 0));
+    return { documents: docs };
+  });
+
   // เสนอ/แก้ซอง — แก้ได้จนกว่าจะปิดรับ ทุก revision ต่อท้าย history (ลบไม่ได้)
   fns.dealerPlaceBid = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
