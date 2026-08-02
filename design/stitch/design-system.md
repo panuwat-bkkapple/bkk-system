@@ -21,32 +21,53 @@ Design system ที่ไฟล์ HTML ทุกไฟล์ในโฟลเ
 
 ### ความครอบคลุม — ทวนกับไฟล์จริงแล้ว
 
-เทียบ color token 18 ตัวของแต่ละไฟล์กับ design system ทั้งสองตัว:
+เทียบ color token 20 ตัวของแต่ละไฟล์กับ design system ทั้งสองตัว:
 
-| ไฟล์ | ตรงกับ Modern | ตรงกับ DealerPortal |
-|---|---|---|
-| `dashboard.html` | 18 / 18 ✅ | 0 |
-| `lots.html` | 18 / 18 ✅ | 0 |
-| `lot-detail.html` | 18 / 18 ✅ | 0 |
-| `orders.html` | 18 / 18 ✅ | 0 |
-| **`specs.html`** | **8 / 18 ⚠️** | **10** |
+| ไฟล์ | ตรงกับ Modern | ตรงกับ DealerPortal | `display-lg` |
+|---|---|---|---|
+| `dashboard.html` | 20 / 20 ✅ | 0 | 48px ✅ |
+| `lots.html` | 20 / 20 ✅ | 0 | 48px ✅ |
+| `lot-detail.html` | 20 / 20 ✅ | 0 | 48px ✅ |
+| `orders.html` | 20 / 20 ✅ | 0 | 48px ✅ |
+| `specs.html` | 20 / 20 ✅ | 0 | 48px ✅ |
 
-> ⚠️ **`specs.html` เป็นลูกผสม (hybrid) — ย้าย design system ไม่สมบูรณ์**
+> **`specs.html` เคยเป็นลูกผสม — แก้แล้ว**
 >
-> สีแบรนด์ย้ายมาเป็น Modern แล้ว (`primary` `#000000`, `secondary` `#006c49`,
-> `surface` `#f8f9ff`, `on-surface` `#0b1c30`) และฟอนต์เป็น Plus Jakarta Sans
-> แต่ **ชุดสีกลางยังค้างอยู่ที่ DealerPortal** ได้แก่
-> `surface-container` `#e7eeff` · `surface-container-low` `#f0f3ff` ·
-> `surface-container-high` `#dee8ff` · `surface-dim` `#cfdaf1` ·
-> `surface-variant` `#d8e3fa` · `outline` `#74777d` · `outline-variant` `#c4c6cd` ·
-> `inverse-surface` `#263142` · `inverse-primary` `#b7c8de` ·
-> `on-primary-container` `#8192a7`
+> เวอร์ชันแรกที่ export มามีสีกลางค้างอยู่ที่ DealerPortal 10 ตัว และ `display-lg`
+> เป็น 40px จึงสั่ง `apply_design_system` ด้วย `assets/d22a51a3…` ใหม่
 >
-> นอกจากนี้ `display-lg` ในไฟล์นี้เป็น **40px** ไม่ใช่ 48px ตามสเปก
+> Stitch **ไม่ได้แก้ทับ screen เดิม แต่สร้าง screen ใหม่** — ตอนนี้โปรเจกต์มีหน้า
+> ชื่อ `iPhone 15 Pro: Technical Specs & Hardware Grading (Modern)` สองหน้า
 >
-> ผลคือพื้นหลังการ์ด เส้นขอบ และโทนเทาของหน้านี้จะเพี้ยนจากอีก 4 หน้าเล็กน้อย
-> ถ้าต้องการให้เข้าชุดจริง ๆ ต้อง re-apply design system `assets/d22a51a3…`
-> กับ screen `653c6be88ed641738dcc6fd02f0971bc` ใน Stitch แล้ว export ใหม่
+> | | screen ID |
+> |---|---|
+> | เดิม (ลูกผสม) | `653c6be88ed641738dcc6fd02f0971bc` |
+> | **ใหม่ — ไฟล์นี้มาจากหน้านี้** | `ff4e0d291a774be98cc6eb48a265cca3` |
+>
+> ควรลบหน้าเก่าทิ้งใน Stitch UI เพื่อไม่ให้ซ้ำซ้อน
+
+### ข้อควรรู้ — `borderRadius` ในไฟล์ export ไม่ตรงกับสเปก
+
+ทั้ง **5 ไฟล์** ประกาศ `borderRadius` ชุดเดียวกันคือ
+
+```
+DEFAULT: 0.25rem · lg: 0.5rem · xl: 0.75rem · full: 9999px
+```
+
+ซึ่ง **ไม่ตรงกับสเปกในหัวข้อ [Shapes](#5-shapes)** ที่กำหนดไว้ `DEFAULT: 0.5rem ·
+lg: 1rem · xl: 1.5rem` (ROUND_EIGHT) ค่าที่ออกมาบังเอิญตรงกับค่า default ของ
+Tailwind พอดี
+
+เป็นลักษณะของ export ทั้งชุด ไม่ใช่ปัญหาเฉพาะไฟล์ใดไฟล์หนึ่ง — ทุกหน้าจึงมุมคม
+เท่ากันหมด ยังดูเข้าชุดกัน แต่ถ้าจะเอาไปทำเป็น production ต้อง override
+`borderRadius` ให้ตรงสเปกเอง
+
+### `specs.html` มีบล็อกที่เพิ่มด้วยมือ
+
+section **Schematics & Dimensions** ท้ายคอลัมน์ขวาของ `specs.html` ไม่ได้มาจาก
+Stitch — กู้มาจากหน้า `Technical Product Specs`
+(`0cf497ca65aa41d29fe70416b5607e5a`) ซึ่งเป็นที่เดียวที่ยังมีข้อมูลขนาดตัวเครื่อง
+ส่วนที่เหลือของไฟล์ตรงกับ Stitch ทุกตัวอักษร
 
 ---
 
