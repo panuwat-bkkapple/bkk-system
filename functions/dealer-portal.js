@@ -354,7 +354,21 @@ function lotItemSnapshot(job, askingPrice) {
       : null,
     clean_status: Object.keys(clean).length > 0 ? clean : null,
     qc_notes: String(qc.notes || "").trim() || null,
+    // รูปสภาพเครื่อง (แอดมินอัปโหลด — jobs/{id}/lot_photos เขียนผ่าน
+    // adminDealerLotItemPhotos เท่านั้น) ให้ดีลเลอร์ดูก่อนเสนอราคา
+    photos: Array.isArray(job.lot_photos) && job.lot_photos.length > 0
+      ? job.lot_photos.slice(0, 8)
+      : null,
   };
+}
+
+// รับเฉพาะ URL รูปจาก Firebase Storage ของ project เรา (กันยัด URL ภายนอก)
+function sanitizePhotoUrls(raw, max) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((u) => String(u || "").trim())
+    .filter((u) => u.startsWith("https://firebasestorage.googleapis.com/"))
+    .slice(0, max);
 }
 
 async function readLotJobs(db, itemIds) {
@@ -1787,6 +1801,29 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     return { ok: true, summary };
   });
 
+  // รูปเครื่องใน lot — แอดมินอัปโหลดไฟล์เข้า Storage (lot_photos/{jobId}/) จาก
+  // client แล้วส่ง URL มาบันทึกที่นี่: เขียน jobs/{jobId}/lot_photos (ติดตัวเครื่อง
+  // ใช้ซ้ำถ้าเข้า lot ใหม่) + sync snapshot lots/{lotId}/items ถ้า publish แล้ว
+  fns.adminDealerLotItemPhotos = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    await requireStaffRole(db, request.auth, ["CEO", "MANAGER", "STAFF"]);
+    const data = request.data || {};
+    const jobId = String(data.jobId || "");
+    const photos = sanitizePhotoUrls(data.photos, 8);
+    const job = (await db.ref(`jobs/${jobId}`).once("value")).val();
+    if (!job) throw new HttpsError("not-found", "ไม่พบเครื่องนี้");
+    const updates = {};
+    updates[`jobs/${jobId}/lot_photos`] = photos.length > 0 ? photos : null;
+    if (job.lot_id) {
+      const itemSnap = await db.ref(`lots/${job.lot_id}/items/${jobId}`).once("value");
+      if (itemSnap.exists()) {
+        updates[`lots/${job.lot_id}/items/${jobId}/photos`] = photos.length > 0 ? photos : null;
+      }
+    }
+    await db.ref().update(updates);
+    return { ok: true, count: photos.length };
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // เคลมสินค้า / คืนเงิน / เครดิต / ใบลดหนี้
   // - ดีลเลอร์ขอเคลมรายเครื่องภายใน warranty_days ของเครื่อง (นับจากวันจัดส่ง)
@@ -1866,10 +1903,14 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       if (active) throw new HttpsError("already-exists", "เครื่องนี้มีคำขอเคลมค้างอยู่แล้ว");
     }
 
+    // รูปประกอบ (ดีลเลอร์อัปโหลดเข้า dealer_claims/{orderId}/{uid}/ แล้วส่ง URL มา)
+    const photos = sanitizePhotoUrls(data.photos, 5);
+
     const claimNo = await allocateDealerNumber(db, "claim", "CLM-", nowMs());
     const claimRef = db.ref("dealer_claims").push();
     await claimRef.set({
       claim_no: claimNo,
+      photos: photos.length > 0 ? photos : null,
       dealer_uid: dealerUid,
       company_name: dealer.company_name || null,
       order_id: orderId,
@@ -1928,6 +1969,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
           ref_no: v.ref_no,
           amount: v.amount || 0,
           reason: v.reason,
+          photos: Array.isArray(v.photos) ? v.photos : null,
           status: v.status,
           resolution: v.resolution || null,
           approved_amount: v.approved_amount || null,

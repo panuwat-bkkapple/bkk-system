@@ -37,7 +37,7 @@ export const listNotifications = () =>
 export const markNotificationsRead = (payload: { ids?: string[]; all?: boolean }) =>
   call<{ ok: boolean }>('dealerNotificationsMarkRead', payload);
 
-export const submitClaim = (payload: { orderId: string; jobId: string; reason: string }) =>
+export const submitClaim = (payload: { orderId: string; jobId: string; reason: string; photos?: string[] }) =>
   call<{ ok: boolean; claim_no: string }>('dealerSubmitClaim', payload);
 
 export const listClaims = () =>

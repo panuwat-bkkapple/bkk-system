@@ -25,6 +25,28 @@ export const OrderDetail = () => {
   const [claimReason, setClaimReason] = useState('');
   const [claimBusy, setClaimBusy] = useState(false);
   const [claimMsg, setClaimMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  // รูปประกอบเคลม (สูงสุด 5) — อัปโหลดเข้า dealer_claims/{orderId}/{uid}/ ก่อนส่งคำขอ
+  const [claimPhotos, setClaimPhotos] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const claimPhotoRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadClaimPhotos = async (files: FileList) => {
+    if (!id || !auth.currentUser || photoUploading) return;
+    setPhotoUploading(true);
+    try {
+      const urls: string[] = [];
+      for (const file of Array.from(files).slice(0, 5 - claimPhotos.length)) {
+        const path = `dealer_claims/${id}/${auth.currentUser.uid}/${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '')}`;
+        const snap = await uploadBytes(sRef(storage, path), file);
+        urls.push(await getDownloadURL(snap.ref));
+      }
+      setClaimPhotos((prev) => [...prev, ...urls].slice(0, 5));
+    } catch (err: unknown) {
+      setClaimMsg({ kind: 'err', text: (err as Error)?.message || 'อัปโหลดรูปไม่สำเร็จ' });
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   const handleSubmitClaim = async () => {
     if (!id || !claimFor || claimBusy) return;
@@ -35,9 +57,15 @@ export const OrderDetail = () => {
     setClaimBusy(true);
     setClaimMsg(null);
     try {
-      const res = await submitClaim({ orderId: id, jobId: claimFor.jobId, reason: claimReason.trim() });
+      const res = await submitClaim({
+        orderId: id,
+        jobId: claimFor.jobId,
+        reason: claimReason.trim(),
+        photos: claimPhotos.length > 0 ? claimPhotos : undefined,
+      });
       setClaimMsg({ kind: 'ok', text: `ส่งคำขอเคลมแล้ว (${res.claim_no}) — ติดตามสถานะได้ที่หน้า เคลม & เครดิต` });
       setClaimReason('');
+      setClaimPhotos([]);
     } catch (err: unknown) {
       setClaimMsg({ kind: 'err', text: (err as Error)?.message || 'ส่งคำขอไม่สำเร็จ' });
     } finally {
@@ -204,7 +232,7 @@ export const OrderDetail = () => {
                     <button
                       className="btn ghost small"
                       style={{ marginTop: 6, padding: '5px 10px', fontSize: 11.5 }}
-                      onClick={() => { setClaimFor({ jobId, model: it.model || '-' }); setClaimReason(''); setClaimMsg(null); }}
+                      onClick={() => { setClaimFor({ jobId, model: it.model || '-' }); setClaimReason(''); setClaimMsg(null); setClaimPhotos([]); }}
                     >
                       <ShieldQuestion size={12} /> ขอเคลม
                     </button>
@@ -237,6 +265,44 @@ export const OrderDetail = () => {
                 onChange={(e) => setClaimReason(e.target.value)}
                 placeholder="เช่น จอมีเส้น แบตบวม เปิดไม่ติด ระบุอาการที่พบให้ละเอียด"
               />
+            </div>
+            <div className="field">
+              <label>รูปประกอบ (สูงสุด 5 รูป)</label>
+              <input
+                ref={claimPhotoRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) void handleUploadClaimPhotos(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                {claimPhotos.map((url, i) => (
+                  <span key={url} style={{ position: 'relative' }}>
+                    <img src={url} alt={`รูปที่ ${i + 1}`} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }} />
+                    <button
+                      type="button"
+                      onClick={() => setClaimPhotos((prev) => prev.filter((u) => u !== url))}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', background: 'var(--danger)', color: '#fff', border: 'none', fontSize: 11, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {claimPhotos.length < 5 && claimMsg?.kind !== 'ok' && (
+                  <button
+                    type="button"
+                    onClick={() => claimPhotoRef.current?.click()}
+                    disabled={photoUploading}
+                    style={{ width: 56, height: 56, borderRadius: 'var(--r-sm)', border: '1px dashed #c4c6cd', background: 'none', color: 'var(--muted)', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    {photoUploading ? '...' : '+ รูป'}
+                  </button>
+                )}
+              </div>
             </div>
             {claimMsg && <div className={claimMsg.kind === 'ok' ? 'success' : 'error'}>{claimMsg.text}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>

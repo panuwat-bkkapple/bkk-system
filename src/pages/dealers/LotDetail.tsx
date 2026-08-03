@@ -1,13 +1,14 @@
 // /lots/:id — รายละเอียด lot: เครื่องในล็อต, ตัวนับซอง (5/30), timeline audit,
 // ปุ่มตาม lifecycle (publish/close/cancel = CEO/MANAGER) และโซนเปิดซอง + อนุมัติ
 // ราคาในซองไม่มีทางเห็นจนกด "เปิดซอง" (callable — CEO/MANAGER + lot ปิดรับแล้ว)
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { useAuth } from '../../hooks/useAuth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from '../../api/firebase';
+import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { app, storage } from '../../api/firebase';
 import {
   ArrowLeft, Boxes, Lock, Unlock, Send, Ban, Clock3, CheckCircle2, History,
 } from 'lucide-react';
@@ -45,6 +46,44 @@ export const LotDetail = () => {
   const { data: auditRaw } = useDatabase('lot_audit');
 
   const [busy, setBusy] = useState(false);
+  // อัปโหลดรูปเครื่อง — input ตัวเดียวใช้ร่วมทุกแถว (จำ jobId ที่กดไว้ใน ref)
+  const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const photoJobRef = useRef<{ jobId: string; existing: string[] } | null>(null);
+
+  const handleUploadPhotos = async (files: FileList) => {
+    const target = photoJobRef.current;
+    if (!target || photoBusy) return;
+    setPhotoBusy(target.jobId);
+    try {
+      const urls: string[] = [];
+      for (const file of Array.from(files).slice(0, 8 - target.existing.length)) {
+        const path = `lot_photos/${target.jobId}/${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '')}`;
+        const snap = await uploadBytes(sRef(storage, path), file);
+        urls.push(await getDownloadURL(snap.ref));
+      }
+      await call('adminDealerLotItemPhotos', { jobId: target.jobId, photos: [...target.existing, ...urls] });
+      toast.success(`เพิ่มรูปแล้ว ${urls.length} รูป — ดีลเลอร์เห็นทันที`);
+    } catch (err: any) {
+      toast.error(err?.message || 'อัปโหลดรูปไม่สำเร็จ');
+    } finally {
+      setPhotoBusy(null);
+      photoJobRef.current = null;
+    }
+  };
+
+  const handleRemovePhoto = async (jobId: string, existing: string[], url: string) => {
+    if (photoBusy) return;
+    setPhotoBusy(jobId);
+    try {
+      await call('adminDealerLotItemPhotos', { jobId, photos: existing.filter((u) => u !== url) });
+      toast.success('ลบรูปแล้ว');
+    } catch (err: any) {
+      toast.error(err?.message || 'ลบรูปไม่สำเร็จ');
+    } finally {
+      setPhotoBusy(null);
+    }
+  };
   const [unsealed, setUnsealed] = useState<{ bids: UnsealedBid[]; private: any } | null>(null);
   // per-item award selection: jobId -> dealer_uid
   const [itemWinners, setItemWinners] = useState<Record<string, string>>({});
@@ -248,6 +287,18 @@ export const LotDetail = () => {
         </div>
       )}
 
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) void handleUploadPhotos(e.target.files);
+          e.target.value = '';
+        }}
+      />
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* ตารางเครื่อง */}
         <div className="xl:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -268,6 +319,36 @@ export const LotDetail = () => {
                     <td className="p-3">
                       <div className="font-bold text-sm">{it.model}</div>
                       <div className="text-[10px] font-mono text-slate-400">{it.ref_no} · SN {it.serial_masked || '-'}</div>
+                      {/* รูปสภาพเครื่อง — sync เข้า snapshot ให้ดีลเลอร์เห็นทันที */}
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        {(it.photos || []).map((url: string, i: number) => (
+                          <span key={url} className="relative group">
+                            <a href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt={`รูปที่ ${i + 1}`} className="w-9 h-9 object-cover rounded-lg border border-slate-200" />
+                            </a>
+                            {canManage && (
+                              <button
+                                onClick={() => void handleRemovePhoto(jobId, it.photos || [], url)}
+                                disabled={photoBusy === jobId}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black leading-none hidden group-hover:flex items-center justify-center"
+                                title="ลบรูป"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                        {canManage && (it.photos || []).length < 8 && (
+                          <button
+                            onClick={() => { photoJobRef.current = { jobId, existing: it.photos || [] }; photoInputRef.current?.click(); }}
+                            disabled={photoBusy === jobId}
+                            className="w-9 h-9 rounded-lg border border-dashed border-slate-300 text-slate-400 text-[10px] font-black hover:border-blue-400 hover:text-blue-500 disabled:opacity-50"
+                            title="เพิ่มรูปเครื่อง"
+                          >
+                            {photoBusy === jobId ? '...' : '+รูป'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3 text-center font-black">{it.grade || '-'}</td>
                     <td className="p-3 text-right font-bold text-slate-600">{fmtBaht(it.asking_price)}</td>

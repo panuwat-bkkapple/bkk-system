@@ -60,6 +60,8 @@ export interface LotItem {
   parts?: { screen?: string | null; battery?: string | null; camera?: string | null } | null;
   clean_status?: Record<string, boolean> | null;
   qc_notes?: string | null;
+  /** รูปสภาพเครื่องจริง (แอดมินอัปโหลด) */
+  photos?: string[] | null;
 }
 
 // สี tier แบบโลหะตาม design-system (A=Gold, B=Silver, C=Bronze) — ใช้ทั้ง Profile และ sidebar
@@ -193,6 +195,7 @@ export interface DealerClaim {
   ref_no: string | null;
   amount: number;
   reason: string;
+  photos?: string[] | null;
   status: ClaimStatus;
   resolution: 'refund' | 'credit' | null;
   approved_amount: number | null;

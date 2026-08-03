@@ -100,6 +100,15 @@ export const Claims = () => {
               </div>
             </div>
             <div className="small muted mt8" style={{ lineHeight: 1.6 }}>อาการ: {c.reason}</div>
+            {Array.isArray(c.photos) && c.photos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {c.photos.map((url, i) => (
+                  <a key={url} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt={`รูปเคลมที่ ${i + 1}`} loading="lazy" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }} />
+                  </a>
+                ))}
+              </div>
+            )}
             {c.status === 'resolved' && c.resolution && (
               <div className="tiny bold mt8" style={{ color: 'var(--accent-deep)' }}>
                 {c.resolution === 'credit' ? 'ชดเชยเป็นเครดิต — เข้ายอดเครดิตของร้านแล้ว' : `โอนเงินคืนแล้ว ${fmtDateTime(c.resolved_at)}`}

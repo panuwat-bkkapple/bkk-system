@@ -117,6 +117,27 @@ export const DeviceReport = () => {
         <div className="notice mt12">เครื่องนี้ยังไม่มีรายงานผลตรวจละเอียดในระบบ — สอบถามเพิ่มเติมได้ที่เจ้าหน้าที่</div>
       )}
 
+      {/* รูปสภาพเครื่องจริง — กดเปิดเต็มในแท็บใหม่ */}
+      {Array.isArray(item.photos) && item.photos.length > 0 && (
+        <div className="card">
+          <div className="tiny muted black" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+            รูปสภาพเครื่อง ({item.photos.length})
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginTop: 10 }}>
+            {item.photos.map((url, i) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                <img
+                  src={url}
+                  alt={`รูปเครื่องที่ ${i + 1}`}
+                  loading="lazy"
+                  style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }}
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* การ์ดหมวดผลตรวจ — desktop เป็น grid, mobile เรียงลงมา */}
       <div className="report-grid">
         {/* สภาพเครื่องและตำหนิ — คำอธิบายเกรด + รายการที่ไม่ผ่านการตรวจ + หมายเหตุผู้ตรวจ (เต็มแถว) */}
