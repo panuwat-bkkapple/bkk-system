@@ -36,7 +36,7 @@ const { getAuth } = require("firebase-admin/auth");
 const { getDatabase } = require("firebase-admin/database");
 const { getStorage } = require("firebase-admin/storage");
 const { sendEmail, esc, formatTHB } = require("./email");
-const { buildQuotationPdf } = require("./voucher-pdf");
+const { buildQuotationPdf, buildCreditNotePdf } = require("./voucher-pdf");
 
 // ─── แบรนด์ฝั่งขายส่ง ────────────────────────────────────────────────────────
 // BKK APPLE = แบรนด์ฝั่ง "รับซื้อ" (B2C) เท่านั้น — การเสนอขายส่งให้ดีลเลอร์ทำใน
@@ -1746,6 +1746,20 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     }
 
     // 3) ลบ node โดเมน dealer ทั้งชุด + reset counter เลขเอกสาร + เคลียร์ stats
+    // เคลมทดสอบ: ลบใบลดหนี้ที่พ่วง (ทะเบียนเอกสาร + PDF) ด้วย
+    const claimsSnap = await db.ref("dealer_claims").once("value");
+    if (claimsSnap.exists()) {
+      for (const [claimId, cl] of Object.entries(claimsSnap.val())) {
+        if (cl && cl.credit_note && cl.credit_note.number) {
+          updates[`accounting_documents/CN_${cl.credit_note.number}`] = null;
+        }
+        try {
+          await getStorage().bucket().file(`dealer_credit_notes/${claimId}.pdf`).delete();
+        } catch {
+          /* ไม่มีไฟล์ = ข้าม */
+        }
+      }
+    }
     Object.assign(updates, {
       lots: null,
       lot_private: null,
@@ -1754,18 +1768,357 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       dealer_orders: null,
       dealer_notifications: null,
       dealer_applications: null,
+      dealer_claims: null,
+      dealer_credit_ledger: null,
       "settings/dealer/lot_seq_by_period": null,
       "settings/dealer/order_seq_by_period": null,
       "settings/dealer/quotation_seq_by_period": null,
       "settings/dealer/application_seq_by_period": null,
+      "settings/dealer/claim_seq_by_period": null,
+      "settings/dealer/credit_note_seq_by_period": null,
     });
     for (const uid of Object.keys(dealers)) {
       updates[`dealers/${uid}/stats`] = null;
       updates[`dealers/${uid}/tier_suggestion`] = null;
+      updates[`dealers/${uid}/credit_balance`] = null;
     }
     await db.ref().update(updates);
     console.log(`[dealer] TEST DATA PURGED by ${caller.name || "?"}:`, JSON.stringify(summary));
     return { ok: true, summary };
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // เคลมสินค้า / คืนเงิน / เครดิต / ใบลดหนี้
+  // - ดีลเลอร์ขอเคลมรายเครื่องภายใน warranty_days ของเครื่อง (นับจากวันจัดส่ง)
+  // - แอดมินอนุมัติเลือกได้ต่อเคส: refund (โอนคืน — ค้างเป็น AP จนบันทึกโอน) หรือ
+  //   credit (ตั้งเครดิตหักออเดอร์ถัดไป — จบทันที)
+  // - อนุมัติ = ออกใบลดหนี้เต็มรูปอ้างใบกำกับขายเดิม (ม.86/10) + ลง
+  //   accounting_documents type 'credit_note' → ภ.พ.30 หักภาษีขายอัตโนมัติ
+  // - เครดิต: dealers/{uid}/credit_balance (server เขียนคนเดียว) + ledger
+  //   dealer_credit_ledger/{uid} — ใช้หักตอน markPaid (use_credit)
+  // - เข้าถึงผ่าน callable ทั้งหมด (ไม่ต้อง deploy rules)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // MIRROR: สถานะเคลม — sync กับ src/types/dealer.ts + dealer-portal/src/types.ts
+  // submitted → approved (resolution=refund รอโอน) | resolved (credit จบทันที /
+  // refund โอนแล้ว) | rejected
+  const CLAIM_STATUSES = ["submitted", "approved", "resolved", "rejected"];
+  void CLAIM_STATUSES;
+
+  async function adjustDealerCredit(db, dealerUid, delta, entry) {
+    let after = 0;
+    await db.ref(`dealers/${dealerUid}/credit_balance`).transaction((cur) => {
+      after = Math.max(0, (Number(cur) || 0) + delta);
+      return after;
+    });
+    await db.ref(`dealer_credit_ledger/${dealerUid}`).push({
+      delta,
+      balance_after: after,
+      ...entry,
+      at: nowMs(),
+    });
+    return after;
+  }
+
+  fns.dealerSubmitClaim = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid, dealer, memberName } = await requireDealerCaller(db, request.auth);
+    const data = request.data || {};
+    const orderId = String(data.orderId || "");
+    const jobId = String(data.jobId || "");
+    const reason = String(data.reason || "").trim().slice(0, 1000);
+    if (!reason) throw new HttpsError("invalid-argument", "กรุณาระบุอาการ/เหตุผลการเคลม");
+
+    const order = (await db.ref(`dealer_orders/${orderId}`).once("value")).val();
+    if (!order || order.dealer_uid !== dealerUid) throw new HttpsError("not-found", "ไม่พบคำสั่งซื้อ");
+    if (!["shipped", "completed"].includes(order.status)) {
+      throw new HttpsError("failed-precondition", "เคลมได้เฉพาะคำสั่งซื้อที่จัดส่งแล้ว");
+    }
+    const item = (order.items || {})[jobId];
+    if (!item) throw new HttpsError("not-found", "ไม่พบเครื่องนี้ในคำสั่งซื้อ");
+
+    // หน้าต่างเคลม = warranty_days ของเครื่อง (snapshot ใน lot) นับจากวันจัดส่ง
+    const lotItem = order.lot_id
+      ? (await db.ref(`lots/${order.lot_id}/items/${jobId}`).once("value")).val()
+      : null;
+    const warrantyDays = Number(lotItem && lotItem.warranty_days) || 0;
+    if (warrantyDays <= 0) {
+      throw new HttpsError("failed-precondition", "เครื่องนี้ไม่มีประกันร้าน — เคลมผ่านระบบไม่ได้ กรุณาติดต่อเจ้าหน้าที่");
+    }
+    const shippedAt = Number(order.shipping && order.shipping.shipped_at) || 0;
+    if (!shippedAt) throw new HttpsError("failed-precondition", "ไม่พบวันที่จัดส่ง — ติดต่อเจ้าหน้าที่");
+    const deadline = shippedAt + warrantyDays * 86400000;
+    if (nowMs() > deadline) {
+      throw new HttpsError(
+        "failed-precondition",
+        `หมดระยะเคลมแล้ว (ประกัน ${warrantyDays} วัน ถึง ${new Date(deadline).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })})`
+      );
+    }
+
+    // กันเคลมซ้ำเครื่องเดิม (ยังมีเคสค้างอยู่)
+    const dupSnap = await db.ref("dealer_claims").orderByChild("job_id").equalTo(jobId).once("value");
+    if (dupSnap.exists()) {
+      let active = false;
+      dupSnap.forEach((c) => {
+        const v = c.val() || {};
+        if (v.order_id === orderId && ["submitted", "approved"].includes(v.status)) active = true;
+      });
+      if (active) throw new HttpsError("already-exists", "เครื่องนี้มีคำขอเคลมค้างอยู่แล้ว");
+    }
+
+    const claimNo = await allocateDealerNumber(db, "claim", "CLM-", nowMs());
+    const claimRef = db.ref("dealer_claims").push();
+    await claimRef.set({
+      claim_no: claimNo,
+      dealer_uid: dealerUid,
+      company_name: dealer.company_name || null,
+      order_id: orderId,
+      order_no: order.order_no || null,
+      sale_id: order.sale_id || null,
+      job_id: jobId,
+      model: item.model || null,
+      ref_no: item.ref_no || null,
+      amount: Number(item.amount) || 0,
+      warranty_days: warrantyDays,
+      reason,
+      status: "submitted",
+      created_at: nowMs(),
+      created_by: memberName || null,
+    });
+
+    try {
+      const targets = await staffIdsByRoles(db, ["CEO", "MANAGER"]);
+      await dispatchAdminPush(
+        {
+          data: {
+            type: "dealer_claim",
+            title: `ขอเคลม ${claimNo}`,
+            body: `${dealer.company_name || "ดีลเลอร์"} · ${item.model || ""} (${order.order_no || ""}) — รอตรวจสอบ`,
+            url: "/dealer-claims",
+          },
+        },
+        "dealerClaimSubmit",
+        "admin",
+        targets
+      );
+    } catch (e) {
+      console.error("[dealer] claim notify failed:", e?.message || e);
+    }
+    return { ok: true, claim_no: claimNo };
+  });
+
+  // เคลม + เครดิตของร้านตัวเอง (จอ "เคลม & เครดิต" ใน portal)
+  fns.dealerListClaims = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { dealerUid } = await requireDealerCaller(db, request.auth);
+    const [claimsSnap, balSnap, ledgerSnap] = await Promise.all([
+      db.ref("dealer_claims").orderByChild("dealer_uid").equalTo(dealerUid).once("value"),
+      db.ref(`dealers/${dealerUid}/credit_balance`).once("value"),
+      db.ref(`dealer_credit_ledger/${dealerUid}`).limitToLast(20).once("value"),
+    ]);
+    const claims = [];
+    if (claimsSnap.exists()) {
+      claimsSnap.forEach((c) => {
+        const v = c.val() || {};
+        claims.push({
+          id: c.key,
+          claim_no: v.claim_no,
+          order_no: v.order_no,
+          model: v.model,
+          ref_no: v.ref_no,
+          amount: v.amount || 0,
+          reason: v.reason,
+          status: v.status,
+          resolution: v.resolution || null,
+          approved_amount: v.approved_amount || null,
+          reject_reason: v.reject_reason || null,
+          credit_note: v.credit_note ? { number: v.credit_note.number, url: v.credit_note.url || null } : null,
+          created_at: v.created_at || null,
+          decided_at: v.decided_at || null,
+          resolved_at: v.resolved_at || null,
+        });
+      });
+    }
+    claims.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    const ledger = [];
+    if (ledgerSnap.exists()) {
+      ledgerSnap.forEach((c) => {
+        ledger.push({ id: c.key, ...(c.val() || {}) });
+      });
+    }
+    ledger.sort((a, b) => (b.at || 0) - (a.at || 0));
+    return { claims, credit_balance: Number(balSnap.val()) || 0, ledger };
+  });
+
+  fns.adminDealerListClaims = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    await requireStaffRole(db, request.auth, ["CEO", "MANAGER", "FINANCE"]);
+    const snap = await db.ref("dealer_claims").once("value");
+    const claims = [];
+    if (snap.exists()) {
+      snap.forEach((c) => {
+        claims.push({ id: c.key, ...(c.val() || {}) });
+      });
+    }
+    claims.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    // เครดิตคงค้างทุกร้าน (ฝั่ง AP)
+    const dealersSnap = await db.ref("dealers").once("value");
+    const credits = [];
+    if (dealersSnap.exists()) {
+      dealersSnap.forEach((c) => {
+        const v = c.val() || {};
+        const bal = Number(v.credit_balance) || 0;
+        if (bal > 0) credits.push({ uid: c.key, company_name: v.company_name || "-", balance: bal });
+      });
+    }
+    return { claims, credits };
+  });
+
+  // อนุมัติเคลม: ออกใบลดหนี้ + refund (ค้างโอน) หรือ credit (จบทันที)
+  fns.adminDealerClaimApprove = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { caller } = await requireStaffRole(db, request.auth, ["CEO", "MANAGER"]);
+    const data = request.data || {};
+    const claimId = String(data.claimId || "");
+    const resolution = data.resolution === "credit" ? "credit" : "refund";
+    const claim = (await db.ref(`dealer_claims/${claimId}`).once("value")).val();
+    if (!claim) throw new HttpsError("not-found", "ไม่พบคำขอเคลม");
+    if (claim.status !== "submitted") throw new HttpsError("failed-precondition", "คำขอนี้ถูกตัดสินไปแล้ว");
+
+    const maxAmount = Number(claim.amount) || 0;
+    const amount = data.amount !== undefined ? Math.round(Number(data.amount) || 0) : maxAmount;
+    if (amount <= 0 || amount > maxAmount) {
+      throw new HttpsError("invalid-argument", `ยอดชดเชยต้องอยู่ระหว่าง 1 ถึง ${maxAmount.toLocaleString()} บาท`);
+    }
+
+    // ใบลดหนี้อ้างใบกำกับขายเดิมของออเดอร์ (จาก sale ที่ markPaid สร้าง)
+    const sale = claim.sale_id ? (await db.ref(`sales/${claim.sale_id}`).once("value")).val() : null;
+    const origTi = sale && sale.tax_invoice ? sale.tax_invoice : null;
+    const acct = (await db.ref("settings/accounting").once("value")).val() || {};
+    const vatRate = (Number(acct.vat_rate_percent) || 7) / 100;
+    const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+    const base = round2(amount / (1 + vatRate));
+    const vat = round2(amount - base);
+
+    // ออกใบลดหนี้เมื่อมีใบกำกับเดิมให้อ้างเท่านั้น (ไม่มี = ข้าม พร้อม flag)
+    let creditNote = null;
+    if (origTi && origTi.number) {
+      const cnNumber = await allocateDealerNumber(db, "credit_note", "CN-", nowMs());
+      creditNote = { number: cnNumber, issued_at: nowMs(), base, vat, total: amount, orig_number: origTi.number };
+      try {
+        const dealer = (await db.ref(`dealers/${claim.dealer_uid}`).once("value")).val() || {};
+        const pdf = await buildCreditNotePdf(
+          {
+            cn: creditNote,
+            orig: { number: origTi.number, issued_at: origTi.issued_at, total: origTi.total },
+            buyer: { company_name: dealer.company_name, tax_id: dealer.tax_id, address: dealer.address },
+            claim: { claim_no: claim.claim_no, order_no: claim.order_no, model: claim.model, ref_no: claim.ref_no, reason: claim.reason },
+          },
+          acct.company || null
+        );
+        creditNote.storage_path = `dealer_credit_notes/${claimId}.pdf`;
+        creditNote.url = await archivePdf(creditNote.storage_path, pdf, claimId);
+      } catch (e) {
+        console.error(`[dealer] credit note PDF failed ${claimId}:`, e?.message || e);
+      }
+      // ลงทะเบียนเอกสาร → ภ.พ.30 หักภาษีขาย (VatReport อ่าน type credit_note เป็นยอดลบ)
+      const { ym } = bangkokYM(nowMs());
+      await db.ref(`accounting_documents/CN_${creditNote.number}`).set({
+        type: "credit_note",
+        category: "goods",
+        number: creditNote.number,
+        ref_invoice: origTi.number,
+        customer_name: claim.company_name || null,
+        description: `ใบลดหนี้เคลม ${claim.claim_no} (${claim.model || "-"})`,
+        period: ym,
+        base,
+        vat,
+        total: amount,
+        issued_at: nowMs(),
+        url: creditNote.url || null,
+      });
+    }
+
+    const patch = {
+      resolution,
+      approved_amount: amount,
+      decided_at: nowMs(),
+      decided_by: caller.name || null,
+      credit_note: creditNote,
+      admin_note: String(data.note || "").trim() || null,
+    };
+    if (resolution === "credit") {
+      await adjustDealerCredit(db, claim.dealer_uid, amount, {
+        source: "claim",
+        ref: claim.claim_no,
+        by: caller.name || null,
+      });
+      patch.status = "resolved";
+      patch.resolved_at = nowMs();
+    } else {
+      patch.status = "approved"; // ค้างโอน = AP จนกด markRefunded
+    }
+    await db.ref(`dealer_claims/${claimId}`).update(patch);
+
+    await pushDealerNotification(db, claim.dealer_uid, {
+      type: "claim_approved",
+      cat: "payment",
+      title: resolution === "credit" ? "เคลมอนุมัติ — ตั้งเครดิตให้แล้ว" : "เคลมอนุมัติ — รอโอนเงินคืน",
+      body: `${claim.claim_no} · ${claim.model || ""} ยอด ${amount.toLocaleString()} บาท${resolution === "credit" ? " ใช้หักยอดออเดอร์ถัดไปได้ทันที" : ""}`,
+      ref: "/claims",
+    });
+    return { ok: true, credit_note: creditNote ? creditNote.number : null };
+  });
+
+  fns.adminDealerClaimReject = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { caller } = await requireStaffRole(db, request.auth, ["CEO", "MANAGER"]);
+    const data = request.data || {};
+    const claimId = String(data.claimId || "");
+    const claim = (await db.ref(`dealer_claims/${claimId}`).once("value")).val();
+    if (!claim) throw new HttpsError("not-found", "ไม่พบคำขอเคลม");
+    if (claim.status !== "submitted") throw new HttpsError("failed-precondition", "คำขอนี้ถูกตัดสินไปแล้ว");
+    await db.ref(`dealer_claims/${claimId}`).update({
+      status: "rejected",
+      reject_reason: String(data.reason || "").trim() || null,
+      decided_at: nowMs(),
+      decided_by: caller.name || null,
+    });
+    await pushDealerNotification(db, claim.dealer_uid, {
+      type: "claim_rejected",
+      cat: "payment",
+      title: "คำขอเคลมไม่ผ่านการอนุมัติ",
+      body: `${claim.claim_no} · ${claim.model || ""}${data.reason ? ` — ${String(data.reason).trim()}` : ""}`,
+      ref: "/claims",
+    });
+    return { ok: true };
+  });
+
+  // บันทึกว่าโอนเงินคืนแล้ว (ปิด AP ของเคลม refund)
+  fns.adminDealerClaimMarkRefunded = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { caller } = await requireStaffRole(db, request.auth, ["CEO", "FINANCE"]);
+    const data = request.data || {};
+    const claimId = String(data.claimId || "");
+    const claim = (await db.ref(`dealer_claims/${claimId}`).once("value")).val();
+    if (!claim) throw new HttpsError("not-found", "ไม่พบคำขอเคลม");
+    if (claim.status !== "approved" || claim.resolution !== "refund") {
+      throw new HttpsError("failed-precondition", "เคลมนี้ไม่ได้อยู่สถานะรอโอนเงินคืน");
+    }
+    await db.ref(`dealer_claims/${claimId}`).update({
+      status: "resolved",
+      resolved_at: nowMs(),
+      refund_note: String(data.note || "").trim() || null,
+      refunded_by: caller.name || null,
+    });
+    await pushDealerNotification(db, claim.dealer_uid, {
+      type: "claim_refunded",
+      cat: "payment",
+      title: "โอนเงินคืนเคลมแล้ว",
+      body: `${claim.claim_no} · ยอด ${(Number(claim.approved_amount) || 0).toLocaleString()} บาท — ตรวจสอบบัญชีของคุณ`,
+      ref: "/claims",
+    });
+    return { ok: true };
   });
 
   // ช่องทางติดต่อสำหรับหน้า Help & Support — แอดมินตั้งที่ /dealer-settings
@@ -2255,6 +2608,22 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       };
     });
 
+    // หักเครดิตจากเคลม (ถ้าแอดมินเลือกใช้) — เครดิตเป็น "วิธีชำระ" ไม่ใช่ส่วนลด:
+    // ใบกำกับขายยังเต็มยอดออเดอร์ VAT ไม่เปลี่ยน (ใบลดหนี้ออกไปแล้วตอนอนุมัติเคลม)
+    const useCredit = (request.data || {}).use_credit === true;
+    let creditApplied = 0;
+    if (useCredit) {
+      const bal = Number((await db.ref(`dealers/${order.dealer_uid}/credit_balance`).once("value")).val()) || 0;
+      creditApplied = Math.min(bal, Number(order.amount) || 0);
+      if (creditApplied > 0) {
+        await adjustDealerCredit(db, order.dealer_uid, -creditApplied, {
+          source: "order_payment",
+          ref: order.order_no || orderId,
+          by: caller.name || null,
+        });
+      }
+    }
+
     const ds = order.dealer_snapshot || {};
     const saleRef = db.ref("sales").push();
     const sale = {
@@ -2269,7 +2638,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       grand_total: Number(order.amount) || 0, // VAT-inclusive ตามแนว POS
       total_cost: totalCost,
       net_profit: (Number(order.amount) || 0) - totalCost,
-      payment_method: "TRANSFER",
+      payment_method: creditApplied > 0 ? (creditApplied >= (Number(order.amount) || 0) ? "CREDIT" : "TRANSFER+CREDIT") : "TRANSFER",
       items: saleItems,
       sold_at: nowMs(),
       cashier: caller.name || null,
@@ -2282,6 +2651,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     const updates = {};
     updates[`dealer_orders/${orderId}/status`] = "paid";
     updates[`dealer_orders/${orderId}/sale_id`] = saleRef.key;
+    if (creditApplied > 0) updates[`dealer_orders/${orderId}/credit_applied`] = creditApplied;
     updates[`dealer_orders/${orderId}/payment/verified_by`] = caller.name || null;
     updates[`dealer_orders/${orderId}/payment/verified_at`] = nowMs();
     for (const jobId of jobIds) {

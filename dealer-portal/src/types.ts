@@ -181,6 +181,44 @@ export interface DealerNotification {
   read: boolean;
 }
 
+// MIRROR: สถานะเคลม — sync กับ functions/dealer-portal.js + bkk-system/src/types/dealer.ts
+// submitted → approved (refund รอโอน) | resolved | rejected
+export type ClaimStatus = 'submitted' | 'approved' | 'resolved' | 'rejected';
+
+export interface DealerClaim {
+  id: string;
+  claim_no: string;
+  order_no: string | null;
+  model: string | null;
+  ref_no: string | null;
+  amount: number;
+  reason: string;
+  status: ClaimStatus;
+  resolution: 'refund' | 'credit' | null;
+  approved_amount: number | null;
+  reject_reason: string | null;
+  credit_note: { number: string; url: string | null } | null;
+  created_at: number | null;
+  decided_at: number | null;
+  resolved_at: number | null;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  delta: number;
+  balance_after: number;
+  source: 'claim' | 'order_payment' | 'manual';
+  ref?: string | null;
+  at: number;
+}
+
+export const CLAIM_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  submitted: { label: 'รอตรวจสอบ', cls: 'amber' },
+  approved: { label: 'อนุมัติแล้ว — รอโอนเงินคืน', cls: 'blue' },
+  resolved: { label: 'เสร็จสิ้น', cls: 'green' },
+  rejected: { label: 'ไม่ผ่านการอนุมัติ', cls: 'red' },
+};
+
 // เอกสารในคลังเอกสาร (จาก dealerListDocuments — server รวมให้)
 export interface DealerDocument {
   type: 'quotation' | 'tax_invoice';

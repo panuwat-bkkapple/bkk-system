@@ -89,9 +89,13 @@ export default function FinancialReport() {
         if (docRes.status === 'fulfilled') {
           docRes.value.forEach((c) => {
             const d = c.val();
-            if (d?.type !== 'tax_invoice') return;
-            out.outputVat += Number(d.vat) || 0;
-            if (d.category !== 'goods') out.serviceBase += Number(d.base) || 0;
+            if (d?.type === 'tax_invoice') {
+              out.outputVat += Number(d.vat) || 0;
+              if (d.category !== 'goods') out.serviceBase += Number(d.base) || 0;
+            } else if (d?.type === 'credit_note') {
+              // ใบลดหนี้ (เคลม/คืนสินค้าดีลเลอร์) — หักภาษีขายของงวด
+              out.outputVat -= Number(d.vat) || 0;
+            }
           });
         } else failed.push('เอกสารภาษี');
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck, FolderOpen, Bell, LifeBuoy } from 'lucide-react';
+import { LayoutDashboard, Boxes, ClipboardList, UserRound, LogOut, BadgeCheck, FolderOpen, Bell, LifeBuoy, ShieldQuestion } from 'lucide-react';
 import { DealerSessionProvider, useDealerSession } from './hooks/useDealerSession';
 import { MEMBER_ROLE_LABEL, TIER_COLOR, TIER_LABEL } from './types';
 import { Login } from './pages/Login';
@@ -16,6 +16,7 @@ import { Onboarding, shouldShowOnboarding } from './pages/Onboarding';
 import { Documents } from './pages/Documents';
 import { Notifications } from './pages/Notifications';
 import { Help } from './pages/Help';
+import { Claims } from './pages/Claims';
 import { listNotifications } from './api';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
@@ -36,6 +37,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     lots: loc.pathname.startsWith('/lots'),
     orders: loc.pathname.startsWith('/orders'),
     documents: loc.pathname === '/documents',
+    claims: loc.pathname === '/claims',
     notifications: onNotifPage,
     help: loc.pathname === '/help',
     profile: loc.pathname === '/profile',
@@ -83,6 +85,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </NavLink>
           <NavLink to="/documents" className={`nav ${active.documents ? 'on' : ''}`}>
             <FolderOpen size={17} /> คลังเอกสาร
+          </NavLink>
+          <NavLink to="/claims" className={`nav ${active.claims ? 'on' : ''}`}>
+            <ShieldQuestion size={17} /> เคลม & เครดิต
           </NavLink>
           <NavLink to="/notifications" className={`nav ${active.notifications ? 'on' : ''}`}>
             <Bell size={17} /> การแจ้งเตือน
@@ -163,6 +168,7 @@ const Guarded = () => {
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="/claims" element={<Claims />} />
         <Route path="/help" element={<Help />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/grading" element={<GradingStandards />} />
