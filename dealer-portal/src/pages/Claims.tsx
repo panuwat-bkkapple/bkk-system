@@ -100,7 +100,6 @@ export const Claims = () => {
               </div>
             </div>
             <div className="small muted mt8" style={{ lineHeight: 1.6 }}>อาการ: {c.reason}</div>
-<<<<<<< HEAD
             {Array.isArray(c.photos) && c.photos.length > 0 && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                 {c.photos.map((url, i) => (
@@ -110,8 +109,6 @@ export const Claims = () => {
                 ))}
               </div>
             )}
-=======
->>>>>>> origin/main
             {c.status === 'resolved' && c.resolution && (
               <div className="tiny bold mt8" style={{ color: 'var(--accent-deep)' }}>
                 {c.resolution === 'credit' ? 'ชดเชยเป็นเครดิต — เข้ายอดเครดิตของร้านแล้ว' : `โอนเงินคืนแล้ว ${fmtDateTime(c.resolved_at)}`}

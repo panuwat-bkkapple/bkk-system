@@ -20,10 +20,7 @@ interface AdminClaim {
   amount: number;
   warranty_days?: number;
   reason: string;
-<<<<<<< HEAD
   photos?: string[] | null;
-=======
->>>>>>> origin/main
   status: 'submitted' | 'approved' | 'resolved' | 'rejected';
   resolution?: 'refund' | 'credit' | null;
   approved_amount?: number | null;
@@ -147,7 +144,6 @@ export const DealerClaims = () => {
               {c.company_name || '-'} · {c.model || '-'}{c.ref_no ? ` (${c.ref_no})` : ''} · ออเดอร์ {c.order_no || '-'}
             </div>
             <div className="text-[11px] text-slate-500 font-bold mt-1 whitespace-pre-wrap">อาการ: {c.reason}</div>
-<<<<<<< HEAD
             {Array.isArray(c.photos) && c.photos.length > 0 && (
               <div className="flex gap-1.5 mt-2 flex-wrap">
                 {c.photos.map((url, i) => (
@@ -157,8 +153,6 @@ export const DealerClaims = () => {
                 ))}
               </div>
             )}
-=======
->>>>>>> origin/main
             <div className="text-[10px] text-slate-400 font-bold mt-1">
               ยื่นเมื่อ {fmtDateTime(c.created_at)}
               {c.decided_by ? ` · ตัดสินโดย ${c.decided_by}` : ''}
