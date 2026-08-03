@@ -64,6 +64,8 @@ export interface LotItemSnapshot {
   warranty_days?: number | null;
   serial_masked?: string | null;
   asking_price?: number | null;
+  /** รูปสภาพเครื่อง (แอดมินอัปโหลด — sync จาก jobs/{id}/lot_photos ผ่าน adminDealerLotItemPhotos) */
+  photos?: string[] | null;
 }
 
 export interface Lot {
