@@ -3,10 +3,23 @@
 // (counter ของเลขเอกสาร — จองผ่าน transaction ฝั่ง functions เท่านั้น)
 import React, { useEffect, useState } from 'react';
 import { ref, onValue, update } from 'firebase/database';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../../api/firebase';
+import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
-import { Handshake, Save } from 'lucide-react';
+import { Handshake, Save, Trash2, AlertTriangle } from 'lucide-react';
 import { DEALER_TIERS, TIER_META, type DealerTier } from '../../types/dealer';
+
+// สรุปจาก adminDealerPurgeTestData (dry-run + ผลลบจริง)
+interface PurgeSummary {
+  lots: string[];
+  orders: string[];
+  applications: string[];
+  sales_to_delete: number;
+  jobs_to_restore: number;
+  notifications_cleared: number;
+  dealer_stats_reset: number;
+}
 
 interface TierConfig {
   label: string;
@@ -33,6 +46,44 @@ const DealerSettings = () => {
   const [support, setSupport] = useState({ line_id: '', phone: '', hours: '' });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // ล้างข้อมูลทดสอบ: dry-run ก่อน แล้วพิมพ์ PURGE ยืนยันลบจริง
+  const [purgePreview, setPurgePreview] = useState<PurgeSummary | null>(null);
+  const [purgeText, setPurgeText] = useState('');
+  const [purgeBusy, setPurgeBusy] = useState(false);
+
+  const callPurge = async (confirm?: string) => {
+    const fn = httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminDealerPurgeTestData');
+    return (await fn(confirm ? { confirm } : {})).data as { dry_run?: boolean; ok?: boolean; summary: PurgeSummary };
+  };
+
+  const handlePurgePreview = async () => {
+    if (purgeBusy) return;
+    setPurgeBusy(true);
+    try {
+      const res = await callPurge();
+      setPurgePreview(res.summary);
+      setPurgeText('');
+    } catch (err: any) {
+      toast.error(err?.message || 'ตรวจสอบข้อมูลไม่สำเร็จ');
+    } finally {
+      setPurgeBusy(false);
+    }
+  };
+
+  const handlePurgeConfirm = async () => {
+    if (purgeBusy || purgeText !== 'PURGE') return;
+    setPurgeBusy(true);
+    try {
+      const res = await callPurge('PURGE');
+      toast.success(`ล้างข้อมูลทดสอบแล้ว — คืนเครื่อง ${res.summary.jobs_to_restore} ใบกลับเข้าคลัง`);
+      setPurgePreview(null);
+      setPurgeText('');
+    } catch (err: any) {
+      toast.error(err?.message || 'ล้างข้อมูลไม่สำเร็จ');
+    } finally {
+      setPurgeBusy(false);
+    }
+  };
 
   useEffect(() => {
     // node เล็ก + หน้าตั้งค่าเปิดไม่บ่อย — listener ต่อหน้าไม่กระทบบิล
@@ -190,6 +241,51 @@ const DealerSettings = () => {
         <button onClick={handleSave} disabled={busy} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50">
           <Save size={16} /> {busy ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
         </button>
+
+        {/* Danger zone: ล้างข้อมูลทดสอบก่อน go-live — CEO เท่านั้น (server เช็คซ้ำ) */}
+        <section className="bg-white rounded-2xl border-2 border-red-200 shadow-sm p-5">
+          <h2 className="font-black text-xs uppercase tracking-widest text-red-500 mb-2 flex items-center gap-2">
+            <AlertTriangle size={14} /> ล้างข้อมูลทดสอบ (ใช้ก่อนเปิดใช้จริงเท่านั้น)
+          </h2>
+          <p className="text-[11px] font-bold text-slate-500 leading-relaxed">
+            ลบ lot / ซองประมูล / คำสั่งซื้อ / ใบสมัคร / การแจ้งเตือนทดสอบทั้งหมด, คืนเครื่องที่ติด lot
+            หรือถูกขายผ่าน dealer กลับเข้าคลัง, ลบรายการขาย + ใบกำกับภาษีฝั่ง dealer ออกจากบัญชี
+            และ reset เลขรันเอกสาร LOT-/DO-/QT-/REG- — <span className="text-red-500">บัญชีดีลเลอร์ไม่ถูกลบ</span> (เคลียร์แค่สถิติ)
+            <br />ห้ามใช้หลังมีดีลจริง: เลขเอกสารจะซ้ำและบัญชีเพี้ยน · เลขใบกำกับภาษีกลาง reset แยกที่หน้าตั้งค่าระบบบัญชี
+          </p>
+          {!purgePreview ? (
+            <button onClick={handlePurgePreview} disabled={purgeBusy} className="mt-3 bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-lg text-[10px] font-black uppercase hover:bg-slate-200 disabled:opacity-50">
+              {purgeBusy ? 'กำลังตรวจสอบ...' : 'ตรวจสอบข้อมูลที่จะถูกลบ (ยังไม่ลบ)'}
+            </button>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] font-bold text-slate-600 space-y-1">
+                <div>Lot: {purgePreview.lots.length > 0 ? purgePreview.lots.join(', ') : 'ไม่มี'}</div>
+                <div>คำสั่งซื้อ: {purgePreview.orders.length > 0 ? purgePreview.orders.join(', ') : 'ไม่มี'}</div>
+                <div>ใบสมัคร: {purgePreview.applications.length > 0 ? purgePreview.applications.join(', ') : 'ไม่มี'}</div>
+                <div>รายการขาย+ใบกำกับที่จะลบ: {purgePreview.sales_to_delete} · เครื่องคืนเข้าคลัง: {purgePreview.jobs_to_restore} · ร้านที่เคลียร์แจ้งเตือน/สถิติ: {purgePreview.notifications_cleared}/{purgePreview.dealer_stats_reset}</div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  value={purgeText}
+                  onChange={(e) => setPurgeText(e.target.value)}
+                  placeholder='พิมพ์ PURGE เพื่อยืนยัน'
+                  className="p-2.5 rounded-lg border border-red-300 font-mono font-bold text-sm outline-none focus:border-red-500 w-44"
+                />
+                <button
+                  onClick={handlePurgeConfirm}
+                  disabled={purgeBusy || purgeText !== 'PURGE'}
+                  className="bg-red-600 text-white px-4 py-2.5 rounded-lg text-[10px] font-black uppercase hover:bg-red-700 disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  <Trash2 size={13} /> {purgeBusy ? 'กำลังลบ...' : 'ลบข้อมูลทดสอบถาวร'}
+                </button>
+                <button onClick={() => { setPurgePreview(null); setPurgeText(''); }} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 px-2">
+                  ยกเลิก
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
