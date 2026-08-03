@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import {
   Building2, UserRound, KeyRound, Save, Users, Plus, X, Copy, ShieldOff, Shield, Trash2, RotateCcw,
-  LifeBuoy, BadgeCheck, ChevronRight,
+  LifeBuoy, BadgeCheck, ChevronRight, ShieldQuestion,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { useDealerSession } from '../hooks/useDealerSession';
@@ -306,7 +306,15 @@ export const Profile = () => {
         </div>
       </div>
 
-      {/* ทางเข้า Help/เกณฑ์เกรดสำหรับมือถือ (sidenav มีเฉพาะ desktop) */}
+      {/* ทางเข้า Claims/Help/เกณฑ์เกรดสำหรับมือถือ (sidenav มีเฉพาะ desktop) */}
+      <div className="card mini-row" style={{ cursor: 'pointer', alignItems: 'center' }} onClick={() => navigate('/claims')}>
+        <span className="mr-ic" style={{ background: 'rgba(217,119,6,0.12)', color: 'var(--warn)' }}><ShieldQuestion size={18} /></span>
+        <div style={{ flex: 1 }}>
+          <div className="bold small">เคลม & เครดิต</div>
+          <div className="tiny muted bold" style={{ marginTop: 2 }}>สถานะคำขอเคลม · เครดิตคงเหลือของร้าน</div>
+        </div>
+        <ChevronRight size={16} style={{ color: 'var(--muted)' }} />
+      </div>
       <div className="card mini-row" style={{ cursor: 'pointer', alignItems: 'center' }} onClick={() => navigate('/help')}>
         <span className="mr-ic" style={{ background: 'rgba(26,43,60,0.08)', color: 'var(--brand-deep)' }}><LifeBuoy size={18} /></span>
         <div style={{ flex: 1 }}>

@@ -159,6 +159,8 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
             <div className="space-y-1">
               <NavButton collapsed={isCollapsed} to="/lots" icon={<Package size={18} />} label="ล็อตขายส่ง (Lots)" />
               <NavButton collapsed={isCollapsed} to="/dealer-orders" icon={<Receipt size={18} />} label="คำสั่งซื้อดีลเลอร์" />
+              {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/dealer-claims" icon={<ShieldCheck size={18} />} label="เคลมดีลเลอร์" />}
+              {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/dealer-finance" icon={<Receipt size={18} />} label="ลูกหนี้/เจ้าหนี้ (AR/AP)" />}
               {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/dealers" icon={<Users size={18} />} label="ทะเบียนดีลเลอร์" />}
               {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/dealer-analytics" icon={<TrendingUp size={18} />} label="วิเคราะห์ขายส่ง" />}
             </div>

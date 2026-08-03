@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { onValue, ref as dbRef } from 'firebase/database';
 import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { ArrowLeft, FileText, Truck, Upload, Landmark, Check } from 'lucide-react';
+import { ArrowLeft, FileText, Truck, Upload, Landmark, Check, ShieldQuestion } from 'lucide-react';
 import { db, storage, auth } from '../firebase';
-import { submitPaymentSlip } from '../api';
+import { submitPaymentSlip, submitClaim } from '../api';
 import { ORDER_STATUS_LABEL, fmtBaht, fmtDateTime, type DealerOrderSummary, type OrderStatus } from '../types';
 
 // ลำดับ milestone + ป้าย/คำอธิบาย — ตัวจริงอยู่ที่ src/orderFlow.ts (ใช้ร่วมกับหน้า Orders)
@@ -20,6 +20,30 @@ export const OrderDetail = () => {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // ขอเคลมรายเครื่อง (ออเดอร์ที่จัดส่งแล้ว) — server เช็ค warranty_days อีกชั้น
+  const [claimFor, setClaimFor] = useState<{ jobId: string; model: string } | null>(null);
+  const [claimReason, setClaimReason] = useState('');
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimMsg, setClaimMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const handleSubmitClaim = async () => {
+    if (!id || !claimFor || claimBusy) return;
+    if (claimReason.trim().length < 10) {
+      setClaimMsg({ kind: 'err', text: 'กรุณาอธิบายอาการอย่างน้อย 10 ตัวอักษร' });
+      return;
+    }
+    setClaimBusy(true);
+    setClaimMsg(null);
+    try {
+      const res = await submitClaim({ orderId: id, jobId: claimFor.jobId, reason: claimReason.trim() });
+      setClaimMsg({ kind: 'ok', text: `ส่งคำขอเคลมแล้ว (${res.claim_no}) — ติดตามสถานะได้ที่หน้า เคลม & เครดิต` });
+      setClaimReason('');
+    } catch (err: unknown) {
+      setClaimMsg({ kind: 'err', text: (err as Error)?.message || 'ส่งคำขอไม่สำเร็จ' });
+    } finally {
+      setClaimBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -59,6 +83,7 @@ export const OrderDetail = () => {
 
   const meta = ORDER_STATUS_LABEL[order.status] || { label: order.status, cls: '' };
   const canPay = ['pending_payment', 'payment_review'].includes(order.status);
+  const canClaim = ['shipped', 'completed'].includes(order.status);
   const items = Object.entries(order.items || {});
 
   return (
@@ -175,6 +200,15 @@ export const OrderDetail = () => {
                 <td>
                   <div className="bold">{it.model}</div>
                   {it.ref_no && <div className="tiny muted mono">{it.ref_no}</div>}
+                  {canClaim && (
+                    <button
+                      className="btn ghost small"
+                      style={{ marginTop: 6, padding: '5px 10px', fontSize: 11.5 }}
+                      onClick={() => { setClaimFor({ jobId, model: it.model || '-' }); setClaimReason(''); setClaimMsg(null); }}
+                    >
+                      <ShieldQuestion size={12} /> ขอเคลม
+                    </button>
+                  )}
                 </td>
                 <td className="amt bold money">{order.type === 'whole_lot' ? '' : fmtBaht(it.amount)}</td>
               </tr>
@@ -185,6 +219,41 @@ export const OrderDetail = () => {
           <div className="row mt8 small bold"><span>เหมายกล็อต</span><span className="money">{fmtBaht(order.amount)}</span></div>
         )}
       </div>
+
+      {/* โมดอลขอเคลม */}
+      {claimFor && (
+        <div className="sheet-backdrop" onClick={() => setClaimFor(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="grab" />
+            <div className="black" style={{ fontSize: 17 }}>ขอเคลม: {claimFor.model}</div>
+            <div className="tiny muted bold mt8">
+              เคลมได้ภายในระยะประกันร้านของเครื่อง (นับจากวันจัดส่ง) — เจ้าหน้าที่ตรวจสอบแล้วจะแจ้งผลพร้อมแนวทางชดเชย (โอนคืนหรือตั้งเครดิต)
+            </div>
+            <div className="field">
+              <label>อาการ / เหตุผลการเคลม</label>
+              <textarea
+                rows={4}
+                value={claimReason}
+                onChange={(e) => setClaimReason(e.target.value)}
+                placeholder="เช่น จอมีเส้น แบตบวม เปิดไม่ติด ระบุอาการที่พบให้ละเอียด"
+              />
+            </div>
+            {claimMsg && <div className={claimMsg.kind === 'ok' ? 'success' : 'error'}>{claimMsg.text}</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              {claimMsg?.kind !== 'ok' ? (
+                <>
+                  <button className="btn" disabled={claimBusy} onClick={() => void handleSubmitClaim()}>
+                    {claimBusy ? 'กำลังส่ง...' : 'ส่งคำขอเคลม'}
+                  </button>
+                  <button className="btn ghost" onClick={() => setClaimFor(null)}>ยกเลิก</button>
+                </>
+              ) : (
+                <button className="btn" onClick={() => { setClaimFor(null); navigate('/claims'); }}>ดูสถานะเคลม</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

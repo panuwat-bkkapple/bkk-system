@@ -30,6 +30,8 @@ export interface Dealer {
     last_order_at?: number;
     monthly?: Record<string, number>;
   } | null;
+  /** เครดิตคงเหลือจากการเคลม (server เขียนคนเดียว — ledger ที่ dealer_credit_ledger) */
+  credit_balance?: number;
   /** ข้อเสนอแนะอัปเกรด tier จากยอดซื้อ — ระบบเขียน แอดมินยืนยัน/ปัดตกที่ /dealers */
   tier_suggestion?: {
     suggest: DealerTier;
@@ -174,6 +176,11 @@ export const ORDER_STATUS_META: Record<DealerOrderStatus, { label: string; cls: 
   completed: { label: 'สำเร็จ', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   cancelled: { label: 'ยกเลิก', cls: 'bg-red-50 text-red-600 border-red-200' },
 };
+
+// MIRROR: สถานะเคลม — sync กับ dealer-portal/src/types.ts (ClaimStatus) และ
+// CLAIM_STATUSES ใน functions/dealer-portal.js
+// submitted → approved (refund รอโอน) | resolved | rejected
+export type DealerClaimStatus = 'submitted' | 'approved' | 'resolved' | 'rejected';
 
 // MIRROR: label tier — sync กับ TIER_LABEL ใน functions/dealer-portal.js และ
 // dealer-portal/src/types.ts (internal key ยังเป็น A/B/C — ไม่ migrate ข้อมูล)

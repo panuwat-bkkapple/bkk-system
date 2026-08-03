@@ -59,6 +59,16 @@ export default function VatReport() {
         snap.forEach((c) => {
           const v = c.val();
           if (v && v.type === 'tax_invoice') out.push(v as TaxDoc);
+          // ใบลดหนี้ (เคลม/คืนสินค้า) — แสดงเป็นยอดลบ หักภาษีขายของงวด
+          if (v && v.type === 'credit_note') {
+            out.push({
+              ...(v as TaxDoc),
+              number: `${v.number} (ใบลดหนี้)`,
+              base: -(Number(v.base) || 0),
+              vat: -(Number(v.vat) || 0),
+              total: -(Number(v.total) || 0),
+            });
+          }
         });
         out.sort((a, b) => (a.issued_at || 0) - (b.issued_at || 0));
         setRows(out);

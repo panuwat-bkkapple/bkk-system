@@ -690,4 +690,128 @@ async function buildQuotationPdf(order, company) {
   return Buffer.from(bytes);
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf };
+/**
+ * ใบลดหนี้ (Credit Note) สำหรับเคลม/คืนสินค้าฝั่งดีลเลอร์ — ออกเมื่ออนุมัติเคลม
+ * หลังใบกำกับภาษีขายออกไปแล้ว (ม.86/10: ต้องอ้างใบกำกับเดิม + มูลค่าเดิม/ที่ถูกต้อง/
+ * ผลต่าง + สาเหตุ) ยอด cn.total เป็น VAT-inclusive แตก base/vat มาแล้ว
+ * data: { cn:{number,issued_at,base,vat,total}, orig:{number,issued_at,total},
+ *         buyer:{company_name,tax_id,address}, claim:{claim_no,order_no,model,ref_no,reason} }
+ */
+async function buildCreditNotePdf(data, company) {
+  const CO = companyOf({ _company: company || {} });
+  const { cn, orig, buyer, claim } = data;
+
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  let y = height - M;
+
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) =>
+    page.drawText(String(t == null ? "" : t), { x, y: opts.y != null ? opts.y : y, size, font: opts.bold ? fontB : font, color: opts.color || black });
+  const drawRight = (t, rightX, size, opts = {}) => draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const s = String(t == null ? "" : t); const out = []; let cur = "";
+    for (const ch of s) { if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch; }
+    if (cur) out.push(cur); return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  // ผู้ออก (ผู้ขายเดิม)
+  draw(CO.legalName, M, 16, { bold: true });
+  y -= 18;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M, 10, contentW, 13, { color: gray });
+
+  y -= 14;
+  const title = "ใบลดหนี้ (Credit Note)";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 26;
+
+  draw(`เลขที่ใบลดหนี้: ${cn.number || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่: ${formatDate(cn.issued_at) || "-"}`, width - M, 11);
+  y -= 18;
+
+  // ผู้ซื้อ (ดีลเลอร์)
+  draw("ลูกค้า:", M, 11, { color: gray });
+  draw(buyer.company_name || "-", M + 42, 11, { bold: true });
+  y -= 15;
+  if (buyer.tax_id) { draw(`เลขผู้เสียภาษี: ${buyer.tax_id}`, M, 10, { color: gray }); y -= 14; }
+  if (buyer.address) { draw("ที่อยู่:", M, 10, { color: gray }); drawWrapped(buyer.address, M + 36, 10, contentW - 36, 13); }
+  y -= 8;
+
+  // อ้างอิงใบกำกับภาษีเดิม (บังคับตาม ม.86/10)
+  hr(y + 4); y -= 14;
+  draw("อ้างอิงใบกำกับภาษีเดิม", M, 11, { bold: true });
+  y -= 16;
+  draw(`เลขที่: ${orig.number || "-"}`, M, 10);
+  drawRight(`วันที่: ${formatDate(orig.issued_at) || "-"}`, width - M, 10);
+  y -= 14;
+  if (claim.order_no) { draw(`คำสั่งซื้อ: ${claim.order_no}`, M, 10, { color: gray }); y -= 14; }
+  y -= 4;
+
+  // รายการที่ลดหนี้
+  const colAmt = width - M;
+  hr(y + 4); y -= 12;
+  draw("รายการ", M, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน", colAmt, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+  drawWrapped(
+    `คืนสินค้า/เคลม: ${claim.model || "-"}${claim.ref_no ? ` (${claim.ref_no})` : ""} — ใบเคลม ${claim.claim_no || "-"}`,
+    M, 10, contentW - 110, 15
+  );
+  drawRight(thb(cn.total), colAmt, 10, { y: y + 15 });
+  y -= 4;
+  if (claim.reason) {
+    drawWrapped(`สาเหตุ: ${claim.reason}`, M, 9.5, contentW, 13, { color: gray });
+    y -= 2;
+  }
+
+  // มูลค่าเดิม / ที่ถูกต้อง / ผลต่าง
+  y -= 4; hr(y + 6); y -= 14;
+  const origTotal = Number(orig.total) || 0;
+  draw("มูลค่าตามใบกำกับภาษีเดิม", M, 11, { color: gray });
+  drawRight(thb(origTotal), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("มูลค่าที่ถูกต้อง", M, 11, { color: gray });
+  drawRight(thb(Math.max(0, origTotal - (Number(cn.total) || 0))), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("ผลต่าง (ก่อน VAT)", M, 11, { color: gray });
+  drawRight(thb(cn.base), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("ภาษีมูลค่าเพิ่มที่ลด 7%", M, 11, { color: gray });
+  drawRight(thb(cn.vat), colAmt, 11, { color: gray });
+  y -= 16;
+  draw("รวมมูลค่าที่ลดหนี้ทั้งสิ้น", M, 13, { bold: true });
+  drawRight(thb(cn.total), colAmt, 13, { bold: true, color: rgb(0.7, 0.15, 0.12) });
+  y -= 20;
+  const words = bahtText(cn.total);
+  if (words) { draw(`(${words})`, M, 11); y -= 18; }
+
+  // ลายเซ็น
+  const sigY = Math.max(y - 50, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้มีอำนาจออกใบลดหนี้";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+  page.drawText(`${CO.legalName} (GETMOBIE) • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+
+  const bytes = await pdf.save();
+  return Buffer.from(bytes);
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf };

@@ -57,8 +57,10 @@ export const DealerOrders = () => {
 
   const handleMarkPaid = (o: DealerOrder) => {
     if (!confirm(`ยืนยันรับชำระ ${o.order_no} ยอด ${fmtBaht(o.amount)}?\n\nระบบจะ: บันทึกการขาย → ออกใบกำกับภาษีเต็มรูป → ตัดสต๊อกเป็น Sold`)) return;
+    // เครดิตจากเคลม = วิธีชำระ (server หักจาก credit_balance เท่าที่มีจริง — ไม่มี = ไม่มีผล)
+    const useCredit = confirm('ใช้เครดิตคงเหลือของดีลเลอร์ (จากการเคลม) หักยอดนี้ด้วยไหม?\n\nOK = ใช้เครดิตเท่าที่มี · Cancel = รับชำระเต็มยอดตามสลิป');
     run(async () => {
-      await call('adminDealerOrderMarkPaid', { orderId: o.id });
+      await call('adminDealerOrderMarkPaid', { orderId: o.id, use_credit: useCredit });
       toast.success('ยืนยันชำระแล้ว — ใบกำกับภาษีกำลังออกอัตโนมัติ');
     });
   };
