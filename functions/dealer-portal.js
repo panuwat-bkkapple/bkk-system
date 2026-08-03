@@ -1658,6 +1658,116 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     return { ok: true };
   });
 
+  // ── ล้างข้อมูลทดสอบ Dealer Portal ก่อน go-live (CEO เท่านั้น) ─────────────
+  // ใช้ครั้งเดียวก่อนเปิดใช้จริง: ลบ lot/ซอง/ออเดอร์/ใบสมัคร/แจ้งเตือนทดสอบ,
+  // คืนสถานะเครื่องที่ติด lot หรือถูกขายผ่าน dealer กลับเข้าคลัง (ใช้ prev_status
+  // จาก lot_private), ลบ /sales ช่อง dealer + ใบกำกับ + accounting_documents
+  // ที่พ่วงมา, reset counter เลขเอกสาร LOT-/DO-/QT-/REG- (เลขใบกำกับภาษีกลาง
+  // reset แยกที่หน้าตั้งค่าระบบบัญชี). บัญชีดีลเลอร์ "ไม่ถูกลบ" — เคลียร์แค่
+  // stats/tier_suggestion. confirm ต้องส่งสตริง "PURGE" เท่านั้น ไม่งั้น = dry-run
+  fns.adminDealerPurgeTestData = onCall({ region: REGION, timeoutSeconds: 300 }, async (request) => {
+    const db = getDatabase();
+    const { caller } = await requireStaffRole(db, request.auth, ["CEO"]);
+    const confirmed = (request.data || {}).confirm === "PURGE";
+
+    const [lotsSnap, ordersSnap, appsSnap, dealersSnap, notifSnap] = await Promise.all([
+      db.ref("lots").once("value"),
+      db.ref("dealer_orders").once("value"),
+      db.ref("dealer_applications").once("value"),
+      db.ref("dealers").once("value"),
+      db.ref("dealer_notifications").once("value"),
+    ]);
+    const lots = lotsSnap.val() || {};
+    const orders = ordersSnap.val() || {};
+    const apps = appsSnap.val() || {};
+    const dealers = dealersSnap.val() || {};
+
+    // เครื่องที่เกี่ยวข้อง = ทุกใบใน lot + ทุกใบในออเดอร์ (กันหลุดกรณี lot ถูกลบแล้ว)
+    const jobIds = new Set();
+    for (const lot of Object.values(lots)) {
+      for (const id of Object.keys(lot.item_ids || lot.items || {})) jobIds.add(id);
+    }
+    for (const o of Object.values(orders)) {
+      for (const id of Object.keys(o.items || {})) jobIds.add(id);
+    }
+    const saleIds = [...new Set(Object.values(orders).map((o) => o.sale_id).filter(Boolean))];
+
+    const summary = {
+      lots: Object.values(lots).map((l) => l.lot_no || "(draft)"),
+      orders: Object.values(orders).map((o) => o.order_no || "?"),
+      applications: Object.values(apps).map((a) => a.app_no || a.company_name || "?"),
+      sales_to_delete: saleIds.length,
+      jobs_to_restore: jobIds.size,
+      notifications_cleared: notifSnap.exists() ? Object.keys(notifSnap.val()).length : 0,
+      dealer_stats_reset: Object.keys(dealers).length,
+    };
+    if (!confirmed) return { dry_run: true, summary };
+
+    // 1) คืนสถานะเครื่อง — prev_status ต่อใบอยู่ใน lot_private/{lotId}/prev_status
+    const prevStatusOf = {};
+    for (const lotId of Object.keys(lots)) {
+      const priv = (await db.ref(`lot_private/${lotId}/prev_status`).once("value")).val() || {};
+      Object.assign(prevStatusOf, priv);
+    }
+    const updates = {};
+    for (const jobId of jobIds) {
+      const job = (await db.ref(`jobs/${jobId}`).once("value")).val();
+      if (!job) continue;
+      if (!job.lot_id && job.sold_channel !== "dealer") continue; // ปลดไปแล้ว/ขายช่องอื่น — ไม่แตะ
+      updates[`jobs/${jobId}/status`] = prevStatusOf[jobId] || "In Stock";
+      updates[`jobs/${jobId}/lot_id`] = null;
+      updates[`jobs/${jobId}/lot_no`] = null;
+      if (job.sold_channel === "dealer") {
+        updates[`jobs/${jobId}/sold_date`] = null;
+        updates[`jobs/${jobId}/sold_channel`] = null;
+        updates[`jobs/${jobId}/sale_id`] = null;
+      }
+    }
+
+    // 2) ลบ sales ช่อง dealer + accounting_documents + PDF ใน Storage (best-effort)
+    for (const saleId of saleIds) {
+      const sale = (await db.ref(`sales/${saleId}`).once("value")).val();
+      if (!sale) continue;
+      const tiNumber = sale.tax_invoice && sale.tax_invoice.number;
+      if (tiNumber) updates[`accounting_documents/TI_${tiNumber}`] = null;
+      updates[`sales/${saleId}`] = null;
+      try {
+        await getStorage().bucket().file(`sales_tax_invoices/${saleId}.pdf`).delete();
+      } catch {
+        /* ไม่มีไฟล์ = ข้าม */
+      }
+    }
+    for (const orderId of Object.keys(orders)) {
+      try {
+        await getStorage().bucket().file(`dealer_quotations/${orderId}.pdf`).delete();
+      } catch {
+        /* ไม่มีไฟล์ = ข้าม */
+      }
+    }
+
+    // 3) ลบ node โดเมน dealer ทั้งชุด + reset counter เลขเอกสาร + เคลียร์ stats
+    Object.assign(updates, {
+      lots: null,
+      lot_private: null,
+      lot_bids: null,
+      lot_audit: null,
+      dealer_orders: null,
+      dealer_notifications: null,
+      dealer_applications: null,
+      "settings/dealer/lot_seq_by_period": null,
+      "settings/dealer/order_seq_by_period": null,
+      "settings/dealer/quotation_seq_by_period": null,
+      "settings/dealer/application_seq_by_period": null,
+    });
+    for (const uid of Object.keys(dealers)) {
+      updates[`dealers/${uid}/stats`] = null;
+      updates[`dealers/${uid}/tier_suggestion`] = null;
+    }
+    await db.ref().update(updates);
+    console.log(`[dealer] TEST DATA PURGED by ${caller.name || "?"}:`, JSON.stringify(summary));
+    return { ok: true, summary };
+  });
+
   // ช่องทางติดต่อสำหรับหน้า Help & Support — แอดมินตั้งที่ /dealer-settings
   // (settings/dealer/support) ไม่ตั้ง = portal ซ่อนการ์ดช่องทางนั้น ไม่โชว์ค่า placeholder
   fns.dealerGetSupportInfo = onCall({ region: REGION }, async (request) => {
