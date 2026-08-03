@@ -354,11 +354,22 @@ function lotItemSnapshot(job, askingPrice) {
       : null,
     clean_status: Object.keys(clean).length > 0 ? clean : null,
     qc_notes: String(qc.notes || "").trim() || null,
-    // รูปสภาพเครื่อง (แอดมินอัปโหลด — jobs/{id}/lot_photos เขียนผ่าน
-    // adminDealerLotItemPhotos เท่านั้น) ให้ดีลเลอร์ดูก่อนเสนอราคา
-    photos: Array.isArray(job.lot_photos) && job.lot_photos.length > 0
-      ? job.lot_photos.slice(0, 8)
-      : null,
+    // รูปสภาพเครื่องให้ดีลเลอร์ดูก่อนเสนอราคา — ลำดับความสำคัญ:
+    // 1) jobs/{id}/lot_photos (แอดมินจัดชุดเองผ่าน adminDealerLotItemPhotos)
+    // 2) รูปจากขั้น QC Lab (InternalQCModal "แนบรูปถ่ายอ้างอิง" → devices[0].photos)
+    //    — ถ่ายตอนเครื่องอยู่ในมือพนักงานพอดี ไม่ต้องอัปโหลดซ้ำตอนจัด lot
+    // จงใจไม่ใช้รูป inspection ของไรเดอร์ (ถ่ายก่อนล้างเครื่อง จออาจติดข้อมูล
+    // ส่วนตัวลูกค้า — PDPA)
+    photos: (() => {
+      if (Array.isArray(job.lot_photos) && job.lot_photos.length > 0) {
+        return job.lot_photos.slice(0, 8);
+      }
+      const dev = Array.isArray(job.devices) && job.devices.length === 1 ? job.devices[0] : null;
+      if (dev && Array.isArray(dev.photos) && dev.photos.length > 0) {
+        return dev.photos.slice(0, 8);
+      }
+      return null;
+    })(),
   };
 }
 
