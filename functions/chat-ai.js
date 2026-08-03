@@ -601,19 +601,69 @@ function ipadAirGenAliasNote(query) {
   return `ลูกค้าเรียก "iPad Air ${m[1]}" = ชื่อในระบบคือ iPad Air 11"/13" (ชิป ${chip}) — เป็นรุ่นเดียวกัน อย่าบอกว่าไม่พบรุ่น ให้เดินขั้นตอนตามปกติ และถามลูกค้าว่าเป็นจอ 11 นิ้วหรือ 13 นิ้ว`;
 }
 
-function rankModels(list, rawQuery, limit = 5) {
+// Shared query normalization for rankModels/rankModelsScored. The NAME side
+// has always been punctuation-stripped before tokenizing, but the QUERY side
+// never was — so a customer pasting Apple's official punctuation ("i Pad
+// (A16)", live case #HXV1) produced junk tokens like "(a" and "16)", and
+// "16)" substring-matched the year in 'iPad Pro 9.7" (2016)': a delisted
+// 2016 model outranked everything and the customer was told A16 iPads are
+// not bought — while being recommended iPad Generation 11, WHICH IS the
+// iPad (A16). Symmetric cleanup: strip punctuation exactly like the name
+// side, then re-glue chip designators (A16/M1) BEFORE the single-letter
+// filter can eat the bare "a"/"m" the splitter leaves behind.
+function rankQueryTokens(rawQuery) {
   const q = String(rawQuery || "")
     .toLowerCase()
     .trim()
+    .replace(/ไอแพ[คต]/g, "ไอแพด") // live typo: "ไอแพคเจน11" found nothing
+    .replace(/[^a-z0-9฀-๿]+/g, " ")
     .replace(/promax/g, "pro max")
     .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
-    .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
+    .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
+    .trim();
+  if (!q) return { q: "", tokens: [] };
+  const raw = q.split(/\s+/).filter(Boolean);
+  const glued = [];
+  for (let i = 0; i < raw.length; i++) {
+    if ((raw[i] === "m" || raw[i] === "a") && i + 1 < raw.length && /^\d{1,2}$/.test(raw[i + 1])) {
+      glued.push(raw[i] + raw[i + 1]);
+      i++;
+      continue;
+    }
+    glued.push(raw[i]);
+  }
+  // Single latin letters (the "i" of "i pad", stray splitter leftovers)
+  // carry no signal and substring-match everything — drop them.
+  const tokens = glued.filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
+  return { q, tokens };
+}
+
+// Apple's official retail name for the 11th-gen base iPad is "iPad (A16)" —
+// the box and every review say A16, not "Generation 11", so customers paste
+// the chip name. The catalog row predates that naming; give it the chip as a
+// synthetic alias everywhere names are matched (rank hay + pin keys). iPad
+// mini 7 needs nothing — its catalog name already carries "ชิป A17 Pro".
+function officialChipAlias(m) {
+  const n = ` ${String((m && m.name) || "").toLowerCase()} `;
+  if (n.includes(" ipad generation 11 ")) return "iPad A16";
+  return "";
+}
+
+// Companion note for officialChipAlias — tells the model WHY the search hit
+// iPad Generation 11 so it can explain the naming to the customer instead of
+// silently switching words on them (live case #HXV1: "i Pad (A16)" was
+// declared declined AND recommended "iPad Generation 11" in one breath).
+function ipadA16AliasNote(query) {
+  const q = String(query || "").toLowerCase();
+  if (/(ipad|i[\s._-]?pad|ไอแพด)[\s\S]{0,10}\(?\s*a\s*16\)?/.test(q)) {
+    return 'ลูกค้าเรียก "iPad (A16)" = ชื่อทางการของ iPad Generation 11 — เป็นรุ่นเดียวกัน อย่าบอกว่าไม่พบรุ่นหรือไม่รับซื้อ อธิบายลูกค้าสั้นๆ ได้ว่าเป็นรุ่นเดียวกันแล้วเดินขั้นตอนตามปกติ';
+  }
+  return null;
+}
+
+function rankModels(list, rawQuery, limit = 5) {
+  const { q, tokens } = rankQueryTokens(rawQuery);
   if (!q) return [];
-  // Single latin letters (the "m" left over from splitting chip names like
-  // M5) carry no signal and substring-match everything — drop them.
-  const tokens = q
-    .split(/\s+/)
-    .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
   // Model-generation numbers live in 3..20 (iPhone 13, Watch Series 10, iPad 9).
   // Storage sizes (32..1024) are >20 and 1TB/2TB map to 1/2 (<3), so this cleanly
   // separates generation from storage. A candidate must contain EVERY version
@@ -639,14 +689,14 @@ function rankModels(list, rawQuery, limit = 5) {
     .map((m) => {
       // ทั้ง 3 ชื่อของรุ่นเข้าตัวจับคู่: ชื่อทางการ + ชื่อเรียกไทย + ชื่อเรียกอังกฤษ
       // (aliases ตั้งจากหน้าแก้ไขสินค้า) — ลูกค้าพิมพ์ชื่อไหนก็เจอ รวมภาษาไทยล้วน
-      const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
+      const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${officialChipAlias(m)} ${m.category}`.toLowerCase();
       // Strip punctuation so 13" / (Intel, / 2017) tokenize to bare words —
       // else a version match on "13" would miss 'MacBook Air 13"'.
       // Same letter-digit boundary split as the query — without it a query
       // token "3" (from splitting the chip name "m3") can never satisfy
       // versionOk against a name that keeps "m3" glued, so every M-chip
       // MacBook was unfindable ("macbook pro 14 m3 max" -> no results).
-      const nameLower = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""}`.toLowerCase();
+      const nameLower = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${officialChipAlias(m)}`.toLowerCase();
       const nameTokens = nameLower
         .replace(/[^a-z0-9฀-๿]+/g, " ")
         .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
@@ -689,17 +739,9 @@ function rankModelsScored(list, rawQuery) {
   // (live case #CIF1: "Macbook Air M1" declined as an Intel 11").
   const names = rankModels(list, rawQuery, 12);
   if (names.length === 0) return [];
-  const q = String(rawQuery || "")
-    .toLowerCase()
-    .trim()
-    .replace(/promax/g, "pro max")
-    .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
-    .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
-  const tokens = q
-    .split(/\s+/)
-    .filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
+  const { tokens } = rankQueryTokens(rawQuery);
   return names.map((m) => {
-    const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${m.category}`.toLowerCase();
+    const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${officialChipAlias(m)} ${m.category}`.toLowerCase();
     // Same numeric-token rule as rankModels: whole-token match only, so the
     // "1" split off "M1" cannot inflate 11"/13"/2013 siblings into a fake
     // tie (or a fake win) inside the ambiguity scoring.
@@ -824,8 +866,14 @@ function normalizeForPin(s) {
     .replace(/แอร์/g, " air ")
     .replace(/เจน/g, " gen ")
     .replace(/ไอโฟน/g, " iphone ")
-    .replace(/ไอแพด/g, " ipad ")
+    // ไอแพค/ไอแพต = live keyboard typos for ไอแพด ("ไอแพคเจน11" found nothing)
+    .replace(/ไอแพ[ดคต]/g, " ipad ")
     .replace(/แมคบุ๊ค|แมคบุ๊ก|แม็คบุ๊ค|แม็คบุ๊ก/g, " macbook ")
+    // Spaced-out brand spellings ("i Pad", "i-Phone", "mac book") re-glued so
+    // the pin key matches the catalog's one-word form.
+    .replace(/\bi[\s._-]+pad\b/g, " ipad ")
+    .replace(/\bi[\s._-]+phone\b/g, " iphone ")
+    .replace(/\bmac[\s._-]+book\b/g, " macbook ")
     .replace(/promax/g, "pro max")
     .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
     .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
@@ -911,7 +959,7 @@ function exactModelPin(list, rawQuery) {
   const findExact = (key) => {
     const matches = [];
     for (const m of list) {
-      const keys = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+      const keys = [m.name, officialChipAlias(m), ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
         .map(normalizeForPin)
         .filter(Boolean);
       if (keys.includes(key)) matches.push(m);
@@ -932,7 +980,7 @@ function exactModelPin(list, rawQuery) {
     const qToks = q.split(" ");
     const owners = [];
     for (const m of list) {
-      const keySets = [m.name, ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
+      const keySets = [m.name, officialChipAlias(m), ...String(m.alias_th || "").split(","), ...String(m.alias_en || "").split(",")]
         .map(normalizeForPin)
         .filter(Boolean)
         .map((k) => new Set(k.split(" ")));
@@ -1702,8 +1750,9 @@ function extractChoices(rawText) {
 // block so the owner can SEE what the behavior brain is running. Update the
 // version + prepend an entry with EVERY behavior change shipped.
 // ---------------------------------------------------------------------------
-const LOGIC_VERSION = "2026-08-02.1";
+const LOGIC_VERSION = "2026-08-02.2";
 const LOGIC_CHANGELOG = [
+  { at: "2026-08-02", text: "แก้เคสจริงห้อง #HXV1: ลูกค้าพิมพ์ \"i Pad (A16)\" (ชื่อทางการบนกล่องของ iPad Gen 11) แล้วมาตินตอบว่า \"iPad ชิป A16 งดรับซื้อ\" พร้อมแนะนำ iPad Generation 11 แทน — ซึ่งคือเครื่องเดียวกัน ย้อนแย้งในประโยคเดียว. สาเหตุ 3 ชั้น: (1) ฝั่งชื่อรุ่นถูกล้างเครื่องหมายวรรคตอนก่อนเทียบ แต่ฝั่งคำค้นไม่เคยล้าง — วงเล็บทำให้เกิดเศษโทเคน \"16)\" ไปจับกับปี \"(2016)\" ของ iPad Pro 9.7 รุ่นงดรับซื้อ เลยชนะการจัดอันดับ → ตอนนี้ล้างสมมาตรกันทั้งสองฝั่ง และรวมชื่อชิป (A16/M1) เป็นโทเคนเดียวไม่ให้เลขหลุดไปจับปี (2) ระบบไม่รู้ว่า \"iPad (A16)\" = iPad Generation 11 → สอนให้แล้วทั้งตัวค้นหาและโน้ตกำกับ (มาตินจะอธิบายลูกค้าได้ว่าเป็นรุ่นเดียวกัน) — iPad mini 7 ไม่ต้องเพราะชื่อในระบบมี A17 Pro อยู่แล้ว (3) แถม: พิมพ์เว้นวรรค \"i Pad\"/\"i Phone\"/\"mac book\" และพิมพ์ผิด \"ไอแพค/ไอแพต\" (เคสจริง \"ไอแพคเจน11\" ค้นไม่เจอ) ตอนนี้เข้าใจหมด" },
   { at: "2026-08-02", text: "คำสั่งเจ้าของร้าน: พอลูกค้าพิมพ์ชื่อรุ่นมา ให้ทักสั้นๆ แล้ว \"ทวนรุ่นที่เจอในระบบ\" ก่อนเสมอ — และต้องทวนด้วยชื่อรุ่นตามที่ระบบเจอ ไม่ใช่ลอกคำที่ลูกค้าพิมพ์ (ลูกค้าพิมพ์ \"ไอโฟน13\" ต้องทวนว่า \"iPhone 13\") เพื่อให้ลูกค้าจับผิดได้ทันทีถ้าระบบเข้าใจรุ่นผิด ก่อนจะเดินไปไกลแล้วต้องรื้อ. กันผลข้างเคียงไว้ครบ: ทวนแล้วต้องเดินหน้าต่อในข้อความเดียวกันทันที (ห้ามส่งแค่ทวนรุ่นแล้วหยุดรอลูกค้ายืนยัน = เพิ่มรอบสนทนาเปล่าๆ) | ห้ามพูดราคาและห้ามถามความจุในข้อความนั้น (ความจุยังถามตอนออกการ์ดเหมือนเดิม) | ทวนครั้งเดียวตอนเจอรุ่น ห้ามขึ้นต้นทุกข้อความด้วยชื่อรุ่นซ้ำๆ จนดูเหมือนหุ่นยนต์ (บั๊กเก่าที่เคยเจอ) | รุ่นงดรับซื้อ ชื่อกำกวม และรุ่นที่ไม่มีราคา ยังเดินตามกฎเดิมไม่ต้องทวน" },
   { at: "2026-08-01", text: "ยกระดับการซักอาการเครื่องจาก \"ถามให้เลือกทาง\" เป็น \"ซักแบบช่างผู้เชี่ยวชาญ\" ตามที่เจ้าของร้านสั่ง: เดิมมาตินจะโยนคำถามแยกทางกลับไปให้ลูกค้าตัดสินเอง (\"ดับเองทั้งที่แบตเหลือ หรือดับเพราะแบตหมด\") ซึ่งลูกค้าส่วนใหญ่ตอบไม่ได้. ตอนนี้ต้องตั้งสมมติฐานสาเหตุที่พบบ่อยที่สุดก่อน แล้วถามสิ่งที่แยกสาเหตุได้จริงตามลำดับที่ช่างถาม — เช่น \"ดับเองทั้งที่แบตยังเหลือ 86%\" สมมติฐานคือแบตเก็บประจุไม่อยู่ จึงถาม (1) สุขภาพแบตกี่ % (2) เคยซ่อมหรือเปลี่ยนอะไหล่ไหม โดยเฉพาะเคยเปลี่ยนแบตมาหรือยัง (3) เสียบชาร์จอยู่แล้วใช้ได้ปกติไหม — และบอกลูกค้าสั้นๆ ว่าถามไปทำไม. คำถามพวกนี้อยู่ในชุดถามสภาพมาตรฐานอยู่แล้ว จึงแค่ยกมาถามก่อน ไม่ใช่ถามเพิ่มเป็นรอบใหม่. มีคู่มืออาการ→สิ่งที่ต้องถามครบ 5 อาการหลัก (ดับเอง/แบตวูบ, เปิดไม่ติดจอดำ, ค้างรีเอง, ร้อน-ชาร์จไม่เข้า, จอลาย-ทัชไม่ติด). ขีดจำกัด: ซักได้ไม่เกิน 2 คำถามแล้วต้องเดินหน้าต่อ ห้ามให้คำแนะนำเชิงซ่อมหรือประเมินค่าซ่อม ห้ามเดาราคาให้อาการ และถ้าลูกค้าไม่รู้จริงๆ ให้ยึดทางที่หนักกว่าแล้วส่งให้เจ้าหน้าที่ตรวจ" },
   { at: "2026-08-01", text: "อาการเครื่องที่ลูกค้าเล่าเป็นภาษาชาวบ้าน ตอนนี้ถูกวิเคราะห์ภายใต้กรอบชุดประเมินจริง ไม่ใช่ปล่อยผ่านหรือฟันธงเอง: (1) แก้บั๊กร้ายที่เจอจากคำถามของเจ้าของร้านเอง — ตัวกันเดาคำตอบสภาพเครื่อง (ที่เพิ่งใส่ไปกันเคส \"จีน\") ดันตัดคำตอบอาการเสียทิ้งด้วย เพราะคลังคำของหมวด \"เปิดเครื่อง/ใช้งานทั่วไป\" มีแต่คำเป๊ะๆ อย่าง \"ดับเอง\" ส่วนลูกค้าพิมพ์ว่า \"ใช้ไปสักพักดับ\" ผลคือเครื่องที่ร้านตั้งค่าไม่รับซื้อ จะถูกออกการ์ดเกือบเต็มราคา — ตอนนี้ครอบคลุมคำที่คนพูดจริงทั้งไทยและอังกฤษ (ดับ ค้าง แฮง รีเอง วูบ ตัดเอง เสีย พัง ใช้ไม่ได้ / shuts down, freeze, dies, not working) (2) อาการที่ตีความได้ 2 ทางและผลต่างกันคนละโลก (เช่น \"แบต 86% แต่ใช้ไปสักพักดับ\" = แบตเตอรี่เสื่อม หัก % ยังรับซื้อ / เปิดไม่ติด-ค้าง-ดับเอง = งดรับซื้อ) มาตินต้องเปิดชุดประเมินของรุ่นนั้นดูก่อน แล้วถามแยกทางสั้นๆ 1 ครั้งด้วยปุ่มที่ตั้งจากตัวเลือกจริง ห้ามเดาราคาให้อาการเอง และถ้าลูกค้าตอบ \"ไม่แน่ใจ\" ให้ถือว่าเป็นอาการที่หนักกว่าไว้ก่อนแล้วให้เจ้าหน้าที่ตรวจ" },
@@ -1783,7 +1832,7 @@ const LOGIC_BEHAVIORS = [
     "เจอรุ่นแล้วต้องทักสั้นๆ + ทวนชื่อรุ่นตามที่ระบบเจอก่อนเสมอ (ลูกค้าพิมพ์ 'ไอโฟน13' → ทวนว่า 'iPhone 13') แล้วเดินหน้าต่อในข้อความเดียวกัน — ทวนครั้งเดียวตอนเจอรุ่น ห้ามย้ำซ้ำทุกข้อความ",
     "ราคา สเปก และตัวเลือกรุ่น มาจากฐานข้อมูลเท่านั้น — ความจำ AI และข้อความเก่าของตัวเองใช้ไม่ได้",
     "ค้นเจอรุ่นปุ๊บ ระบบเช็คคูปองที่ดีที่สุดของรุ่นนั้นให้ทันที — ใช้เป็นตัวชวนได้ตั้งแต่ต้นบทสนทนา (ชื่อ/มูลค่าจากระบบเท่านั้น กรองโควตาเต็ม/หมดเขต/จำกัดรุ่นให้อัตโนมัติ)",
-    "เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024)",
+    "เข้าใจชื่อเรียกรุ่น เช่น iPad Air 6 = Air ชิป M2 (2024), iPad (A16) = iPad Generation 11 — รวมถึงพิมพ์เว้นวรรค (i Pad, mac book) และพิมพ์ผิด (ไอแพค)",
     "กันจับผิดตระกูล: Air / mini / SE แยกขาดจากกัน",
     "ห้ามให้ลูกค้า 'รอ' ระหว่างเช็ค — ระบบเช็คเสร็จและตอบผลจริงในข้อความเดียวเสมอ",
     "รุ่นงดรับซื้อ = ปฏิเสธสุภาพทันที ไม่โยนเจ้าหน้าที่",
@@ -2242,7 +2291,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         const pinNote = pin
           ? `ชื่อที่ค้นตรงกับรุ่น "${pin.name}" พอดี — ยึดรุ่นนี้ได้เลย ห้ามถามแยกรุ่นซ้ำ`
           : null;
-        const aliasNote = ipadAirGenAliasNote(input.query);
+        const aliasNote = ipadAirGenAliasNote(input.query) || ipadA16AliasNote(input.query);
         const singleNote = buyable.length === 1 ? singleResultVariantNote(buyable[0]) : null;
         const baseNote = topUnpriced
           ? "รุ่นนี้มีในระบบแต่ 'ตั้งใจไม่ตั้งราคา' (กลุ่มรับ Offer — ทีมงานเสนอราคาดีที่สุดทางโทรศัพท์) → เข้าโหมดรับ Offer ตามกฎข้อ 6 ขั้นที่ 2(ข): ตอบเชิงบวก ขอชื่อ+เบอร์+รายละเอียดเครื่อง (save_customer_info เมื่อได้เบอร์) แล้ว escalate_to_human พร้อมข้อมูลครบ — ห้ามบอกว่าไม่รับซื้อ ห้าม escalate มือเปล่า ห้ามออกการ์ด"
@@ -5065,6 +5114,9 @@ module.exports = {
     sublineMismatch,
     ipadAirGenToken,
     ipadAirGenAliasNote,
+    ipadA16AliasNote,
+    rankQueryTokens,
+    officialChipAlias,
     resolvePromoModelIds,
     pickupFeeNote,
     singleResultVariantNote,
