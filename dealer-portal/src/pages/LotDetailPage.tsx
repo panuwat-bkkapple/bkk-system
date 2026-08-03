@@ -355,7 +355,7 @@ export const LotDetailPage = () => {
 
           <div className="field">
             <label>หมายเหตุถึงผู้ขาย (ไม่บังคับ)</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น รับของเองที่ร้าน" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <button className="btn" style={{ marginTop: 16 }} onClick={() => void handleSubmit()} disabled={busy}>
