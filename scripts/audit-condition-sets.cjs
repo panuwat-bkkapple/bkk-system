@@ -227,11 +227,13 @@ function audit(setsObj, modelsObj) {
           }
         }
 
-        // โหมดของ option ตาม precedence
+        // โหมดของ option ตาม precedence — option ที่ประกาศ failBehavior ชัดเจน
+        // ('pass' = ตั้งใจไม่หัก, 'reject' = ปฏิเสธรับซื้อ) ไม่ต้องมีค่าหัก
         const hasPct = hasFinite(opt.pct) && Number(opt.pct) >= 0;
         const hasDeduct = hasFinite(opt.deduct) && Number(opt.deduct) >= 0;
         const hasTier = hasFinite(opt.t1) || hasFinite(opt.t2) || hasFinite(opt.t3);
-        if (!hasPct && !hasDeduct) {
+        const hasBehavior = opt.failBehavior === 'pass' || opt.failBehavior === 'reject';
+        if (!hasPct && !hasDeduct && !hasBehavior) {
           if (hasTier) {
             legacyOnly++;
             if (legacySamples.length < 3) legacySamples.push(oLabel);
