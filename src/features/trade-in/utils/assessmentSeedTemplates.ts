@@ -200,11 +200,15 @@ const BOX_GROUP: SeedCondGroup = {
 // ── กลุ่มหักราคาเฉพาะ Mac ─────────────────────────────────────────────────
 // แบต Mac ไม่มีเมนู % แบบ iPhone — ลูกค้าดูได้ 2 อย่าง: สถานะ (Normal /
 // Service Recommended) + Cycle Count (การตั้งค่า > แบตเตอรี่ / System Report)
-const MAC_BATTERY_GROUP = (highCycle: number, worn: number): SeedCondGroup => ({
-  title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูสถานะแบตจาก การตั้งค่า > แบตเตอรี่ และ Cycle Count ใน System Report', options: [
-    { label: 'แบตปกติ (Normal, รอบชาร์จต่ำกว่า 300)', description: 'สถานะแบต Normal และ Cycle Count ต่ำกว่า 300', deduct: 0 },
-    { label: 'แบตปกติ รอบชาร์จสูง (300 ขึ้นไป)', description: 'สถานะแบต Normal แต่ Cycle Count 300 ขึ้นไป', pct: highCycle, failBehavior: 'deduct' },
-    { label: 'เสื่อม / ขึ้น Service Recommended', description: 'ขึ้นสถานะ Service Recommended หรือแบตหมดเร็วผิดปกติ', pct: worn, failBehavior: 'deduct' },
+// เกณฑ์คู่ "รอบชาร์จ หรือ แบต%" (นโยบายเจ้าของร้าน ส.ค. 2026 — เคสจริง: เครื่อง
+// ต่อจอใช้งานตลอด รอบชาร์จร้อยกว่าแต่แบตเหลือ 81% เกณฑ์รอบชาร์จอย่างเดียวหักไม่ได้)
+// ระดับปกติต้องผ่านทั้งสองเกณฑ์ ระดับหักใช้เกณฑ์ที่แย่กว่า — หัก 5/10/15% ทุก tier Mac
+const MAC_BATTERY_GROUP = (): SeedCondGroup => ({
+  title: 'สุขภาพแบตเตอรี่', icon: 'battery', kind: 'functional', description: 'ดูสถานะแบต + ความจุสูงสุด (Maximum Capacity) จาก การตั้งค่า > แบตเตอรี่ และ Cycle Count ใน System Report — ถ้าเข้าเกณฑ์หลายระดับ เลือกระดับที่แย่กว่า', options: [
+    { label: 'แบตปกติ (รอบชาร์จไม่เกิน 300 และแบต 90% ขึ้นไป)', description: 'สถานะ Normal, Cycle Count ไม่เกิน 300 และความจุสูงสุด 90-100%', deduct: 0 },
+    { label: 'รอบชาร์จเกิน 300 หรือแบต 85-89%', description: 'Cycle Count 301-400 หรือความจุสูงสุด 85-89%', pct: 5, failBehavior: 'deduct' },
+    { label: 'รอบชาร์จเกิน 400 หรือแบต 80-84%', description: 'Cycle Count 401-500 หรือความจุสูงสุด 80-84%', pct: 10, failBehavior: 'deduct' },
+    { label: 'รอบชาร์จเกิน 500 หรือแบตต่ำกว่า 80% หรือขึ้น Service Recommended', description: 'Cycle Count เกิน 500, ความจุสูงสุดต่ำกว่า 80% หรือขึ้นสถานะ Service Recommended (เข้าเกณฑ์เปลี่ยนแบต)', pct: 15, failBehavior: 'deduct' },
   ],
 });
 // จอ MacBook/iMac — เพิ่มตัวเลือกชั้นเคลือบจอลอก (Staingate) ซึ่งเป็นอาการ
@@ -271,7 +275,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'บุบ / บิ่น / ตกกระแทก', description: 'ตัวเครื่องบุบ บิ่น หรือมีร่องรอยตกกระแทก', pct: 12 },
       { label: 'เครื่องงอ / ผิดรูป', description: 'ตัวเครื่องงอ ผิดรูป หรือบิดเบี้ยว', pct: 25 },
     ] },
-    { title: 'สภาพหน้าจอ', icon: 'screen', kind: 'cosmetic', description: 'รอยหรือความเสียหายของกระจกหน้าจอ', options: [
+    { title: 'สภาพจอภาพและกระจก', icon: 'screen', kind: 'cosmetic', description: 'รอยหรือความเสียหายของกระจกหน้าจอ', options: [
       { label: 'สวยมาก ไม่มีรอย', description: 'หน้าจอใส ไม่มีรอย ไม่มีตำหนิ', deduct: 0 },
       { label: 'มีรอยขนแมวบางๆ', description: 'รอยขนแมวเล็กน้อยบนหน้าจอ', pct: 3 },
       { label: 'มีรอยขีดข่วนเห็นชัด', description: 'มีรอยขีดข่วนบนหน้าจอที่มองเห็นได้ชัด', pct: 12 },
@@ -416,7 +420,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
   // ขายต่อในไทยยากกว่า), เครื่องเปล่าไม่มีอะแดปเตอร์หัก 3% (อะแดปเตอร์แท้
   // 70W-140W ราคา 2,000-3,500 บาท — ต่างจาก iPhone ที่ default ไม่หัก)
   mac_new: { label: 'MacBook ชิป M3 ขึ้นไป (แบต cycle + ประกันละเอียด)', items: [
-    MAC_BATTERY_GROUP(3, 8),
+    MAC_BATTERY_GROUP(),
     MAC_SCREEN_GROUP(3, 10, 50),
     MAC_BODY_GROUP(3, 6, 12, 40),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง', options: [
@@ -429,7 +433,7 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
     MAC_BOX_GROUP,
   ] },
   mac_mid: { label: 'MacBook ชิป M1-M2 (แบต cycle + ประกันไม่หัก)', items: [
-    MAC_BATTERY_GROUP(3, 12),
+    MAC_BATTERY_GROUP(),
     MAC_SCREEN_GROUP(5, 14, 60),
     MAC_BODY_GROUP(5, 9, 16, 45),
     MAC_WARRANTY_INFO_GROUP,
