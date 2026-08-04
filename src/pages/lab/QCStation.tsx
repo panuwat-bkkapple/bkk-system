@@ -1,15 +1,16 @@
 // src/pages/QCStation.tsx
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { formatDate } from '../../utils/formatters';
 import {
    ClipboardCheck, Search, Printer, Save,
    Smartphone, Cpu, AlertTriangle, Lock, Eraser, CheckCircle2, ShieldCheck, X,
-   History, User, ListFilter, CheckSquare, FileText
+   History, User, ListFilter, CheckSquare, FileText, Camera, Plus
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
+import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
 import { unpackAccessoryItemsToStock } from '../../utils/accessoryItems';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
@@ -32,6 +33,15 @@ export const QCStation = () => {
    // Serial ของอุปกรณ์เสริมที่พ่วงมากับงาน (key = accessory item id) — ช่างกรอก
    // ก่อนกดเข้าคลัง แล้วค่าจะติดไปกับ child stock job ตอน unpack
    const [accessorySerials, setAccessorySerials] = useState<Record<string, string>>({});
+
+   // รูปสภาพเครื่อง — เก็บเป็น jobs/{id}/qc_photos (flat field แบบเดียวกับฟิลด์อื่น
+   // ของหน้านี้). dealer portal ใช้เป็นรูปให้ดีลเลอร์ดูก่อนเสนอราคาผ่าน
+   // lotItemSnapshot (ลำดับ lot_photos → qc_photos → devices[0].photos)
+   const MAX_QC_PHOTOS = 8;
+   const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+   const photoInputRef = useRef<HTMLInputElement>(null);
 
    const [qcForm, setQcForm] = useState({
       screen_touch: true, screen_display: true, truetone: true, faceid: true,
@@ -129,6 +139,10 @@ export const QCStation = () => {
 
    const handleOpenQC = (job: any) => {
       setSelectedJob(job);
+      setExistingPhotos(Array.isArray(job.qc_photos) ? job.qc_photos.filter(Boolean) : []);
+      photoPreviews.forEach(u => URL.revokeObjectURL(u));
+      setPhotoFiles([]);
+      setPhotoPreviews([]);
       setAccessorySerials(Object.fromEntries(
          (Array.isArray(job.accessory_items) ? job.accessory_items : [])
             .filter(Boolean)
@@ -201,6 +215,26 @@ export const QCStation = () => {
       triggerPrint('cert');
    };
 
+   const handlePickPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (files.length === 0) return;
+      const room = MAX_QC_PHOTOS - existingPhotos.length - photoFiles.length;
+      if (room <= 0) { toast.warning(`เพิ่มรูปได้สูงสุด ${MAX_QC_PHOTOS} รูปต่อเครื่อง`); return; }
+      const accepted = files.slice(0, room);
+      if (accepted.length < files.length) toast.warning(`เพิ่มได้อีก ${room} รูป (สูงสุด ${MAX_QC_PHOTOS} รูป) — ตัดส่วนเกินออก`);
+      setPhotoFiles(prev => [...prev, ...accepted]);
+      setPhotoPreviews(prev => [...prev, ...accepted.map(f => URL.createObjectURL(f))]);
+   };
+
+   const removeExistingPhoto = (url: string) => setExistingPhotos(prev => prev.filter(u => u !== url));
+
+   const removeNewPhoto = (index: number) => {
+      URL.revokeObjectURL(photoPreviews[index]);
+      setPhotoFiles(prev => prev.filter((_, i) => i !== index));
+      setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+   };
+
    // 🔥 2. Logic ส่งไม้ต่อ: แบบ Smart Dynamic (ป้องกันการวนลูป)
    const handleSubmitQC = async () => {
       if (!qcForm.data_erased) { toast.warning('กรุณายืนยันการล้างข้อมูลก่อนบันทึก'); return; }
@@ -220,6 +254,17 @@ export const QCStation = () => {
 
       try {
          const qcTxnId = generateTXN('TXN-QC');
+
+         // อัปโหลดรูปสภาพเครื่องก่อน (รูปเป็นหลักฐานสภาพ — คงรายละเอียดรอยขีดข่วน
+         // ด้วยความละเอียดสูงกว่า default) แล้วรวมกับรูปเดิมที่ยังไม่ถูกลบ
+         let qcPhotos = [...existingPhotos];
+         if (photoFiles.length > 0) {
+            toast.info(`กำลังอัปโหลดรูป ${photoFiles.length} รูป...`);
+            const uploaded = await Promise.all(photoFiles.map(f =>
+               uploadImageToFirebase(f, `jobs/${selectedJob.id}/qc/station`, { maxWidthOrHeight: 1600, maxSizeMB: 0.8 })
+            ));
+            qcPhotos = [...qcPhotos, ...uploaded].slice(0, MAX_QC_PHOTOS);
+         }
 
          // 🟢 เช็คประวัติว่า "เคยจ่ายเงินไปแล้วหรือยัง?" (ถ้าเคยแล้ว ห้ามส่งกลับไป QC Review เด็ดขาด)
          const isAlreadyPaid = selectedJob.qc_logs?.some((log: any) =>
@@ -266,6 +311,8 @@ export const QCStation = () => {
             model_code: qcForm.model_code || selectedJob.model_code,
             serial: qcForm.actual_serial || selectedJob.serial,
             imei: qcForm.actual_imei || selectedJob.imei,
+            // รูปสภาพเครื่อง — dealer lot snapshot ใช้ต่อ (null = ลบทิ้งเมื่อช่างเอาออกหมด)
+            qc_photos: qcPhotos.length > 0 ? qcPhotos : null,
             qc_details: qcForm,
             qc_logs: updatedLogs
          });
@@ -286,6 +333,9 @@ export const QCStation = () => {
             }
          }
 
+         photoPreviews.forEach(u => URL.revokeObjectURL(u));
+         setPhotoFiles([]);
+         setPhotoPreviews([]);
          setSelectedJob(null);
       } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
    };
@@ -479,6 +529,51 @@ export const QCStation = () => {
                            <section>
                               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FileText size={16} /> Technical Notes</h3>
                               <textarea value={qcForm.notes} onChange={e => setQcForm({ ...qcForm, notes: e.target.value })} placeholder="Notes on exterior condition..." className="w-full bg-white border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-700 outline-none focus:border-blue-400 min-h-[100px] shadow-inner" />
+                           </section>
+
+                           {/* รูปสภาพเครื่อง — บันทึกเป็น jobs/{id}/qc_photos ตอนกด Submit
+                               ดีลเลอร์เห็นรูปชุดนี้ใน Diagnostic Report ก่อนเสนอราคา (ผ่าน lot snapshot) */}
+                           <section>
+                              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                 <Camera size={16} /> Device Photos (รูปสภาพเครื่อง)
+                                 <span className="text-slate-300 normal-case tracking-normal">{existingPhotos.length + photoFiles.length}/{MAX_QC_PHOTOS}</span>
+                              </h3>
+                              <div className="bg-white border border-slate-200 rounded-2xl p-4">
+                                 <div className="flex flex-wrap gap-3">
+                                    {existingPhotos.map((url) => (
+                                       <div key={url} className="relative group">
+                                          <a href={url} target="_blank" rel="noreferrer">
+                                             <img src={url} alt="รูปสภาพเครื่อง" loading="lazy" className="w-20 h-20 object-cover rounded-xl border border-slate-200" />
+                                          </a>
+                                          <button type="button" onClick={() => removeExistingPhoto(url)} title="ลบรูปนี้"
+                                             className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow opacity-0 group-hover:opacity-100 transition-opacity">
+                                             <X size={12} />
+                                          </button>
+                                       </div>
+                                    ))}
+                                    {photoPreviews.map((url, i) => (
+                                       <div key={url} className="relative group">
+                                          <img src={url} alt={`รูปใหม่ ${i + 1}`} className="w-20 h-20 object-cover rounded-xl border-2 border-blue-300" />
+                                          <span className="absolute bottom-1 left-1 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">New</span>
+                                          <button type="button" onClick={() => removeNewPhoto(i)} title="เอารูปออก"
+                                             className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow opacity-0 group-hover:opacity-100 transition-opacity">
+                                             <X size={12} />
+                                          </button>
+                                       </div>
+                                    ))}
+                                    {existingPhotos.length + photoFiles.length < MAX_QC_PHOTOS && (
+                                       <button type="button" onClick={() => photoInputRef.current?.click()}
+                                          className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-1">
+                                          <Plus size={18} />
+                                          <span className="text-[9px] font-black uppercase">เพิ่มรูป</span>
+                                       </button>
+                                    )}
+                                 </div>
+                                 <p className="text-[10px] font-bold text-slate-400 mt-3">
+                                    ถ่ายรอบตัวเครื่อง (หน้า/หลัง/ขอบ/ตำหนิ) — รูปจะอัปโหลดตอนกดบันทึกผล QC และดีลเลอร์จะเห็นชุดนี้ก่อนเสนอราคาเมื่อเครื่องถูกจัดเข้า Lot
+                                 </p>
+                                 <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhotos} />
+                              </div>
                            </section>
 
                            <section className="pb-10">
