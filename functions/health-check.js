@@ -371,10 +371,32 @@ const STATUS_RANK = { ok: 0, skip: 0, warn: 1, fail: 2 };
  * ตอนยังพังอยู่จะไม่สแปมซ้ำทุกชั่วโมง
  */
 async function runAllChecks(db, { dispatchAdminPush, dispatchTelegram }, ranBy) {
-  const prevSnap = await db.ref(`${HEALTH_PATH}/services`).once("value");
+  const [prevSnap, togglesSnap] = await Promise.all([
+    db.ref(`${HEALTH_PATH}/services`).once("value"),
+    // สวิตช์เปิด/ปิดการตรวจรายตัว (ตั้งจากหน้า /system-health) — อยู่ใต้
+    // `settings` จึงใช้ rule เดิม (read auth / write admin) ไม่ต้อง deploy
+    // rules. fail-open ตามธรรมเนียม: มีแต่ `enabled === false` ชัดๆ เท่านั้น
+    // ที่ปิด ใช้ mute service ที่รู้อยู่แล้วว่าพังเพราะรอฝั่งภายนอกแก้
+    // (เช่น Thailand Post รอ activate บัญชี) ไม่ให้ค้างแดง/สแปมแจ้งเตือน
+    db.ref("settings/health_checks").once("value"),
+  ]);
   const prev = prevSnap.val() || {};
+  const toggles = togglesSnap.val() || {};
 
-  const results = await Promise.all(buildProbes(db).map(runProbe));
+  const results = await Promise.all(
+    buildProbes(db).map((def) =>
+      toggles[def.id] && toggles[def.id].enabled === false
+        ? Promise.resolve({
+            id: def.id,
+            label: def.label,
+            status: "skip",
+            message: "ปิดการตรวจไว้ (เปิดได้จากหน้า System Health)",
+            meta: null,
+            latency_ms: 0,
+          })
+        : runProbe(def)
+    )
+  );
   const now = Date.now();
 
   const services = {};
@@ -395,7 +417,9 @@ async function runAllChecks(db, { dispatchAdminPush, dispatchTelegram }, ranBy) 
         prevStatus === r.status ? (before && before.last_status_change_at) || now : now,
     };
     if (r.status === "fail" && prevStatus && prevStatus !== "fail") newlyFailed.push(r);
-    if (r.status !== "fail" && prevStatus === "fail") recovered.push(r);
+    // "หายพัง" ต้องหมายถึงตรวจแล้วผ่านจริง (ok/warn) — การกดปิดการตรวจ
+    // (fail → skip) ไม่ใช่การหาย อย่าส่ง Telegram บอกว่ากลับมาปกติ
+    if ((r.status === "ok" || r.status === "warn") && prevStatus === "fail") recovered.push(r);
   }
 
   const counts = results.reduce(
