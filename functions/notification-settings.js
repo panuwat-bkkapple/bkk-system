@@ -51,6 +51,7 @@ const EVENT_CATEGORY = {
   rider_auto_flagged: "field_ops",
 
   sickw_usage_alert: "system_alert",
+  system_health_alert: "system_alert",
 
   dealer_bid: "dealer",
   dealer_lot: "dealer",
