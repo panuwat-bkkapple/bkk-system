@@ -85,6 +85,24 @@ function optionLabel(opt) {
   return opt.label || opt.name || opt.id || '?';
 }
 
+/** ธีมของ group จากคีย์เวิร์ดในชื่อ — สอง group ธีมเดียวกันในชุดเดียว = ถามซ้ำ/หักซ้ำ */
+const GROUP_THEMES = [
+  { theme: 'สภาพภายนอก/บอดี้', keywords: ['ภายนอก', 'ตัวเครื่อง', 'บอดี้', 'body', 'exterior'] },
+  { theme: 'หน้าจอ', keywords: ['จอ', 'screen', 'display'] },
+  { theme: 'แบตเตอรี่', keywords: ['แบต', 'battery'] },
+  { theme: 'การทำงาน', keywords: ['การทำงาน', 'ฟังก์ชัน', 'ฟังก์ชั่น', 'function'] },
+  { theme: 'ประวัติการซ่อม', keywords: ['ซ่อม', 'repair'] },
+  { theme: 'อุปกรณ์/กล่อง', keywords: ['อุปกรณ์', 'กล่อง', 'accessor'] },
+];
+
+function groupTheme(title) {
+  const t = String(title || '').toLowerCase();
+  for (const { theme, keywords } of GROUP_THEMES) {
+    if (keywords.some((k) => t.includes(k))) return theme;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
@@ -156,6 +174,26 @@ function audit(setsObj, modelsObj) {
       continue;
     }
 
+    // GROUP_DUP_THEME — หลาย group ในชุดเดียวที่เป็นธีมเดียวกัน (ถามซ้ำ + หักเงินซ้ำ)
+    const byTheme = new Map();
+    for (const g of groups) {
+      const theme = groupTheme(g.title);
+      if (!theme) continue;
+      if (!byTheme.has(theme)) byTheme.set(theme, []);
+      byTheme.get(theme).push(g.title || '?');
+    }
+    for (const [theme, titles] of byTheme) {
+      if (titles.length > 1) {
+        push(
+          'GROUP_DUP_THEME',
+          'error',
+          label,
+          `มี ${titles.length} หัวข้อธีมเดียวกัน (${theme}): ${titles.map((t) => `"${t}"`).join(' กับ ')} — ` +
+            `ลูกค้าถูกถามซ้ำและถูกหักเงินซ้ำจากตำหนิเดียวกัน ควรยุบเหลือหัวข้อเดียว`
+        );
+      }
+    }
+
     const seenIds = new Map();
     let legacyOnly = 0;
     let noValue = 0;
@@ -224,6 +262,7 @@ function audit(setsObj, modelsObj) {
 // ---------------------------------------------------------------------------
 
 const CODE_LABEL = {
+  GROUP_DUP_THEME: 'หัวข้อธีมซ้ำในชุดเดียว (หักเงินซ้ำ)',
   MISSING_SET: 'model ชี้ชุดที่ไม่มีอยู่จริง',
   DUP_OPTION_ID: 'option id ซ้ำในชุดเดียว',
   NO_OPTION_ID: 'option ไม่มี id',
@@ -239,7 +278,7 @@ const CODE_LABEL = {
 };
 
 const ORDER = [
-  'MISSING_SET', 'DUP_OPTION_ID', 'NO_OPTION_ID', 'BAD_PCT', 'BAD_DEDUCT',
+  'GROUP_DUP_THEME', 'MISSING_SET', 'DUP_OPTION_ID', 'NO_OPTION_ID', 'BAD_PCT', 'BAD_DEDUCT',
   'NO_SET', 'SHARED_SET', 'ORPHAN_SET', 'EMPTY_SET', 'DUP_SET_NAME', 'LEGACY_TIERS', 'NO_VALUE',
 ];
 
