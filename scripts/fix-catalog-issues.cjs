@@ -66,6 +66,9 @@ const FIXES = [
     id: '-MGg8Y0P_VOPgeXk7AmdC',
     expectName: /MacBook Pro 14" \(ชิป M4, 2024\)/,
     mergeValues: { display: { 'Nano-Texture': 'Nano-texture Glass' } },
+    // ป้ายเก่า "Nano-Texture" คือฝั่งที่ตั้งราคาไว้จริง (mod +1,000) — ป้ายใหม่ mod 0
+    // ยืนยันกับเจ้าของ 4 ส.ค. 2026: จอ Nano รับซื้อแพงกว่า Standard 1,000 บาท
+    preferOldPrices: true,
   },
   {
     id: '-Sb92cvfub_ZZd7I0klcc',
@@ -191,14 +194,16 @@ function planFix(fix, model) {
       kept.push(group[0]);
       continue;
     }
-    // เลือกตัวที่เก็บ: (1) ราคา > 0 ก่อน (2) ตัวที่ป้ายเป็น canonical อยู่แล้ว (ไม่ถูก rename)
+    // เลือกตัวที่เก็บ: (1) ราคา > 0 ก่อน (2) ป้าย canonical เดิม — เว้นแต่
+    // fix.preferOldPrices ให้เอาราคาจากฝั่งป้ายเก่า (ตัวที่ถูก rename) แทน
     const sorted = [...group].sort((a, b) => {
       const pa = usedPriceOf(a) > 0 ? 1 : 0;
       const pb = usedPriceOf(b) > 0 ? 1 : 0;
       if (pa !== pb) return pb - pa;
-      const ca = renamedFlag.has(a) ? 0 : 1;
+      const ca = renamedFlag.has(a) ? 0 : 1; // 1 = ป้าย canonical เดิม
       const cb = renamedFlag.has(b) ? 0 : 1;
-      return cb - ca;
+      if (fix.preferOldPrices) return ca - cb; // ฝั่งป้ายเก่า (ถูก rename) ชนะ
+      return cb - ca; // ฝั่งป้าย canonical ชนะ
     });
     const winner = sorted[0];
     kept.push(winner);
@@ -233,13 +238,21 @@ function planFix(fix, model) {
       if (canonIdx >= 0) {
         const oldOpt = opts[oldIdx];
         const canonOpt = opts[canonIdx];
-        if ((oldOpt.usedPriceMod || 0) !== (canonOpt.usedPriceMod || 0)) {
-          warnings.push(
-            `modifier "${attrKey}": ป้าย "${oldVal}" (mod ${oldOpt.usedPriceMod || 0}) ถูกลบ, เก็บ "${canonical}" (mod ${canonOpt.usedPriceMod || 0})`
-          );
+        if (fix.preferOldPrices) {
+          // ยกค่า mod ทุกตัวจากป้ายเก่า (ฝั่งที่ตั้งราคาไว้จริง) มาไว้ที่ป้าย canonical
+          for (const k of ['newPriceMod', 'usedPriceMod', 'retailPriceMod', 'sellPriceMod', 'sellUsedPriceMod']) {
+            if (oldOpt[k] !== undefined) canonOpt[k] = oldOpt[k];
+          }
+          changes.push(`modifier "${attrKey}": ย้าย mod ของ "${oldVal}" (used ${oldOpt.usedPriceMod || 0}) ไปที่ "${canonical}" แล้วลบป้ายเก่า`);
+        } else {
+          if ((oldOpt.usedPriceMod || 0) !== (canonOpt.usedPriceMod || 0)) {
+            warnings.push(
+              `modifier "${attrKey}": ป้าย "${oldVal}" (mod ${oldOpt.usedPriceMod || 0}) ถูกลบ, เก็บ "${canonical}" (mod ${canonOpt.usedPriceMod || 0})`
+            );
+          }
+          changes.push(`modifier "${attrKey}": ลบตัวเลือก "${oldVal}" (มี "${canonical}" อยู่แล้ว)`);
         }
         opts.splice(oldIdx, 1);
-        changes.push(`modifier "${attrKey}": ลบตัวเลือก "${oldVal}" (มี "${canonical}" อยู่แล้ว)`);
       } else {
         opts[oldIdx].value = canonical;
         changes.push(`modifier "${attrKey}": เปลี่ยนป้าย "${oldVal}" → "${canonical}"`);
