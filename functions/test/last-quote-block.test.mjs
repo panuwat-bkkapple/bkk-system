@@ -1369,6 +1369,45 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("owner-visible behaviors describe the specialist questioning", src.includes("ซักแบบช่าง") && src.includes("แบตเก็บประจุไม่อยู่"));
 }
 
+// --- punctuation in the query must not invent matches (iPad (A16), #HXV1) ----
+// Live case: the customer typed "i Pad (A16)" — Apple's official retail name
+// for the 11th-gen iPad. The NAME side of the matcher strips punctuation but
+// the QUERY side never did, so "(a16)" shattered into junk tokens and "16)"
+// substring-matched the year in 'iPad Pro 9.7" (2016)' — a delisted model —
+// which outranked everything. Martin declared "A16 iPads not bought" while
+// recommending iPad Generation 11 in the same breath: the same device.
+{
+  const CAT = [
+    { id: "g11", name: "iPad Generation 11", brand: "Apple", alias_th: "ไอแพด เจน 11, ไอแพด Gen 11", alias_en: "iPad Generation 11, iPad Gen 11", category: "Tablet", variants: [{ used_price: 9000 }] },
+    { id: "p97", name: 'iPad Pro 9.7" (2016)', brand: "Apple", alias_th: "ไอแพดโปร 9.7 2016", alias_en: "", category: "Tablet", is_active: false, variants: [] },
+    { id: "a13", name: "iPad Air (2013)", brand: "Apple", alias_th: "", alias_en: "", category: "Tablet", is_active: false, variants: [] },
+    { id: "m7", name: "iPad mini รุ่นที่ 7 (ชิป A17 Pro)", brand: "Apple", alias_th: "", alias_en: "iPad mini 7 A17 Pro, iPad mini 7", category: "Tablet", variants: [{ used_price: 12000 }] },
+    { id: "m1a", name: 'MacBook Air 13" (ชิป M1, 2020)', brand: "Apple", alias_th: "", alias_en: "", category: "Mac / Laptop", variants: [{ used_price: 15000 }] },
+  ];
+  // The exact customer keystrokes must pin the exact device.
+  for (const q of ["i Pad (A16)", "iPad (A16)", "ipad a16", "ไอแพด A16"]) {
+    check(`"${q}" pins iPad Generation 11`, __test.exactModelPin(CAT, q)?.id === "g11");
+    check(`"${q}" ranks Gen 11 first, never the 2016 model`, __test.rankModels(CAT, q, 5)[0]?.id === "g11");
+  }
+  // The junk-token mechanism itself: chip digits must not bleed into years.
+  const { tokens } = __test.rankQueryTokens("i Pad (A16)");
+  check("query tokens are clean (pad + a16, no parens, no bare 16)", tokens.includes("a16") && tokens.includes("pad") && !tokens.some((t) => /[()]/.test(t)) && !tokens.includes("16"));
+  check("chip token survives for M-chips too", __test.rankQueryTokens("macbook air m1").tokens.includes("m1"));
+  // The synthetic alias is scoped to exactly one model.
+  check("Gen 11 carries the official A16 alias", __test.officialChipAlias(CAT[0]) === "iPad A16");
+  check("no other model gets the alias", CAT.slice(1).every((m) => __test.officialChipAlias(m) === ""));
+  check("mini 7 matches its A17 chip from its real name", __test.exactModelPin(CAT, "iPad mini a17")?.id === "m7");
+  // The note teaches the LLM the naming so it can explain, not just obey.
+  check("A16 alias note fires on the live phrasing", !!__test.ipadA16AliasNote("i Pad (A16)"));
+  check("A16 alias note stays quiet on unrelated queries", __test.ipadA16AliasNote("iphone 16") === null && __test.ipadA16AliasNote("ipad air m2") === null);
+  check("note is wired into search_models", src.includes("ipadAirGenAliasNote(input.query) || ipadA16AliasNote(input.query)"));
+  // Spaced-out brand spellings and the live Thai typo.
+  check('"i Phone 13" pins like "iphone 13" would rank', __test.normalizeForPin("i Phone 13") === __test.normalizeForPin("iphone 13"));
+  check('"mac book air m1" pins the M1 Air', __test.exactModelPin(CAT, "mac book air m1")?.id === "m1a");
+  check('typo "ไอแพคเจน11" pins iPad Generation 11', __test.exactModelPin(CAT, "ไอแพคเจน11")?.id === "g11");
+  check('typo "ไอแพตเจน11" pins too', __test.exactModelPin(CAT, "ไอแพตเจน11")?.id === "g11");
+}
+
 // --- year-only decline: old years never become a which-model quiz ------------
 // Live case #YDD2 "macbook pro 2012": every tied candidate was itself a
 // delisted Intel, yet the customer got 8 chips to choose from (bottoming at
