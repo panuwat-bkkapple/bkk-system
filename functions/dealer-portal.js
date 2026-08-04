@@ -301,6 +301,20 @@ async function pushStatusLog(db, orderId, status, byName) {
 
 // ── lot helpers ──────────────────────────────────────────────────────────────
 
+// เลขสต๊อกฝั่งดีลเลอร์ (GM-XXXXXX) — regenerate ใหม่ ไม่ผูกกับ ref_no (OID) ของ
+// ใบงานรับซื้อ B2C เพราะ OID โยงกลับไปหน้าบ้าน (tracking/อีเมลลูกค้า) ซึ่งเปิดเผย
+// ราคาที่เรารับซื้อมาได้ — ทุกจุดที่ดีลเลอร์เห็นต้องเป็น stock_no เท่านั้น.
+// ออกครั้งแรกตอน QC บันทึกผล (src/utils/qcStation.ts — MIRROR format กัน) และ
+// backfill ที่นี่ตอน publish สำหรับเครื่องเก่าที่ QC ก่อนมีระบบนี้
+const STOCK_NO_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // ตัด 0/O/1/I/L กันอ่านสับสน
+function generateStockNo() {
+  let s = "";
+  for (let i = 0; i < 8; i++) {
+    s += STOCK_NO_ALPHABET[Math.floor(Math.random() * STOCK_NO_ALPHABET.length)];
+  }
+  return `GM-${s}`;
+}
+
 function lotItemSnapshot(job, askingPrice) {
   const asking =
     askingPrice != null
@@ -328,7 +342,9 @@ function lotItemSnapshot(job, askingPrice) {
 
   return {
     model: job.model || "-",
-    ref_no: job.ref_no || null,
+    // ดีลเลอร์เห็น stock_no (GM-xxx) เท่านั้น — ห้าม fallback ไป job.ref_no (OID
+    // โยงถึงราคารับซื้อหน้าบ้านได้). publish การันตีว่า stock_no มีเสมอ (backfill)
+    ref_no: job.stock_no || null,
     grade: job.grade || null,
     parts_condition: job.partsCondition || null,
     accessories: job.accessories || null,
@@ -1101,6 +1117,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     let totalCost = 0;
     for (const id of itemIds) {
       const job = jobs[id];
+      // backfill stock_no ให้เครื่องที่ QC ก่อนมีระบบเลขสต๊อก — snapshot ด้านล่าง
+      // ใช้เลขนี้เป็น ref ฝั่งดีลเลอร์ และเขียนกลับลง job ใน multi-update
+      if (!job.stock_no) job.stock_no = generateStockNo();
       items[id] = lotItemSnapshot(job, askingPrices[id]);
       itemCosts[id] = stockCostOf(job);
       totalCost += itemCosts[id];
@@ -1143,6 +1162,7 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
       updates[`jobs/${id}/status`] = "Reserved";
       updates[`jobs/${id}/lot_id`] = lotId;
       updates[`jobs/${id}/lot_no`] = lotNo;
+      updates[`jobs/${id}/stock_no`] = jobs[id].stock_no;
     }
     await db.ref().update(updates);
     await db.ref(`lot_private/${lotId}`).update({
@@ -2657,7 +2677,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         id: jobId,
         type: "DEVICE",
         name: order.items[jobId].model || job.model || "-",
-        code: order.items[jobId].ref_no || job.ref_no || null,
+        // code โผล่บนใบกำกับภาษีขายที่ส่งให้ดีลเลอร์ — ใช้ stock_no เท่านั้น
+        // ห้าม fallback ไป job.ref_no (OID โยงถึงราคารับซื้อหน้าบ้าน)
+        code: order.items[jobId].ref_no || job.stock_no || null,
         // ยกล็อตราคารายตัวเป็น 0 — ยอดจริงอยู่ grand_total (ใบกำกับใช้ยอดรวม)
         price: perItemAmount,
         cost,

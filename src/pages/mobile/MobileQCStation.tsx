@@ -61,6 +61,7 @@ export const MobileQCStation = () => {
          j.model?.toLowerCase().includes(q) ||
          j.ref_no?.toLowerCase().includes(q) ||
          j.serial?.toLowerCase().includes(q) ||
+         j.stock_no?.toLowerCase().includes(q) ||
          j.qc_txn_id?.toLowerCase().includes(q)
       );
       return {
@@ -444,7 +445,9 @@ export const MobileQCStation = () => {
                         </div>
                      </div>
                      <h4 className="font-black text-slate-800 text-base">{job.model}</h4>
-                     <p className="text-[11px] text-slate-400 font-bold">SN: {job.serial || 'N/A'}{job.grade ? ` · Grade ${job.grade}` : ''}</p>
+                     <p className="text-[11px] text-slate-400 font-bold">
+                        SN: {job.serial || 'N/A'}{job.grade ? ` · Grade ${job.grade}` : ''}{job.stock_no ? ` · ${job.stock_no}` : ''}
+                     </p>
                   </button>
                );
             })}

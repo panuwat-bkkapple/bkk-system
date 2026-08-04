@@ -44,6 +44,14 @@ export const LotDetail = () => {
   const { data: lotsRaw, loading } = useDatabase('lots');
   const { data: privRaw } = useDatabase('lot_private');
   const { data: auditRaw } = useDatabase('lot_audit');
+  // jobs สำหรับ join หา OID ภายใน — snapshot โชว์แค่ stock_no (GM-xxx) ที่ดีลเลอร์
+  // เห็น แต่สติกเกอร์บนเครื่องจริงพิมพ์ OID ทีมคลังต้องเห็นคู่กันถึงหยิบของถูก
+  const { data: jobsRaw } = useDatabase('jobs');
+  const internalRefOf = (jobId: string): string | null => {
+    const list = Array.isArray(jobsRaw) ? jobsRaw : [];
+    const job = list.find((j: any) => j.id === jobId);
+    return job?.ref_no || null;
+  };
 
   const [busy, setBusy] = useState(false);
   // อัปโหลดรูปเครื่อง — input ตัวเดียวใช้ร่วมทุกแถว (จำ jobId ที่กดไว้ใน ref)
@@ -318,7 +326,10 @@ export const LotDetail = () => {
                   <tr key={jobId}>
                     <td className="p-3">
                       <div className="font-bold text-sm">{it.model}</div>
-                      <div className="text-[10px] font-mono text-slate-400">{it.ref_no} · SN {it.serial_masked || '-'}</div>
+                      <div className="text-[10px] font-mono text-slate-400">
+                        {it.ref_no} · SN {it.serial_masked || '-'}
+                        {internalRefOf(jobId) && <span className="text-slate-300"> · OID {internalRefOf(jobId)}</span>}
+                      </div>
                       {/* รูปสภาพเครื่อง — sync เข้า snapshot ให้ดีลเลอร์เห็นทันที */}
                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                         {(it.photos || []).map((url: string, i: number) => (
@@ -454,7 +465,7 @@ export const LotDetail = () => {
                   );
                   return (
                     <div key={jobId} className="p-3">
-                      <div className="text-sm font-bold mb-1">{it.model} <span className="text-[10px] text-slate-400 font-mono">{it.ref_no}</span></div>
+                      <div className="text-sm font-bold mb-1">{it.model} <span className="text-[10px] text-slate-400 font-mono">{it.ref_no}{internalRefOf(jobId) ? ` · OID ${internalRefOf(jobId)}` : ''}</span></div>
                       <select
                         value={itemWinners[jobId] || ''}
                         disabled={awardMode !== 'per_item'}

@@ -62,6 +62,7 @@ export const QCStation = () => {
          j.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
          j.ref_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
          j.serial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         j.stock_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
          j.qc_txn_id?.toLowerCase().includes(searchTerm.toLowerCase())
       );
       return {
@@ -308,7 +309,10 @@ export const QCStation = () => {
                               </div>
                               <div>
                                  <h2 className="text-xl font-black text-slate-800">{selectedJob.model}</h2>
-                                 <p className="text-[10px] font-bold text-slate-400">SN: {selectedJob.serial || 'N/A'}</p>
+                                 <p className="text-[10px] font-bold text-slate-400">
+                                    SN: {selectedJob.serial || 'N/A'}
+                                    {liveJob?.stock_no && <span className="text-blue-400"> · Stock: {liveJob.stock_no}</span>}
+                                 </p>
                               </div>
                            </div>
                            <div className="flex gap-2">
