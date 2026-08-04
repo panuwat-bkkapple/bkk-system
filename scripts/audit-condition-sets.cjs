@@ -56,9 +56,11 @@ function fetchJSON(url) {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
+        // Buffer.concat แล้ว decode ทีเดียว — กัน UTF-8 หั่นกลาง char เป็น U+FFFD
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
           try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
         });

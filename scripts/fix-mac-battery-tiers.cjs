@@ -99,9 +99,10 @@ function httpJSON(method, url, body) {
     const req = https.request(
       { hostname: u.hostname, path: u.pathname + u.search, method, headers: { 'Content-Type': 'application/json' } },
       (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           let parsed;
           try { parsed = JSON.parse(data); } catch { parsed = data; }
           if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
