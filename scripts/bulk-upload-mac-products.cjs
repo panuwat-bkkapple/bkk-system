@@ -416,9 +416,9 @@ function buildExistingVariantKeys(existingModels) {
   return keys;
 }
 
-function isVariantDuplicate(existingKeys, modelName, variant) {
+function variantDedupKey(modelName, variant) {
   const attrs = variant.attributes || {};
-  const key = [
+  return [
     modelName,
     attrs.processor || '',
     attrs.ram || '',
@@ -427,7 +427,6 @@ function isVariantDuplicate(existingKeys, modelName, variant) {
   ]
     .map((s) => s.trim().toLowerCase())
     .join('|');
-  return existingKeys.has(key);
 }
 
 function buildExistingModelMap(existingModels) {
@@ -555,11 +554,14 @@ async function main() {
 
     for (const variant of modelData.variants) {
       stats.totalVariants++;
-      if (isVariantDuplicate(existingVariantKeys, modelData.modelName, variant)) {
+      const key = variantDedupKey(modelData.modelName, variant);
+      if (existingVariantKeys.has(key)) {
         stats.toSkip++;
       } else {
         stats.toInsert++;
         newVariants.push(variant);
+        // กันแถวซ้ำภายใน CSV เดียวกัน — ไม่งั้น variant เดิมถูก insert สองรอบ
+        existingVariantKeys.add(key);
       }
     }
 
