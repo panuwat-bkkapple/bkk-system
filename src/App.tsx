@@ -55,6 +55,7 @@ const StoreSettings = lazy(() => import('./pages/admin/StoreSettings'));
 const MembershipSettings = lazy(() => import('./pages/admin/MembershipSettings'));
 const CustomerOfferSettings = lazy(() => import('./pages/admin/CustomerOfferSettings'));
 const NotificationSettings = lazy(() => import('./pages/admin/NotificationSettings'));
+const SystemHealth = lazy(() => import('./pages/admin/SystemHealth'));
 const OfferReport = lazy(() => import('./pages/admin/OfferReport'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
 const FinancialReport = lazy(() => import('./pages/admin/FinancialReport'));
@@ -178,6 +179,7 @@ export default function App() {
                 <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
                 <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
                 <Route path="/notification-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <NotificationSettings /> : <Navigate to="/" replace />} />
+                <Route path="/system-health" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SystemHealth /> : <Navigate to="/" replace />} />
                 <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
                 <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
                 <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
