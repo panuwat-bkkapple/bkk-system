@@ -105,6 +105,18 @@ function groupTheme(title) {
   return null;
 }
 
+/** ประเภทของ group: หัวข้อเช็คการทำงาน (screening) กับหัวข้อสภาพ (หักราคา)
+ *  เป็นคนละเรื่อง — ธีมเดียวกันแต่คนละประเภทอยู่คู่กันได้ ไม่ใช่หัวข้อซ้ำ
+ *  (เช่น "การแสดงผลของหน้าจอ" (dead pixel) คู่กับ "สภาพจอภาพและกระจก" (รอย))
+ *  ใช้ g.kind ถ้ามี ไม่มีก็เดาจาก options: ส่วนใหญ่เป็น pass/reject = functional */
+function groupKind(g) {
+  if (g.kind === 'functional' || g.kind === 'cosmetic') return g.kind;
+  const opts = asArray(g.options);
+  if (opts.length === 0) return 'cosmetic';
+  const screening = opts.filter((o) => o && (o.failBehavior === 'pass' || o.failBehavior === 'reject')).length;
+  return screening >= opts.length / 2 ? 'functional' : 'cosmetic';
+}
+
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
@@ -176,16 +188,20 @@ function audit(setsObj, modelsObj) {
       continue;
     }
 
-    // GROUP_DUP_THEME — หลาย group ในชุดเดียวที่เป็นธีมเดียวกัน (ถามซ้ำ + หักเงินซ้ำ)
+    // GROUP_DUP_THEME — หลาย group ในชุดเดียวที่เป็นธีมเดียวกัน "และประเภทเดียวกัน"
+    // (ถามซ้ำ + หักเงินซ้ำ) — แยก functional/cosmetic เพราะเช็คการทำงานกับสภาพ
+    // ของเรื่องเดียวกัน (เช่น จอ) อยู่คู่กันได้อย่างถูกต้อง
     const byTheme = new Map();
     for (const g of groups) {
       const theme = groupTheme(g.title);
       if (!theme) continue;
-      if (!byTheme.has(theme)) byTheme.set(theme, []);
-      byTheme.get(theme).push(g.title || '?');
+      const key = `${theme}|${groupKind(g)}`;
+      if (!byTheme.has(key)) byTheme.set(key, []);
+      byTheme.get(key).push(g.title || '?');
     }
-    for (const [theme, titles] of byTheme) {
+    for (const [key, titles] of byTheme) {
       if (titles.length > 1) {
+        const theme = key.split('|')[0];
         push(
           'GROUP_DUP_THEME',
           'error',
