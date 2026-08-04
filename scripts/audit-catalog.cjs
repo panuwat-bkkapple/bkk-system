@@ -79,11 +79,17 @@ function fetchJSON(url) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** คำในวงเล็บที่ไม่ใช่ชื่อชิป — เจอแล้วถือว่าชื่อรุ่นไม่ได้ระบุชิป ไม่ต้องเช็ค mismatch
+ *  (เช่น MacBook 12" (Retina, 2015) ใช้ processor Intel Core m ซึ่งถูกต้องอยู่แล้ว) */
+const NON_CHIP_TOKENS = new Set(['retina']);
+
 /** ดึงชิป + ปี จากชื่อรุ่น เช่น "MacBook Pro 14\" (ชิป M3, 2023)" → { chip: "M3", year: 2023 } */
 function chipFromName(name) {
   const m = /\((?:\s*ชิป\s*)?([^,()]+),\s*(\d{4})\s*\)/.exec(name || '');
   if (!m) return null;
-  return { chip: m[1].trim(), year: parseInt(m[2], 10) };
+  const chip = m[1].trim();
+  if (NON_CHIP_TOKENS.has(chip.toLowerCase())) return null;
+  return { chip, year: parseInt(m[2], 10) };
 }
 
 /** normalize ค่า processor: ตัดวงเล็บสเปก core ทิ้ง เช่น "M3 Pro (11-core CPU)" → "M3 Pro" */
