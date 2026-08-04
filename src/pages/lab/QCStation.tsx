@@ -10,15 +10,19 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
-import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
-import { unpackAccessoryItemsToStock } from '../../utils/accessoryItems';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
 import { useAuth } from '../../hooks/useAuth';
+// Logic การบันทึก QC ใช้ util กลางร่วมกับหน้า mobile (/mobile/qc) — แก้กติกาที่
+// src/utils/qcStation.ts ที่เดียว
+import {
+   MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
+   validateQcSubmit, submitQcStation, saveQcPhotosOnly,
+} from '../../utils/qcStation';
 
-const SUPERVISORS = ["Head QC - Somchai", "Head QC - Wichai"];
+const SUPERVISORS = QC_SUPERVISORS;
 
 export const QCStation = () => {
    const toast = useToast();
@@ -37,7 +41,6 @@ export const QCStation = () => {
    // รูปสภาพเครื่อง — เก็บเป็น jobs/{id}/qc_photos (flat field แบบเดียวกับฟิลด์อื่น
    // ของหน้านี้). dealer portal ใช้เป็นรูปให้ดีลเลอร์ดูก่อนเสนอราคาผ่าน
    // lotItemSnapshot (ลำดับ lot_photos → qc_photos → devices[0].photos)
-   const MAX_QC_PHOTOS = 8;
    const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
    const [photoFiles, setPhotoFiles] = useState<File[]>([]);
    const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
@@ -51,11 +54,6 @@ export const QCStation = () => {
       icloud_off: true, find_my_off: true, mdm_clear: true, sim_unlocked: true, data_erased: false,
       notes: ''
    });
-
-   const generateTXN = (prefix: string) => {
-      const random = Math.floor(1000 + Math.random() * 9000);
-      return `${prefix}-${Date.now().toString().slice(-4)}${random}`;
-   };
 
    // 🔥 1. Logic ดึงงานเข้าแผนก QC
    const { todoList, doneList } = useMemo(() => {
@@ -148,45 +146,9 @@ export const QCStation = () => {
             .filter(Boolean)
             .map((it: any, i: number) => [it.id || String(i), it.serial || ''])
       ));
-      // ใช้ค่าจาก Sickw เติมฟอร์มได้เฉพาะเมื่อผลตรวจเป็นของเครื่องนี้จริง — คือ id ที่
-      // ส่งไปตรวจ (last_check.imei) ตรงกับ imei/serial ของใบงาน — กัน snapshot ที่เคย
-      // เขียนผิดเครื่องมาเติมข้อมูลมั่ว
-      const lc = job.sickw_check?.last_check;
-      const jobIds = [job.imei, job.serial].filter(Boolean).map((s: string) => String(s).toUpperCase());
-      const checkedId = lc?.imei ? String(lc.imei).toUpperCase() : '';
-      const sw = (lc && checkedId && jobIds.includes(checkedId)) ? (lc.parsed || {}) : {};
-      setQcForm({
-         screen_touch: job.qc_details?.screen_touch ?? true,
-         screen_display: job.qc_details?.screen_display ?? true,
-         truetone: job.qc_details?.truetone ?? true,
-         faceid: job.qc_details?.faceid ?? true,
-         camera_front: job.qc_details?.camera_front ?? true,
-         camera_rear: job.qc_details?.camera_rear ?? true,
-         speaker_mic: job.qc_details?.speaker_mic ?? true,
-         wifi_bt: job.qc_details?.wifi_bt ?? true,
-         buttons: job.qc_details?.buttons ?? true,
-         charging: job.qc_details?.charging ?? true,
-         part_screen: job.qc_details?.part_screen || 'Original',
-         part_battery: job.qc_details?.part_battery || 'Original',
-         part_camera: job.qc_details?.part_camera || 'Original',
-         final_grade: job.grade || 'A',
-         // Rider inspection writes battery_health_pct (and mirrors it to
-         // battery_health). Read either so the rider's reading auto-fills here
-         // instead of always defaulting to 100.
-         battery_health: job.battery_health ?? job.battery_health_pct ?? 100,
-         cycle_count: job.qc_details?.cycle_count ?? job.battery_cycle_count ?? 0,
-         actual_color: sw.color || job.color || '',
-         capacity: sw.capacity || job.capacity || '',
-         model_code: sw.modelNumber || job.qc_details?.model_code || job.model_code || '',
-         actual_imei: sw.imei || job.imei || '',
-         actual_serial: sw.serial || job.serial || '',
-         icloud_off: job.qc_details?.icloud_off ?? true,
-         find_my_off: job.qc_details?.find_my_off ?? true,
-         mdm_clear: job.qc_details?.mdm_clear ?? true,
-         sim_unlocked: job.qc_details?.sim_unlocked ?? true,
-         data_erased: job.qc_details?.data_erased ?? false,
-         notes: job.qc_details?.notes || ''
-      });
+      // เติมฟอร์มจากใบงาน (รวมค่าจาก Sickw เมื่อผลตรวจเป็นของเครื่องนี้จริง) —
+      // logic อยู่ใน util กลางร่วมกับหน้า mobile
+      setQcForm(buildQcFormFromJob(job));
    };
 
    const triggerPrint = (mode: 'cert' | 'sticker') => {
@@ -235,101 +197,47 @@ export const QCStation = () => {
       setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
    };
 
-   // 🔥 2. Logic ส่งไม้ต่อ: แบบ Smart Dynamic (ป้องกันการวนลูป)
+   // มีรูปที่ยังไม่ได้บันทึกไหม — เทียบกับค่าใน DB ล่าสุด (รูปใหม่ หรือลบรูปเดิมออก)
+   const savedPhotos: string[] = Array.isArray(liveJob?.qc_photos) ? liveJob.qc_photos : [];
+   const photosDirty = photoFiles.length > 0 || existingPhotos.length !== savedPhotos.length;
+   const [savingPhotos, setSavingPhotos] = useState(false);
+
+   // บันทึกเฉพาะรูปทันที — จำเป็นสำหรับงานแท็บ Done (In Stock/Reserved) ที่ไม่มีปุ่ม
+   // Submit QC; งาน To Do ก็ใช้เก็บรูปก่อนกรอกฟอร์มเสร็จได้
+   const handleSavePhotosOnly = async () => {
+      if (!selectedJob || savingPhotos) return;
+      setSavingPhotos(true);
+      try {
+         const saved = await saveQcPhotosOnly(selectedJob, existingPhotos, photoFiles, (msg) => toast.info(msg));
+         photoPreviews.forEach(u => URL.revokeObjectURL(u));
+         setPhotoFiles([]);
+         setPhotoPreviews([]);
+         setExistingPhotos(saved);
+         toast.success(`บันทึกรูปแล้ว (${saved.length} รูป)`);
+      } catch (e) { toast.error('บันทึกรูปไม่สำเร็จ: ' + e); }
+      finally { setSavingPhotos(false); }
+   };
+
+   // 🔥 2. Logic ส่งไม้ต่อ — ตัวจริงอยู่ใน util กลาง (submitQcStation) ใช้ร่วมกับ
+   // หน้า mobile: guard → อัปโหลดรูป → เขียนผล QC → แตกอุปกรณ์เสริมเข้าสต๊อก
    const handleSubmitQC = async () => {
-      if (!qcForm.data_erased) { toast.warning('กรุณายืนยันการล้างข้อมูลก่อนบันทึก'); return; }
-      // เครื่องบางประเภทไม่มี IMEI (Apple Watch GPS, iPad Wi-Fi) — ยืนยันด้วย Serial ได้
-      // ขอแค่มี identifier อย่างน้อย 1 อย่าง (IMEI หรือ Serial)
-      if (!qcForm.actual_imei?.trim() && !qcForm.actual_serial?.trim()) {
-         toast.warning('กรุณาสแกน/กรอก IMEI หรือ Serial เครื่องก่อนบันทึกเข้าคลัง'); return;
-      }
-      // Sickw Gate — ห้ามส่ง QC pass / เข้าคลังถ้าเครื่องติด FMI/MDM/Blacklist
-      // (ผูกตรงนี้กับ payout pipeline เลย — ป้องกันเครื่องผิดเข้าสต็อก)
-      const freshGate = getSickwGateStatus(liveJob?.sickw_check);
-      if (freshGate.blocked) {
-         toast.warning(`IMEI Gate: ${freshGate.reasons.join(' / ')} — ต้องให้ MANAGER/CEO override ก่อน`);
-         return;
-      }
+      const error = validateQcSubmit(qcForm, liveJob);
+      if (error) { toast.warning(error); return; }
       if (!confirm('ยืนยันผลการตรวจสอบอุปกรณ์?')) return;
 
       try {
-         const qcTxnId = generateTXN('TXN-QC');
-
-         // อัปโหลดรูปสภาพเครื่องก่อน (รูปเป็นหลักฐานสภาพ — คงรายละเอียดรอยขีดข่วน
-         // ด้วยความละเอียดสูงกว่า default) แล้วรวมกับรูปเดิมที่ยังไม่ถูกลบ
-         let qcPhotos = [...existingPhotos];
-         if (photoFiles.length > 0) {
-            toast.info(`กำลังอัปโหลดรูป ${photoFiles.length} รูป...`);
-            const uploaded = await Promise.all(photoFiles.map(f =>
-               uploadImageToFirebase(f, `jobs/${selectedJob.id}/qc/station`, { maxWidthOrHeight: 1600, maxSizeMB: 0.8 })
-            ));
-            qcPhotos = [...qcPhotos, ...uploaded].slice(0, MAX_QC_PHOTOS);
-         }
-
-         // 🟢 เช็คประวัติว่า "เคยจ่ายเงินไปแล้วหรือยัง?" (ถ้าเคยแล้ว ห้ามส่งกลับไป QC Review เด็ดขาด)
-         const isAlreadyPaid = selectedJob.qc_logs?.some((log: any) =>
-            ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action)
-         );
-
-         let nextStatus = 'In Stock';
-         let actionLog = 'QC PASSED';
-         let detailLog = `ตรวจสอบเรียบร้อย นำสินค้าเข้าคลัง (Grade: ${qcForm.final_grade})`;
-
-         // 🟢 ถ้ายังไม่เคยจ่ายเงิน และเป็น Mail-in/Store-in -> ส่งไปให้ Admin เคาะราคาก่อน
-         if (!isAlreadyPaid && (selectedJob.receive_method === 'Mail-in' || selectedJob.receive_method === 'Store-in')) {
-            nextStatus = 'QC Review';
-            actionLog = 'QC COMPLETED';
-            detailLog = `ช่างตรวจเสร็จสิ้น (Grade: ${qcForm.final_grade}) ส่งผลให้แอดมินประเมินราคา`;
-         }
-
-         const newLogEntry = { action: actionLog, by: supervisor, timestamp: Date.now(), details: detailLog };
-         const updatedLogs = [newLogEntry, ...(selectedJob.qc_logs || [])];
-
-         // เขียน serial ที่ช่างกรอกกลับเข้า accessory_items — child stock job จะได้
-         // serial ติดไปด้วยตอน unpack ด้านล่าง
-         const rawAccessoryItems = Array.isArray(selectedJob.accessory_items)
-            ? selectedJob.accessory_items.filter(Boolean) : [];
-         const updatedAccessoryItems = rawAccessoryItems.map((it: any, i: number) => ({
-            ...it,
-            serial: (accessorySerials[it.id || String(i)] || '').trim(),
-         }));
-
-         await update(ref(db, `jobs/${selectedJob.id}`), {
-            ...(updatedAccessoryItems.length > 0 ? { accessory_items: updatedAccessoryItems } : {}),
-            status: nextStatus, // 👈 ระบบจะฉลาดพอที่จะไม่ส่งกลับไปวนลูปแล้ว
-            qc_txn_id: qcTxnId,
-            qc_passed: isFunctionalPass,
-            qc_date: Date.now(),
-            qc_by: supervisor,
-            grade: qcForm.final_grade,
-            battery_health: qcForm.battery_health,
-            // mirror cycle count ขึ้น job root ด้วย (เดิมเก็บแค่ใน qc_details) ให้
-            // ticket detail / inventory อ่าน battery_cycle_count ได้ตรงๆ
-            battery_cycle_count: qcForm.cycle_count,
-            color: qcForm.actual_color || selectedJob.color,
-            capacity: qcForm.capacity || selectedJob.capacity,
-            model_code: qcForm.model_code || selectedJob.model_code,
-            serial: qcForm.actual_serial || selectedJob.serial,
-            imei: qcForm.actual_imei || selectedJob.imei,
-            // รูปสภาพเครื่อง — dealer lot snapshot ใช้ต่อ (null = ลบทิ้งเมื่อช่างเอาออกหมด)
-            qc_photos: qcPhotos.length > 0 ? qcPhotos : null,
-            qc_details: qcForm,
-            qc_logs: updatedLogs
+         const { nextStatus, qcTxnId, unpackedAccessories } = await submitQcStation({
+            job: selectedJob, liveJob, qcForm, supervisor, accessorySerials,
+            existingPhotos, photoFiles,
+            onProgress: (msg) => toast.info(msg),
          });
 
          if (nextStatus === 'QC Review') {
             toast.success(`บันทึกผลสำเร็จ! ส่งให้ Admin เคาะราคาแล้ว (TXN: ${qcTxnId})`);
          } else {
             toast.success(`บันทึกสำเร็จ! ส่งสินค้าเข้าคลังแล้ว ปิดจ๊อบสมบูรณ์! (TXN: ${qcTxnId})`);
-            // งานที่ขายพ่วงอุปกรณ์เสริม (iPad + Pencil/Keyboard) — แตกเป็น stock
-            // รายชิ้นแบบเดียวกับ B2B unpack (idempotent — เช็ค accessories_unpacked_at)
-            // ใช้ items ที่เพิ่งอัปเดต serial เพื่อให้ child ได้ serial ไปด้วย
-            const unpacked = await unpackAccessoryItemsToStock(
-               { ...(liveJob || selectedJob), ...(updatedAccessoryItems.length > 0 ? { accessory_items: updatedAccessoryItems } : {}) },
-               supervisor
-            );
-            if (unpacked > 0) {
-               toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว (ref ${selectedJob.ref_no}-A1..)`);
+            if (unpackedAccessories > 0) {
+               toast.success(`แตกอุปกรณ์เสริม ${unpackedAccessories} ชิ้นเข้าสต๊อกแล้ว (ref ${selectedJob.ref_no}-A1..)`);
             }
          }
 
@@ -534,10 +442,18 @@ export const QCStation = () => {
                            {/* รูปสภาพเครื่อง — บันทึกเป็น jobs/{id}/qc_photos ตอนกด Submit
                                ดีลเลอร์เห็นรูปชุดนี้ใน Diagnostic Report ก่อนเสนอราคา (ผ่าน lot snapshot) */}
                            <section>
-                              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                 <Camera size={16} /> Device Photos (รูปสภาพเครื่อง)
-                                 <span className="text-slate-300 normal-case tracking-normal">{existingPhotos.length + photoFiles.length}/{MAX_QC_PHOTOS}</span>
-                              </h3>
+                              <div className="flex items-center justify-between mb-4">
+                                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Camera size={16} /> Device Photos (รูปสภาพเครื่อง)
+                                    <span className="text-slate-300 normal-case tracking-normal">{existingPhotos.length + photoFiles.length}/{MAX_QC_PHOTOS}</span>
+                                 </h3>
+                                 {photosDirty && (
+                                    <button type="button" onClick={handleSavePhotosOnly} disabled={savingPhotos}
+                                       className={`flex items-center gap-1.5 px-4 py-2 rounded-lg font-black text-xs uppercase transition-all shadow ${savingPhotos ? 'bg-slate-200 text-slate-400 cursor-wait' : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'}`}>
+                                       <Save size={13} /> {savingPhotos ? 'กำลังบันทึก...' : 'บันทึกรูป'}
+                                    </button>
+                                 )}
+                              </div>
                               <div className="bg-white border border-slate-200 rounded-2xl p-4">
                                  <div className="flex flex-wrap gap-3">
                                     {existingPhotos.map((url) => (
@@ -570,7 +486,7 @@ export const QCStation = () => {
                                     )}
                                  </div>
                                  <p className="text-[10px] font-bold text-slate-400 mt-3">
-                                    ถ่ายรอบตัวเครื่อง (หน้า/หลัง/ขอบ/ตำหนิ) — รูปจะอัปโหลดตอนกดบันทึกผล QC และดีลเลอร์จะเห็นชุดนี้ก่อนเสนอราคาเมื่อเครื่องถูกจัดเข้า Lot
+                                    ถ่ายรอบตัวเครื่อง (หน้า/หลัง/ขอบ/ตำหนิ) — กด "บันทึกรูป" เพื่ออัปโหลดทันที (หรือรูปจะถูกบันทึกพร้อมตอนกด Submit QC) ดีลเลอร์จะเห็นชุดนี้ก่อนเสนอราคาเมื่อเครื่องถูกจัดเข้า Lot
                                  </p>
                                  <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhotos} />
                               </div>

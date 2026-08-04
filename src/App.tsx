@@ -67,6 +67,7 @@ const MobileTicketsPage = lazy(() => import('./pages/mobile/MobileTicketsPage').
 const MobileTicketDetail = lazy(() => import('./pages/mobile/MobileTicketDetail').then(m => ({ default: m.MobileTicketDetail })));
 const MobileNotificationsPage = lazy(() => import('./pages/mobile/MobileNotificationsPage').then(m => ({ default: m.MobileNotificationsPage })));
 const MobileFinancePage = lazy(() => import('./pages/mobile/MobileFinancePage').then(m => ({ default: m.MobileFinancePage })));
+const MobileQCStation = lazy(() => import('./pages/mobile/MobileQCStation').then(m => ({ default: m.MobileQCStation })));
 const DealerManager = lazy(() => import('./pages/dealers/DealerManager').then(m => ({ default: m.DealerManager })));
 const LotManager = lazy(() => import('./pages/dealers/LotManager').then(m => ({ default: m.LotManager })));
 const LotDetail = lazy(() => import('./pages/dealers/LotDetail').then(m => ({ default: m.LotDetail })));
@@ -114,6 +115,7 @@ export default function App() {
               <Route path="/mobile" element={<MobileTicketsPage />} />
               <Route path="/mobile/job/:id" element={<MobileTicketDetail />} />
               <Route path="/mobile/finance" element={<MobileFinancePage />} />
+              <Route path="/mobile/qc" element={<MobileQCStation />} />
               <Route path="/mobile/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
               <Route path="/mobile/pricing/:modelId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/mobile" replace />} />
               <Route path="/mobile/appointments" element={<AppointmentCalendar />} />
