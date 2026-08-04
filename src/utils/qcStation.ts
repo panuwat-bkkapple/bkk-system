@@ -32,6 +32,20 @@ export const generateQcTxn = (prefix = 'TXN-QC'): string => {
    return `${prefix}-${Date.now().toString().slice(-4)}${random}`;
 };
 
+// เลขสต๊อกฝั่งดีลเลอร์ (GM-XXXXXX) — regenerate ใหม่ตอน QC ไม่ผูกกับ ref_no (OID)
+// ของใบงานรับซื้อ B2C: OID โยงกลับไปหน้าบ้าน (tracking/อีเมลลูกค้า) ซึ่งเปิดเผยราคา
+// ที่เรารับซื้อมาได้ — dealer portal เห็นเลขนี้เท่านั้น (lotItemSnapshot ใน
+// functions/dealer-portal.js ใช้ stock_no + backfill ให้เครื่องเก่าตอน publish;
+// MIRROR format กับ generateStockNo ฝั่งนั้น)
+const STOCK_NO_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // ตัด 0/O/1/I/L กันอ่านสับสน
+export const generateStockNo = (): string => {
+   let s = '';
+   for (let i = 0; i < 8; i++) {
+      s += STOCK_NO_ALPHABET[Math.floor(Math.random() * STOCK_NO_ALPHABET.length)];
+   }
+   return `GM-${s}`;
+};
+
 // เติมฟอร์มจากใบงาน — ใช้ค่าจาก Sickw เฉพาะเมื่อผลตรวจเป็นของเครื่องนี้จริง
 // (last_check.imei ตรงกับ imei/serial ของใบงาน) กัน snapshot ที่เคยเขียนผิดเครื่อง
 export const buildQcFormFromJob = (job: any): QcFormState => {
@@ -171,6 +185,8 @@ export const submitQcStation = async (input: QcSubmitInput): Promise<QcSubmitRes
 
    await update(ref(db, `jobs/${job.id}`), {
       ...(updatedAccessoryItems.length > 0 ? { accessory_items: updatedAccessoryItems } : {}),
+      // ออกเลขสต๊อกฝั่งดีลเลอร์ครั้งแรกที่ QC (ถ้ายังไม่มี — ไม่ regenerate ซ้ำ)
+      ...(job.stock_no ? {} : { stock_no: generateStockNo() }),
       status: nextStatus,
       qc_txn_id: qcTxnId,
       qc_passed: isQcFunctionalPass(qcForm),
