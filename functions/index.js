@@ -6036,3 +6036,18 @@ Object.assign(
     staffIdsByRoles,
   })
 );
+
+// =============================================================================
+// System Health Check — probe service/API ทุกตัวที่ระบบพึ่งพา แล้วเขียนผลลง
+// `system_health/` ให้หน้า /system-health อ่าน + แจ้งเตือนเมื่อ service ล้ม
+// (logic ทั้งหมดอยู่ health-check.js, inject dispatch helper แบบเดียวกับ
+// dealer-portal — data.type `system_health_alert` ถูก map เป็นหมวด
+// system_alert ใน notification-settings.js แล้ว)
+// =============================================================================
+Object.assign(
+  exports,
+  require("./health-check").registerHealthCheck({
+    dispatchAdminPush,
+    dispatchTelegram,
+  })
+);
