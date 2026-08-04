@@ -1,13 +1,15 @@
-// /dealer-orders — บอร์ดคำสั่งซื้อดีลเลอร์ (Phase 2: ชำระเงิน + จัดส่ง)
+// /dealer-orders — บอร์ดคำสั่งซื้อดีลเลอร์ (Phase 2: ชำระเงิน + จัดของ + จัดส่ง)
 // ตรวจสลิป/ยืนยันชำระ = CEO/FINANCE (เขียน /sales → ใบกำกับภาษีอัตโนมัติ),
-// จัดส่ง/ปิดงาน = ทุก role, ยกเลิก = CEO/MANAGER — ทั้งหมดผ่าน callable
-import React, { useMemo, useState } from 'react';
+// จัดของ = สแกนบาร์โค้ดเช็คครบทุกเครื่องก่อนส่ง (four-eyes: คนออกรายการห้ามจัดเอง
+// — server บังคับใน adminDealerOrderPicking), จัดส่ง/ปิดงาน = ทุก role (ship ถูก
+// block จนกว่า picking done), ยกเลิก = CEO/MANAGER — ทั้งหมดผ่าน callable
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { useAuth } from '../../hooks/useAuth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
-import { ClipboardList, ExternalLink, Truck, CheckCircle2, Ban, FileText, X } from 'lucide-react';
+import { ClipboardList, ExternalLink, Truck, CheckCircle2, Ban, FileText, X, ScanBarcode, PackageCheck, Undo2 } from 'lucide-react';
 import { ORDER_STATUS_META, fmtBaht, fmtDateTime, type DealerOrder, type DealerOrderStatus } from '../../types/dealer';
 
 const call = async (name: string, data: Record<string, unknown>) => {
@@ -33,6 +35,68 @@ export const DealerOrders = () => {
   const [busy, setBusy] = useState(false);
   const [shipModal, setShipModal] = useState<DealerOrder | null>(null);
   const [shipForm, setShipForm] = useState({ method: '', tracking_no: '' });
+
+  // จัดของ — เก็บแค่ id แล้วอ่าน order สดจาก realtime เสมอ (สแกนจากเครื่องอื่น
+  // ก็เห็นติ๊กขึ้นทันที), input โฟกัสค้างไว้รับ barcode scanner (พิมพ์+Enter)
+  const [pickOrderId, setPickOrderId] = useState<string | null>(null);
+  const [scanCode, setScanCode] = useState('');
+  const [scanBusy, setScanBusy] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const pickOrder: DealerOrder | null = useMemo(() => {
+    if (!pickOrderId) return null;
+    const list = Array.isArray(ordersRaw) ? ordersRaw : [];
+    return list.find((o: DealerOrder) => o.id === pickOrderId) || null;
+  }, [ordersRaw, pickOrderId]);
+
+  useEffect(() => {
+    if (pickOrderId) setTimeout(() => scanInputRef.current?.focus(), 100);
+  }, [pickOrderId]);
+
+  const pickedCountOf = (o: DealerOrder) => Object.keys(o.picking?.items || {}).length;
+  const pickingDone = (o: DealerOrder) => o.picking?.status === 'done';
+
+  const handleScan = async () => {
+    const code = scanCode.trim();
+    if (!code || !pickOrder || scanBusy) return;
+    setScanBusy(true);
+    try {
+      const res = await call('adminDealerOrderPicking', { orderId: pickOrder.id, action: 'scan', code });
+      if (res.already) toast.info(`${res.model} — สแกนไปแล้วก่อนหน้านี้`);
+      else toast.success(`✓ ${res.model} (${res.picked}/${res.total})`);
+      setScanCode('');
+    } catch (err: any) {
+      toast.error(err?.message || 'สแกนไม่สำเร็จ');
+    } finally {
+      setScanBusy(false);
+      scanInputRef.current?.focus();
+    }
+  };
+
+  const handleUndoPick = async (jobId: string) => {
+    if (!pickOrder || scanBusy) return;
+    setScanBusy(true);
+    try {
+      await call('adminDealerOrderPicking', { orderId: pickOrder.id, action: 'undo', jobId });
+    } catch (err: any) {
+      toast.error(err?.message || 'ยกเลิกรายการไม่สำเร็จ');
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
+  const handleCompletePicking = async () => {
+    if (!pickOrder || scanBusy) return;
+    setScanBusy(true);
+    try {
+      await call('adminDealerOrderPicking', { orderId: pickOrder.id, action: 'complete' });
+      toast.success('จัดของครบแล้ว — พร้อมจัดส่ง');
+      setPickOrderId(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'ปิดการจัดของไม่สำเร็จ');
+    } finally {
+      setScanBusy(false);
+    }
+  };
 
   const orders: DealerOrder[] = useMemo(() => {
     const list = Array.isArray(ordersRaw) ? ordersRaw : [];
@@ -166,7 +230,12 @@ export const DealerOrders = () => {
                             ยืนยันชำระ
                           </button>
                         )}
-                        {['paid', 'preparing'].includes(o.status) && (
+                        {['paid', 'preparing'].includes(o.status) && !pickingDone(o) && (
+                          <button onClick={() => setPickOrderId(o.id)} disabled={busy} className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 text-[10px] font-black uppercase flex items-center gap-1 disabled:opacity-50">
+                            <ScanBarcode size={12} /> จัดของ {pickedCountOf(o) > 0 ? `${pickedCountOf(o)}/${o.item_count}` : ''}
+                          </button>
+                        )}
+                        {['paid', 'preparing'].includes(o.status) && pickingDone(o) && (
                           <button onClick={() => { setShipModal(o); setShipForm({ method: o.shipping?.method || '', tracking_no: o.shipping?.tracking_no || '' }); }} disabled={busy} className="bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 text-[10px] font-black uppercase flex items-center gap-1 disabled:opacity-50">
                             <Truck size={12} /> จัดส่ง
                           </button>
@@ -193,6 +262,103 @@ export const DealerOrders = () => {
           </table>
         </div>
       </div>
+
+      {/* Picking modal — สแกนบาร์โค้ด (QC TXN / IMEI / SN / GM) เช็คของครบก่อนส่ง */}
+      {pickOrder && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="font-black text-lg text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                  <ScanBarcode size={20} className="text-blue-500" /> จัดของ {pickOrder.order_no}
+                </h3>
+                <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                  ผู้ออกรายการ: {pickOrder.created_by || '-'} — ต้องให้แอดมินคนอื่นเป็นผู้สแกนจัดของ
+                </p>
+              </div>
+              <button onClick={() => setPickOrderId(null)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {/* ช่องสแกน — barcode scanner พิมพ์รหัส+Enter ให้เอง / พิมพ์มือได้ */}
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-2 bg-blue-50 border-2 border-blue-200 rounded-xl px-4 focus-within:border-blue-500">
+                  <ScanBarcode size={18} className="text-blue-400 shrink-0" />
+                  <input
+                    ref={scanInputRef}
+                    value={scanCode}
+                    onChange={(e) => setScanCode(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } }}
+                    placeholder="ยิงบาร์โค้ด QC TXN / IMEI / Serial / เลข GM..."
+                    className="flex-1 py-3.5 bg-transparent font-mono font-bold text-sm outline-none"
+                    autoComplete="off"
+                  />
+                </div>
+                <button onClick={handleScan} disabled={scanBusy || !scanCode.trim()} className="bg-blue-600 text-white px-5 rounded-xl font-black text-xs uppercase disabled:opacity-40">
+                  เช็ค
+                </button>
+              </div>
+
+              {/* Progress */}
+              {(() => {
+                const total = pickOrder.item_count || Object.keys(pickOrder.items || {}).length;
+                const picked = pickedCountOf(pickOrder);
+                return (
+                  <div>
+                    <div className="flex justify-between text-[10px] font-black uppercase text-slate-400 mb-1">
+                      <span>สแกนแล้ว {picked}/{total} เครื่อง</span>
+                      {pickOrder.picking?.started_by && <span>ผู้จัด: {pickOrder.picking.started_by}</span>}
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${total > 0 ? (picked / total) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* รายการเครื่อง */}
+              <div className="border border-slate-200 rounded-2xl divide-y divide-slate-100 overflow-hidden">
+                {Object.entries(pickOrder.items || {}).map(([jobId, it]) => {
+                  const scanned = pickOrder.picking?.items?.[jobId];
+                  return (
+                    <div key={jobId} className={`flex items-center gap-3 px-4 py-3 ${scanned ? 'bg-emerald-50' : 'bg-white'}`}>
+                      {scanned ? <CheckCircle2 size={18} className="text-emerald-500 shrink-0" /> : <span className="w-[18px] h-[18px] rounded-full border-2 border-slate-200 shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-sm truncate">{it.model}</div>
+                        <div className="text-[10px] font-mono font-bold text-slate-400">
+                          {it.ref_no || '-'}
+                          {scanned && ` · สแกน "${scanned.code}" โดย ${scanned.by || '-'} ${fmtDateTime(scanned.at)}`}
+                        </div>
+                      </div>
+                      {scanned && !pickingDone(pickOrder) && (
+                        <button onClick={() => handleUndoPick(jobId)} disabled={scanBusy} className="text-slate-300 hover:text-red-500 p-1" title="ยกเลิกรายการนี้">
+                          <Undo2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-100 bg-slate-50 shrink-0">
+              {pickingDone(pickOrder) ? (
+                <div className="text-center text-xs font-black text-emerald-600 uppercase flex items-center justify-center gap-2">
+                  <PackageCheck size={16} /> จัดของครบแล้ว — กดจัดส่งได้เลย
+                </div>
+              ) : (
+                <button
+                  onClick={handleCompletePicking}
+                  disabled={scanBusy || pickedCountOf(pickOrder) < (pickOrder.item_count || 0)}
+                  className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-emerald-700 disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  <PackageCheck size={16} /> ยืนยันจัดของครบ {pickedCountOf(pickOrder)}/{pickOrder.item_count}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ship modal */}
       {shipModal && (

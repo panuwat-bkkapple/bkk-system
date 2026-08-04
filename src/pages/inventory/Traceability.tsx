@@ -8,37 +8,112 @@ import {
   FileText, Image as ImageIcon, X, CreditCard
 } from 'lucide-react';
 
+// เหตุการณ์กลางของ timeline (ระหว่างรับเข้า → ขายออก) — สร้างจาก qc_logs ของ job,
+// ข้อมูลล็อตประมูล และ status_log/picking ของออเดอร์ดีลเลอร์
+interface TraceEvent {
+   at: number;
+   tag: string;      // ป้ายหมวดสั้นๆ (QC / LOT / DEALER / PICKING)
+   title: string;
+   detail?: string;
+   by?: string;
+   color: string;    // tailwind bg ของจุดบน timeline
+}
+
 export const Traceability = () => {
   const toast = useToast();
   const { data: activeJobs } = useDatabase('jobs');
   const { data: archivedJobs } = useDatabase('jobs_archived');
   const jobs = useMemo(() => [...activeJobs, ...archivedJobs], [activeJobs, archivedJobs]);
   const { data: sales } = useDatabase('sales');
+  // ข้อมูลฝั่งดีลเลอร์ — ตามรอยเครื่องที่ขายยกล็อต (เข้าล็อต → ออเดอร์ → จัดของ → ส่ง)
+  const { data: lotsRaw } = useDatabase('lots');
+  const { data: dealerOrdersRaw } = useDatabase('dealer_orders');
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState<any>(null);
   const [viewingSlip, setViewingSlip] = useState<string | null>(null); // State สำหรับดูรูปสลิป
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    const q = query.trim().toUpperCase();
+    if (!q) return;
 
-    // 1. หาข้อมูลการรับซื้อ (Acquisition Job)
-    const job = Array.isArray(jobs) ? jobs.find(j => 
-      j.serial === query || j.imei === query || j.ref_no === query
+    // 1. หาข้อมูลการรับซื้อ (Acquisition Job) — ค้นได้ทั้ง SN / IMEI / OID /
+    //    เลขสต๊อกดีลเลอร์ (GM-xxx) / QC TXN (บาร์โค้ดสติกเกอร์ QC)
+    const matches = (v: any) => v && String(v).toUpperCase() === q;
+    const job = Array.isArray(jobs) ? jobs.find(j =>
+      matches(j.serial) || matches(j.imei) || matches(j.ref_no) || matches(j.stock_no) || matches(j.qc_txn_id)
     ) : null;
 
-    // 2. หาประวัติการขาย (Sales Records)
-    const saleRecords = Array.isArray(sales) ? sales.filter(s => 
-      s.items?.some((item: any) => item.code === query)
+    // 2. หาประวัติการขาย (Sales Records) — item.code เป็น OID (ขาย POS) หรือ
+    //    stock_no (ขายดีลเลอร์) แล้วแต่ช่องทาง เทียบกับทุก id ของเครื่องที่เจอ
+    const jobCodes = new Set(
+      [q, job?.ref_no, job?.stock_no, job?.serial, job?.imei].filter(Boolean).map((s: any) => String(s).toUpperCase())
+    );
+    const saleRecords = Array.isArray(sales) ? sales.filter(s =>
+      s.items?.some((item: any) => item.code && jobCodes.has(String(item.code).toUpperCase()))
     ).sort((a, b) => (b.sold_at || 0) - (a.sold_at || 0)) : [];
 
     if (!job && saleRecords.length === 0) {
-       toast.info('ไม่พบข้อมูล S/N หรือ IMEI นี้ในระบบ Traceability');
+       toast.info('ไม่พบข้อมูลเลขนี้ในระบบ Traceability (SN / IMEI / OID / GM / QC TXN)');
        setSearchResult(null);
        return;
     }
 
-    setSearchResult({ job, saleRecords });
+    // 3. Timeline เหตุการณ์กลาง — QC logs + ล็อตประมูล + ออเดอร์ดีลเลอร์
+    const events: TraceEvent[] = [];
+    if (job) {
+      // QC logs (เก็บ newest-first ใน job — timeline เรียงเก่า→ใหม่ตอน sort ท้าย)
+      (Array.isArray(job.qc_logs) ? job.qc_logs : []).forEach((log: any) => {
+        if (!log?.timestamp) return;
+        events.push({
+          at: log.timestamp, tag: 'QC', color: 'bg-cyan-500',
+          title: String(log.action || 'QC'), detail: log.details || undefined, by: log.by || undefined,
+        });
+      });
+      // เข้าล็อตประมูล
+      const lots = Array.isArray(lotsRaw) ? lotsRaw : [];
+      const lot = job.lot_id ? lots.find((l: any) => l.id === job.lot_id) : null;
+      if (lot) {
+        events.push({
+          at: lot.published_at || lot.open_at || lot.created_at || 0, tag: 'LOT', color: 'bg-indigo-500',
+          title: `เข้าล็อตประมูล ${lot.lot_no || ''}`,
+          detail: lot.title || undefined,
+        });
+      }
+      // ออเดอร์ดีลเลอร์ที่มีเครื่องนี้ — เส้นทางขายส่ง: ออกรายการ → ชำระ → จัดของ → ส่ง
+      const dOrders = (Array.isArray(dealerOrdersRaw) ? dealerOrdersRaw : [])
+        .filter((o: any) => o.items && o.items[job.id]);
+      for (const o of dOrders) {
+        events.push({
+          at: o.created_at || 0, tag: 'DEALER', color: 'bg-violet-500',
+          title: `ออกรายการขายส่ง ${o.order_no || ''}`,
+          detail: `${o.dealer_snapshot?.company_name || ''} · ยอดออเดอร์ ฿${Number(o.amount || 0).toLocaleString()}`,
+          by: o.created_by || undefined,
+        });
+        const scanned = o.picking?.items?.[job.id];
+        if (scanned?.at) {
+          events.push({
+            at: scanned.at, tag: 'PICKING', color: 'bg-emerald-500',
+            title: 'สแกนจัดของ (ยืนยันหยิบถูกเครื่อง)',
+            detail: `สแกนด้วยรหัส "${scanned.code || '-'}"`, by: scanned.by || undefined,
+          });
+        }
+        Object.values(o.status_log || {}).forEach((sl: any) => {
+          if (!sl?.at || !sl.status) return;
+          const label: Record<string, string> = {
+            payment_review: 'ดีลเลอร์แนบสลิปโอน', paid: 'ยืนยันรับชำระ', preparing: 'จัดของครบ — เตรียมส่ง',
+            shipped: 'จัดส่งแล้ว', completed: 'ปิดงานขายส่ง', cancelled: 'ยกเลิกออเดอร์',
+          };
+          events.push({
+            at: sl.at, tag: 'DEALER', color: sl.status === 'cancelled' ? 'bg-red-500' : 'bg-violet-500',
+            title: `${label[sl.status] || sl.status} (${o.order_no || ''})`, by: sl.by || undefined,
+          });
+        });
+      }
+    }
+    events.sort((a, b) => a.at - b.at);
+
+    setSearchResult({ job, saleRecords, events });
   };
 
   return (
@@ -60,7 +135,7 @@ export const Traceability = () => {
             <Search className="text-slate-400" size={20}/>
             <input 
                type="text" 
-               placeholder="Scan IMEI / Serial Number..." 
+               placeholder="Scan IMEI / Serial / OID / GM-xxx / QC TXN..."
                value={query}
                onChange={e => setQuery(e.target.value)}
                className="w-full bg-transparent outline-none font-bold text-lg text-slate-700 placeholder:text-slate-300"
@@ -84,7 +159,10 @@ export const Traceability = () => {
                   </div>
                   <div className="space-y-4 relative z-10">
                      <DataRow label="Model Name" value={searchResult.job?.model || 'N/A'} />
-                     <DataRow label="Serial / IMEI" value={<span className="font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{query}</span>} />
+                     <DataRow label="Serial / IMEI" value={<span className="font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{searchResult.job?.serial || searchResult.job?.imei || query}</span>} />
+                     {searchResult.job?.ref_no && <DataRow label="OID (ใบงานรับซื้อ)" value={<span className="font-mono">{searchResult.job.ref_no}</span>} />}
+                     {searchResult.job?.stock_no && <DataRow label="เลขสต๊อกดีลเลอร์ (GM)" value={<span className="font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{searchResult.job.stock_no}</span>} />}
+                     {searchResult.job?.qc_txn_id && <DataRow label="QC TXN (บาร์โค้ดสติกเกอร์)" value={<span className="font-mono">{searchResult.job.qc_txn_id}</span>} />}
                      <DataRow label="Current Status" value={
                         <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase border ${searchResult.job?.status === 'Sold' ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
                            {searchResult.job?.status || 'UNKNOWN'}
@@ -162,6 +240,26 @@ export const Traceability = () => {
                            </div>
                         </div>
                      )}
+
+                     {/* เหตุการณ์กลาง — QC / ล็อตประมูล / ออเดอร์ดีลเลอร์ / จัดของ */}
+                     {(searchResult.events || []).map((ev: TraceEvent, i: number) => (
+                        <div key={`${ev.at}-${i}`} className="relative pl-12">
+                           <div className={`absolute left-2 top-1 w-6 h-6 rounded-full border-4 border-slate-900 ${ev.color} z-10`} />
+                           <div className="p-4 rounded-2xl border border-white/10 bg-white/5">
+                              <div className="flex justify-between items-start gap-3">
+                                 <div className="min-w-0">
+                                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${ev.color} text-white mb-1 inline-block`}>{ev.tag}</span>
+                                    <h4 className="font-black text-sm text-white">{ev.title}</h4>
+                                    {ev.detail && <p className="text-xs text-slate-400 font-bold mt-0.5">{ev.detail}</p>}
+                                 </div>
+                                 <div className="text-right shrink-0">
+                                    <div className="text-[10px] font-bold text-slate-400">{new Date(ev.at).toLocaleString('th-TH')}</div>
+                                    {ev.by && <div className="text-[9px] font-black text-blue-400 uppercase mt-0.5">By: {ev.by}</div>}
+                                 </div>
+                              </div>
+                           </div>
+                        </div>
+                     ))}
 
                      {/* รายการขายออก (Sales Points) */}
                      {searchResult.saleRecords.length === 0 ? (

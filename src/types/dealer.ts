@@ -157,6 +157,19 @@ export interface DealerOrder {
   sale_id?: string;
   shipping?: { method?: string | null; tracking_no?: string | null; shipped_at?: number };
   created_at: number;
+  created_by?: string | null;
+  created_by_id?: string | null;
+  // ระบบจัดของ (four-eyes: คนออกรายการ ≠ คนสแกน) — server เขียนผ่าน
+  // adminDealerOrderPicking เท่านั้น
+  picking?: {
+    status?: 'done';
+    items?: Record<string, { at: number; by?: string | null; by_id?: string | null; code?: string }>;
+    started_at?: number;
+    started_by?: string | null;
+    creator_override?: boolean;
+    completed_at?: number;
+    completed_by?: string | null;
+  };
 }
 
 export const LOT_STATUS_META: Record<LotStatus, { label: string; cls: string }> = {

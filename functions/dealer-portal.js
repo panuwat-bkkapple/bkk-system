@@ -2505,6 +2505,9 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
         payment_info: settings.payment_info || null,
         created_at: nowMs(),
         created_by: caller.name || null,
+        // staff id ของคนออกรายการ — ระบบจัดของใช้บังคับแบ่งหน้าที่ (four-eyes):
+        // คนออกรายการห้ามเป็นคนสแกนจัดของเอง
+        created_by_id: callerStaffId || null,
       };
 
       // ใบเสนอราคา PDF (best-effort — พังแล้วออเดอร์ยังเกิด แนบทีหลังได้)
@@ -2769,6 +2772,95 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     return { ok: true, sale_id: saleRef.key };
   });
 
+  // ── ระบบจัดของ (picking) — สแกนบาร์โค้ดเช็คของก่อนส่ง ─────────────────────
+  // แบ่งหน้าที่ (four-eyes): คนออกรายการ (award → created_by_id) ห้ามเป็นคน
+  // สแกนจัดของเอง — CEO override ได้ (ระบบประทับไว้ใน picking node)
+  // การสแกนจับคู่กับ qc_txn_id / IMEI / serial / stock_no / ref_no ของเครื่องใน
+  // ออเดอร์ (บาร์โค้ดสติกเกอร์ QC = TXN id, กล่องเครื่อง = IMEI)
+  fns.adminDealerOrderPicking = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { caller, callerStaffId, callerRole } = await requireStaffRole(db, request.auth, ["CEO", "MANAGER", "STAFF"]);
+    const data = request.data || {};
+    const orderId = String(data.orderId || "");
+    const action = String(data.action || "");
+    const order = (await db.ref(`dealer_orders/${orderId}`).once("value")).val();
+    if (!order) throw new HttpsError("not-found", "ไม่พบคำสั่งซื้อ");
+    if (!["paid", "preparing"].includes(order.status)) {
+      throw new HttpsError("failed-precondition", "จัดของได้เฉพาะออเดอร์ที่ยืนยันการชำระแล้ว");
+    }
+    const jobIds = Object.keys(order.items || {});
+    if (jobIds.length === 0) throw new HttpsError("failed-precondition", "ออเดอร์ไม่มีรายการเครื่อง");
+    const picking = order.picking || {};
+
+    // four-eyes: เทียบ staff id ของคนออกรายการ (ออเดอร์เก่าไม่มี id ให้เทียบชื่อ)
+    const sameAsCreator = order.created_by_id
+      ? order.created_by_id === callerStaffId
+      : !!order.created_by && order.created_by === (caller.name || null);
+    if (sameAsCreator && callerRole !== "CEO") {
+      throw new HttpsError("permission-denied",
+        "คนออกรายการห้ามจัดของเอง — ให้แอดมินอีกคนเป็นผู้สแกนจัดของ");
+    }
+
+    if (action === "scan") {
+      const code = String(data.code || "").trim().toUpperCase();
+      if (!code) throw new HttpsError("invalid-argument", "ไม่มีรหัสที่สแกน");
+      const jobs = await readLotJobs(db, jobIds);
+      const matchId = jobIds.find((id) => {
+        const j = jobs[id] || {};
+        return [j.qc_txn_id, j.imei, j.serial, j.stock_no, j.ref_no]
+          .filter(Boolean)
+          .map((s) => String(s).toUpperCase())
+          .includes(code);
+      });
+      if (!matchId) {
+        throw new HttpsError("not-found", `ไม่พบ "${code}" ในออเดอร์นี้ — เช็คว่าหยิบถูกเครื่อง/ถูกออเดอร์`);
+      }
+      const already = !!(picking.items && picking.items[matchId]);
+      if (!already) {
+        await db.ref(`dealer_orders/${orderId}/picking`).update({
+          [`items/${matchId}`]: { at: nowMs(), by: caller.name || null, by_id: callerStaffId || null, code },
+          ...(picking.started_at ? {} : {
+            started_at: nowMs(),
+            started_by: caller.name || null,
+            started_by_id: callerStaffId || null,
+            ...(sameAsCreator ? { creator_override: true } : {}),
+          }),
+        });
+      }
+      const picked = Object.keys(picking.items || {}).length + (already ? 0 : 1);
+      const it = order.items[matchId] || {};
+      return { ok: true, jobId: matchId, model: it.model || "-", ref_no: it.ref_no || null, already, picked, total: jobIds.length };
+    }
+
+    if (action === "undo") {
+      const jobId = String(data.jobId || "");
+      if (!jobId || !order.items[jobId]) throw new HttpsError("invalid-argument", "ไม่พบเครื่องนี้ในออเดอร์");
+      await db.ref(`dealer_orders/${orderId}/picking/items/${jobId}`).remove();
+      return { ok: true };
+    }
+
+    if (action === "complete") {
+      const items = picking.items || {};
+      const missing = jobIds.filter((id) => !items[id]);
+      if (missing.length > 0) {
+        throw new HttpsError("failed-precondition", `ยังสแกนไม่ครบ — ขาดอีก ${missing.length} เครื่อง`);
+      }
+      await db.ref(`dealer_orders/${orderId}/picking`).update({
+        status: "done",
+        completed_at: nowMs(),
+        completed_by: caller.name || null,
+        completed_by_id: callerStaffId || null,
+      });
+      if (order.status === "paid") {
+        await db.ref(`dealer_orders/${orderId}/status`).set("preparing");
+        await pushStatusLog(db, orderId, "preparing", caller.name || null);
+      }
+      return { ok: true };
+    }
+
+    throw new HttpsError("invalid-argument", "action ไม่ถูกต้อง");
+  });
+
   fns.adminDealerOrderShip = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
     const { caller } = await requireStaffRole(db, request.auth, ["CEO", "MANAGER", "STAFF"]);
@@ -2778,6 +2870,10 @@ function registerDealerPortal({ dispatchAdminPush, dispatchTelegram, staffIdsByR
     if (!order) throw new HttpsError("not-found", "ไม่พบคำสั่งซื้อ");
     if (!["paid", "preparing"].includes(order.status)) {
       throw new HttpsError("failed-precondition", "ต้องยืนยันการชำระเงินก่อนจัดส่ง");
+    }
+    // ต้องจัดของ (สแกนครบทุกเครื่อง) ก่อนจึงส่งได้ — กันส่งผิดเครื่อง/ส่งไม่ครบ
+    if (!order.picking || order.picking.status !== "done") {
+      throw new HttpsError("failed-precondition", "ต้องจัดของ (สแกนเช็คครบทุกเครื่อง) ก่อนจัดส่ง — กดปุ่ม 'จัดของ' ในออเดอร์");
     }
     await db.ref(`dealer_orders/${orderId}`).update({
       status: "shipped",
