@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { db } from '../firebase';
 import { QC_CHECK_LABEL, CLEAN_STATUS_LABEL, gradeDescOf, fmtBaht, fmtDateTime, type LotItem } from '../types';
+import { Lightbox } from '../components/Lightbox';
 
 // จัดกลุ่มผลตรวจ 10 รายการเป็นหมวดแบบ Stitch (Face ID Array / Display Subsystem / ...)
 const CHECK_GROUPS: { title: string; icon: React.ReactNode; keys: string[] }[] = [
@@ -24,6 +25,7 @@ export const DeviceReport = () => {
   const navigate = useNavigate();
   const [item, setItem] = useState<LotItem | null | undefined>(undefined);
   const [lotNo, setLotNo] = useState<string>('');
+  const [photoIdx, setPhotoIdx] = useState(-1); // -1 = lightbox ปิด
 
   useEffect(() => {
     if (!id || !jobId) return;
@@ -117,7 +119,7 @@ export const DeviceReport = () => {
         <div className="notice mt12">เครื่องนี้ยังไม่มีรายงานผลตรวจละเอียดในระบบ — สอบถามเพิ่มเติมได้ที่เจ้าหน้าที่</div>
       )}
 
-      {/* รูปสภาพเครื่องจริง — กดเปิดเต็มในแท็บใหม่ */}
+      {/* รูปสภาพเครื่องจริง — แตะเพื่อดูขยายใน lightbox (ไม่เด้งออกจากแอป) */}
       {Array.isArray(item.photos) && item.photos.length > 0 && (
         <div className="card">
           <div className="tiny muted black" style={{ textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -125,16 +127,31 @@ export const DeviceReport = () => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginTop: 10 }}>
             {item.photos.map((url, i) => (
-              <a key={url} href={url} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+              <button
+                key={url}
+                type="button"
+                onClick={() => setPhotoIdx(i)}
+                aria-label={`ดูรูปเครื่องที่ ${i + 1}`}
+                style={{ display: 'block', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
+              >
                 <img
                   src={url}
                   alt={`รูปเครื่องที่ ${i + 1}`}
                   loading="lazy"
                   style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }}
                 />
-              </a>
+              </button>
             ))}
           </div>
+          {photoIdx >= 0 && (
+            <Lightbox
+              photos={item.photos}
+              index={photoIdx}
+              onClose={() => setPhotoIdx(-1)}
+              onNavigate={setPhotoIdx}
+              caption={item.model || 'รูปสภาพเครื่อง'}
+            />
+          )}
         </div>
       )}
 

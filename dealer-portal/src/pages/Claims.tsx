@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { listClaims } from '../api';
 import { CLAIM_STATUS_LABEL, fmtBaht, fmtDateTime, type CreditLedgerEntry, type DealerClaim } from '../types';
+import { Lightbox } from '../components/Lightbox';
 
 const statusIcon = (c: DealerClaim) => {
   if (c.status === 'resolved') return <CheckCircle2 size={18} style={{ color: 'var(--accent-deep)' }} />;
@@ -20,6 +21,8 @@ export const Claims = () => {
   const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // lightbox ดูรูปเคลม: { claimId, index } — null = ปิด
+  const [viewer, setViewer] = useState<{ claimId: string; index: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,11 +106,22 @@ export const Claims = () => {
             {Array.isArray(c.photos) && c.photos.length > 0 && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                 {c.photos.map((url, i) => (
-                  <a key={url} href={url} target="_blank" rel="noreferrer">
-                    <img src={url} alt={`รูปเคลมที่ ${i + 1}`} loading="lazy" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }} />
-                  </a>
+                  <button key={url} type="button" onClick={() => setViewer({ claimId: c.id, index: i })}
+                    aria-label={`ดูรูปเคลมที่ ${i + 1}`}
+                    style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
+                    <img src={url} alt={`รูปเคลมที่ ${i + 1}`} loading="lazy" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', display: 'block' }} />
+                  </button>
                 ))}
               </div>
+            )}
+            {viewer?.claimId === c.id && Array.isArray(c.photos) && (
+              <Lightbox
+                photos={c.photos}
+                index={viewer.index}
+                onClose={() => setViewer(null)}
+                onNavigate={(i) => setViewer({ claimId: c.id, index: i })}
+                caption={`รูปเคลม ${c.claim_no}`}
+              />
             )}
             {c.status === 'resolved' && c.resolution && (
               <div className="tiny bold mt8" style={{ color: 'var(--accent-deep)' }}>
