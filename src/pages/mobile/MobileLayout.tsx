@@ -4,7 +4,7 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
   ClipboardList, Bell, User, LogOut,
-  ChevronLeft, Banknote, DollarSign, CalendarDays
+  ChevronLeft, Banknote, DollarSign, CalendarDays, ClipboardCheck
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 
@@ -23,6 +23,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
   const [newTicketCount, setNewTicketCount] = useState(0);
   const [pendingPayouts, setPendingPayouts] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
+  const [qcTodoCount, setQcTodoCount] = useState(0);
   const [showProfile, setShowProfile] = useState(false);
 
   // Count new/unread tickets + pending payouts + notifications
@@ -33,6 +34,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       let count = 0;
       let payoutCount = 0;
       let nCount = 0;
+      let qcCount = 0;
       const now = Date.now();
       snap.forEach((child) => {
         const j = child.val();
@@ -40,6 +42,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
           count++;
           nCount++; // new ticket notification
         }
+        if (j.status === 'Sent to QC Lab') qcCount++; // งานรอตรวจของแผนก QC
         const s = String(j.status || '').trim().toLowerCase();
         if (!j.slip_url && !j.payment_slip &&
             (s === 'payout processing' || s === 'pending finance approval' || s === 'waiting for finance' || s === 'price accepted')) {
@@ -65,6 +68,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       setNewTicketCount(count);
       setPendingPayouts(payoutCount);
       setNotifCount(nCount);
+      setQcTodoCount(qcCount);
     });
     return () => unsub();
   }, []);
@@ -75,6 +79,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
 
   const tabs = [
     { key: '/mobile', label: 'งาน', icon: ClipboardList, badge: newTicketCount },
+    { key: '/mobile/qc', label: 'QC', icon: ClipboardCheck, badge: qcTodoCount },
     { key: '/mobile/finance', label: 'โอนเงิน', icon: Banknote, badge: pendingPayouts },
     ...(isManager ? [
       { key: '/mobile/pricing', label: 'ราคา', icon: DollarSign, badge: 0 },
