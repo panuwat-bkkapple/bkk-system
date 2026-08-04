@@ -118,6 +118,54 @@ function normName(name) {
   return String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/** canonical form ต่อ attribute เพื่อจับ "ป้ายต่างกันแต่ความหมายเดียวกัน"
+ *  display: "Standard" == "Standard Glass", "Nano-texture" == "Nano-texture Glass"
+ *  ram/storage/size: "8 GB" == "8GB"
+ */
+function canonValue(attrKey, raw) {
+  const v = String(raw || '').trim();
+  if (attrKey === 'display') {
+    return v.toLowerCase().replace(/glass/g, '').replace(/[^a-z0-9ก-๙]+/g, ' ').trim();
+  }
+  if (['ram', 'storage', 'size'].includes(attrKey)) {
+    return v.toUpperCase().replace(/\s+/g, '');
+  }
+  if (attrKey === 'processor') {
+    return baseChip(v).toLowerCase();
+  }
+  return v.toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** เลขรุ่นชิปจากชื่อ เช่น "M3 Pro" → 3, "Intel"/"Retina" → 0, ไม่รู้จัก → null */
+function chipGen(chip) {
+  if (!chip) return null;
+  const c = chip.toLowerCase();
+  if (c.startsWith('intel')) return 0;
+  const m = /^m(\d+)/.exec(c);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** รวมค่า attribute ทั้งหมดของ model (จาก variants + attributeModifiers) แยกตาม key */
+function collectAttrValues(model, variants) {
+  const byKey = new Map(); // key -> Set(raw values)
+  const add = (key, val) => {
+    if (val === undefined || val === null || val === '') return;
+    if (!byKey.has(key)) byKey.set(key, new Set());
+    byKey.get(key).add(String(val));
+  };
+  for (const v of variants) {
+    for (const [k, val] of Object.entries(v.attributes || {})) add(k, val);
+  }
+  if (model.attributeModifiers && typeof model.attributeModifiers === 'object') {
+    for (const [k, group] of Object.entries(model.attributeModifiers)) {
+      if (group && Array.isArray(group.options)) {
+        for (const o of group.options) if (o) add(k, o.value);
+      }
+    }
+  }
+  return byKey;
+}
+
 function variantUsedPrice(v) {
   return Number(v.usedPrice ?? v.price ?? 0);
 }
@@ -213,6 +261,51 @@ function auditModel(id, model) {
     }
   }
 
+  // 7. NEAR_DUP_OPTION — ป้ายต่างกันแต่ความหมายเดียวกัน (จาก variants + modifiers)
+  //    processor: flag เฉพาะเมื่อมีค่า "เปล่า" (ไม่ระบุ core) ชนกับค่าที่ระบุ core —
+  //    สอง config ที่ระบุ core ต่างกัน (เช่น 15-core vs 18-core) เป็นตัวเลือกจริง ไม่ flag
+  const attrValues = collectAttrValues(model, variants);
+  for (const [attrKey, rawSet] of attrValues) {
+    const groupsByCanon = new Map();
+    for (const raw of rawSet) {
+      const c = canonValue(attrKey, raw);
+      if (!c) continue;
+      if (!groupsByCanon.has(c)) groupsByCanon.set(c, []);
+      groupsByCanon.get(c).push(raw);
+    }
+    for (const [, raws] of groupsByCanon) {
+      if (raws.length < 2) continue;
+      if (attrKey === 'processor') {
+        const hasBare = raws.some((r) => !/\(/.test(r));
+        if (!hasBare) continue;
+      }
+      push(
+        'NEAR_DUP_OPTION',
+        'error',
+        `attribute "${attrKey}" มีตัวเลือกความหมายเดียวกันหลายป้าย: ${raws.map((r) => `"${r}"`).join(' กับ ')} ` +
+          `(ลูกค้าเห็นเป็นคนละตัวเลือก — ควรยุบเหลือป้ายเดียว)`
+      );
+    }
+  }
+
+  // 8. NANO_OLD — Nano-texture มีจริงเฉพาะ Mac ตระกูล M4 ขึ้นไป (MacBook Pro/iMac ปี 2024+)
+  //    รุ่นชิป Intel/M1/M2/M3 ไม่เคยมีตัวเลือกนี้
+  const displayRaws = attrValues.get('display');
+  if (displayRaws && nc) {
+    const gen = chipGen(nc.chip);
+    if (gen !== null && gen < 4) {
+      const nano = [...displayRaws].filter((r) => canonValue('display', r).includes('nano'));
+      if (nano.length > 0) {
+        push(
+          'NANO_OLD',
+          'error',
+          `มีตัวเลือกจอ ${nano.map((r) => `"${r}"`).join(', ')} แต่ชิปในชื่อรุ่นคือ "${nc.chip}" — ` +
+            `Nano-texture เริ่มมีตั้งแต่ตระกูล M4 (2024) เท่านั้น`
+        );
+      }
+    }
+  }
+
   // 6. ZERO_PRICE — รุ่น active แต่ราคารับซื้อเป็น 0 ทั้งหมด
   if (model.isActive !== false && variants.length > 0) {
     const allZero = variants.every((v) => variantUsedPrice(v) <= 0);
@@ -266,6 +359,8 @@ function auditCatalog(modelsObj) {
 
 const CODE_LABEL = {
   CHIP_MISMATCH: 'ชิปในตัวเลือกไม่ตรงชื่อรุ่น',
+  NANO_OLD: 'Nano-texture บนรุ่นที่ไม่มีจริง (ก่อน M4)',
+  NEAR_DUP_OPTION: 'ตัวเลือกความหมายเดียวกันหลายป้าย',
   DUP_VARIANT: 'variant ซ้ำในรุ่นเดียว',
   DUP_MODEL_NAME: 'ชื่อรุ่นซ้ำหลาย record',
   NAME_FORMAT: 'รูปแบบชื่อรุ่นผิดปกติ',
@@ -299,7 +394,7 @@ async function main() {
 
   console.log(`\nตรวจทั้งหมด ${modelCount} รุ่น — พบปัญหา ${issues.length} รายการ\n`);
 
-  const order = ['CHIP_MISMATCH', 'DUP_MODEL_NAME', 'DUP_VARIANT', 'DUP_OPTION', 'NAME_FORMAT', 'ZERO_PRICE'];
+  const order = ['CHIP_MISMATCH', 'NANO_OLD', 'NEAR_DUP_OPTION', 'DUP_MODEL_NAME', 'DUP_VARIANT', 'DUP_OPTION', 'NAME_FORMAT', 'ZERO_PRICE'];
   for (const code of order) {
     const list = byCode.get(code);
     if (!list || list.length === 0) continue;
