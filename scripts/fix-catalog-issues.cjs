@@ -1,26 +1,32 @@
 #!/usr/bin/env node
 
 /**
- * BKK System — Fix Catalog Issues (แก้ปัญหาที่ audit-catalog.cjs ตรวจพบ ส.ค. 2026)
+ * BKK System — Fix Catalog Issues (batch 2: ยุบป้ายตัวเลือกซ้ำความหมายเดียวกัน)
  *
- * รายการแก้ (hardcode เจาะจง id — มี guard เช็คชื่อรุ่นก่อนแก้ทุกตัว):
- *   1. MacBook Pro 14" (ชิป M3, 2023)   — ลบ variants/ตัวเลือกที่เป็น M3 Pro / M3 Max
- *      และ RAM ที่มีเฉพาะบน Pro/Max (18/36/48/64/96/128GB)
- *   2. MacBook Pro 16" (ชิป M3 Pro, 2023) — ลบ variants/ตัวเลือกที่เป็น M3 Max
- *      และ RAM ที่มีเฉพาะบน Max (48/64/96/128GB)
- *   3-4. iPad Air 11"/13" (ชิป M4, 2026) — ตัดช่องว่างหน้าชื่อ
- *   5. MacBook Neo 13" ( ชิป A18 Pro, 2026) — แก้ "( ชิป" เป็น "(ชิป"
+ * batch 1 (ลบชิปผิดรุ่น + แก้ชื่อ) apply ไปแล้ว 4 ส.ค. 2026 — script นี้เป็นรอบใหม่
+ * แก้ NEAR_DUP_OPTION 5 รายการจาก audit-catalog.cjs:
  *
- * ค่า default = DRY-RUN (โชว์ว่าจะแก้อะไร ไม่เขียนจริง) — เขียนจริงต้องใส่ --apply
- * ก่อนเขียนจะ backup ข้อมูลเดิมของทุกรุ่นที่แตะลงไฟล์ catalog-fix-backup-<ts>.json
+ *   MacBook Pro 14" (M4, 2024)      display: "Nano-Texture" → "Nano-texture Glass"
+ *   MacBook Pro 14" (M3, 2023)      display: "Standard" → "Standard Glass"
+ *   MacBook Pro 16" (M3 Pro, 2023)  display: "Standard" → "Standard Glass"
+ *   MacBook Pro 16" (M3 Pro, 2023)  processor: "M3 Pro (12-core CPU, 18-core GPU)" → "M3 Pro"
+ *                                   (16" M3 Pro มี config เดียวจริง ใช้ป้ายสั้น)
+ *   Mac mini (M4 Pro, 2024)         processor: "M4 Pro" → "M4 Pro (12-core CPU, 16-core GPU)"
+ *                                   (ยุบป้ายเปล่าเข้า config เริ่มต้น; 12 vs 14-core เป็นคนละ config เก็บทั้งคู่)
+ *
+ * วิธี merge ต่อรุ่น:
+ *   1. เปลี่ยนค่า attribute ใน variants ตาม map แล้ว dedupe combination ที่ชนกัน
+ *      (เก็บตัวที่ราคา > 0; ถ้าราคาต่างกันทั้งคู่ เก็บตัวที่ป้ายเป็น canonical อยู่แล้ว
+ *      และรายงานให้เห็นใน dry-run)
+ *   2. attributeModifiers: ถ้ามีทั้งป้ายเก่า+canonical → ลบป้ายเก่า, มีแต่ป้ายเก่า → เปลี่ยนชื่อ
+ *
+ * Default = DRY-RUN. เขียนจริง: --apply (ต้องมี FIREBASE_AUTH_EMAIL/PASSWORD)
+ * Backup ก่อนเขียนเสมอ: catalog-fix-backup-<ts>.json
  *
  * Usage:
- *   node scripts/fix-catalog-issues.cjs                      # dry-run (ไม่ต้อง login)
- *   FIREBASE_AUTH_EMAIL=you@x.com FIREBASE_AUTH_PASSWORD=xx \
- *     node scripts/fix-catalog-issues.cjs --apply            # เขียนจริง
- *
- * ต้องมี VITE_FIREBASE_API_KEY ใน .env ของ repo (หรือ env FIREBASE_API_KEY)
- * เฉพาะตอน --apply เท่านั้น
+ *   node scripts/fix-catalog-issues.cjs
+ *   FIREBASE_AUTH_EMAIL=.. FIREBASE_AUTH_PASSWORD=.. node scripts/fix-catalog-issues.cjs --apply
+ *   node scripts/fix-catalog-issues.cjs --file dump.json      # เทสจากไฟล์
  */
 
 const fs = require('fs');
@@ -28,7 +34,7 @@ const path = require('path');
 const https = require('https');
 
 // ---------------------------------------------------------------------------
-// .env + config (pattern เดียวกับ bulk-upload-mac-products.cjs)
+// .env + config
 // ---------------------------------------------------------------------------
 
 (function loadEnv() {
@@ -51,48 +57,45 @@ const DB_URL =
 const API_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
 
 // ---------------------------------------------------------------------------
-// รายการแก้ — expectName เป็น guard: ชื่อใน DB ต้อง match ก่อนถึงจะแตะ
+// รายการ merge — expectName เป็น guard ก่อนแตะทุกรุ่น
+// mergeValues: { attrKey: { ป้ายเก่า: ป้ายcanonical } }
 // ---------------------------------------------------------------------------
 
 const FIXES = [
   {
+    id: '-MGg8Y0P_VOPgeXk7AmdC',
+    expectName: /MacBook Pro 14" \(ชิป M4, 2024\)/,
+    mergeValues: { display: { 'Nano-Texture': 'Nano-texture Glass' } },
+  },
+  {
     id: '-Sb92cvfub_ZZd7I0klcc',
     expectName: /MacBook Pro 14" \(ชิป M3, 2023\)/,
-    keepProcessors: ['M3'],
-    removeRam: ['18GB', '36GB', '48GB', '64GB', '96GB', '128GB'],
+    mergeValues: { display: { 'Standard': 'Standard Glass' } },
   },
   {
     id: '-qnR-XlPA95qudSrxLXdu',
     expectName: /MacBook Pro 16" \(ชิป M3 Pro, 2023\)/,
-    keepProcessors: ['M3 Pro'],
-    removeRam: ['48GB', '64GB', '96GB', '128GB'],
+    mergeValues: {
+      display: { 'Standard': 'Standard Glass' },
+      processor: { 'M3 Pro (12-core CPU, 18-core GPU)': 'M3 Pro' },
+    },
   },
   {
-    id: '-OolySgIjc4w0cuQ8XhO',
-    expectName: /iPad Air 11" \(ชิป M4, 2026\)/,
-    normalizeName: true,
-  },
-  {
-    id: '-Oom3bOtFuoSUxs-tU4a',
-    expectName: /iPad Air 13" \(ชิป M4, 2026\)/,
-    normalizeName: true,
-  },
-  {
-    id: '-OomKn99jQCop-1SXRh8',
-    expectName: /MacBook Neo 13"/,
-    normalizeName: true,
+    id: '-mhUqkREll65AwaWata_c',
+    expectName: /Mac mini \(ชิป M4 Pro, 2024\)/,
+    mergeValues: { processor: { 'M4 Pro': 'M4 Pro (12-core CPU, 16-core GPU)' } },
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Helpers
+// HTTP helpers
 // ---------------------------------------------------------------------------
 
-function httpJSON(method, url, body, headers) {
+function httpJSON(method, url, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = https.request(
-      { hostname: u.hostname, path: u.pathname + u.search, method, headers: { 'Content-Type': 'application/json', ...headers } },
+      { hostname: u.hostname, path: u.pathname + u.search, method, headers: { 'Content-Type': 'application/json' } },
       (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
@@ -120,20 +123,25 @@ async function signIn(email, password) {
   return res.idToken;
 }
 
-/** ตัดวงเล็บสเปก core: "M3 Pro (11-core CPU)" → "M3 Pro" */
-function baseChip(p) {
-  return String(p || '').replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+/g, ' ').trim();
-}
+// ---------------------------------------------------------------------------
+// Merge planner (pure)
+// ---------------------------------------------------------------------------
 
-function normalizeName(name) {
-  return String(name).replace(/\(\s+/g, '(').replace(/\s+/g, ' ').trim();
-}
-
-/** variants เก็บได้ทั้ง array และ object (Firebase แปลง array เป็น object ได้) */
-function variantEntries(variants) {
-  if (Array.isArray(variants)) return variants.map((v, i) => [String(i), v]).filter(([, v]) => v);
-  if (variants && typeof variants === 'object') return Object.entries(variants).filter(([, v]) => v);
+function variantList(variants) {
+  if (Array.isArray(variants)) return variants.filter(Boolean);
+  if (variants && typeof variants === 'object') return Object.values(variants).filter(Boolean);
   return [];
+}
+
+function usedPriceOf(v) {
+  return Number(v.usedPrice ?? v.price ?? 0);
+}
+
+function comboKey(attrs) {
+  return Object.keys(attrs || {})
+    .sort()
+    .map((k) => `${k}=${String(attrs[k]).trim().toLowerCase()}`)
+    .join('|');
 }
 
 function variantLabel(v) {
@@ -141,76 +149,108 @@ function variantLabel(v) {
   return [a.processor, a.ram, a.storage, a.display].filter(Boolean).join(' | ') || v.name || v.id || '?';
 }
 
-// ---------------------------------------------------------------------------
-// วางแผนการแก้ของรุ่นเดียว — pure function คืน { changes, updates }
-// ---------------------------------------------------------------------------
-
 function planFix(fix, model) {
   const changes = [];
-  const updates = {}; // path ใต้ models/{id} → ค่าใหม่
+  const warnings = [];
+  const updates = {};
 
   if (!fix.expectName.test(model.name || '')) {
     return { error: `ชื่อใน DB ("${model.name}") ไม่ตรงกับที่คาด (${fix.expectName}) — ข้ามเพื่อความปลอดภัย` };
   }
 
-  // --- แก้ชื่อ ---
-  if (fix.normalizeName) {
-    const fixed = normalizeName(model.name);
-    if (fixed !== model.name) {
-      updates['name'] = fixed;
-      changes.push(`ชื่อ: "${model.name}" → "${fixed}"`);
+  // --- 1. variants: rename ค่า attribute ตาม map ---
+  const vlist = variantList(model.variants).map((v) => ({ ...v, attributes: { ...(v.attributes || {}) } }));
+  let renamed = 0;
+  const renamedFlag = new WeakSet(); // variant ที่ถูก rename (ป้ายเดิมไม่ใช่ canonical)
+  for (const v of vlist) {
+    for (const [attrKey, map] of Object.entries(fix.mergeValues)) {
+      const cur = v.attributes[attrKey];
+      if (cur != null && Object.prototype.hasOwnProperty.call(map, String(cur).trim())) {
+        v.attributes[attrKey] = map[String(cur).trim()];
+        // sync ชื่อ variant ที่ประกอบจากค่า attribute
+        if (typeof v.name === 'string' && v.name.includes(String(cur).trim())) {
+          v.name = v.name.replace(String(cur).trim(), map[String(cur).trim()]);
+        }
+        renamed++;
+        renamedFlag.add(v);
+      }
     }
   }
 
-  // --- ลบ variants ผิดรุ่น ---
-  if (fix.keepProcessors) {
-    const keep = new Set(fix.keepProcessors.map((s) => s.toLowerCase()));
-    const removeRam = new Set((fix.removeRam || []).map((s) => s.toLowerCase()));
-    const entries = variantEntries(model.variants);
-    const kept = [];
-    const removed = [];
-
-    for (const [, v] of entries) {
-      const a = v.attributes || {};
-      const proc = baseChip(a.processor).toLowerCase();
-      const ram = String(a.ram || '').trim().toLowerCase();
-      const badProc = a.processor !== undefined && proc !== '' && !keep.has(proc);
-      const badRam = removeRam.has(ram);
-      if (badProc || badRam) removed.push(variantLabel(v));
-      else kept.push(v);
+  // --- 2. dedupe combination ที่ชนกันหลัง rename ---
+  const byCombo = new Map();
+  for (const v of vlist) {
+    const k = comboKey(v.attributes);
+    if (!byCombo.has(k)) byCombo.set(k, []);
+    byCombo.get(k).push(v);
+  }
+  const kept = [];
+  let dropped = 0;
+  for (const [, group] of byCombo) {
+    if (group.length === 1) {
+      kept.push(group[0]);
+      continue;
     }
-
-    if (removed.length > 0) {
-      if (kept.length === 0) {
-        return { error: `การลบจะทำให้ variants ว่างเปล่าทั้งรุ่น (ลบ ${removed.length} ตัว) — ผิดปกติ ข้าม` };
-      }
-      updates['variants'] = kept; // เขียนกลับเป็น array เสมอ
-      changes.push(`variants: ลบ ${removed.length} / เหลือ ${kept.length}`);
-      for (const r of removed) changes.push(`  - ลบ variant: ${r}`);
-    }
-
-    // --- ลบตัวเลือกใน attributeModifiers (processor + ram) ถ้ามี ---
-    const mods = model.attributeModifiers || {};
-    if (mods.processor && Array.isArray(mods.processor.options)) {
-      const keptOpts = mods.processor.options.filter((o) => o && keep.has(baseChip(o.value).toLowerCase()));
-      const removedOpts = mods.processor.options.filter((o) => o && !keep.has(baseChip(o.value).toLowerCase()));
-      if (removedOpts.length > 0 && keptOpts.length > 0) {
-        updates['attributeModifiers/processor/options'] = keptOpts;
-        changes.push(`ตัวเลือก processor: ลบ ${removedOpts.map((o) => o.value).join(', ')}`);
+    // เลือกตัวที่เก็บ: (1) ราคา > 0 ก่อน (2) ตัวที่ป้ายเป็น canonical อยู่แล้ว (ไม่ถูก rename)
+    const sorted = [...group].sort((a, b) => {
+      const pa = usedPriceOf(a) > 0 ? 1 : 0;
+      const pb = usedPriceOf(b) > 0 ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      const ca = renamedFlag.has(a) ? 0 : 1;
+      const cb = renamedFlag.has(b) ? 0 : 1;
+      return cb - ca;
+    });
+    const winner = sorted[0];
+    kept.push(winner);
+    for (const loser of sorted.slice(1)) {
+      dropped++;
+      const pw = usedPriceOf(winner);
+      const pl = usedPriceOf(loser);
+      if (pl > 0 && pl !== pw) {
+        warnings.push(
+          `ราคาขัดแย้งที่ ${variantLabel(winner)}: เก็บ ${pw.toLocaleString()} ทิ้ง ${pl.toLocaleString()} — ตรวจราคาหลัง apply ด้วย`
+        );
       }
     }
-    if (mods.ram && Array.isArray(mods.ram.options)) {
-      const keptOpts = mods.ram.options.filter((o) => o && !removeRam.has(String(o.value).trim().toLowerCase()));
-      const removedOpts = mods.ram.options.filter((o) => o && removeRam.has(String(o.value).trim().toLowerCase()));
-      if (removedOpts.length > 0 && keptOpts.length > 0) {
-        updates['attributeModifiers/ram/options'] = keptOpts;
-        changes.push(`ตัวเลือก ram: ลบ ${removedOpts.map((o) => o.value).join(', ')}`);
+  }
+
+  if (renamed > 0 || dropped > 0) {
+    updates['variants'] = kept;
+    changes.push(`variants: เปลี่ยนป้าย ${renamed} รายการ, ยุบ combination ซ้ำ ${dropped} รายการ (เหลือ ${kept.length})`);
+  }
+
+  // --- 3. attributeModifiers: ลบ/เปลี่ยนชื่อป้ายเก่า ---
+  const mods = model.attributeModifiers || {};
+  for (const [attrKey, map] of Object.entries(fix.mergeValues)) {
+    const group = mods[attrKey];
+    if (!group || !Array.isArray(group.options)) continue;
+    let opts = group.options.filter(Boolean).map((o) => ({ ...o }));
+    let touched = false;
+    for (const [oldVal, canonical] of Object.entries(map)) {
+      const oldIdx = opts.findIndex((o) => String(o.value).trim() === oldVal);
+      if (oldIdx < 0) continue;
+      const canonIdx = opts.findIndex((o) => String(o.value).trim() === canonical);
+      if (canonIdx >= 0) {
+        const oldOpt = opts[oldIdx];
+        const canonOpt = opts[canonIdx];
+        if ((oldOpt.usedPriceMod || 0) !== (canonOpt.usedPriceMod || 0)) {
+          warnings.push(
+            `modifier "${attrKey}": ป้าย "${oldVal}" (mod ${oldOpt.usedPriceMod || 0}) ถูกลบ, เก็บ "${canonical}" (mod ${canonOpt.usedPriceMod || 0})`
+          );
+        }
+        opts.splice(oldIdx, 1);
+        changes.push(`modifier "${attrKey}": ลบตัวเลือก "${oldVal}" (มี "${canonical}" อยู่แล้ว)`);
+      } else {
+        opts[oldIdx].value = canonical;
+        changes.push(`modifier "${attrKey}": เปลี่ยนป้าย "${oldVal}" → "${canonical}"`);
       }
+      touched = true;
     }
+    if (touched) updates[`attributeModifiers/${attrKey}/options`] = opts;
   }
 
   if (Object.keys(updates).length > 0) updates['updatedAt'] = Date.now();
-  return { changes, updates };
+  return { changes, warnings, updates };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,10 +264,9 @@ async function main() {
   const localFile = fileIdx >= 0 ? args[fileIdx + 1] : null;
 
   console.log('='.repeat(72));
-  console.log(`  BKK System — Fix Catalog Issues  ${apply ? '(APPLY — เขียนจริง)' : '(DRY-RUN — ไม่เขียน)'}`);
+  console.log(`  BKK System — Fix Catalog Issues (batch 2: merge ป้ายตัวเลือก)  ${apply ? '(APPLY)' : '(DRY-RUN)'}`);
   console.log('='.repeat(72));
 
-  // 1. โหลดข้อมูลรุ่นที่จะแก้ (read เป็น public)
   const models = {};
   if (localFile) {
     const all = JSON.parse(fs.readFileSync(path.resolve(localFile), 'utf-8'));
@@ -240,13 +279,12 @@ async function main() {
     }
   }
 
-  // 2. วางแผน
   const plans = [];
   for (const fix of FIXES) {
     const model = models[fix.id];
     console.log('─'.repeat(72));
     if (!model) {
-      console.log(`?? ${fix.id} — ไม่พบใน DB (อาจถูกลบ/แก้ไปแล้ว) — ข้าม`);
+      console.log(`?? ${fix.id} — ไม่พบใน DB — ข้าม`);
       continue;
     }
     console.log(`${model.name}  (${fix.id})`);
@@ -260,6 +298,7 @@ async function main() {
       continue;
     }
     for (const c of plan.changes) console.log(`   ${c}`);
+    for (const w of plan.warnings) console.log(`   ** ${w}`);
     plans.push({ fix, model, updates: plan.updates });
   }
 
@@ -270,33 +309,25 @@ async function main() {
   }
 
   if (!apply) {
-    console.log(`\nDRY-RUN: จะแก้ ${plans.length} รุ่น — ตรวจรายการด้านบนแล้วรันซ้ำด้วย --apply เพื่อเขียนจริง`);
+    console.log(`\nDRY-RUN: จะแก้ ${plans.length} รุ่น — ตรวจรายการ (โดยเฉพาะบรรทัด **) แล้วรันซ้ำด้วย --apply`);
     return;
   }
 
-  // 3. Auth
   const email = process.env.FIREBASE_AUTH_EMAIL || '';
   const password = process.env.FIREBASE_AUTH_PASSWORD || '';
   if (!email || !password) {
-    console.error('\n--apply ต้องตั้ง FIREBASE_AUTH_EMAIL และ FIREBASE_AUTH_PASSWORD (บัญชีแอดมิน)');
+    console.error('\n--apply ต้องตั้ง FIREBASE_AUTH_EMAIL และ FIREBASE_AUTH_PASSWORD');
     process.exit(1);
   }
   console.log('\nAuthenticating...');
   const token = await signIn(email, password);
 
-  // 4. Backup ของเดิมก่อนเขียน
   const backupPath = path.resolve(`catalog-fix-backup-${Date.now()}.json`);
-  fs.writeFileSync(
-    backupPath,
-    JSON.stringify(Object.fromEntries(plans.map((p) => [p.fix.id, p.model])), null, 2)
-  );
+  fs.writeFileSync(backupPath, JSON.stringify(Object.fromEntries(plans.map((p) => [p.fix.id, p.model])), null, 2));
   console.log(`Backup ข้อมูลเดิม: ${backupPath}`);
 
-  // 5. เขียนทีละรุ่น (PATCH เฉพาะ field ที่เปลี่ยน)
   for (const p of plans) {
-    const body = {};
-    for (const [k, v] of Object.entries(p.updates)) body[k] = v;
-    await httpJSON('PATCH', `${DB_URL}/models/${encodeURIComponent(p.fix.id)}.json?auth=${token}`, body);
+    await httpJSON('PATCH', `${DB_URL}/models/${encodeURIComponent(p.fix.id)}.json?auth=${token}`, p.updates);
     console.log(`เขียนแล้ว: ${p.model.name} (${p.fix.id})`);
   }
 
