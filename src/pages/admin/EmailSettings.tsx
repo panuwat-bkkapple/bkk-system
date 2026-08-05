@@ -323,7 +323,10 @@ export default function EmailSettings() {
 
       {previewHtml && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setPreviewHtml(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          {/* ต้องกำหนดความสูงจริง (h-) ไม่ใช่ max-h- มิฉะนั้น flex-1 ของ iframe
+              ไม่มีพื้นที่ให้กระจาย → iframe หดเหลือความสูง default 150px แล้วอีเมล
+              ถูกตัดครึ่ง */}
+          <div className="bg-white rounded-2xl w-full max-w-2xl h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <div className="min-w-0">
                 <p className="text-sm font-black text-slate-800 truncate">{previewHtml.title}</p>
