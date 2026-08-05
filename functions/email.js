@@ -220,7 +220,11 @@ function pickupScheduleText(job) {
  * Wrap body content in a table-based, inline-styled shell. Email clients
  * strip <style>/<head> and choke on flexbox, so everything is inline + tables.
  */
-function shell({ heading, intro, bodyHtml, footerNote }) {
+function shell({ heading, intro, bodyHtml, footerNote, tone }) {
+  // tone "void" = คำสั่งขายไม่เดินต่อแล้ว (ยกเลิก/ปิดงาน) — หัวเรื่องต้องอ่าน
+  // แล้วรู้ทันทีว่าไม่ใช่ข่าวความคืบหน้า ไม่งั้นอีเมลยกเลิกหน้าตาเหมือนอีเมล
+  // ยืนยันทุกประการ ต่างกันแค่ประโยคเดียว
+  const headingColor = tone === "void" ? "#b91c1c" : "#111827";
   return `<!DOCTYPE html>
 <html lang="th">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -232,7 +236,7 @@ function shell({ heading, intro, bodyHtml, footerNote }) {
           <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.5px;">${esc(BRAND)}</span>
         </td></tr>
         <tr><td style="padding:32px 32px 8px;">
-          <h1 style="margin:0 0 8px;font-size:20px;line-height:1.4;color:#111827;">${esc(heading)}</h1>
+          <h1 style="margin:0 0 8px;font-size:20px;line-height:1.4;color:${headingColor};">${esc(heading)}</h1>
           ${intro ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4b5563;">${intro}</p>` : ""}
         </td></tr>
         <tr><td style="padding:0 32px 24px;">${bodyHtml}</td></tr>
@@ -312,7 +316,7 @@ function serviceFeeBreakdown(job) {
 }
 
 function orderSummaryCard(job, opts = {}) {
-  const { payoutLabel = PAYOUT_LABEL_ESTIMATE, showVatDetail = false } =
+  const { payoutLabel = PAYOUT_LABEL_ESTIMATE, showVatDetail = false, voided = false } =
     typeof opts === "string" ? { payoutLabel: opts } : opts;
   const lines = deviceLines(job);
   const deviceRows = lines
@@ -397,9 +401,20 @@ function orderSummaryCard(job, opts = {}) {
         ${vatDetail}</td></tr>`;
     }
   }
-  totalsRows += awaitingOffer
-    ? totalRow("ราคารับซื้อ", "รอทีมงานเสนอราคา", { big: true, color: "#2563eb" })
-    : totalRow(esc(payoutLabel), esc(formatTHB(net)), { big: true, color: "#059669" });
+  // งานที่ยกเลิก/ปิดแล้วต้องไม่โชว์ยอดเป็นสีเขียวเหมือนเงินที่กำลังจะได้ —
+  // ขีดฆ่าและเปลี่ยนป้ายให้ชัดว่าไม่มีการจ่ายเกิดขึ้น ตัวเลขยังอยู่เพื่อให้
+  // ลูกค้าเทียบกับอีเมลก่อนหน้าได้ว่าเป็นรายการเดียวกัน
+  if (voided) {
+    totalsRows += totalRow(
+      "ยอดที่เคยเสนอไว้ (ไม่มีผลแล้ว)",
+      `<span style="text-decoration:line-through;">${esc(formatTHB(net))}</span>`,
+      { big: true, color: "#9ca3af" },
+    );
+  } else {
+    totalsRows += awaitingOffer
+      ? totalRow("ราคารับซื้อ", "รอทีมงานเสนอราคา", { big: true, color: "#2563eb" })
+      : totalRow(esc(payoutLabel), esc(formatTHB(net)), { big: true, color: "#059669" });
+  }
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef0f3;border-radius:10px;">
     <tr><td style="padding:16px 18px;">
@@ -870,6 +885,8 @@ const STATUS_COPY = {
   },
   Cancelled: {
     adminLabel: "ยกเลิก",
+    // ไม่มีการจ่ายเงินเกิดขึ้นกับงานนี้ — การ์ดสรุปต้องขีดฆ่ายอด
+    voided: true,
     customer: {
       subject: (j) => `คำสั่งขายถูกยกเลิก — ${REF(j)}`,
       heading: "คำสั่งขายถูกยกเลิก",
@@ -879,6 +896,8 @@ const STATUS_COPY = {
   },
   "Closed (Lost)": {
     adminLabel: "ปิดงาน",
+    // ไม่มีการจ่ายเงินเกิดขึ้นกับงานนี้ — การ์ดสรุปต้องขีดฆ่ายอด
+    voided: true,
     customer: {
       subject: (j) => `ปิดคำสั่งขาย — ${REF(j)}`,
       heading: "ปิดคำสั่งขาย",
@@ -928,6 +947,8 @@ const STATUS_COPY = {
   },
   "Return Confirmed": {
     adminLabel: "ยืนยันส่งคืน",
+    // ไม่มีการจ่ายเงินเกิดขึ้นกับงานนี้ — การ์ดสรุปต้องขีดฆ่ายอด
+    voided: true,
     customer: {
       subject: (j) => `ยืนยันการส่งเครื่องคืน — ${REF(j)}`,
       heading: "ยืนยันการส่งเครื่องคืน",
@@ -974,6 +995,7 @@ function buildCustomerStatusEmail(job, status, override) {
     intro: `${name}${c.intro(job)}`,
   };
   const copy = resolveCopy(defaults, override, job, esc);
+  const voided = entry.voided === true;
   return {
     to: job.cust_email,
     subject: copy.subject,
@@ -981,7 +1003,10 @@ function buildCustomerStatusEmail(job, status, override) {
     html: shell({
       heading: copy.heading,
       intro: copy.intro,
-      bodyHtml: orderSummaryCard(job, payoutLabel) + extra + trackingButton(job),
+      tone: voided ? "void" : undefined,
+      // ปุ่มติดตามไม่มีประโยชน์กับงานที่จบแล้ว มีแต่ชวนให้กดไปเจอหน้าที่บอก
+      // เรื่องเดียวกัน
+      bodyHtml: orderSummaryCard(job, { payoutLabel, voided }) + extra + (voided ? "" : trackingButton(job)),
     }),
   };
 }
