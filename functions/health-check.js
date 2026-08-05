@@ -62,7 +62,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
 }
 
 /** ห่อ probe หนึ่งตัว: จับเวลา + แปลง exception เป็น status fail เสมอ */
-async function runProbe(def) {
+/** ยิง probe หนึ่งครั้ง — แปลง exception เป็น status fail เสมอ */
+async function attemptProbe(def) {
   const startedAt = Date.now();
   try {
     const result = await def.run();
@@ -85,6 +86,31 @@ async function runProbe(def) {
       latency_ms: Date.now() - startedAt,
     };
   }
+}
+
+/**
+ * ห่อ probe: ถ้าครั้งแรก fail ให้ลองซ้ำอีกครั้งก่อนตัดสิน
+ *
+ * เน็ตจาก Cloud Function ไป API ภายนอกกระตุกเป็นเรื่องปกติ และการปลุกทั้งทีม
+ * เพราะ timeout ครั้งเดียวคือทางลัดไปสู่ปัญหาที่แย่กว่าเดิม — พอเตือนหมาป่าบ่อย
+ * คนจะเลิกอ่าน แล้วตอนพังจริงจะไม่มีใครสนใจ (เคสจริง 5 ส.ค. 2026: Telegram
+ * probe timeout แล้วแจ้งเตือน ทั้งที่ข้อความแจ้งเตือนนั้นส่งผ่าน Telegram
+ * สำเร็จในวินาทีถัดมา = ใช้งานได้ปกติมาตลอด)
+ *
+ * ลองซ้ำในรอบเดียวกันแทนการรอรอบหน้า เพราะของที่พังจริงต้องเตือนทันที
+ * ไม่ใช่รออีกชั่วโมง — เสียเวลาเพิ่มแค่ตอนที่มีอะไรผิดปกติจริงเท่านั้น
+ */
+async function runProbe(def) {
+  const first = await attemptProbe(def);
+  if (first.status !== "fail") return first;
+
+  await new Promise((r) => setTimeout(r, 2000));
+  const second = await attemptProbe(def);
+  if (second.status !== "fail") {
+    console.log(`[health-check] ${def.id}: ครั้งแรกล้มเหลว (${first.message}) แต่ลองซ้ำแล้วผ่าน — ถือว่าปกติ`);
+    return { ...second, message: `${second.message} (ครั้งแรกไม่ผ่าน ลองซ้ำแล้วปกติ)` };
+  }
+  return second;
 }
 
 // ─── Probes ──────────────────────────────────────────────────────────────────
