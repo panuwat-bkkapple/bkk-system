@@ -197,7 +197,14 @@ async function buildVoucherPdf(job) {
     draw("ค่าบริการรับเครื่อง (คุณชำระเรา รวม VAT)", M, 11, { color: gray });
     drawRight(`-${thb(fee.feeIncl)}`, amountColX, 11, { color: gray });
     y -= 14;
-    draw(`(ค่าบริการ ${thb(fee.base)} + VAT 7% ${thb(fee.vat)})`, M + 12, 9, { color: gray });
+    draw(
+      fee.discountBase
+        ? `(ค่าบริการ ${thb(fee.grossBase)} − ส่วนลด ${thb(fee.discountBase)} = ${thb(fee.base)} + VAT 7% ${thb(fee.vat)})`
+        : `(ค่าบริการ ${thb(fee.base)} + VAT 7% ${thb(fee.vat)})`,
+      M + 12,
+      9,
+      { color: gray },
+    );
     y -= 16;
   }
 
@@ -378,9 +385,17 @@ async function buildTaxInvoicePdf(job, taxInvoice) {
   y -= 8;
   hr(y + 2);
   y -= 16;
+  // ม.79(1): ส่วนลดจะกันออกจากฐานภาษีได้ต่อเมื่อ "แสดงส่วนลดไว้ในใบกำกับภาษี
+  // ให้ชัดแจ้ง" — เมื่อมีส่วนลดจึงต้องพิมพ์ราคาก่อนลดและตัวส่วนลดเป็นบรรทัด
+  // ของมันเอง แล้วค่อยลงมูลค่าสุทธิ ห้ามพิมพ์แต่ยอดที่หักแล้ว
   draw("ค่าบริการรับเครื่องถึงที่ (Pickup Service)", M, 11);
-  drawRight(thb(fee.base), amountX, 11);
+  drawRight(thb(fee.discountBase ? fee.grossBase : fee.base), amountX, 11);
   y -= 20;
+  if (fee.discountBase) {
+    draw("หัก ส่วนลดค่าบริการ (โปรโมชั่น)", M, 11);
+    drawRight(`-${thb(fee.discountBase)}`, amountX, 11);
+    y -= 20;
+  }
   hr(y + 6);
   y -= 14;
   draw("มูลค่าบริการ (ก่อน VAT)", M, 11, { color: gray });

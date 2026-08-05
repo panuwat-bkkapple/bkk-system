@@ -268,12 +268,33 @@ function serviceFeeBreakdown(job) {
   // VAT-registered, 7% VAT-inclusive behaviour when unset.
   const acct = (job && job._accounting) || {};
   const vatRegistered = acct.vat_registered !== false;
+  const hasDiscount = riderDiscount > 0 && gross > feeIncl;
   if (!vatRegistered) {
-    return { feeIncl: round2(feeIncl), base: round2(feeIncl), vat: 0, vatRegistered: false };
+    return {
+      feeIncl: round2(feeIncl),
+      base: round2(feeIncl),
+      vat: 0,
+      vatRegistered: false,
+      ...(hasDiscount
+        ? { grossBase: round2(gross), discountBase: round2(gross - feeIncl) }
+        : {}),
+    };
   }
   const rate = Number(acct.vat_rate) > 0 ? Number(acct.vat_rate) : VAT_RATE;
   const base = round2(feeIncl / (1 + rate));
-  return { feeIncl: round2(feeIncl), base, vat: round2(feeIncl - base), vatRegistered: true };
+  // ม.79(1): ส่วนลดที่ให้ขณะให้บริการจะถูกกันออกจากฐานภาษีได้ ก็ต่อเมื่อ
+  // **แสดงส่วนลดไว้ในใบกำกับภาษีให้ชัดแจ้ง** — การหักเงียบๆ แล้วพิมพ์แต่ยอด
+  // สุทธิทำให้เอกสารขาดเงื่อนไขนั้น ทั้งที่ตัวเลขถูก. คืนยอดก่อนลดและตัวส่วนลด
+  // (ฐานก่อน VAT ทั้งคู่) ออกมาให้เอกสารพิมพ์เป็นบรรทัดของมันเอง
+  //
+  // `discountBase` คิดจากการลบ ไม่ใช่หารส่วนลดแยก เพื่อให้
+  // grossBase − discountBase = base เป๊ะเสมอ ไม่มีเศษหลุดจากการปัดสองรอบ
+  const out = { feeIncl: round2(feeIncl), base, vat: round2(feeIncl - base), vatRegistered: true };
+  if (hasDiscount) {
+    out.grossBase = round2(gross / (1 + rate));
+    out.discountBase = round2(out.grossBase - base);
+  }
+  return out;
 }
 
 function orderSummaryCard(job, opts = {}) {
@@ -333,8 +354,14 @@ function orderSummaryCard(job, opts = {}) {
     totalsRows += totalRow("ราคารับซื้อเครื่อง (เราจ่ายคุณ)", esc(formatTHB(grossBeforeFee)), { muted: true });
     totalsRows += totalRow(feeLabel, `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
     if (showVatDetail && fee.vatRegistered) {
+      // ส่วนลดค่าบริการต้องปรากฏเป็นบรรทัดของตัวเอง ไม่ใช่ถูกหักเงียบ (ม.79(1))
+      // — และหน้า checkout ก็แสดง 3 บรรทัดแบบนี้อยู่แล้ว เอกสารจึงควรเล่าตรงกัน
+      const vatDetail = fee.discountBase
+        ? `ค่าบริการ ${esc(formatTHB(fee.grossBase))} − ส่วนลด ${esc(formatTHB(fee.discountBase))} ` +
+          `= ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}`
+        : `ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}`;
       totalsRows += `<tr><td colspan="2" style="padding:1px 0 4px 14px;font-size:11px;color:#9ca3af;">
-        ค่าบริการ ${esc(formatTHB(fee.base))} + VAT 7% ${esc(formatTHB(fee.vat))}</td></tr>`;
+        ${vatDetail}</td></tr>`;
     }
   }
   totalsRows += awaitingOffer
@@ -489,12 +516,19 @@ function bahtTextLine(amount) {
   return `<p style="margin:12px 2px 0;font-size:14px;color:#111827;">จำนวนเงิน (ตัวอักษร): <strong>(${esc(t)})</strong></p>`;
 }
 
+// ห้ามกล่าวอ้างว่า "ผู้รับเงินลงลายมือชื่อไว้แล้ว" — ระบบเก็บลายเซ็นเฉพาะ KYC
+// โหมด fallback (ลูกค้าไม่มีบัตรติดตัว) เท่านั้น ไม่มีในโหมดถ่ายบัตร ไม่มีใน
+// Store-in/Mail-in ซึ่งไม่มีจุดส่งมอบ และต่อให้มี ลายเซ็นนั้นเซ็นตอน "รับ
+// เครื่อง" ซึ่งเกิดก่อนโอนเงิน จึงรับรองการรับเงินที่ยังไม่เกิดไม่ได้.
+// ข้อความเท็จบนเอกสารที่ใช้เป็นหลักฐานทางบัญชีเสียหายกว่าการไม่มีข้อความ
+// และฉบับ PDF (voucher-pdf.js) ก็พิมพ์เส้น "ลงชื่อผู้รับเงิน" ไว้ให้เซ็นอยู่แล้ว
+// — สองฉบับของรายการเดียวกันต้องไม่พูดคนละเรื่อง
 function voucherLegalNote(job) {
   return `<p style="margin:16px 2px 0;font-size:12px;line-height:1.7;color:#6b7280;">
     เนื่องจากผู้รับเงินเป็นบุคคลธรรมดาซึ่งไม่สามารถออกใบเสร็จรับเงินได้
     ${esc(companyOf(job).legalName)} จึงออกใบสำคัญรับเงินฉบับนี้ไว้เป็นหลักฐานการจ่ายเงิน
-    เพื่อประกอบการบันทึกบัญชีและภาษีตามกฎหมาย — เอกสารฉบับนี้เป็นสำเนาอิเล็กทรอนิกส์
-    โดยผู้รับเงินได้ลงลายมือชื่อรับเงินไว้แล้ว ณ จุดส่งมอบเครื่อง
+    เพื่อประกอบการบันทึกบัญชีและภาษีตามกฎหมาย — เอกสารฉบับนี้ออกโดยระบบอัตโนมัติ
+    และมีผลเมื่อการโอนเงินเข้าบัญชีที่ระบุไว้เสร็จสมบูรณ์แล้ว
   </p>`;
 }
 
@@ -776,7 +810,7 @@ const STATUS_COPY = {
     customer: {
       subject: (j) => `กำลังตรวจสอบเครื่อง — ${REF(j)}`,
       heading: "กำลังตรวจสอบสภาพเครื่อง",
-      intro: () => "ทีมงานกำลังตรวจสอบสภาพเครื่องของคุณ หากตรงตามที่ประเมินไว้ เราจะดำเนินการโอนเงินทันที",
+      intro: () => "ทีมงานกำลังตรวจสอบสภาพเครื่องของคุณ หากตรงตามที่ประเมินไว้ เราจะดำเนินการโอนเงินให้โดยเร็วที่สุด",
     },
   },
   "Revised Offer": {
@@ -848,7 +882,7 @@ const STATUS_COPY = {
     customer: {
       subject: (j) => `แจ้งพัสดุสูญหาย — ${REF(j)}`,
       heading: "พัสดุสูญหายระหว่างขนส่ง",
-      intro: () => "เราตรวจสอบแล้วพบว่าพัสดุสูญหายระหว่างขนส่ง ทีมงานจะติดต่อคุณเพื่อดำเนินการชดเชยตามนโยบาย",
+      intro: () => "เราตรวจสอบแล้วพบว่าพัสดุสูญหายระหว่างขนส่ง ทีมงานจะติดต่อคุณเพื่อสรุปแนวทางชดเชยเป็นรายกรณี ตามเงื่อนไขการให้บริการและความคุ้มครองของบริษัทขนส่ง",
     },
   },
   "Returning To Customer": {

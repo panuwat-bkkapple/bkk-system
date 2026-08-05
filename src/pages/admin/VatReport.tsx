@@ -22,6 +22,11 @@ interface TaxDoc {
   total: number;
   url?: string | null;
   description?: string;
+  // เลขที่จองแล้วแต่ออกเอกสารไม่สำเร็จ ถูกลงทะเบียนไว้ด้วยมูลค่า 0 เพื่อให้
+  // ลำดับเลขใบกำกับอธิบายได้ตอนถูกตรวจ — ต้องแสดงให้เห็นว่าเป็นใบยกเลิก
+  // ไม่ใช่ใบจริงมูลค่า 0 บาท
+  status?: string;
+  void_reason?: string;
 }
 
 function currentBangkokMonth(): string {
@@ -91,8 +96,8 @@ export default function VatReport() {
       i + 1,
       fmtDate(r.issued_at),
       r.number,
-      (r.customer_name || '').replace(/"/g, '""'),
-      (r.description || '').replace(/"/g, '""'),
+      r.status === 'void' ? '(ยกเลิก)' : (r.customer_name || '').replace(/"/g, '""'),
+      (r.status === 'void' ? r.void_reason || 'ไม่ได้ออกให้ลูกค้า' : r.description || '').replace(/"/g, '""'),
       (Number(r.base) || 0).toFixed(2),
       (Number(r.vat) || 0).toFixed(2),
       (Number(r.total) || 0).toFixed(2),
@@ -188,8 +193,21 @@ export default function VatReport() {
                 {rows.map((r) => (
                   <tr key={r.number} className="border-b border-slate-700/30 text-slate-200">
                     <td className="px-3 py-2 whitespace-nowrap">{fmtDate(r.issued_at)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{r.number}</td>
-                    <td className="px-3 py-2">{r.customer_name || '-'}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {r.number}
+                      {r.status === 'void' && (
+                        <span className="ml-1.5 text-[10px] font-black text-rose-300 bg-rose-500/15 border border-rose-500/30 rounded px-1 py-0.5">
+                          ยกเลิก
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.status === 'void' ? (
+                        <span className="text-slate-500">{r.void_reason || 'ไม่ได้ออกให้ลูกค้า'}</span>
+                      ) : (
+                        r.customer_name || '-'
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">{fmt(r.base)}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap text-emerald-400">{fmt(r.vat)}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap font-bold">{fmt(r.total)}</td>
