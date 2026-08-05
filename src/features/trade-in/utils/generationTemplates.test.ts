@@ -367,6 +367,21 @@ describe('Mac tiers', () => {
     const again = applyGenerationToGroups(groups, 'mac_intel', cheap);
     expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
   });
+  it('missing-box deducts a flat 1,000 on every Mac, cheap or expensive', () => {
+    for (const [tier, model] of [
+      ['mac_intel', { name: 'MacBook Pro 13" (2019)', variants: [{ usedPrice: 10000 }] }],
+      ['mac_new', { name: 'MacBook Pro 16" M4 Max', variants: [{ usedPrice: 70000 }] }],
+      ['mac_imac', { name: 'iMac 24" M3 (2023)', variants: [{ usedPrice: 30000 }] }],
+      ['mac_desktop', { name: 'Mac mini M4 (2024)', variants: [{ usedPrice: 18000 }] }],
+    ] as const) {
+      const { groups } = applyGenerationToGroups([], tier as any, model);
+      const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+      const missing = box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!;
+      expect(missing.deduct, model.name).toBe(1000);
+      expect(missing.pct, model.name).toBeUndefined();
+      expect(box.options.find((o: any) => /^ครบกล่อง/.test(o.label))!.deduct, model.name).toBe(0);
+    }
+  });
   it('the keyboard-region group replaces an old ประเทศที่ซื้อ topic and is never treated as screening', () => {
     const old = [
       { id: 'g1', title: 'ประเทศที่ซื้อ', kind: 'cosmetic', options: [{ id: 'o1', label: 'ศูนย์ไทย', deduct: 0 }] },
