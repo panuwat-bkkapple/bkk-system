@@ -7,6 +7,7 @@
 // the same treatment, so the next time something crashes we see what.
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { isStaleChunkError, reloadForStaleBuild } from '../utils/staleBuildReload';
 
 interface Props {
   children: ReactNode;
@@ -15,26 +16,38 @@ interface Props {
 interface State {
   error: Error | null;
   info: ErrorInfo | null;
+  /** error นี้เกิดจากโค้ดหน้าเว็บเก่ากว่าที่ server มี ไม่ใช่บั๊กของหน้านั้น */
+  stale: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null, info: null };
+  state: State = { error: null, info: null, stale: false };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    return { error };
+    return { error, stale: isStaleChunkError(error) };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary] Caught render error:', error, info);
     this.setState({ info });
+    // chunk ของ build เก่าหายไปหลัง deploy — การ re-render ไม่ช่วยเพราะจะไป
+    // เรียกไฟล์เดิมที่ไม่มีอยู่แล้วซ้ำ ต้องโหลด index.html ใหม่เท่านั้น
+    // helper กัน loop ไว้แล้ว: โหลดซ้ำภายใน 1 นาทีจะไม่ทำ ปล่อยให้เห็น error
+    // แทนหน้าจอกะพริบที่กดอะไรไม่ได้
+    if (isStaleChunkError(error)) reloadForStaleBuild();
   }
 
   handleReset = () => {
-    this.setState({ error: null, info: null });
+    // error กลุ่ม stale chunk ต้องโหลดใหม่จริง ไม่ใช่ล้าง state แล้ว render ซ้ำ
+    if (this.state.stale) {
+      window.location.reload();
+      return;
+    }
+    this.setState({ error: null, info: null, stale: false });
   };
 
   render() {
-    const { error, info } = this.state;
+    const { error, info, stale } = this.state;
     if (!error) return this.props.children;
 
     return (
@@ -45,9 +58,13 @@ export class ErrorBoundary extends Component<Props, State> {
               <span className="text-2xl">⚠️</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="font-bold text-red-700">เกิดข้อผิดพลาดในการแสดงผล</h1>
+              <h1 className="font-bold text-red-700">
+                {stale ? 'ระบบมีเวอร์ชันใหม่ กรุณาโหลดหน้าใหม่' : 'เกิดข้อผิดพลาดในการแสดงผล'}
+              </h1>
               <p className="text-xs text-red-600 mt-1">
-                ส่งภาพหน้านี้ให้ Claude ที่กำลังแก้ปัญหา — ข้อความ error ด้านล่างจะช่วยระบุจุด crash ได้เร็วขึ้น
+                {stale
+                  ? 'หน้านี้เปิดค้างไว้ตั้งแต่ก่อนอัปเดตระบบ ไฟล์ที่หน้าเดิมอ้างถึงถูกแทนที่ไปแล้ว — กดโหลดใหม่แล้วใช้งานต่อได้ตามปกติ ไม่มีข้อมูลสูญหาย'
+                  : 'ส่งภาพหน้านี้ให้ Claude ที่กำลังแก้ปัญหา — ข้อความ error ด้านล่างจะช่วยระบุจุด crash ได้เร็วขึ้น'}
               </p>
             </div>
           </div>
@@ -76,7 +93,7 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={this.handleReset}
               className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold text-sm active:scale-95 transition"
             >
-              ลองใหม่
+              {stale ? 'โหลดหน้าใหม่' : 'ลองใหม่'}
             </button>
             <button
               onClick={() => window.location.assign('/mobile')}
