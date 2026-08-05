@@ -24,8 +24,10 @@ const {
   buildCustomerStatusEmail,
   buildAdminStatusEmail,
   buildAdminPaidSummaryEmail,
+  serviceFeeBreakdown,
 } = require("./email");
 const { LOCKED_COPY_KEYS } = require("./email-templates");
+const { buildVoucherPdf, buildTaxInvoicePdf } = require("./voucher-pdf");
 
 const REGION = "asia-southeast1";
 // ตั้งค่าอีเมล = เรื่องบัญชี/เอกสาร จึงใช้สิทธิ์ชุดเดียวกับ /accounting-settings
@@ -80,8 +82,52 @@ function previewOf(msg) {
   };
 }
 
+/**
+ * ไฟล์แนบของสถานะ Paid — ใบสำคัญรับเงิน + ใบกำกับภาษีค่าบริการ
+ *
+ * เอกสารสองใบนี้เป็น "ของจริง" ที่ลูกค้าได้รับ แต่เดิมหน้าตั้งค่าโชว์แค่ตัว
+ * อีเมล ทำให้ดูเหมือนใบกำกับภาษีหายไปทั้งที่ระบบออกให้อยู่ (คำถามจริงจากผู้ใช้:
+ * "ใบกำกับภาษีค่าบริการอยู่ตรงไหน"). สร้างจากงานสมมติชุดเดียวกับตัวอย่างอีเมล
+ * จึงไม่เปิดข้อมูลลูกค้าจริงเช่นกัน
+ *
+ * best-effort: สร้างไม่ได้ = ไม่มีปุ่มให้กด ไม่ทำให้ทั้งหน้าพัง
+ */
+async function paidAttachments(job) {
+  const out = [];
+  try {
+    const voucher = await buildVoucherPdf(job, { id_number: "1234567890123" });
+    out.push({
+      filename: "ใบสำคัญรับเงิน.pdf",
+      label: "ใบสำคัญรับเงิน (ที่เราจ่ายค่าเครื่องให้ลูกค้า)",
+      base64: voucher.toString("base64"),
+    });
+  } catch (e) {
+    console.warn("[emailTemplates] voucher preview failed:", e?.message || e);
+  }
+  try {
+    const fee = serviceFeeBreakdown(job);
+    if (fee && fee.vatRegistered) {
+      const ti = await buildTaxInvoicePdf(job, {
+        number: "ตัวอย่าง-000123",
+        issued_at: job.transferred_at || job.created_at || 0,
+        base: fee.base,
+        vat: fee.vat,
+        total: fee.feeIncl,
+      });
+      out.push({
+        filename: "ใบกำกับภาษี-ค่าบริการรับเครื่อง.pdf",
+        label: "ใบกำกับภาษี/ใบเสร็จรับเงิน (ค่าบริการรับเครื่องที่ลูกค้าชำระเรา)",
+        base64: ti.toString("base64"),
+      });
+    }
+  } catch (e) {
+    console.warn("[emailTemplates] tax-invoice preview failed:", e?.message || e);
+  }
+  return out;
+}
+
 /** รายการอีเมลทั้งหมดที่ระบบส่ง เรียงตามลำดับที่ลูกค้าเจอจริง */
-function buildManifest() {
+async function buildManifest() {
   const job = sampleJob();
   const items = [
     {
@@ -109,6 +155,8 @@ function buildManifest() {
             : buildAdminStatusEmail(jobForStatus, status, SAMPLE_ADMIN_TO),
         ),
       ),
+      // เอกสาร PDF แนบไปกับทั้งฉบับลูกค้าและฉบับแจ้งทีมของสถานะ Paid
+      ...(status === "Paid" ? { attachments: await paidAttachments(jobForStatus) } : {}),
     });
   }
   return items;
@@ -126,7 +174,7 @@ function registerEmailTemplateAdmin() {
         throw new HttpsError("permission-denied", `เฉพาะ ${MANAGE_ROLES.join("/")} เท่านั้น`);
       }
       return {
-        items: buildManifest(),
+        items: await buildManifest(),
         // ตัวแปรที่ใช้ในข้อความได้ — ส่งมาจาก server เพื่อให้ช่องช่วยจำใน UI
         // ตรงกับตัวที่ renderPlaceholders รู้จักจริงเสมอ
         placeholders: ["ref", "name", "model", "payout", "brand", "method", "branch"],

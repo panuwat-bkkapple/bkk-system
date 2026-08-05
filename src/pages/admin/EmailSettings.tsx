@@ -17,7 +17,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Link } from 'react-router-dom';
 import {
   Mail, ChevronDown, ChevronRight, Eye, RotateCcw, Save, AlertTriangle,
-  CheckCircle2, Lock, Loader2, Info, X,
+  CheckCircle2, Lock, Loader2, Info, X, FileText,
 } from 'lucide-react';
 import { db, app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -30,6 +30,12 @@ interface Preview {
   editable: boolean;
 }
 
+interface Attachment {
+  filename: string;
+  label: string;
+  base64: string;
+}
+
 interface TemplateItem {
   key: string;
   status?: string;
@@ -38,6 +44,8 @@ interface TemplateItem {
   locked?: boolean;
   customer: Preview | null;
   admin: Preview | null;
+  /** เอกสาร PDF ที่แนบไปกับอีเมลสถานะนี้ (ตอนนี้มีเฉพาะ Paid) */
+  attachments?: Attachment[];
 }
 
 interface Manifest {
@@ -55,6 +63,22 @@ interface Override {
 }
 
 const TEMPLATES_PATH = 'settings/email_templates';
+
+/**
+ * เปิด PDF ตัวอย่างในแท็บใหม่
+ *
+ * ใช้ blob แทน data: URI เพราะ Chrome บล็อกการเปิด data: URI ที่ top level
+ * (กันฟิชชิ่ง) — เอกสารตัวอย่างจึงจะไม่เปิดเลยถ้าใช้ data:
+ */
+function openPdf(a: Attachment) {
+  const bin = atob(a.base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  window.open(url, '_blank', 'noopener');
+  // ปล่อย object URL คืนหลังแท็บใหม่อ่านไปแล้ว
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 
 export default function EmailSettings() {
   const toast = useToast();
@@ -262,6 +286,31 @@ export default function EmailSettings() {
                       </button>
                     )}
                   </div>
+
+                  {/* เอกสารที่แนบไปกับอีเมล — ไม่ได้อยู่ในตัวอีเมล จึงต้องแยก
+                      ให้เห็น ไม่งั้นดูเหมือนระบบไม่ได้ออกใบกำกับภาษีให้ */}
+                  {item.attachments && item.attachments.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
+                        เอกสารแนบไปกับอีเมลนี้
+                      </p>
+                      <div className="flex flex-col gap-1.5">
+                        {item.attachments.map((a) => (
+                          <button
+                            key={a.filename}
+                            onClick={() => openPdf(a)}
+                            className="inline-flex items-start gap-1.5 text-left text-[11px] font-bold text-slate-600 hover:text-indigo-600"
+                          >
+                            <FileText size={13} className="shrink-0 mt-0.5" />
+                            <span>
+                              <span className="font-black">{a.filename}</span>
+                              <span className="block font-bold text-slate-400">{a.label}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {canEdit && (
