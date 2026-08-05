@@ -62,7 +62,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
 }
 
 /** ห่อ probe หนึ่งตัว: จับเวลา + แปลง exception เป็น status fail เสมอ */
-async function runProbe(def) {
+/** ยิง probe หนึ่งครั้ง — แปลง exception เป็น status fail เสมอ */
+async function attemptProbe(def) {
   const startedAt = Date.now();
   try {
     const result = await def.run();
@@ -85,6 +86,31 @@ async function runProbe(def) {
       latency_ms: Date.now() - startedAt,
     };
   }
+}
+
+/**
+ * ห่อ probe: ถ้าครั้งแรก fail ให้ลองซ้ำอีกครั้งก่อนตัดสิน
+ *
+ * เน็ตจาก Cloud Function ไป API ภายนอกกระตุกเป็นเรื่องปกติ และการปลุกทั้งทีม
+ * เพราะ timeout ครั้งเดียวคือทางลัดไปสู่ปัญหาที่แย่กว่าเดิม — พอเตือนหมาป่าบ่อย
+ * คนจะเลิกอ่าน แล้วตอนพังจริงจะไม่มีใครสนใจ (เคสจริง 5 ส.ค. 2026: Telegram
+ * probe timeout แล้วแจ้งเตือน ทั้งที่ข้อความแจ้งเตือนนั้นส่งผ่าน Telegram
+ * สำเร็จในวินาทีถัดมา = ใช้งานได้ปกติมาตลอด)
+ *
+ * ลองซ้ำในรอบเดียวกันแทนการรอรอบหน้า เพราะของที่พังจริงต้องเตือนทันที
+ * ไม่ใช่รออีกชั่วโมง — เสียเวลาเพิ่มแค่ตอนที่มีอะไรผิดปกติจริงเท่านั้น
+ */
+async function runProbe(def) {
+  const first = await attemptProbe(def);
+  if (first.status !== "fail") return first;
+
+  await new Promise((r) => setTimeout(r, 2000));
+  const second = await attemptProbe(def);
+  if (second.status !== "fail") {
+    console.log(`[health-check] ${def.id}: ครั้งแรกล้มเหลว (${first.message}) แต่ลองซ้ำแล้วผ่าน — ถือว่าปกติ`);
+    return { ...second, message: `${second.message} (ครั้งแรกไม่ผ่าน ลองซ้ำแล้วปกติ)` };
+  }
+  return second;
 }
 
 // ─── Probes ──────────────────────────────────────────────────────────────────
@@ -344,6 +370,115 @@ function buildProbes(db) {
     },
 
     {
+      id: "order_reconciliation",
+      label: "กระทบยอดคำสั่งขาย (กดยืนยัน vs ออเดอร์จริง)",
+      // ตัวเดียวในชุดนี้ที่ไม่ได้ตรวจ "ของข้างนอกยังใช้ได้ไหม" แต่ตรวจว่า
+      // **ลูกค้าที่ตั้งใจขายได้ขายจริงหรือเปล่า** — คนที่กดปุ่มยืนยันแล้ว
+      // ต้องจบที่ปลายทางใดปลายทางหนึ่งเสมอ: ได้ออเดอร์ / เห็นข้อความว่า
+      // ฟอร์มไม่ครบ / เห็น error. ถ้าไม่มีอะไรตามมาเลย = ลูกค้ากดแล้วระบบ
+      // เงียบ ซึ่งฝั่ง server มองไม่เห็นเลยเพราะไม่มี request ส่งมาถึง
+      //
+      // ก่อนมีตัวนี้ ตัวเลขนั้นดูได้ที่หน้า analytics อย่างเดียว = ต้องมีคน
+      // เปิดไปดูเอง ถ้าไม่มีใครเปิด 3 วัน ออเดอร์ที่หายก็นอนอยู่เฉยๆ
+      //
+      // หน้าต่างเวลาเป็นแบบหน่วง (3 ชม.ที่แล้ว → 30 นาทีที่แล้ว) เพราะคนที่
+      // เพิ่งกดเมื่อกี้อาจยังทำรายการอยู่ ไม่ใช่หายไป. ยิง query ตาม index
+      // `timestamp` ไม่กวาดทั้ง node (กฎ RTDB cost)
+      //
+      // **หน้าต่างของ "การกด" กับ "ปลายทาง" ไม่เท่ากันโดยตั้งใจ**: การกดนับ
+      // เฉพาะ [from, to] แต่ปลายทางรับถึง now — ไม่งั้นคนที่กดจ่อขอบ `to`
+      // แล้วสำเร็จอีก 3 วินาทีถัดมา (ซึ่งเลย `to` ไปแล้ว) จะถูกนับว่าเงียบ
+      // ทั้งที่ได้ออเดอร์เรียบร้อย = เตือนหมาป่าจากเส้นแบ่งเวลาล้วนๆ
+      run: async () => {
+        const now = Date.now();
+        const from = now - 3 * 60 * 60 * 1000;
+        const to = now - 30 * 60 * 1000;
+
+        const snap = await db
+          .ref("assessment_events")
+          .orderByChild("timestamp")
+          .startAt(from)
+          .once("value");
+
+        const attempt = new Set();
+        const resolved = new Set();
+        snap.forEach((c) => {
+          const e = c.val();
+          if (!e || !e.uid) return;
+          if (e.event === "checkout_submit_attempt") {
+            if (e.timestamp <= to) attempt.add(e.uid);
+          } else if (
+            e.event === "order_completed" ||
+            e.event === "checkout_submit_blocked" ||
+            e.event === "checkout_submit_error"
+          ) {
+            resolved.add(e.uid);
+          }
+        });
+
+        if (attempt.size === 0) {
+          return { status: "ok", message: "ไม่มีการกดยืนยันในช่วง 3 ชม.ที่ผ่านมา" };
+        }
+
+        let silent = [...attempt].filter((uid) => !resolved.has(uid));
+
+        // ปลายทางทั้งสามตัวถูกเขียนโดย "เบราว์เซอร์ลูกค้า" — ถ้าออเดอร์ถูก
+        // สร้างสำเร็จฝั่ง server แต่แท็บถูกปิดก่อน event จะไปถึง เราจะเห็นเป็น
+        // เงียบทั้งที่ของอยู่ในระบบแล้ว. ก่อนจะเตือนจึงถาม **ความจริงฝั่ง
+        // server** ก่อนเสมอ: มีงานของ uid นี้เกิดในหน้าต่างเดียวกันไหม
+        // (query ตาม index `uid` ของ /jobs — ไม่กวาดทั้ง node) และยิงเฉพาะ
+        // uid ที่ยังน่าสงสัยซึ่งปกติมีศูนย์ถึงหยิบมือ จำกัดเพดานกันเคสผิดปกติ
+        const MAX_JOB_LOOKUPS = 20;
+        let lostEvent = 0;
+        if (silent.length > 0 && silent.length <= MAX_JOB_LOOKUPS) {
+          const checks = await Promise.all(
+            silent.map(async (uid) => {
+              try {
+                const jobs = await db
+                  .ref("jobs")
+                  .orderByChild("uid")
+                  .equalTo(uid)
+                  .once("value");
+                let landed = false;
+                jobs.forEach((j) => {
+                  const created = j.val() && j.val().created_at;
+                  if (typeof created === "number" && created >= from) landed = true;
+                });
+                return { uid, landed };
+              } catch (err) {
+                // อ่านไม่ได้ = ไม่ยืนยันว่าปลอดภัย ให้คงสถานะน่าสงสัยไว้
+                console.error("order_reconciliation job lookup failed", err);
+                return { uid, landed: false };
+              }
+            }),
+          );
+          lostEvent = checks.filter((c) => c.landed).length;
+          silent = checks.filter((c) => !c.landed).map((c) => c.uid);
+        }
+
+        if (silent.length === 0) {
+          return {
+            status: "ok",
+            message:
+              `กดยืนยัน ${attempt.size} คน ได้ออเดอร์ครบทุกคน` +
+              (lostEvent > 0 ? ` (${lostEvent} คนออเดอร์เข้าแต่ event ตกหล่น)` : ""),
+            meta: { attempts: attempt.size, lost_event: lostEvent },
+          };
+        }
+        // ไม่ใส่เบอร์/ชื่อลูกค้าลงข้อความแจ้งเตือนโดยตั้งใจ (PDPA) — ให้ไปดู
+        // รายละเอียดที่หน้า Session Monitor ซึ่ง gate ด้วยสิทธิ์แอดมินอยู่แล้ว
+        return {
+          status: "fail",
+          message:
+            `มี ${silent.length} คนกดยืนยันแล้วไม่มีออเดอร์เกิดขึ้นจริง ` +
+            `(จากทั้งหมด ${attempt.size} คน) — ดูรายชื่อ+เบอร์ติดต่อกลับที่หน้า ` +
+            "Session Monitor ของเว็บลูกค้า (/admin/sessions) กรองสถานะ \"กดยืนยันแล้วเงียบ\"",
+          meta: { attempts: attempt.size, silent: silent.length, lost_event: lostEvent },
+        };
+      },
+    },
+
+    {
       id: "anthropic",
       label: "Anthropic API (Chat AI)",
       run: async () => {
@@ -371,10 +506,32 @@ const STATUS_RANK = { ok: 0, skip: 0, warn: 1, fail: 2 };
  * ตอนยังพังอยู่จะไม่สแปมซ้ำทุกชั่วโมง
  */
 async function runAllChecks(db, { dispatchAdminPush, dispatchTelegram }, ranBy) {
-  const prevSnap = await db.ref(`${HEALTH_PATH}/services`).once("value");
+  const [prevSnap, togglesSnap] = await Promise.all([
+    db.ref(`${HEALTH_PATH}/services`).once("value"),
+    // สวิตช์เปิด/ปิดการตรวจรายตัว (ตั้งจากหน้า /system-health) — อยู่ใต้
+    // `settings` จึงใช้ rule เดิม (read auth / write admin) ไม่ต้อง deploy
+    // rules. fail-open ตามธรรมเนียม: มีแต่ `enabled === false` ชัดๆ เท่านั้น
+    // ที่ปิด ใช้ mute service ที่รู้อยู่แล้วว่าพังเพราะรอฝั่งภายนอกแก้
+    // (เช่น Thailand Post รอ activate บัญชี) ไม่ให้ค้างแดง/สแปมแจ้งเตือน
+    db.ref("settings/health_checks").once("value"),
+  ]);
   const prev = prevSnap.val() || {};
+  const toggles = togglesSnap.val() || {};
 
-  const results = await Promise.all(buildProbes(db).map(runProbe));
+  const results = await Promise.all(
+    buildProbes(db).map((def) =>
+      toggles[def.id] && toggles[def.id].enabled === false
+        ? Promise.resolve({
+            id: def.id,
+            label: def.label,
+            status: "skip",
+            message: "ปิดการตรวจไว้ (เปิดได้จากหน้า System Health)",
+            meta: null,
+            latency_ms: 0,
+          })
+        : runProbe(def)
+    )
+  );
   const now = Date.now();
 
   const services = {};
@@ -395,7 +552,9 @@ async function runAllChecks(db, { dispatchAdminPush, dispatchTelegram }, ranBy) 
         prevStatus === r.status ? (before && before.last_status_change_at) || now : now,
     };
     if (r.status === "fail" && prevStatus && prevStatus !== "fail") newlyFailed.push(r);
-    if (r.status !== "fail" && prevStatus === "fail") recovered.push(r);
+    // "หายพัง" ต้องหมายถึงตรวจแล้วผ่านจริง (ok/warn) — การกดปิดการตรวจ
+    // (fail → skip) ไม่ใช่การหาย อย่าส่ง Telegram บอกว่ากลับมาปกติ
+    if ((r.status === "ok" || r.status === "warn") && prevStatus === "fail") recovered.push(r);
   }
 
   const counts = results.reduce(

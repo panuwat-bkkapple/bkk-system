@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
-  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity
+  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail
 } from 'lucide-react';
 
 // Single source of truth ของโครงเมนูตั้งค่า (Reusely-style 3 กลุ่ม):
@@ -36,6 +36,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { path: '/admin/branches', label: 'สาขา (Locations)', description: 'จัดการสาขา ที่อยู่ หมุดแผนที่ เวลาเปิด-ปิด', icon: <MapPin size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/staff', label: 'พนักงาน (Users)', description: 'บัญชีพนักงาน role และสถานะการใช้งาน', icon: <Users size={18} />, roles: ['CEO'] },
       { path: '/accounting-settings', label: 'ระบบบัญชี & ใบกำกับภาษี', description: 'ข้อมูลนิติบุคคล VAT เลขรันใบกำกับ อีเมลเอกสาร', icon: <Calculator size={18} />, roles: ['CEO', 'FINANCE'] },
+      { path: '/email-settings', label: 'อีเมลถึงลูกค้า', description: 'เปิด-ปิดและแก้ข้อความอีเมลรายสถานะ ทั้งฉบับลูกค้าและฉบับแจ้งทีม', icon: <Mail size={18} />, roles: ['CEO', 'FINANCE'] },
       { path: '/dealer-settings', label: 'Dealer Portal (ขายส่ง)', description: 'Tier ดีลเลอร์ เลขรันเอกสารขายส่ง บัญชีรับชำระ', icon: <Users size={18} />, roles: ['CEO'] },
     ],
   },

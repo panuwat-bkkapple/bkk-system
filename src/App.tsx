@@ -48,6 +48,7 @@ const RiderFeePromotions = lazy(() => import('./pages/admin/RiderFeePromotions')
 const IssuedRiderFeeDiscounts = lazy(() => import('./pages/admin/IssuedRiderFeeDiscounts').then(m => ({ default: m.IssuedRiderFeeDiscounts })));
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
 const AccountingSettings = lazy(() => import('./pages/admin/AccountingSettings'));
+const EmailSettings = lazy(() => import('./pages/admin/EmailSettings'));
 const ChatWidgetSettings = lazy(() => import('./pages/admin/ChatWidgetSettings'));
 const ChatKnowledgeGraph = lazy(() => import('./pages/admin/ChatKnowledgeGraph'));
 const AiProfileSettings = lazy(() => import('./pages/admin/AiProfileSettings'));
@@ -182,6 +183,7 @@ export default function App() {
                 <Route path="/system-health" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SystemHealth /> : <Navigate to="/" replace />} />
                 <Route path="/global-settings" element={currentUser?.role === 'CEO' ? <GlobalSettings /> : <Navigate to="/" replace />} />
                 <Route path="/accounting-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <AccountingSettings /> : <Navigate to="/" replace />} />
+                <Route path="/email-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <EmailSettings /> : <Navigate to="/" replace />} />
                 <Route path="/membership-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <MembershipSettings /> : <Navigate to="/" replace />} />
                 <Route path="/offer-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CustomerOfferSettings /> : <Navigate to="/" replace />} />
                 <Route path="/chat-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatWidgetSettings /> : <Navigate to="/" replace />} />

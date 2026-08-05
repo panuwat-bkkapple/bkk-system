@@ -7,7 +7,7 @@
 // bkk-frontend-next/database.rules.json
 
 import { useEffect, useState } from 'react';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   Activity, RefreshCw, CheckCircle2, XCircle, AlertTriangle, MinusCircle, Clock, Info,
@@ -94,15 +94,35 @@ export default function SystemHealth() {
   const [services, setServices] = useState<Record<string, HealthService> | null>(null);
   const [summary, setSummary] = useState<HealthSummary | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  // สวิตช์เปิด/ปิดการตรวจรายตัว — เก็บที่ settings/health_checks/{id}/enabled
+  // (ใต้ settings ใช้ rule เดิม read auth / write admin ไม่ต้อง deploy rules)
+  // fail-open: มีแต่ false ชัดๆ เท่านั้นที่ปิด. ฝั่ง functions
+  // (health-check.js) อ่าน node เดียวกัน — probe ที่ปิดจะได้สถานะ skip
+  // ไม่นับ fail ไม่ส่งแจ้งเตือน. ใช้ mute service ที่รู้อยู่แล้วว่าพัง
+  // เพราะรอฝั่งภายนอกแก้ (เช่น Thailand Post รอ activate บัญชี)
+  const [toggles, setToggles] = useState<Record<string, { enabled?: boolean }>>({});
 
   useEffect(() => {
-    const unsub = onValue(ref(db, 'system_health'), (snap) => {
-      const v = snap.val() || {};
-      setServices(v.services || {});
-      setSummary(v.summary || null);
-    });
-    return () => unsub();
+    const unsubs = [
+      onValue(ref(db, 'system_health'), (snap) => {
+        const v = snap.val() || {};
+        setServices(v.services || {});
+        setSummary(v.summary || null);
+      }),
+      onValue(ref(db, 'settings/health_checks'), (snap) => setToggles(snap.val() || {})),
+    ];
+    return () => unsubs.forEach((u) => u());
   }, []);
+
+  const isProbeEnabled = (id: string) => toggles[id]?.enabled !== false;
+  const handleToggleProbe = async (id: string, enabled: boolean) => {
+    try {
+      await set(ref(db, `settings/health_checks/${id}/enabled`), enabled);
+      toast.success(enabled ? 'เปิดการตรวจแล้ว — มีผลรอบถัดไป' : 'ปิดการตรวจแล้ว — จะไม่นับเป็นปัญหาและไม่แจ้งเตือน');
+    } catch {
+      toast.error('บันทึกไม่สำเร็จ กรุณาลองใหม่');
+    }
+  };
 
   const handleRunNow = async () => {
     setIsRunning(true);
@@ -130,8 +150,10 @@ export default function SystemHealth() {
     const ib = SERVICE_ORDER.indexOf(b);
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
   });
-  const failCount = entries.filter(([, s]) => s.status === 'fail').length;
-  const warnCount = entries.filter(([, s]) => s.status === 'warn').length;
+  // service ที่ปิดการตรวจไว้ไม่นับเป็นปัญหา (การ์ดโชว์เทาทันทีแม้ผลตรวจ
+  // ล่าสุดที่เก็บไว้ยังเป็น fail — สถานะจริงใน DB จะตามมาในรอบถัดไป)
+  const failCount = entries.filter(([id, s]) => isProbeEnabled(id) && s.status === 'fail').length;
+  const warnCount = entries.filter(([id, s]) => isProbeEnabled(id) && s.status === 'warn').length;
 
   return (
     <div className="p-6 max-w-3xl">
@@ -194,9 +216,10 @@ export default function SystemHealth() {
 
       <div className="space-y-2.5">
         {entries.map(([id, s]) => {
-          const meta = STATUS_META[s.status] || STATUS_META.skip;
+          const enabled = isProbeEnabled(id);
+          const meta = enabled ? (STATUS_META[s.status] || STATUS_META.skip) : STATUS_META.skip;
           return (
-            <div key={id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
+            <div key={id} className={`p-4 rounded-2xl border shadow-sm ${enabled ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-75'}`}>
               <div className="flex items-center gap-3">
                 <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${meta.dot}`} />
                 <div className="min-w-0 flex-1">
@@ -206,19 +229,30 @@ export default function SystemHealth() {
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-black ${meta.chip}`}
                     >
                       {meta.icon}
-                      {meta.label}
+                      {enabled ? meta.label : 'ปิดการตรวจไว้'}
                     </span>
                   </div>
-                  <p className="text-xs font-bold text-slate-500 mt-1 break-words">{s.message || '—'}</p>
+                  <p className="text-xs font-bold text-slate-500 mt-1 break-words">
+                    {enabled ? (s.message || '—') : 'ปิดการตรวจไว้ — ไม่นับเป็นปัญหาและไม่แจ้งเตือน จนกว่าจะเปิดใหม่'}
+                  </p>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-[11px] font-bold text-slate-400">{timeAgo(s.checked_at)}</div>
-                  {Number.isFinite(s.latency_ms) ? (
+                  {enabled && Number.isFinite(s.latency_ms) ? (
                     <div className="text-[10px] font-bold text-slate-300">{s.latency_ms} ms</div>
                   ) : null}
                 </div>
+                <button
+                  onClick={() => handleToggleProbe(id, !enabled)}
+                  title={enabled ? 'ปิดการตรวจ service นี้ชั่วคราว (mute)' : 'เปิดการตรวจ service นี้'}
+                  className={`shrink-0 w-10 h-6 rounded-full transition-colors relative ${enabled ? 'bg-teal-500' : 'bg-slate-300'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${enabled ? 'left-[18px]' : 'left-0.5'}`}
+                  />
+                </button>
               </div>
-              {s.status === 'fail' && s.last_ok_at ? (
+              {enabled && s.status === 'fail' && s.last_ok_at ? (
                 <p className="mt-2 pl-5 text-[11px] font-bold text-rose-400">
                   ปกติครั้งสุดท้าย {timeAgo(s.last_ok_at)}
                 </p>

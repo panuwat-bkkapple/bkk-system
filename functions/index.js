@@ -23,6 +23,10 @@ const {
   loadNotificationSettings,
   shouldNotify,
 } = require("./notification-settings");
+const {
+  loadEmailTemplates,
+  emailEnabled,
+} = require("./email-templates");
 
 initializeApp();
 
@@ -1543,11 +1547,16 @@ exports.onJobCreatedSendEmails = onValueCreated(
       if (job.confirmation_email_sent_at) return;
       await db.ref(`jobs/${jobId}/confirmation_email_sent_at`).set(Date.now());
 
+      // สวิตช์+ข้อความรายสถานะจากหน้า /email-settings (fail-open: ไม่มี node
+      // = ส่งตามเดิม). key `order_created` = อีเมลตอนออเดอร์เข้า
+      const templates = await loadEmailTemplates(db);
+      const tpl = templates.order_created;
+
       // 1) Customer "we received your order". Skip silently when there's no
       //    email (admin-created tickets sometimes omit it).
-      if (job.cust_email) {
+      if (job.cust_email && emailEnabled(templates, "order_created", "customer")) {
         try {
-          const res = await sendEmail(buildCustomerReceivedEmail(job));
+          const res = await sendEmail(buildCustomerReceivedEmail(job, tpl));
           console.log(`[orderEmail] customer-received ${jobId}:`, JSON.stringify(res));
         } catch (e) {
           console.error(`[orderEmail] customer-received failed ${jobId}:`, e);
@@ -1556,14 +1565,14 @@ exports.onJobCreatedSendEmails = onValueCreated(
 
       // 2) Admin central-inbox notification.
       const adminTo = process.env.ORDER_NOTIFY_EMAIL;
-      if (adminTo) {
+      if (adminTo && emailEnabled(templates, "order_created", "admin")) {
         try {
-          const res = await sendEmail(buildAdminNewOrderEmail(job, adminTo));
+          const res = await sendEmail(buildAdminNewOrderEmail(job, adminTo, tpl));
           console.log(`[orderEmail] admin-notify ${jobId}:`, JSON.stringify(res));
         } catch (e) {
           console.error(`[orderEmail] admin-notify failed ${jobId}:`, e);
         }
-      } else {
+      } else if (!adminTo) {
         console.warn(`[orderEmail] ORDER_NOTIFY_EMAIL not set — skipped admin notify for ${jobId}`);
       }
     } catch (err) {
@@ -1733,9 +1742,14 @@ exports.onJobStatusEmail = onValueUpdated(
       }
       const voucherAttachments = paidAttachments.length ? paidAttachments : undefined;
 
+      // สวิตช์+ข้อความรายสถานะจากหน้า /email-settings. ใช้ `key` ตัวเดียวกับ
+      // idempotency slug ด้านบน เพื่อให้ node ใน settings ตรงกับสถานะเป๊ะ
+      const templates = await loadEmailTemplates(db);
+      const tpl = templates[key];
+
       // Customer milestone email (skip silently when no email / no customer copy).
-      if (job.cust_email) {
-        const msg = buildCustomerStatusEmail(job, status);
+      if (job.cust_email && emailEnabled(templates, key, "customer")) {
+        const msg = buildCustomerStatusEmail(job, status, tpl);
         if (msg) {
           if (voucherAttachments) msg.attachments = voucherAttachments;
           try {
@@ -1754,7 +1768,7 @@ exports.onJobStatusEmail = onValueUpdated(
       // credentials so it can read it. SickW data is read from the job
       // snapshot — no API re-call.
       const adminTo = process.env.ORDER_NOTIFY_EMAIL;
-      if (adminTo) {
+      if (adminTo && emailEnabled(templates, key, "admin")) {
         let msg;
         if (status === "Paid") {
           let kyc = null;
@@ -1766,7 +1780,7 @@ exports.onJobStatusEmail = onValueUpdated(
           msg = buildAdminPaidSummaryEmail(job, kyc, adminTo);
           if (voucherAttachments) msg.attachments = voucherAttachments;
         } else {
-          msg = buildAdminStatusEmail(job, status, adminTo);
+          msg = buildAdminStatusEmail(job, status, adminTo, tpl);
         }
         if (msg) {
           try {
@@ -6051,3 +6065,10 @@ Object.assign(
     dispatchTelegram,
   })
 );
+
+// =============================================================================
+// ตั้งค่าอีเมล (/email-settings) — callable ที่ส่ง "รายการอีเมลทั้งหมดที่ระบบ
+// ส่ง + ตัวอย่างจริง" ให้หน้าตั้งค่า render โดยไม่ต้อง copy รายการเทมเพลตไป
+// ไว้ฝั่ง UI เป็น mirror อีกตัว (logic อยู่ email-templates-admin.js)
+// =============================================================================
+Object.assign(exports, require("./email-templates-admin").registerEmailTemplateAdmin());
