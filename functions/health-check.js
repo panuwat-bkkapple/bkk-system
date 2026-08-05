@@ -370,6 +370,72 @@ function buildProbes(db) {
     },
 
     {
+      id: "order_reconciliation",
+      label: "กระทบยอดคำสั่งขาย (กดยืนยัน vs ออเดอร์จริง)",
+      // ตัวเดียวในชุดนี้ที่ไม่ได้ตรวจ "ของข้างนอกยังใช้ได้ไหม" แต่ตรวจว่า
+      // **ลูกค้าที่ตั้งใจขายได้ขายจริงหรือเปล่า** — คนที่กดปุ่มยืนยันแล้ว
+      // ต้องจบที่ปลายทางใดปลายทางหนึ่งเสมอ: ได้ออเดอร์ / เห็นข้อความว่า
+      // ฟอร์มไม่ครบ / เห็น error. ถ้าไม่มีอะไรตามมาเลย = ลูกค้ากดแล้วระบบ
+      // เงียบ ซึ่งฝั่ง server มองไม่เห็นเลยเพราะไม่มี request ส่งมาถึง
+      //
+      // ก่อนมีตัวนี้ ตัวเลขนั้นดูได้ที่หน้า analytics อย่างเดียว = ต้องมีคน
+      // เปิดไปดูเอง ถ้าไม่มีใครเปิด 3 วัน ออเดอร์ที่หายก็นอนอยู่เฉยๆ
+      //
+      // หน้าต่างเวลาเป็นแบบหน่วง (3 ชม.ที่แล้ว → 30 นาทีที่แล้ว) เพราะคนที่
+      // เพิ่งกดเมื่อกี้อาจยังทำรายการอยู่ ไม่ใช่หายไป. ยิง query ตาม index
+      // `timestamp` ไม่กวาดทั้ง node (กฎ RTDB cost)
+      run: async () => {
+        const now = Date.now();
+        const from = now - 3 * 60 * 60 * 1000;
+        const to = now - 30 * 60 * 1000;
+
+        const snap = await db
+          .ref("assessment_events")
+          .orderByChild("timestamp")
+          .startAt(from)
+          .endAt(to)
+          .once("value");
+
+        const attempt = new Set();
+        const resolved = new Set();
+        snap.forEach((c) => {
+          const e = c.val();
+          if (!e || !e.uid) return;
+          if (e.event === "checkout_submit_attempt") attempt.add(e.uid);
+          else if (
+            e.event === "order_completed" ||
+            e.event === "checkout_submit_blocked" ||
+            e.event === "checkout_submit_error"
+          ) {
+            resolved.add(e.uid);
+          }
+        });
+
+        if (attempt.size === 0) {
+          return { status: "ok", message: "ไม่มีการกดยืนยันในช่วง 3 ชม.ที่ผ่านมา" };
+        }
+
+        const silent = [...attempt].filter((uid) => !resolved.has(uid));
+        if (silent.length === 0) {
+          return {
+            status: "ok",
+            message: `กดยืนยัน ${attempt.size} คน จบครบทุกคน`,
+            meta: { attempts: attempt.size },
+          };
+        }
+        // ไม่ใส่เบอร์/ชื่อลูกค้าลงข้อความแจ้งเตือนโดยตั้งใจ (PDPA) — ให้ไปดู
+        // รายละเอียดที่หน้า Abandoned Carts ซึ่ง gate ด้วยสิทธิ์แอดมินอยู่แล้ว
+        return {
+          status: "fail",
+          message:
+            `มี ${silent.length} คนกดยืนยันแล้วระบบไม่ตอบอะไรเลย (จากทั้งหมด ${attempt.size} คน) — ` +
+            "ดูรายชื่อ+เบอร์ติดต่อกลับที่หน้า Abandoned Carts",
+          meta: { attempts: attempt.size, silent: silent.length },
+        };
+      },
+    },
+
+    {
       id: "anthropic",
       label: "Anthropic API (Chat AI)",
       run: async () => {
