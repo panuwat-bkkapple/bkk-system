@@ -866,4 +866,126 @@ async function buildCreditNotePdf(data, company) {
   return Buffer.from(bytes);
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf };
+
+/**
+ * หนังสือรับรองการหักภาษี ณ ที่จ่าย (50 ทวิ) สำหรับค่าตอบแทนไรเดอร์อิสระ
+ *
+ * ตาม ม.50 ทวิ ผู้จ่ายเงินได้ที่มีหน้าที่หักภาษี ณ ที่จ่ายต้องออกหนังสือรับรอง
+ * ให้ผู้ถูกหัก **ทุกครั้งที่มีการหัก** — ระบบจึงออกให้ต่อการถอนหนึ่งครั้ง
+ * ไม่ใช่สรุปรวมท้ายเดือน (ยอดรวมรายเดือนใช้ตอนยื่น ภ.ง.ด.3 คนละใบกัน)
+ *
+ * ประเภทเงินได้ = ค่าจ้างทำของ/ค่าบริการ ตามมาตรา 40(8) ซึ่งเป็นช่องที่
+ * ค่าตอบแทนงานขนส่งรายเที่ยวของผู้รับจ้างอิสระตกอยู่โดยทั่วไป — ถ้าผู้สอบบัญชี
+ * จัดประเภทเป็นช่องอื่น ต้องแก้ทั้งข้อความในเอกสารและช่องที่กรอกใน ภ.ง.ด.3
+ */
+async function buildWhtCertificatePdf({ rider, cert, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = { ...companyOf({}), ...(company || {}) };
+
+  let y = height - M;
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) => {
+    const f = opts.bold ? fontB : font;
+    page.drawText(String(t == null ? "" : t), { x, y: opts.y != null ? opts.y : y, size, font: f, color: opts.color || black });
+  };
+  const drawRight = (t, rightX, size, opts = {}) => draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const str = String(t == null ? "" : t);
+    const out = []; let cur = "";
+    for (const ch of str) {
+      if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  // หัวเอกสาร
+  const title = "หนังสือรับรองการหักภาษี ณ ที่จ่าย";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 18;
+  const sub = "ตามมาตรา 50 ทวิ แห่งประมวลรัษฎากร";
+  draw(sub, (width - widthOf(sub, 10, font)) / 2, 10, { color: gray });
+  y -= 26;
+
+  draw(`เลขที่: ${cert.number || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่จ่ายเงิน: ${formatDate(cert.paid_at) || "-"}`, width - M, 11);
+  y -= 22;
+
+  // ผู้มีหน้าที่หักภาษี ณ ที่จ่าย
+  hr(y + 6); y -= 14;
+  draw("ผู้มีหน้าที่หักภาษี ณ ที่จ่าย", M, 11, { bold: true });
+  y -= 16;
+  draw(CO.legalName, M + 12, 11);
+  y -= 15;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M + 12, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M + 12, 10, contentW - 12, 13, { color: gray });
+  y -= 10;
+
+  // ผู้ถูกหักภาษี ณ ที่จ่าย
+  hr(y + 6); y -= 14;
+  draw("ผู้ถูกหักภาษี ณ ที่จ่าย", M, 11, { bold: true });
+  y -= 16;
+  draw(rider.name || "-", M + 12, 11);
+  y -= 15;
+  draw(`เลขประจำตัวผู้เสียภาษี/บัตรประชาชน ${rider.tax_id || "-"}`, M + 12, 10, { color: gray });
+  y -= 14;
+  if (rider.tax_address) drawWrapped(rider.tax_address, M + 12, 10, contentW - 12, 13, { color: gray });
+  y -= 12;
+
+  // ตารางเงินได้
+  hr(y + 6); y -= 14;
+  draw("ประเภทเงินได้พึงประเมินที่จ่าย", M, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน (บาท)", width - M, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+  draw("ค่าจ้างทำของ/ค่าบริการ ตามมาตรา 40(8)", M, 11);
+  drawRight(thb(cert.gross), width - M, 11);
+  y -= 16;
+  draw("(ค่าตอบแทนงานรับ-ส่งอุปกรณ์)", M + 12, 9, { color: gray });
+  y -= 20;
+  hr(y + 6); y -= 14;
+  draw("รวมเงินที่จ่าย", M, 11, { color: gray });
+  drawRight(thb(cert.gross), width - M, 11, { color: gray });
+  y -= 16;
+  draw(`ภาษีที่หักและนำส่ง (${cert.rate_percent}%)`, M, 13, { bold: true });
+  drawRight(thb(cert.wht), width - M, 13, { bold: true, color: rgb(0.72, 0.11, 0.11) });
+  y -= 18;
+  draw("ยอดที่จ่ายจริงให้ผู้รับ", M, 11, { color: gray });
+  drawRight(thb(cert.net), width - M, 11, { color: gray });
+  y -= 20;
+
+  const words = bahtText(cert.wht);
+  if (words) { draw(`ภาษีที่หักไว้ (ตัวอักษร): (${words})`, M, 11); y -= 22; }
+
+  draw("ผู้จ่ายเงินได้นำส่งภาษีที่หักไว้ต่อกรมสรรพากรตามแบบ ภ.ง.ด.3 ภายในกำหนดเวลา", M, 9, { color: gray });
+  y -= 12;
+  draw("ผู้ถูกหักภาษีสามารถใช้หนังสือรับรองฉบับนี้เป็นหลักฐานเครดิตภาษีในการยื่นแบบแสดงรายการภาษีเงินได้บุคคลธรรมดา", M, 9, { color: gray });
+
+  // ลายเซ็นผู้จ่าย
+  const sigY = Math.max(y - 60, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้มีอำนาจลงนาม";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+
+  page.drawText(`${CO.legalName} • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+  return Buffer.from(await pdf.save());
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf };

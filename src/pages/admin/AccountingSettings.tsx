@@ -35,6 +35,9 @@ interface CompanyProfile {
 interface AccountingSettings {
   order_emails_enabled: boolean;
   vat_registered: boolean;
+  /** หักภาษี ณ ที่จ่ายค่าตอบแทนไรเดอร์อิสระตอนถอนเงิน (ปิดเป็นค่าเริ่มต้น) */
+  rider_wht_enabled: boolean;
+  rider_wht_rate_percent: number;
   /** ขึ้นระบบ e-Tax Invoice ของกรมสรรพากรแล้วหรือยัง — ปิดอยู่ = PDF ที่ส่ง
    *  ทางอีเมลเป็นเพียงสำเนา ต้นฉบับต้องออกเป็นกระดาษ */
   etax_enabled: boolean;
@@ -59,6 +62,8 @@ const DEFAULT_COMPANY: CompanyProfile = {
 const DEFAULTS: AccountingSettings = {
   order_emails_enabled: false,
   vat_registered: true,
+  rider_wht_enabled: false,
+  rider_wht_rate_percent: 3,
   etax_enabled: false,
   vat_rate_percent: 7,
   tax_invoice_prefix: 'IV-',
@@ -170,6 +175,8 @@ export default function AccountingSettings() {
       const next: AccountingSettings = {
         order_emails_enabled: v.order_emails_enabled === true,
         vat_registered: v.vat_registered !== false,
+        rider_wht_enabled: v.rider_wht?.enabled === true,
+        rider_wht_rate_percent: Number(v.rider_wht?.rate_percent) > 0 ? Number(v.rider_wht.rate_percent) : 3,
         etax_enabled: v.etax_enabled === true,
         vat_rate_percent: typeof v.vat_rate_percent === 'number' ? v.vat_rate_percent : 7,
         tax_invoice_prefix: typeof v.tax_invoice_prefix === 'string' && v.tax_invoice_prefix ? v.tax_invoice_prefix : 'IV-',
@@ -230,6 +237,7 @@ export default function AccountingSettings() {
       await update(ref(db, 'settings/accounting'), {
         order_emails_enabled: s.order_emails_enabled,
         vat_registered: s.vat_registered,
+        rider_wht: { enabled: s.rider_wht_enabled, rate_percent: Number(s.rider_wht_rate_percent) || 3 },
         etax_enabled: s.etax_enabled,
         vat_rate_percent: Number.isFinite(rate) && rate > 0 ? rate : 7,
         tax_invoice_prefix: (s.tax_invoice_prefix || 'IV-').trim(),
@@ -379,6 +387,37 @@ export default function AccountingSettings() {
                 disabled={!s.vat_registered}
                 value={s.vat_rate_percent}
                 onChange={(e) => setS({ ...s, vat_rate_percent: Number(e.target.value) })}
+                className={`${INPUT_CLS} w-20 text-right`}
+              />
+              <span className="text-sm font-black text-slate-400">%</span>
+            </div>
+          </Row>
+        </Section>
+
+        {/* ภาษีหัก ณ ที่จ่าย — ค่าตอบแทนไรเดอร์ */}
+        <Section
+          icon={<Percent size={17} className="text-amber-600" />}
+          tint="bg-amber-50"
+          title="ภาษีหัก ณ ที่จ่าย (ค่าตอบแทนไรเดอร์)"
+          subtitle="หักตอนไรเดอร์ถอนเงินออกจาก wallet ซึ่งเป็นจังหวะที่เงินออกจากบัญชีบริษัทจริง"
+        >
+          <Row
+            title="เปิดหักภาษี ณ ที่จ่ายไรเดอร์อิสระ"
+            desc="หักเฉพาะไรเดอร์ที่ระบุสถานะเป็น &quot;รับจ้างอิสระ&quot; ที่หน้า /riders — ลูกจ้างประจำหักที่ระบบเงินเดือน ส่วนคนที่ยังไม่ระบุสถานะระบบจะไม่หักและไม่เดาให้ เปิดสวิตช์นี้เมื่อแจ้งไรเดอร์เรียบร้อยแล้ว เพราะเขาจะได้รับเงินน้อยลงจากเดิม"
+          >
+            <Toggle checked={s.rider_wht_enabled} onChange={(v) => setS({ ...s, rider_wht_enabled: v })} />
+          </Row>
+          <Row
+            title="อัตราหัก ณ ที่จ่าย"
+            desc="ค่าจ้างทำของ/ค่าบริการ โดยทั่วไป 3% — ยืนยันอัตราที่ถูกต้องกับผู้สอบบัญชีก่อนเปิดใช้"
+            last
+          >
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number" min={0} max={100} step={0.5}
+                disabled={!s.rider_wht_enabled}
+                value={s.rider_wht_rate_percent}
+                onChange={(e) => setS({ ...s, rider_wht_rate_percent: Number(e.target.value) })}
                 className={`${INPUT_CLS} w-20 text-right`}
               />
               <span className="text-sm font-black text-slate-400">%</span>
