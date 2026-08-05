@@ -280,26 +280,31 @@ export function macBareDeviceDeduct(model: any): number {
   return Math.max(1000, pctBaht);
 }
 
+/** Mac "ขาดกล่อง (มีเครื่อง+อะแดปเตอร์)" — คงที่ 1,000 บาททุกรุ่น. */
+export const MAC_MISSING_BOX_DEDUCT = 1000;
+
 /** Overlay the per-line box deducts onto a materialized groups array. */
 function applyBoxDeducts(groups: any[], model: unknown): any[] {
   const name = String((typeof model === 'object' && model !== null ? (model as any).name : model) || '').trim();
-  const ipadBox = ipadBoxDeducts(name) || iphoneBoxDeducts(name);
-  const macBare = /^(macbook|imac|mac\s)/i.test(name)
-    ? macBareDeviceDeduct(typeof model === 'object' ? model : { name })
-    : null;
-  if (!ipadBox && macBare == null) return groups;
+  // Mac คิดค่าเครื่องเปล่าจากราคา (ต้องใช้ model object) จึงแยกจากตาราง
+  // คงที่ของ iPhone/iPad; ขาดกล่องของ Mac คงที่ 1,000 ทุกรุ่น
+  const box = /^(macbook|imac|mac\s)/i.test(name)
+    ? {
+        missingBox: MAC_MISSING_BOX_DEDUCT,
+        bareDevice: macBareDeviceDeduct(typeof model === 'object' ? model : { name }),
+      }
+    : ipadBoxDeducts(name) || iphoneBoxDeducts(name);
+  if (!box) return groups;
   return groups.map((g) => {
     if (!/กล่อง|อุปกรณ์เสริม/.test(String(g?.title || ''))) return g;
     return {
       ...g,
       options: (g.options || []).map((o: any) => {
         const label = String(o?.label || '');
-        if (ipadBox && /^ขาดกล่อง/.test(label)) return { ...o, deduct: ipadBox.missingBox };
-        if (ipadBox && /^เครื่องเปล่า/.test(label)) return { ...o, deduct: ipadBox.bareDevice };
-        if (macBare != null && /^เครื่องเปล่า/.test(label)) {
-          const { pct: _pct, ...rest } = o;
-          return { ...rest, deduct: macBare };
-        }
+        // ลบ pct ทิ้งเมื่อ overlay เป็นบาท (precedence pct > deduct)
+        const { pct: _pct, ...rest } = o;
+        if (/^ขาดกล่อง/.test(label)) return { ...rest, deduct: box.missingBox };
+        if (/^เครื่องเปล่า/.test(label)) return { ...rest, deduct: box.bareDevice };
         return o;
       }),
     };
