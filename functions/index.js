@@ -1457,6 +1457,12 @@ async function loadAccountingSettings(db) {
     // 'plain' = continuous {prefix}{NNNNNN}; 'year_month' = {prefix}{YYYYMM}{NNNN}
     // (resets monthly); 'year' = {prefix}{YYYY}{NNNN} (resets yearly).
     taxInvoiceFormat: fmt === "year_month" || fmt === "year" ? fmt : "plain",
+    // ยังไม่ได้เชื่อมระบบ e-Tax Invoice ของกรมสรรพากร (default = ปิด)
+    // ตราบใดที่ยังปิด PDF ที่แนบอีเมล **ไม่ใช่ใบกำกับภาษีอิเล็กทรอนิกส์ตาม
+    // กฎหมาย** — ต้นฉบับต้องเป็นกระดาษ ไฟล์นี้จึงต้องประทับว่า "สำเนา" ไม่งั้น
+    // ลูกค้าและผู้ตรวจจะเข้าใจว่ามีต้นฉบับสองใบ. เปิดได้จาก /accounting-settings
+    // เมื่อขึ้นระบบ e-Tax Invoice by Email หรือ e-Tax Invoice & e-Receipt แล้ว
+    etaxEnabled: s.etax_enabled === true,
     // Admin-editable company identity (overrides the hardcoded default).
     company: s.company && typeof s.company === "object" ? s.company : null,
   };
@@ -1465,7 +1471,11 @@ async function loadAccountingSettings(db) {
 // Stash resolved accounting config on the in-memory job so the email/PDF
 // builders (which have no DB access) compute VAT/company consistently. Not persisted.
 function applyAccounting(job, acct) {
-  job._accounting = { vat_registered: acct.vatRegistered, vat_rate: acct.vatRate };
+  job._accounting = {
+    vat_registered: acct.vatRegistered,
+    vat_rate: acct.vatRate,
+    etax_enabled: acct.etaxEnabled,
+  };
   if (acct.company) job._company = acct.company;
   return job;
 }
@@ -1640,10 +1650,21 @@ exports.onJobStatusEmail = onValueUpdated(
       };
 
       const paidAttachments = [];
+      // KYC snapshot อ่านครั้งเดียวใช้สองที่ — ใบสำคัญรับเงินใช้แค่เลขบัตร 4 ตัว
+      // ท้ายเพื่ออ้างอิงถึงสำเนาบัตรที่จัดเก็บไว้ (บัญชียืนยันว่าใช้สลิปโอน +
+      // สำเนาบัตรแทนลายมือชื่อได้) ส่วนอีเมลสรุปของแอดมินใช้ฉบับเต็มตามเดิม
+      let paidKyc = null;
+      if (status === "Paid") {
+        try {
+          paidKyc = (await db.ref(`jobs_kyc/${jobId}`).once("value")).val();
+        } catch (e) {
+          console.warn(`[orderEmail] jobs_kyc read failed ${jobId}:`, e?.message || e);
+        }
+      }
       if (status === "Paid") {
         // 1) ใบสำคัญรับเงิน (payment voucher) for the device purchase.
         try {
-          const pdf = await buildVoucherPdf(job);
+          const pdf = await buildVoucherPdf(job, paidKyc);
           paidAttachments.push({
             filename: `ใบสำคัญรับเงิน-${job.ref_no || jobId}.pdf`,
             content: pdf.toString("base64"),
@@ -1685,8 +1706,10 @@ exports.onJobStatusEmail = onValueUpdated(
         //    number on retry) — running/sequential under ป.รัษฎากร ม.86/4.
         const fee = serviceFeeBreakdown(job);
         if (fee && fee.vatRegistered) {
+          // ประกาศนอก try เพื่อให้ catch รู้ว่าจองเลขไปแล้วหรือยัง — เลขที่จอง
+          // แล้วแต่ไม่มีเอกสารต้องถูกบันทึกเป็นใบยกเลิก ไม่ใช่หายเงียบ
+          let ti = job.tax_invoice;
           try {
-            let ti = job.tax_invoice;
             if (!ti || !ti.number) {
               // Counter(s) live under settings/accounting so the admin page can
               // read them live and reset before go-live. allocateTaxInvoiceNumber
@@ -1702,6 +1725,26 @@ exports.onJobStatusEmail = onValueUpdated(
               await db.ref(`jobs/${jobId}/tax_invoice`).set(ti);
             }
             const tiPdf = await buildTaxInvoicePdf(job, ti);
+            if (!tiPdf) {
+              // เลขถูกจองไปแล้วแต่สร้างเอกสารไม่สำเร็จ = เลขหายจากลำดับ ซึ่ง
+              // เป็นสิ่งแรกที่ผู้ตรวจถามหา. ลงทะเบียนเป็นใบยกเลิกไว้ให้ลำดับ
+              // อธิบายได้ (มูลค่า 0 จึงไม่กระทบ ภ.พ.30) — คีย์เป็นเลขใบกำกับ
+              // ถ้ารันซ้ำแล้วสร้างสำเร็จ แถวจริงจะเขียนทับแถว void นี้เอง
+              await writeAccountingDocument(db, `TI_${statusEmailKey(ti.number)}`, {
+                type: "tax_invoice",
+                status: "void",
+                void_reason: "สร้างไฟล์ใบกำกับภาษีไม่สำเร็จ — เลขนี้ไม่ได้ออกให้ลูกค้า",
+                number: ti.number,
+                job_id: jobId,
+                ref_no: job.ref_no || null,
+                issued_at: ti.issued_at || Date.now(),
+                period: bangkokYM(ti.issued_at || Date.now()).ym,
+                base: 0,
+                vat: 0,
+                total: 0,
+              });
+              console.error(`[orderEmail] tax-invoice ${ti.number} allocated but PDF build returned null (${jobId}) — logged as void`);
+            }
             if (tiPdf) {
               paidAttachments.push({
                 filename: `ใบกำกับภาษี-${ti.number}.pdf`,
@@ -1737,6 +1780,25 @@ exports.onJobStatusEmail = onValueUpdated(
             }
           } catch (e) {
             console.error(`[orderEmail] tax-invoice build failed ${jobId}:`, e?.message || e);
+            if (ti && ti.number) {
+              try {
+                await writeAccountingDocument(db, `TI_${statusEmailKey(ti.number)}`, {
+                  type: "tax_invoice",
+                  status: "void",
+                  void_reason: `ออกใบกำกับภาษีไม่สำเร็จ (${String((e && e.message) || e).slice(0, 120)}) — เลขนี้ไม่ได้ออกให้ลูกค้า`,
+                  number: ti.number,
+                  job_id: jobId,
+                  ref_no: job.ref_no || null,
+                  issued_at: ti.issued_at || Date.now(),
+                  period: bangkokYM(ti.issued_at || Date.now()).ym,
+                  base: 0,
+                  vat: 0,
+                  total: 0,
+                });
+              } catch (e2) {
+                console.error(`[orderEmail] void-register failed for ${ti.number}:`, e2?.message || e2);
+              }
+            }
           }
         }
       }
@@ -1771,13 +1833,7 @@ exports.onJobStatusEmail = onValueUpdated(
       if (adminTo && emailEnabled(templates, key, "admin")) {
         let msg;
         if (status === "Paid") {
-          let kyc = null;
-          try {
-            kyc = (await db.ref(`jobs_kyc/${jobId}`).once("value")).val();
-          } catch (e) {
-            console.warn(`[orderEmail] jobs_kyc read failed ${jobId}:`, e?.message || e);
-          }
-          msg = buildAdminPaidSummaryEmail(job, kyc, adminTo);
+          msg = buildAdminPaidSummaryEmail(job, paidKyc, adminTo);
           if (voucherAttachments) msg.attachments = voucherAttachments;
         } else {
           msg = buildAdminStatusEmail(job, status, adminTo, tpl);
@@ -1842,7 +1898,7 @@ exports.onSaleCreated = onValueCreated(
       // PDF (best-effort) → archive + attach to register.
       let url = null;
       try {
-        const pdf = await buildSalesTaxInvoicePdf(sale, ti, acct.company);
+        const pdf = await buildSalesTaxInvoicePdf(sale, ti, acct.company, acct.etaxEnabled);
         try {
           const token = `${saleId}-${Date.now()}`;
           const bucket = getStorage().bucket();

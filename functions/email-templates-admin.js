@@ -36,7 +36,11 @@ const SAMPLE_ADMIN_TO = "orders@example.com";
 function sampleJob() {
   return {
     ref_no: "BKK-250805-0001",
+    // งานสมมติต้องมีฟิลด์ครบเท่างานจริง ไม่งั้นตัวอย่างจะดูขาดข้อมูลทั้งที่
+    // อีเมลจริงมีให้ แล้วแอดมินจะไล่แก้สิ่งที่ไม่ได้พัง
+    created_at: Date.parse("2026-08-05T03:20:00Z"),
     cust_name: "ตัวอย่าง ลูกค้า",
+    cust_address: "199/2 ซอยทดสอบ 5 แขวงจอมพล เขตจตุจักร กรุงเทพฯ 10900",
     cust_email: "customer@example.com",
     cust_phone: "0812345678",
     model: "iPhone 17 Pro 256GB",
