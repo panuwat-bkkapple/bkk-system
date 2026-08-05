@@ -6130,3 +6130,9 @@ Object.assign(
 // ไว้ฝั่ง UI เป็น mirror อีกตัว (logic อยู่ email-templates-admin.js)
 // =============================================================================
 Object.assign(exports, require("./email-templates-admin").registerEmailTemplateAdmin());
+
+// =============================================================================
+// หนังสือรับรองการหักภาษี ณ ที่จ่าย (50 ทวิ) ของไรเดอร์ — ออกอัตโนมัติเมื่อ
+// รายการถอนที่หักภาษีไว้ถูกบันทึก (logic อยู่ rider-wht-issue.js)
+// =============================================================================
+Object.assign(exports, require("./rider-wht-issue").registerRiderWhtIssue());

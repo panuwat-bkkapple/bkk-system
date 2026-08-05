@@ -70,6 +70,13 @@ export const RiderWithdrawals = () => {
     if (!slipFile) { toast.warning("กรุณาแนบสลิปการโอนเงินเพื่อเป็นหลักฐาน"); return; } // 🔒 บังคับแนบสลิป
 
     const wht = whtFor(selectedTx);
+    // ไม่ระบุสถานะการจ้าง = ไม่รู้ว่าต้องหักภาษีหรือไม่ ปล่อยผ่านแล้วมารู้
+    // ทีหลังว่าควรหักคือเราผิดหน้าที่และเรียกคืนจากไรเดอร์ยาก จึงบล็อกไว้ก่อน
+    // (บล็อกเฉพาะตอนระบบหักภาษีเปิดอยู่ — ปิดอยู่ก็จ่ายได้ตามเดิม)
+    if (whtCfg.enabled && !riderById[selectedTx.rider_id]?.employment?.type) {
+      toast.error('ไรเดอร์รายนี้ยังไม่ระบุสถานะการจ้าง — ไปกรอกที่หน้าจัดการไรเดอร์ก่อนจึงจะโอนได้');
+      return;
+    }
     if (!confirm(
       wht.applies
         ? `ยืนยันการโอนเงิน ${formatCurrency(wht.net)} ให้ไรเดอร์?\n\n` +
@@ -228,9 +235,16 @@ export const RiderWithdrawals = () => {
                     </label>
                  </div>
 
+                 {whtCfg.enabled && !riderById[selectedTx.rider_id]?.employment?.type && (
+                   <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs font-bold text-rose-700">
+                     ไรเดอร์รายนี้ยังไม่ระบุสถานะการจ้าง (ลูกจ้างประจำ / รับจ้างอิสระ) —
+                     ระบบไม่รู้ว่าต้องหักภาษี ณ ที่จ่ายหรือไม่ จึงยังโอนไม่ได้
+                     กรุณากรอกที่หน้าจัดการไรเดอร์ก่อน
+                   </div>
+                 )}
                  <button 
                     onClick={handleConfirmTransfer}
-                    disabled={isUploading}
+                    disabled={isUploading || (whtCfg.enabled && !riderById[selectedTx.rider_id]?.employment?.type)}
                     className={`w-full text-white py-6 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl transition-all uppercase ${isUploading ? 'bg-slate-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-black active:scale-95'}`}
                  >
                     {isUploading ? <Loader2 size={24} className="animate-spin"/> : <CheckCircle2 size={24}/>} 

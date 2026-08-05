@@ -59,6 +59,7 @@ const NotificationSettings = lazy(() => import('./pages/admin/NotificationSettin
 const SystemHealth = lazy(() => import('./pages/admin/SystemHealth'));
 const OfferReport = lazy(() => import('./pages/admin/OfferReport'));
 const VatReport = lazy(() => import('./pages/admin/VatReport'));
+const WhtReport = lazy(() => import('./pages/admin/WhtReport'));
 const FinancialReport = lazy(() => import('./pages/admin/FinancialReport'));
 const GeneralLedger = lazy(() => import('./pages/admin/GeneralLedger'));
 const SickwUsagePage = lazy(() => import('./pages/admin/SickwUsagePage'));
@@ -167,6 +168,7 @@ export default function App() {
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/offer-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <OfferReport /> : <Navigate to="/" replace />} />
               <Route path="/vat-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <VatReport /> : <Navigate to="/" replace />} />
+              <Route path="/wht-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <WhtReport /> : <Navigate to="/" replace />} />
               <Route path="/financial-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <FinancialReport /> : <Navigate to="/" replace />} />
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
