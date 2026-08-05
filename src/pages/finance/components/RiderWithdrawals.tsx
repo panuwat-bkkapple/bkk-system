@@ -8,12 +8,32 @@ import { Search, CheckCircle2, X, Copy, Check, Bike, Upload, FileText, Loader2 }
 import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { computeRiderWht, readRiderWhtConfig } from '../../../utils/riderWht';
 
 export const RiderWithdrawals = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
   const { data: jobs, loading } = useDatabase('jobs');
-  
+  // การถอน = จุดที่เงินออกจากบัญชีบริษัทจริง จึงเป็นจุดที่หน้าที่หักภาษี
+  // ณ ที่จ่ายเกิดขึ้น (ไม่ใช่ตอนอนุมัติค่ารอบเข้า wallet ซึ่งเป็นแค่การตั้งหนี้)
+  const { data: riders } = useDatabase('riders');
+  const { data: acctSettings } = useDatabase('settings/accounting');
+  const whtCfg = useMemo(
+    () => readRiderWhtConfig((acctSettings as any)?.rider_wht),
+    [acctSettings],
+  );
+  const riderById = useMemo(() => {
+    const m: Record<string, any> = {};
+    (Array.isArray(riders) ? riders : []).forEach((r: any) => { if (r?.id) m[r.id] = r; });
+    return m;
+  }, [riders]);
+  const whtFor = (tx: any) =>
+    computeRiderWht(
+      Number(tx?.withdraw_amount || 0),
+      riderById[tx?.rider_id]?.employment?.type,
+      whtCfg,
+    );
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTx, setSelectedTx] = useState<any>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
@@ -49,7 +69,14 @@ export const RiderWithdrawals = () => {
     if (!selectedTx) return;
     if (!slipFile) { toast.warning("กรุณาแนบสลิปการโอนเงินเพื่อเป็นหลักฐาน"); return; } // 🔒 บังคับแนบสลิป
 
-    if (!confirm(`ยืนยันการโอนเงิน ${formatCurrency(selectedTx.withdraw_amount)} ให้ไรเดอร์?`)) return;
+    const wht = whtFor(selectedTx);
+    if (!confirm(
+      wht.applies
+        ? `ยืนยันการโอนเงิน ${formatCurrency(wht.net)} ให้ไรเดอร์?\n\n` +
+          `ยอดขอถอน ${formatCurrency(wht.gross)}\nหักภาษี ณ ที่จ่าย ${wht.ratePercent}% = ${formatCurrency(wht.wht)}\n` +
+          `โอนจริง ${formatCurrency(wht.net)}`
+        : `ยืนยันการโอนเงิน ${formatCurrency(selectedTx.withdraw_amount)} ให้ไรเดอร์?`
+    )) return;
 
     setIsUploading(true);
     try {
@@ -65,6 +92,9 @@ export const RiderWithdrawals = () => {
       updates[`jobs/${selectedTx.id}/paid_at`] = now;
       updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
       updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      // `amount` = ยอดที่ตัดจาก wallet ของไรเดอร์ (ยอดขอถอนเต็ม) เพราะภาษีที่
+      // หักไว้คือเงินของไรเดอร์ที่บริษัทนำส่งสรรพากรแทน ไม่ใช่เงินที่ไม่เคย
+      // เป็นของเขา — wallet จึงต้องลดเต็มจำนวน ส่วน `net_paid` คือยอดที่โอนจริง
       updates[`transactions/${txKey}`] = {
         rider_id: selectedTx.rider_id,
         amount: Number(selectedTx.withdraw_amount),
@@ -73,8 +103,16 @@ export const RiderWithdrawals = () => {
         description: `ถอนเงินเข้าบัญชี ${selectedTx.bank_name} (${selectedTx.bank_account})`,
         timestamp: now,
         ref_job_id: selectedTx.id,
-        slip_url: slipUrl
+        slip_url: slipUrl,
+        ...(wht.applies
+          ? { wht_amount: wht.wht, wht_rate_percent: wht.ratePercent, net_paid: wht.net }
+          : { net_paid: Number(selectedTx.withdraw_amount) }),
       };
+      if (wht.applies) {
+        updates[`jobs/${selectedTx.id}/wht_amount`] = wht.wht;
+        updates[`jobs/${selectedTx.id}/wht_rate_percent`] = wht.ratePercent;
+        updates[`jobs/${selectedTx.id}/net_paid`] = wht.net;
+      }
       await update(ref(db), updates);
 
       toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
@@ -143,10 +181,29 @@ export const RiderWithdrawals = () => {
                  <button onClick={()=>setSelectedTx(null)} className="p-3 hover:bg-slate-100 rounded-2xl transition-colors text-slate-400"><X size={28}/></button>
               </div>
               <div className="p-10 space-y-6">
-                 <div className="text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Withdrawal Amount</p>
-                    <h1 className="text-6xl font-black text-red-500">-{formatCurrency(selectedTx.withdraw_amount)}</h1>
-                 </div>
+                 {(() => {
+                   const w = whtFor(selectedTx);
+                   return (
+                     <div className="text-center">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                         {w.applies ? 'ยอดที่ต้องโอนจริง' : 'Withdrawal Amount'}
+                       </p>
+                       <h1 className="text-6xl font-black text-red-500">-{formatCurrency(w.net)}</h1>
+                       {w.applies ? (
+                         <div className="mt-3 inline-block text-left bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 text-xs font-bold text-amber-800 space-y-1">
+                           <div className="flex justify-between gap-6"><span>ยอดขอถอน</span><span>{formatCurrency(w.gross)}</span></div>
+                           <div className="flex justify-between gap-6"><span>หักภาษี ณ ที่จ่าย {w.ratePercent}%</span><span>−{formatCurrency(w.wht)}</span></div>
+                           <div className="flex justify-between gap-6 pt-1 border-t border-amber-200 font-black"><span>โอนจริง</span><span>{formatCurrency(w.net)}</span></div>
+                           <p className="pt-1 font-bold text-amber-600">ระบบจะออกหนังสือรับรองหักภาษี ณ ที่จ่าย (50 ทวิ) ให้อัตโนมัติ</p>
+                         </div>
+                       ) : (
+                         w.reason && (
+                           <p className="mt-2 text-[11px] font-bold text-slate-400">ไม่หักภาษี ณ ที่จ่าย — {w.reason}</p>
+                         )
+                       )}
+                     </div>
+                   );
+                 })()}
                  
                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 space-y-4">
                     <div className="flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">Bank</span><span className="font-black text-slate-800 uppercase">{selectedTx.bank_name}</span></div>
