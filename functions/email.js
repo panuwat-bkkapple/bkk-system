@@ -21,6 +21,8 @@
 //   CUSTOMER_TRACKING_BASE_URL — base URL for the customer tracking link
 // =============================================================================
 
+const { resolveCopy } = require("./email-templates");
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const BRAND = "BKK APPLE";
 
@@ -372,35 +374,42 @@ function trackingButton(job) {
 
 // ── Templates ────────────────────────────────────────────────────────────────
 
-/** Customer: "we received your order" — sent on job creation. */
-function buildCustomerReceivedEmail(job) {
+/**
+ * Customer: "we received your order" — sent on job creation.
+ * `override` = แถวจาก settings/email_templates (ดู email-templates.js) —
+ * ฟิลด์ที่แอดมินไม่กรอกจะได้ข้อความ default ตัวเดิมพร้อมเงื่อนไขครบ
+ */
+function buildCustomerReceivedEmail(job, override) {
   const name = job.cust_name ? `คุณ${esc(job.cust_name)}` : "ลูกค้า";
   // Offer request — the customer submitted a spec with no published price;
   // the copy promises a call-back with an offer instead of an order confirm.
-  if (isOfferAwaiting(job)) {
-    return {
-      to: job.cust_email,
-      subject: `ได้รับคำขอใบเสนอราคาของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
-      html: shell({
+  const awaitingOffer = isOfferAwaiting(job);
+  const defaults = awaitingOffer
+    ? {
+        subject: `ได้รับคำขอใบเสนอราคาของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
         heading: "เราได้รับคำขอใบเสนอราคาของคุณแล้ว",
         intro: `สวัสดี ${name} ขอบคุณที่เลือกขายอุปกรณ์กับ ${esc(BRAND)} เราได้รับข้อมูลเครื่องของคุณเรียบร้อยแล้ว ทีมผู้เชี่ยวชาญกำลังประเมินราคาเป็นรายเครื่อง และจะติดต่อกลับพร้อมข้อเสนอราคาที่ดีที่สุดโดยเร็วที่สุด ไม่มีข้อผูกมัดใดๆ`,
-        bodyHtml: orderSummaryCard(job) + trackingButton(job),
-      }),
-    };
-  }
+      }
+    : {
+        subject: `ได้รับคำสั่งขายของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
+        heading: "เราได้รับคำสั่งขายของคุณแล้ว",
+        intro: `สวัสดี ${name} ขอบคุณที่เลือกขายอุปกรณ์กับ ${esc(BRAND)} เราได้รับคำสั่งขายของคุณเรียบร้อยแล้ว ทีมงานกำลังตรวจสอบรายละเอียดและจะติดต่อกลับเพื่อยืนยันโดยเร็วที่สุด`,
+      };
+  const copy = resolveCopy(defaults, override, job, esc);
   return {
     to: job.cust_email,
-    subject: `ได้รับคำสั่งขายของคุณแล้ว — ${job.ref_no || "BKK APPLE"}`,
+    subject: copy.subject,
+    copy,
     html: shell({
-      heading: "เราได้รับคำสั่งขายของคุณแล้ว",
-      intro: `สวัสดี ${name} ขอบคุณที่เลือกขายอุปกรณ์กับ ${esc(BRAND)} เราได้รับคำสั่งขายของคุณเรียบร้อยแล้ว ทีมงานกำลังตรวจสอบรายละเอียดและจะติดต่อกลับเพื่อยืนยันโดยเร็วที่สุด`,
+      heading: copy.heading,
+      intro: copy.intro,
       bodyHtml: orderSummaryCard(job) + trackingButton(job),
     }),
   };
 }
 
 /** Admin central inbox: a new order just landed. */
-function buildAdminNewOrderEmail(job, to) {
+function buildAdminNewOrderEmail(job, to, override) {
   const contact = [
     job.cust_name && `ชื่อ: ${esc(job.cust_name)}`,
     job.cust_phone && `โทร: ${esc(job.cust_phone)}`,
@@ -411,18 +420,25 @@ function buildAdminNewOrderEmail(job, to) {
 
   const isB2B = job.status === "New B2B Lead";
   const awaitingOffer = isOfferAwaiting(job);
-  return {
-    to,
+  const defaults = {
     subject: awaitingOffer
       ? `[ขอใบเสนอราคา] ${job.ref_no || ""} — ${esc(job.model || "")} (ติดต่อลูกค้ากลับ)`.trim()
       : `[ออเดอร์ใหม่${isB2B ? " B2B" : ""}] ${job.ref_no || ""} — ${esc(job.model || "")} ${formatTHB(
           job.net_payout ?? job.price
         )}`.trim(),
+    heading: awaitingOffer ? "ลูกค้าขอใบเสนอราคา (สเปกยังไม่มีราคากลาง)" : `มีคำสั่งขายใหม่เข้ามา${isB2B ? " (B2B)" : ""}`,
+    intro: awaitingOffer
+      ? `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong> — สเปกนี้ยังไม่มีราคากลางในระบบ ต้องติดต่อลูกค้ากลับเพื่อเสนอราคา`
+      : `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong>`,
+  };
+  const copy = resolveCopy(defaults, override, job, esc);
+  return {
+    to,
+    subject: copy.subject,
+    copy,
     html: shell({
-      heading: awaitingOffer ? "ลูกค้าขอใบเสนอราคา (สเปกยังไม่มีราคากลาง)" : `มีคำสั่งขายใหม่เข้ามา${isB2B ? " (B2B)" : ""}`,
-      intro: awaitingOffer
-        ? `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong> — สเปกนี้ยังไม่มีราคากลางในระบบ ต้องติดต่อลูกค้ากลับเพื่อเสนอราคา`
-        : `สถานะเริ่มต้น: <strong>${esc(job.status || "-")}</strong>`,
+      heading: copy.heading,
+      intro: copy.intro,
       bodyHtml:
         (contact
           ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>`
@@ -875,7 +891,9 @@ const STATUS_COPY = {
  * status isn't a customer-facing milestone / there's no customer copy. Paid is
  * special-cased to the ใบสำคัญรับเงิน (payment voucher).
  */
-function buildCustomerStatusEmail(job, status) {
+function buildCustomerStatusEmail(job, status, override) {
+  // ใบสำคัญรับเงินเป็นเอกสารทางบัญชี — แก้ถ้อยคำจากหน้าตั้งค่าไม่ได้
+  // (เปิด/ปิดได้อย่างเดียว ดู LOCKED_COPY_KEYS ใน email-templates.js)
   if (status === "Paid") return buildCustomerPaymentVoucherEmail(job);
   const entry = STATUS_COPY[status];
   if (!entry || !entry.customer) return null;
@@ -883,12 +901,19 @@ function buildCustomerStatusEmail(job, status) {
   const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
   const extra = c.extra ? c.extra(job) : "";
   const payoutLabel = PAYOUT_LABEL_ESTIMATE;
+  const defaults = {
+    subject: c.subject(job),
+    heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
+    intro: `${name}${c.intro(job)}`,
+  };
+  const copy = resolveCopy(defaults, override, job, esc);
   return {
     to: job.cust_email,
-    subject: c.subject(job),
+    subject: copy.subject,
+    copy,
     html: shell({
-      heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
-      intro: `${name}${c.intro(job)}`,
+      heading: copy.heading,
+      intro: copy.intro,
       bodyHtml: orderSummaryCard(job, payoutLabel) + extra + trackingButton(job),
     }),
   };
@@ -898,7 +923,7 @@ function buildCustomerStatusEmail(job, status) {
  * Build the admin milestone notification for a canonical status, or null when
  * the status isn't a tracked milestone.
  */
-function buildAdminStatusEmail(job, status, to) {
+function buildAdminStatusEmail(job, status, to, override) {
   const entry = STATUS_COPY[status];
   if (!entry) return null;
   const contact = [
@@ -907,12 +932,19 @@ function buildAdminStatusEmail(job, status, to) {
   ]
     .filter(Boolean)
     .join(" &nbsp;|&nbsp; ");
+  const defaults = {
+    subject: `[${entry.adminLabel}] ${job.ref_no || ""} — ${esc(job.model || "")}`.trim(),
+    heading: `อัปเดตสถานะ: ${esc(entry.adminLabel)}`,
+    intro: `สถานะปัจจุบัน: <strong>${esc(status)}</strong>`,
+  };
+  const copy = resolveCopy(defaults, override, job, esc);
   return {
     to,
-    subject: `[${entry.adminLabel}] ${job.ref_no || ""} — ${esc(job.model || "")}`.trim(),
+    subject: copy.subject,
+    copy,
     html: shell({
-      heading: `อัปเดตสถานะ: ${esc(entry.adminLabel)}`,
-      intro: `สถานะปัจจุบัน: <strong>${esc(status)}</strong>`,
+      heading: copy.heading,
+      intro: copy.intro,
       bodyHtml:
         (contact ? `<p style="margin:0 0 16px;font-size:14px;color:#374151;">${contact}</p>` : "") +
         orderSummaryCard(job),
@@ -1041,6 +1073,7 @@ module.exports = {
   normalizeStatus,
   statusEmailKey,
   isMilestone,
+  STATUS_COPY,
   buildCustomerReceivedEmail,
   buildAdminNewOrderEmail,
   buildCustomerStatusEmail,
