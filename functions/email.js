@@ -955,21 +955,37 @@ const STATUS_COPY = {
       intro: () => "เครื่องของคุณถูกส่งคืนเรียบร้อยแล้ว หากมีข้อสงสัยกรุณาติดต่อทีมงาน",
     },
   },
+  // ── Post-paid recovery ─────────────────────────────────────────────────────
+  // สองสถานะนี้อยู่ใต้หัวข้อ "Post-paid recovery" ใน job-statuses.ts = เกิด
+  // **หลังจ่ายเงินให้ลูกค้าไปแล้ว** แล้วพบปัญหาที่ทำให้ต้องเรียกเงินคืน
+  // (เช่นเครื่องติด iCloud/Find My, IMEI ไม่ตรง, พบว่าเป็นเครื่องที่มีปัญหา
+  // ทางกฎหมาย) — เงินจึงไหล **กลับมาหาบริษัท** ไม่ใช่บริษัทจ่ายเพิ่มให้ลูกค้า
+  //
+  // ข้อความเดิมเขียนกลับทิศ ("เราได้คืนเงินให้คุณแล้ว") ซึ่งถ้าส่งออกไปจริงจะ
+  // ทำให้ลูกค้าเข้าใจว่ากำลังจะได้เงินอีกก้อน. ยอดในการ์ดจึงต้องไม่ใช่ป้าย
+  // "ยอดที่จะได้รับ" และห้ามแนบบัญชีรับเงินของลูกค้า (paymentExtra) เพราะ
+  // ไม่มีการโอนออกไปหาลูกค้าในขั้นตอนนี้
   "Refund Initiated": {
-    adminLabel: "เริ่มคืนเงิน",
+    adminLabel: "เรียกคืนเงิน (หลังชำระ)",
+    tone: "alert",
+    payoutLabel: "ยอดที่จ่ายไปแล้ว",
     customer: {
-      subject: (j) => `เริ่มดำเนินการคืนเงิน — ${REF(j)}`,
-      heading: "เริ่มดำเนินการคืนเงิน",
-      intro: () => "เราได้เริ่มดำเนินการคืนเงินให้คุณแล้ว โดยปกติใช้เวลา 1-3 วันทำการ",
+      subject: (j) => `พบปัญหากับเครื่องหลังการชำระเงิน — ${REF(j)}`,
+      heading: "พบปัญหากับเครื่องหลังการชำระเงิน",
+      intro: () =>
+        "หลังจากที่เราชำระเงินให้คุณแล้ว ทีมงานตรวจพบปัญหากับเครื่องที่ทำให้ไม่สามารถรับซื้อรายการนี้ต่อได้ " +
+        "เจ้าหน้าที่จะติดต่อคุณโดยตรงเพื่อชี้แจงรายละเอียดและตกลงแนวทางร่วมกัน กรุณาอย่าเพิ่งดำเนินการใดๆ จนกว่าจะได้พูดคุยกับทีมงาน",
     },
   },
   "Refund Completed": {
-    adminLabel: "คืนเงินเสร็จ",
+    adminLabel: "ปิดเรื่องเรียกคืนเงิน",
+    tone: "alert",
+    payoutLabel: "ยอดของรายการนี้",
     customer: {
-      subject: (j) => `คืนเงินเรียบร้อย — ${REF(j)}`,
-      heading: "คืนเงินเรียบร้อยแล้ว",
-      intro: () => "เราได้คืนเงินให้คุณเรียบร้อยแล้ว ขอบคุณที่ใช้บริการ",
-      extra: paymentExtra,
+      subject: (j) => `ปิดรายการเรียบร้อย — ${REF(j)}`,
+      heading: "ปิดรายการเรียบร้อยแล้ว",
+      intro: () =>
+        "รายการนี้ได้ข้อสรุปและปิดเรียบร้อยแล้วตามที่ตกลงกับเจ้าหน้าที่ หากมีข้อสงสัยเพิ่มเติมกรุณาติดต่อทีมงาน",
     },
   },
 };
@@ -988,7 +1004,7 @@ function buildCustomerStatusEmail(job, status, override) {
   const c = entry.customer;
   const name = job.cust_name ? `คุณ${esc(job.cust_name)} ` : "";
   const extra = c.extra ? c.extra(job) : "";
-  const payoutLabel = PAYOUT_LABEL_ESTIMATE;
+  const payoutLabel = entry.payoutLabel || PAYOUT_LABEL_ESTIMATE;
   const defaults = {
     subject: c.subject(job),
     heading: typeof c.heading === "function" ? c.heading(job) : c.heading,
@@ -996,6 +1012,9 @@ function buildCustomerStatusEmail(job, status, override) {
   };
   const copy = resolveCopy(defaults, override, job, esc);
   const voided = entry.voided === true;
+  // tone แยกจาก voided: บางสถานะเป็นข่าวร้ายที่ต้องอ่านให้สะดุด แต่ยอดเงินยัง
+  // "มีอยู่จริง" ไม่ควรถูกขีดฆ่า (เช่นเรียกคืนเงินหลังจ่ายไปแล้ว)
+  const tone = voided || entry.tone === "alert" ? "void" : undefined;
   return {
     to: job.cust_email,
     subject: copy.subject,
@@ -1003,7 +1022,7 @@ function buildCustomerStatusEmail(job, status, override) {
     html: shell({
       heading: copy.heading,
       intro: copy.intro,
-      tone: voided ? "void" : undefined,
+      tone,
       // ปุ่มติดตามไม่มีประโยชน์กับงานที่จบแล้ว มีแต่ชวนให้กดไปเจอหน้าที่บอก
       // เรื่องเดียวกัน
       bodyHtml: orderSummaryCard(job, { payoutLabel, voided }) + extra + (voided ? "" : trackingButton(job)),

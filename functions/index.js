@@ -2250,8 +2250,10 @@ const NOTIFY_STATUS_MAP = {
   "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
   "Returning To Customer": "↩️ กำลังตีเครื่องคืนลูกค้า",
   "Withdrawal Requested": "💱 ขอถอนเงิน",
-  "Refund Initiated": "↩️ เริ่มกระบวนการคืนเงิน — admin ต้อง action",
-  "Refund Completed": "↩️ คืนเงินเรียบร้อย",
+  // เงินไหลกลับมาหาบริษัท (พบปัญหาหลังจ่าย) ไม่ใช่บริษัทจ่ายเพิ่ม — ดู
+  // หมายเหตุ "Post-paid recovery" ใน email.js
+  "Refund Initiated": "⚠️ พบปัญหาหลังจ่ายเงิน — ต้องเรียกเงินคืน (admin ต้อง action)",
+  "Refund Completed": "✅ ปิดเรื่องเรียกคืนเงินแล้ว",
   Disputed: "⚖️ ลูกค้าโต้แย้ง — admin ต้องตรวจสอบ",
   // Logistics exceptions — owner must intervene
   "Drop-off Expired": "⏰ ลูกค้าไม่มา drop-off ตามนัด — งานหมดอายุ",
