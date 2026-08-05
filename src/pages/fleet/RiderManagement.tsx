@@ -30,6 +30,14 @@ export const RiderManagement = () => {
   const [editVehicleType, setEditVehicleType] = useState<'motorcycle' | 'car'>('motorcycle');
   const [editBankName, setEditBankName] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
+  // สถานะการจ้าง — ตัดสินวิธีทางภาษีของค่าตอบแทนที่จ่ายให้ไรเดอร์คนนี้:
+  // ลูกจ้างประจำ = เงินได้ ม.40(1) เข้าระบบเงินเดือน (ภ.ง.ด.1) ไม่หัก ณ ที่จ่าย
+  // รายเที่ยว | รับจ้างอิสระ = ค่าจ้างทำของ/ค่าบริการ ต้องหัก ณ ที่จ่ายและออก
+  // หนังสือรับรอง (50 ทวิ) + ยื่น ภ.ง.ด.3
+  // ค่าว่าง = ยังไม่ระบุ ระบบจะไม่เดาวิธีทางภาษีให้
+  const [editEmploymentType, setEditEmploymentType] = useState<'' | 'employee' | 'freelance'>('');
+  const [editTaxId, setEditTaxId] = useState('');
+  const [editTaxAddress, setEditTaxAddress] = useState('');
 
   // Normalize rider data: map alternative field names from the rider mobile app
   // to the field names expected by this admin panel
@@ -119,6 +127,9 @@ export const RiderManagement = () => {
       setEditVehicleModel(selectedRider.vehicle?.model || '');
       setEditVehicleType(selectedRider.vehicle?.type === 'car' ? 'car' : 'motorcycle');
       setEditBankName(selectedRider.bank?.name || '');
+      setEditEmploymentType(selectedRider.employment?.type || '');
+      setEditTaxId(selectedRider.employment?.tax_id || '');
+      setEditTaxAddress(selectedRider.employment?.tax_address || '');
       setEditBankAccount(selectedRider.bank?.account || '');
       setIsEditingProfile(false);
     }
@@ -207,6 +218,13 @@ export const RiderManagement = () => {
         // ตรงๆ (อ่านฟิลด์เดียวถูกกว่าดึง object ทั้งก้อน)
         updates.vehicle_type = editVehicleType;
         updates.bank = { name: editBankName, account: editBankAccount };
+        // เก็บรวมเป็น object เดียวเพื่อให้ฝั่งจ่ายเงินอ่านครบในที่เดียว —
+        // เลขบัตร/ที่อยู่จำเป็นสำหรับออกหนังสือรับรองหักภาษี ณ ที่จ่าย
+        updates.employment = {
+          type: editEmploymentType || null,
+          tax_id: editTaxId.trim() || null,
+          tax_address: editTaxAddress.trim() || null,
+        };
       }
       await update(ref(db, `riders/${riderId}`), updates);
       toast.success('บันทึกข้อมูลสำเร็จ!');
@@ -425,6 +443,24 @@ export const RiderManagement = () => {
                         </select>
                         <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">ใช้เลือกชุดอัตราค่าวิ่ง และคิดเวลาถึงลูกค้า — ลูกค้าจะเห็นว่าไรเดอร์มาด้วยรถอะไร เพื่อเตรียมที่จอด</p>
                       </div>
+                      <div className="pt-3 mt-3 border-t">
+                        <label className="text-xs text-gray-500 font-medium">สถานะการจ้าง (มีผลทางภาษี)</label>
+                        <select
+                          value={editEmploymentType}
+                          onChange={e => setEditEmploymentType(e.target.value as '' | 'employee' | 'freelance')}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400"
+                        >
+                          <option value="">— ยังไม่ระบุ —</option>
+                          <option value="employee">ลูกจ้างประจำ (เงินเดือน/ค่าจ้าง ภ.ง.ด.1)</option>
+                          <option value="freelance">รับจ้างอิสระ (หัก ณ ที่จ่าย + 50 ทวิ ภ.ง.ด.3)</option>
+                        </select>
+                        <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                          ลูกจ้างประจำ = ค่าเที่ยวเป็นส่วนหนึ่งของค่าจ้าง เข้าระบบเงินเดือน ไม่หัก ณ ที่จ่ายรายเที่ยว<br />
+                          รับจ้างอิสระ = บริษัทมีหน้าที่หักภาษี ณ ที่จ่ายและออกหนังสือรับรองให้
+                        </p>
+                      </div>
+                      <div><label className="text-xs text-gray-500 font-medium">เลขประจำตัวผู้เสียภาษี / เลขบัตรประชาชน</label><input type="text" value={editTaxId} onChange={e => setEditTaxId(e.target.value)} placeholder="13 หลัก (ใช้ออกหนังสือรับรองหักภาษี)" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
+                      <div><label className="text-xs text-gray-500 font-medium">ที่อยู่ตามบัตร (สำหรับเอกสารภาษี)</label><input type="text" value={editTaxAddress} onChange={e => setEditTaxAddress(e.target.value)} placeholder="ที่อยู่ที่จะพิมพ์บนหนังสือรับรอง" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div className="pt-3 mt-3 border-t"><label className="text-xs text-gray-500 font-medium">ธนาคาร</label><input type="text" value={editBankName} onChange={e => setEditBankName(e.target.value)} placeholder="เช่น กสิกรไทย" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                       <div><label className="text-xs text-gray-500 font-medium">เลขบัญชี</label><input type="text" value={editBankAccount} onChange={e => setEditBankAccount(e.target.value)} placeholder="เลขบัญชีธนาคาร" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-bold outline-none focus:border-blue-400" /></div>
                     </div>
@@ -432,6 +468,8 @@ export const RiderManagement = () => {
                     <div className="space-y-3 text-sm">
                       <div className="flex justify-between"><span className="text-gray-500">ป้ายทะเบียน:</span> <span className="font-bold bg-orange-100 text-orange-800 px-2 py-0.5 rounded">{selectedRider.vehicle?.plate || '-'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">รุ่นรถ:</span> <span className="font-medium">{selectedRider.vehicle?.model || '-'}</span></div>
+                      <div className="flex justify-between mt-4 pt-4 border-t"><span className="text-gray-500">สถานะการจ้าง:</span> <span className={`font-bold ${selectedRider.employment?.type ? 'text-gray-800' : 'text-amber-600'}`}>{selectedRider.employment?.type === 'employee' ? 'ลูกจ้างประจำ' : selectedRider.employment?.type === 'freelance' ? 'รับจ้างอิสระ' : 'ยังไม่ระบุ'}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">เลขผู้เสียภาษี:</span> <span className="font-bold">{selectedRider.employment?.tax_id || '-'}</span></div>
                       <div className="flex justify-between mt-4 pt-4 border-t"><span className="text-gray-500">ธนาคาร:</span> <span className="font-bold">{selectedRider.bank?.name || '-'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">เลขบัญชี:</span> <span className="font-bold text-emerald-600">{selectedRider.bank?.account || '-'}</span></div>
                     </div>
