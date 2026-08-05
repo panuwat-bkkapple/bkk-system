@@ -384,6 +384,11 @@ function buildProbes(db) {
       // หน้าต่างเวลาเป็นแบบหน่วง (3 ชม.ที่แล้ว → 30 นาทีที่แล้ว) เพราะคนที่
       // เพิ่งกดเมื่อกี้อาจยังทำรายการอยู่ ไม่ใช่หายไป. ยิง query ตาม index
       // `timestamp` ไม่กวาดทั้ง node (กฎ RTDB cost)
+      //
+      // **หน้าต่างของ "การกด" กับ "ปลายทาง" ไม่เท่ากันโดยตั้งใจ**: การกดนับ
+      // เฉพาะ [from, to] แต่ปลายทางรับถึง now — ไม่งั้นคนที่กดจ่อขอบ `to`
+      // แล้วสำเร็จอีก 3 วินาทีถัดมา (ซึ่งเลย `to` ไปแล้ว) จะถูกนับว่าเงียบ
+      // ทั้งที่ได้ออเดอร์เรียบร้อย = เตือนหมาป่าจากเส้นแบ่งเวลาล้วนๆ
       run: async () => {
         const now = Date.now();
         const from = now - 3 * 60 * 60 * 1000;
@@ -393,7 +398,6 @@ function buildProbes(db) {
           .ref("assessment_events")
           .orderByChild("timestamp")
           .startAt(from)
-          .endAt(to)
           .once("value");
 
         const attempt = new Set();
@@ -401,8 +405,9 @@ function buildProbes(db) {
         snap.forEach((c) => {
           const e = c.val();
           if (!e || !e.uid) return;
-          if (e.event === "checkout_submit_attempt") attempt.add(e.uid);
-          else if (
+          if (e.event === "checkout_submit_attempt") {
+            if (e.timestamp <= to) attempt.add(e.uid);
+          } else if (
             e.event === "order_completed" ||
             e.event === "checkout_submit_blocked" ||
             e.event === "checkout_submit_error"
@@ -415,22 +420,60 @@ function buildProbes(db) {
           return { status: "ok", message: "ไม่มีการกดยืนยันในช่วง 3 ชม.ที่ผ่านมา" };
         }
 
-        const silent = [...attempt].filter((uid) => !resolved.has(uid));
+        let silent = [...attempt].filter((uid) => !resolved.has(uid));
+
+        // ปลายทางทั้งสามตัวถูกเขียนโดย "เบราว์เซอร์ลูกค้า" — ถ้าออเดอร์ถูก
+        // สร้างสำเร็จฝั่ง server แต่แท็บถูกปิดก่อน event จะไปถึง เราจะเห็นเป็น
+        // เงียบทั้งที่ของอยู่ในระบบแล้ว. ก่อนจะเตือนจึงถาม **ความจริงฝั่ง
+        // server** ก่อนเสมอ: มีงานของ uid นี้เกิดในหน้าต่างเดียวกันไหม
+        // (query ตาม index `uid` ของ /jobs — ไม่กวาดทั้ง node) และยิงเฉพาะ
+        // uid ที่ยังน่าสงสัยซึ่งปกติมีศูนย์ถึงหยิบมือ จำกัดเพดานกันเคสผิดปกติ
+        const MAX_JOB_LOOKUPS = 20;
+        let lostEvent = 0;
+        if (silent.length > 0 && silent.length <= MAX_JOB_LOOKUPS) {
+          const checks = await Promise.all(
+            silent.map(async (uid) => {
+              try {
+                const jobs = await db
+                  .ref("jobs")
+                  .orderByChild("uid")
+                  .equalTo(uid)
+                  .once("value");
+                let landed = false;
+                jobs.forEach((j) => {
+                  const created = j.val() && j.val().created_at;
+                  if (typeof created === "number" && created >= from) landed = true;
+                });
+                return { uid, landed };
+              } catch (err) {
+                // อ่านไม่ได้ = ไม่ยืนยันว่าปลอดภัย ให้คงสถานะน่าสงสัยไว้
+                console.error("order_reconciliation job lookup failed", err);
+                return { uid, landed: false };
+              }
+            }),
+          );
+          lostEvent = checks.filter((c) => c.landed).length;
+          silent = checks.filter((c) => !c.landed).map((c) => c.uid);
+        }
+
         if (silent.length === 0) {
           return {
             status: "ok",
-            message: `กดยืนยัน ${attempt.size} คน จบครบทุกคน`,
-            meta: { attempts: attempt.size },
+            message:
+              `กดยืนยัน ${attempt.size} คน ได้ออเดอร์ครบทุกคน` +
+              (lostEvent > 0 ? ` (${lostEvent} คนออเดอร์เข้าแต่ event ตกหล่น)` : ""),
+            meta: { attempts: attempt.size, lost_event: lostEvent },
           };
         }
         // ไม่ใส่เบอร์/ชื่อลูกค้าลงข้อความแจ้งเตือนโดยตั้งใจ (PDPA) — ให้ไปดู
-        // รายละเอียดที่หน้า Abandoned Carts ซึ่ง gate ด้วยสิทธิ์แอดมินอยู่แล้ว
+        // รายละเอียดที่หน้า Session Monitor ซึ่ง gate ด้วยสิทธิ์แอดมินอยู่แล้ว
         return {
           status: "fail",
           message:
-            `มี ${silent.length} คนกดยืนยันแล้วระบบไม่ตอบอะไรเลย (จากทั้งหมด ${attempt.size} คน) — ` +
-            "ดูรายชื่อ+เบอร์ติดต่อกลับที่หน้า Abandoned Carts",
-          meta: { attempts: attempt.size, silent: silent.length },
+            `มี ${silent.length} คนกดยืนยันแล้วไม่มีออเดอร์เกิดขึ้นจริง ` +
+            `(จากทั้งหมด ${attempt.size} คน) — ดูรายชื่อ+เบอร์ติดต่อกลับที่หน้า ` +
+            "Session Monitor ของเว็บลูกค้า (/admin/sessions) กรองสถานะ \"กดยืนยันแล้วเงียบ\"",
+          meta: { attempts: attempt.size, silent: silent.length, lost_event: lostEvent },
         };
       },
     },
