@@ -30,6 +30,9 @@ interface CompanyProfile {
 interface AccountingSettings {
   order_emails_enabled: boolean;
   vat_registered: boolean;
+  /** ขึ้นระบบ e-Tax Invoice ของกรมสรรพากรแล้วหรือยัง — ปิดอยู่ = PDF ที่ส่ง
+   *  ทางอีเมลเป็นเพียงสำเนา ต้นฉบับต้องออกเป็นกระดาษ */
+  etax_enabled: boolean;
   vat_rate_percent: number;
   tax_invoice_prefix: string;
   tax_invoice_format: TaxInvoiceFormat;
@@ -51,6 +54,7 @@ const DEFAULT_COMPANY: CompanyProfile = {
 const DEFAULTS: AccountingSettings = {
   order_emails_enabled: false,
   vat_registered: true,
+  etax_enabled: false,
   vat_rate_percent: 7,
   tax_invoice_prefix: 'IV-',
   tax_invoice_format: 'plain',
@@ -118,6 +122,7 @@ export default function AccountingSettings() {
       setS({
         order_emails_enabled: v.order_emails_enabled === true,
         vat_registered: v.vat_registered !== false,
+        etax_enabled: v.etax_enabled === true,
         vat_rate_percent: typeof v.vat_rate_percent === 'number' ? v.vat_rate_percent : 7,
         tax_invoice_prefix: typeof v.tax_invoice_prefix === 'string' && v.tax_invoice_prefix ? v.tax_invoice_prefix : 'IV-',
         tax_invoice_format: (['plain', 'year_month', 'year'].includes(v.tax_invoice_format) ? v.tax_invoice_format : 'plain') as TaxInvoiceFormat,
@@ -173,6 +178,7 @@ export default function AccountingSettings() {
       await update(ref(db, 'settings/accounting'), {
         order_emails_enabled: s.order_emails_enabled,
         vat_registered: s.vat_registered,
+        etax_enabled: s.etax_enabled,
         vat_rate_percent: Number.isFinite(rate) && rate > 0 ? rate : 7,
         tax_invoice_prefix: (s.tax_invoice_prefix || 'IV-').trim(),
         tax_invoice_format: s.tax_invoice_format,
@@ -286,6 +292,21 @@ export default function AccountingSettings() {
             <p className="text-xs text-slate-400 mt-0.5">เปิด = แตก VAT จากค่าบริการ + ออกใบกำกับภาษี / ปิด = ไม่ออกใบกำกับภาษี</p>
           </div>
           <Toggle checked={s.vat_registered} onChange={(v) => setS({ ...s, vat_registered: v })} />
+        </div>
+
+        {/* ยังไม่ได้เชื่อมระบบ e-Tax = PDF ที่แนบอีเมลไม่ใช่ใบกำกับภาษี
+            อิเล็กทรอนิกส์ตามกฎหมาย ต้นฉบับต้องเป็นกระดาษ เอกสารจึงประทับ
+            "สำเนา" ให้อัตโนมัติ เปิดสวิตช์นี้เมื่อขึ้นระบบกับสรรพากรแล้ว */}
+        <div className={`flex items-center justify-between gap-4 ${s.vat_registered ? '' : 'opacity-50'}`}>
+          <div>
+            <p className="text-sm font-bold text-slate-200">ขึ้นระบบ e-Tax Invoice กับสรรพากรแล้ว</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              ปิด = ใบกำกับภาษี PDF จะประทับ &quot;สำเนา — ต้นฉบับออกเป็นเอกสารกระดาษ&quot; (ต้องออกต้นฉบับกระดาษให้ลูกค้าเอง)
+              <br />
+              เปิดได้เมื่อขึ้นระบบ e-Tax Invoice by Email หรือ e-Tax Invoice &amp; e-Receipt แล้วเท่านั้น
+            </p>
+          </div>
+          <Toggle checked={s.etax_enabled} onChange={(v) => setS({ ...s, etax_enabled: v })} />
         </div>
 
         <div className={`flex items-center justify-between gap-4 ${s.vat_registered ? '' : 'opacity-50'}`}>

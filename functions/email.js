@@ -191,13 +191,27 @@ function isOfferAwaiting(job) {
   return !(Number(job.final_price || job.price) > 0);
 }
 
+/** "2026-08-06" -> "6 สิงหาคม 2569" (พ.ศ. ตามที่ใช้ในเอกสารไทย) */
+function thaiDateFromISO(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if (!m) return String(iso || "");
+  const months = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+  ];
+  const mi = Number(m[2]) - 1;
+  if (mi < 0 || mi > 11) return String(iso);
+  return `${Number(m[3])} ${months[mi]} ${Number(m[1]) + 543}`;
+}
+
 function pickupScheduleText(job) {
   const ps = job.pickup_schedule;
   if (!ps || typeof ps !== "object") return "";
   if (ps.type === "instant" || ps.date === "Instant") return "รับทันที (Instant)";
-  const date = ps.date || "";
+  // วันที่ในอีเมลต้องอ่านออกแบบไทย ไม่ใช่ ISO ที่ลูกค้าต้องแปลเอง
+  const date = thaiDateFromISO(ps.date);
   const time = ps.time || "";
-  return [date, time].filter(Boolean).join(" ");
+  return [date, time && `เวลา ${time} น.`].filter(Boolean).join(" ");
 }
 
 // ── Shared HTML shell ───────────────────────────────────────────────────────
@@ -312,10 +326,16 @@ function orderSummaryCard(job, opts = {}) {
     )
     .join("");
 
+  // ชื่อผู้ขายและเวลาที่ทำรายการต้องอยู่บนการ์ด ไม่ใช่อยู่แค่ในคำทักทาย —
+  // การ์ดนี้ถูกใช้ซ้ำเป็นตัวเอกสาร (ใบสำคัญรับเงิน/สรุปการซื้อขาย) ซึ่งต้อง
+  // ระบุคู่สัญญาและเวลาทำรายการได้ด้วยตัวเอง และลูกค้าที่ขายหลายเครื่อง
+  // หลายรอบต้องแยกออกว่าอีเมลฉบับไหนคือรายการไหน
   const rows = [
     ["เลขที่คำสั่งขาย", esc(job.ref_no || "-")],
-    ["วิธีรับเครื่อง", esc(RECEIVE_METHOD_TH[job.receive_method] || job.receive_method || "-")],
   ];
+  if (job.cust_name) rows.push(["ผู้ขาย", esc(job.cust_name)]);
+  if (job.created_at) rows.push(["วันที่ทำรายการ", esc(formatThaiDateTime(job.created_at))]);
+  rows.push(["วิธีรับเครื่อง", esc(RECEIVE_METHOD_TH[job.receive_method] || job.receive_method || "-")]);
   const schedule = pickupScheduleText(job);
   if (job.receive_method === "Pickup" && schedule) rows.push(["นัดรับเครื่อง", esc(schedule)]);
   if (job.receive_method === "Pickup" && job.cust_address)
@@ -348,10 +368,23 @@ function orderSummaryCard(job, opts = {}) {
 
   let totalsRows = "";
   if (fee) {
-    const feeLabel = fee.vatRegistered
-      ? "ค่าบริการรับเครื่อง (คุณชำระเรา · รวม VAT)"
-      : "ค่าบริการรับเครื่อง (คุณชำระเรา)";
-    totalsRows += totalRow("ราคารับซื้อเครื่อง (เราจ่ายคุณ)", esc(formatTHB(grossBeforeFee)), { muted: true });
+    // "เราจ่ายคุณ / คุณชำระเรา" มีที่ทางของมันเฉพาะบนเอกสารทางบัญชี (showVatDetail
+    // = ใบสำคัญรับเงิน / สรุปการซื้อขาย) เพราะสองบรรทัดนี้คือ **ธุรกรรมคนละตัว
+    // เดินคนละทิศ**: บริษัทซื้อเครื่อง (รายจ่าย มีใบสำคัญรับเงินรองรับ) กับ
+    // ลูกค้าซื้อบริการรับเครื่อง (รายได้ มีใบกำกับภาษีแยกอีกฉบับ) ที่บังเอิญ
+    // หักกลบกันตอนโอน — ถ้าตัดคำอธิบายทิ้ง เอกสารจะอ่านเป็นรายการเดียวยอด
+    // สุทธิ แล้วโยงกลับไปหาใบกำกับภาษีกับรายการบัญชีไม่ได้
+    //
+    // แต่บนอีเมลยืนยันออเดอร์/อัปเดตสถานะ ซึ่งเป็นแค่ใบเสนอราคา ยังไม่มีเอกสาร
+    // ให้โยง คำอธิบายนี้เป็นแค่คำรกที่ทำให้อ่านช้าลง — เครื่องหมายลบบอกทิศทาง
+    // ได้อยู่แล้ว
+    const feeLabel = showVatDetail
+      ? (fee.vatRegistered
+          ? "ค่าบริการรับเครื่อง (คุณชำระเรา · รวม VAT)"
+          : "ค่าบริการรับเครื่อง (คุณชำระเรา)")
+      : "ค่าบริการรับเครื่อง";
+    const grossLabel = showVatDetail ? "ราคารับซื้อเครื่อง (เราจ่ายคุณ)" : "ราคารับซื้อเครื่อง";
+    totalsRows += totalRow(grossLabel, esc(formatTHB(grossBeforeFee)), { muted: true });
     totalsRows += totalRow(feeLabel, `−${esc(formatTHB(fee.feeIncl))}`, { muted: true });
     if (showVatDetail && fee.vatRegistered) {
       // ส่วนลดค่าบริการต้องปรากฏเป็นบรรทัดของตัวเอง ไม่ใช่ถูกหักเงียบ (ม.79(1))
