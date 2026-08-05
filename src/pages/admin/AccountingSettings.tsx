@@ -259,7 +259,7 @@ export default function AccountingSettings() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto pb-28">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-5">
         <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
@@ -439,27 +439,26 @@ export default function AccountingSettings() {
         </Section>
       </div>
 
-      {/* แถบบันทึกลอยล่าง — ไม่ต้องเลื่อนสุดหน้าเพื่อกดบันทึก */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-4">
-          <div className={`pointer-events-auto rounded-2xl border shadow-lg px-4 py-3 flex items-center justify-between gap-4 backdrop-blur transition-colors ${
-            dirty ? 'bg-white/95 border-indigo-200' : 'bg-white/90 border-slate-200'
-          }`}>
-            <p className="text-[11px] font-black text-slate-500 min-w-0 truncate">
-              {showSuccess ? <span className="text-emerald-600">บันทึกเรียบร้อยแล้ว</span>
-                : dirty ? <span className="text-indigo-600">มีการแก้ไขที่ยังไม่ได้บันทึก</span>
-                : 'การตั้งค่าเป็นปัจจุบัน'}
-            </p>
-            <button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-sm transition-all flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-emerald-600 shrink-0"
-            >
-              {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</>
-                : showSuccess ? <><CheckCircle2 size={14} /> บันทึกแล้ว</>
-                : <><Save size={14} /> บันทึกการตั้งค่า</>}
-            </button>
-          </div>
+      {/* แถบบันทึก — sticky อยู่ในคอลัมน์เนื้อหา (ไม่ใช่ fixed กับขอบจอ ซึ่งจะเยื้อง
+          เพราะไม่รู้ความกว้างของเมนูซ้าย 2 ชั้น) */}
+      <div className="sticky bottom-4 mt-4">
+        <div className={`rounded-2xl border shadow-lg px-4 py-3 flex items-center justify-between gap-4 backdrop-blur transition-colors ${
+          dirty ? 'bg-white/95 border-indigo-200' : 'bg-white/90 border-slate-200'
+        }`}>
+          <p className="text-[11px] font-black text-slate-500 min-w-0 truncate">
+            {showSuccess ? <span className="text-emerald-600">บันทึกเรียบร้อยแล้ว</span>
+              : dirty ? <span className="text-indigo-600">มีการแก้ไขที่ยังไม่ได้บันทึก</span>
+              : 'การตั้งค่าเป็นปัจจุบัน'}
+          </p>
+          <button
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-sm transition-all flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-emerald-600 shrink-0"
+          >
+            {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</>
+              : showSuccess ? <><CheckCircle2 size={14} /> บันทึกแล้ว</>
+              : <><Save size={14} /> บันทึกการตั้งค่า</>}
+          </button>
         </div>
       </div>
     </div>
