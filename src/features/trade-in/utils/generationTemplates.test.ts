@@ -8,6 +8,7 @@ import {
   ipadBoxDeducts,
   iphoneBoxDeducts,
   macBareDeviceDeduct,
+  MAC_MISSING_BOX_DEDUCT,
 } from './generationTemplates';
 
 describe('classifyIphoneGeneration', () => {
@@ -124,6 +125,20 @@ describe('buildGenerationGroups', () => {
         expect(o.failBehavior, `${tier}:${o.label}`).not.toBe('reject');
       }
     }
+  });
+  it('iPad body damage deducts harder than iPhone (owner policy ส.ค. 2026)', () => {
+    const body = (tier: any) =>
+      buildGenerationGroups(tier).find((g: any) => g.title === 'สภาพตัวเครื่องและฝาหลัง')!
+        .options.map((o: any) => o.pct ?? 0);
+    expect(body('ipad_new')).toEqual([0, 5, 15, 45, 75]);
+    expect(body('ipad_old')).toEqual([0, 15, 25, 55, 75]);
+    // iPhone tiers keep their own (softer) scale — the iPad bump must not leak.
+    expect(body('latest')).toEqual([0, 3, 6, 12, 40]);
+    expect(body('old')).toEqual([0, 10, 15, 25, 60]);
+    // Old iPads always deduct at least as much as new ones, step for step.
+    body('ipad_old').forEach((pct: number, i: number) => {
+      expect(pct, `step ${i}`).toBeGreaterThanOrEqual(body('ipad_new')[i]);
+    });
   });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
@@ -350,22 +365,41 @@ describe('Mac tiers', () => {
     expect(buildFunctionalScreeningGroups('mac_imac').map((g: any) => g.title))
       .toEqual(['เปิดเครื่อง / การทำงานพื้นฐาน', 'หน้าจอแสดงผล', 'พอร์ต + Wi-Fi / Bluetooth']);
   });
-  it('bare-device deduct is baked in baht with a 1,000 floor (3% of median price, rounded up to 100)', () => {
-    // Cheap Intel MacBook: 3% ของ 10,000 = 300 -> floor ดันขึ้น 1,000
+  it('bare-device deduct = max(2,500, กล่อง 1,000 + 5% ของราคา) — หัวชาร์จ+สายต้องซื้อใหม่', () => {
+    // Cheap Intel MacBook: 1,000 + 5% ของ 10,000 = 1,500 -> floor ดันขึ้น 2,500
     const cheap = { name: 'MacBook Pro 13" (2019)', variants: [{ usedPrice: 10000 }] };
-    expect(macBareDeviceDeduct(cheap)).toBe(1000);
-    // Expensive M4 Pro: 3% ของ 60,000 = 1,800 -> ใช้ตาม % (เกิน floor)
+    expect(macBareDeviceDeduct(cheap)).toBe(2500);
+    // Expensive M4 Pro: 1,000 + 5% ของ 60,000 = 4,000 (เกิน floor)
     const pricey = { name: 'MacBook Pro 16" M4 Pro', variants: [{ usedPrice: 60000 }] };
-    expect(macBareDeviceDeduct(pricey)).toBe(1800);
-    // ไม่มีราคา -> floor 1,000
-    expect(macBareDeviceDeduct({ name: 'MacBook Air M2 (2022)' })).toBe(1000);
+    expect(macBareDeviceDeduct(pricey)).toBe(4000);
+    // ไม่มีราคา -> floor 2,500
+    expect(macBareDeviceDeduct({ name: 'MacBook Air M2 (2022)' })).toBe(2500);
+    // เครื่องเปล่าต้องหักมากกว่าขาดกล่องเสมอ ไม่ว่าเครื่องถูกหรือแพง
+    for (const m of [cheap, pricey, { name: 'Mac mini M4', variants: [{ usedPrice: 18000 }] }]) {
+      expect(macBareDeviceDeduct(m), m.name).toBeGreaterThan(MAC_MISSING_BOX_DEDUCT);
+    }
     const { groups } = applyGenerationToGroups([], 'mac_intel', cheap);
     const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
     const bare = box.options.find((o: any) => /^เครื่องเปล่า/.test(o.label))!;
-    expect(bare.deduct).toBe(1000);
+    expect(bare.deduct).toBe(2500);
     expect(bare.pct).toBeUndefined();
     const again = applyGenerationToGroups(groups, 'mac_intel', cheap);
     expect(JSON.stringify(again.groups)).toBe(JSON.stringify(groups));
+  });
+  it('missing-box deducts a flat 1,000 on every Mac, cheap or expensive', () => {
+    for (const [tier, model] of [
+      ['mac_intel', { name: 'MacBook Pro 13" (2019)', variants: [{ usedPrice: 10000 }] }],
+      ['mac_new', { name: 'MacBook Pro 16" M4 Max', variants: [{ usedPrice: 70000 }] }],
+      ['mac_imac', { name: 'iMac 24" M3 (2023)', variants: [{ usedPrice: 30000 }] }],
+      ['mac_desktop', { name: 'Mac mini M4 (2024)', variants: [{ usedPrice: 18000 }] }],
+    ] as const) {
+      const { groups } = applyGenerationToGroups([], tier as any, model);
+      const box = groups.find((g: any) => g.title === 'อุปกรณ์เสริมที่นำมาด้วย')!;
+      const missing = box.options.find((o: any) => /^ขาดกล่อง/.test(o.label))!;
+      expect(missing.deduct, model.name).toBe(1000);
+      expect(missing.pct, model.name).toBeUndefined();
+      expect(box.options.find((o: any) => /^ครบกล่อง/.test(o.label))!.deduct, model.name).toBe(0);
+    }
   });
   it('the keyboard-region group replaces an old ประเทศที่ซื้อ topic and is never treated as screening', () => {
     const old = [

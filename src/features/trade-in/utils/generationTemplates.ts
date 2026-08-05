@@ -268,38 +268,51 @@ export function ipadBoxDeducts(modelName: unknown): { missingBox: number; bareDe
   return { missingBox: 500, bareDevice: 1000 };
 }
 
+/** Mac "ขาดกล่อง (มีเครื่อง+อะแดปเตอร์)" — คงที่ 1,000 บาททุกรุ่น. */
+export const MAC_MISSING_BOX_DEDUCT = 1000;
+
 /**
- * Mac "เครื่องเปล่า (ไม่มีอะแดปเตอร์/กล่อง)" — นโยบายเจ้าของร้าน: 3% ของราคา
- * แต่**ขั้นต่ำ 1,000 บาท** (อะแดปเตอร์แท้ 2,000-3,500 บาท เครื่องถูกก็ต้องซื้อ
- * อยู่ดี). schema ของ option ไม่มีฟิลด์ขั้นต่ำ จึง bake เป็นบาทต่อรุ่นที่ราคา
- * กลางของรุ่น (median used price) ตอนกด "ปรับตามรุ่น" — ปัดขึ้นเป็นหลักร้อย.
+ * Mac "เครื่องเปล่า (ไม่มีอะแดปเตอร์/กล่อง)" — นโยบายเจ้าของร้าน (ส.ค. 2026):
+ * ต้องหักมากกว่า "ขาดกล่อง" อย่างมีนัย เพราะไม่ได้หายแค่กล่อง แต่ต้องซื้อ
+ * **หัวชาร์จ + สายชาร์จ** ใหม่ทั้งคู่ (ของแท้: อะแดปเตอร์ 70W ~1,900, 96W
+ * ~2,700, 140W ~3,300 / สาย USB-C หรือ MagSafe 3 อีก ~800-1,700) ก่อนจะเอา
+ * เครื่องไปเทสหรือขายต่อได้เลย
+ *
+ *   เครื่องเปล่า = max(2,500, ค่ากล่อง 1,000 + 5% ของราคากลางรุ่น)
+ *
+ * พื้น 2,500 = อะแดปเตอร์มือสอง/เทียบ ~1,700 + สาย ~800 (เครื่องถูกก็ต้อง
+ * ซื้อเท่านี้อยู่ดี); ส่วน 5% ทำให้รุ่นแพงที่ใช้หัว 140W หักตามจริงมากขึ้น.
+ * schema ของ option ไม่มีฟิลด์ขั้นต่ำ จึง bake เป็นบาทต่อรุ่นที่ราคากลางของ
+ * รุ่น (median used price) ตอนกด "ปรับตามรุ่น" — ปัดขึ้นเป็นหลักร้อย.
  */
 export function macBareDeviceDeduct(model: any): number {
   const rep = representativeBasePrice(model);
-  const pctBaht = rep > 0 ? Math.ceil((rep * 0.03) / 100) * 100 : 0;
-  return Math.max(1000, pctBaht);
+  const accessories = rep > 0 ? Math.ceil((rep * 0.05) / 100) * 100 : 0;
+  return Math.max(2500, MAC_MISSING_BOX_DEDUCT + accessories);
 }
 
 /** Overlay the per-line box deducts onto a materialized groups array. */
 function applyBoxDeducts(groups: any[], model: unknown): any[] {
   const name = String((typeof model === 'object' && model !== null ? (model as any).name : model) || '').trim();
-  const ipadBox = ipadBoxDeducts(name) || iphoneBoxDeducts(name);
-  const macBare = /^(macbook|imac|mac\s)/i.test(name)
-    ? macBareDeviceDeduct(typeof model === 'object' ? model : { name })
-    : null;
-  if (!ipadBox && macBare == null) return groups;
+  // Mac คิดค่าเครื่องเปล่าจากราคา (ต้องใช้ model object) จึงแยกจากตาราง
+  // คงที่ของ iPhone/iPad; ขาดกล่องของ Mac คงที่ 1,000 ทุกรุ่น
+  const box = /^(macbook|imac|mac\s)/i.test(name)
+    ? {
+        missingBox: MAC_MISSING_BOX_DEDUCT,
+        bareDevice: macBareDeviceDeduct(typeof model === 'object' ? model : { name }),
+      }
+    : ipadBoxDeducts(name) || iphoneBoxDeducts(name);
+  if (!box) return groups;
   return groups.map((g) => {
     if (!/กล่อง|อุปกรณ์เสริม/.test(String(g?.title || ''))) return g;
     return {
       ...g,
       options: (g.options || []).map((o: any) => {
         const label = String(o?.label || '');
-        if (ipadBox && /^ขาดกล่อง/.test(label)) return { ...o, deduct: ipadBox.missingBox };
-        if (ipadBox && /^เครื่องเปล่า/.test(label)) return { ...o, deduct: ipadBox.bareDevice };
-        if (macBare != null && /^เครื่องเปล่า/.test(label)) {
-          const { pct: _pct, ...rest } = o;
-          return { ...rest, deduct: macBare };
-        }
+        // ลบ pct ทิ้งเมื่อ overlay เป็นบาท (precedence pct > deduct)
+        const { pct: _pct, ...rest } = o;
+        if (/^ขาดกล่อง/.test(label)) return { ...rest, deduct: box.missingBox };
+        if (/^เครื่องเปล่า/.test(label)) return { ...rest, deduct: box.bareDevice };
         return o;
       }),
     };
