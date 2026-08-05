@@ -125,6 +125,20 @@ describe('buildGenerationGroups', () => {
       }
     }
   });
+  it('iPad body damage deducts harder than iPhone (owner policy ส.ค. 2026)', () => {
+    const body = (tier: any) =>
+      buildGenerationGroups(tier).find((g: any) => g.title === 'สภาพตัวเครื่องและฝาหลัง')!
+        .options.map((o: any) => o.pct ?? 0);
+    expect(body('ipad_new')).toEqual([0, 5, 15, 45, 75]);
+    expect(body('ipad_old')).toEqual([0, 15, 25, 55, 75]);
+    // iPhone tiers keep their own (softer) scale — the iPad bump must not leak.
+    expect(body('latest')).toEqual([0, 3, 6, 12, 40]);
+    expect(body('old')).toEqual([0, 10, 15, 25, 60]);
+    // Old iPads always deduct at least as much as new ones, step for step.
+    body('ipad_old').forEach((pct: number, i: number) => {
+      expect(pct, `step ${i}`).toBeGreaterThanOrEqual(body('ipad_new')[i]);
+    });
+  });
   it('recent tier warranty never deducts; latest tier does', () => {
     const warranty = (tier: 'latest' | 'recent') =>
       buildGenerationGroups(tier).find((g: any) => g.title === 'ประกัน')!.options;

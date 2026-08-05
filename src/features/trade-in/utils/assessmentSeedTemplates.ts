@@ -385,7 +385,10 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'แบตต่ำกว่า 80% (Service)', description: 'เสื่อมมาก หรือขึ้นเตือน Service ใน Settings', pct: 15, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(4, 10, 60),
-    BODY_GROUP(4, 8, 14, 45),
+    // บอดี้ iPad หักหนักกว่า iPhone (นโยบายเจ้าของร้าน ส.ค. 2026): ตัวเครื่อง
+    // อะลูมิเนียมชิ้นใหญ่ ขัดเงา/เปลี่ยนฝาไม่คุ้ม รอยเห็นชัดกว่าเครื่องเล็ก
+    // และเครื่องบุบ/งอทำให้จอแตกตามได้ง่าย — ตลาดมือสองต่อราคาแรงกว่า iPhone
+    BODY_GROUP(5, 15, 45, 75),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'เหลือประกันศูนย์น้อยกว่า 6 เดือน', description: 'เหลือระยะประกันศูนย์ไม่ถึง 6 เดือน', deduct: 0 },
@@ -401,7 +404,9 @@ export const CONDITION_TEMPLATES: Record<string, { label: string; items: SeedCon
       { label: 'แบตเตอรี่เสื่อม', description: 'แบตหมดเร็ว ชาร์จไม่เข้า บวม หรือร้อนผิดปกติ', pct: 10, failBehavior: 'deduct' },
     ] },
     SCREEN_GROUP(10, 20, 70),
-    BODY_GROUP(10, 15, 25, 60),
+    // รุ่นเก่าหักแรงกว่าชุดรุ่นใหม่ทุกขั้น ตามหลัก "เครื่องยิ่งถูก % ยิ่งสูง"
+    // (ต้นทุนขัดเงา/ส่วนลดตอนขายต่อเป็นเงินบาทเกือบคงที่)
+    BODY_GROUP(15, 25, 55, 75),
     { title: 'ประกัน', icon: 'shield', kind: 'cosmetic', description: 'สถานะประกันของเครื่อง', options: [
       { label: 'มีประกัน', description: 'ยังอยู่ในประกันศูนย์ หรือมี AppleCare+', deduct: 0 },
       { label: 'หมดประกัน', description: 'พ้นระยะประกันศูนย์แล้ว', deduct: 0 },
