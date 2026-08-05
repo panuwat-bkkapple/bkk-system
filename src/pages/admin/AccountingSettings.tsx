@@ -5,11 +5,16 @@
 // Functions อ่านค่าจาก settings/accounting — ถ้า master toggle ปิดอยู่
 // ระบบจะไม่ทำอะไรเลย (ไม่ส่งอีเมล ไม่จองเลขใบกำกับภาษี ไม่เขียน Storage)
 // เพื่อให้ deploy ได้อย่างปลอดภัยก่อนตั้งค่า Resend เสร็จ.
+//
+// ธีมหน้าตั้งค่า = สว่าง (การ์ดขาว ขอบ slate-200) ให้ตรงกับหน้าอื่นใต้
+// SettingsLayout เช่น /email-settings — อย่ากลับไปใช้การ์ดพื้นเข้ม
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ref, onValue, update } from 'firebase/database';
 import {
-  Calculator, Save, Loader2, CheckCircle2, Power, ReceiptText, Percent, Info, AlertTriangle, RotateCcw, Building2,
+  Calculator, Save, Loader2, CheckCircle2, ReceiptText, Percent, Info, AlertTriangle,
+  RotateCcw, Building2, Mail, ChevronRight,
 } from 'lucide-react';
 import { db, auth } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -66,16 +71,28 @@ function previewNumber(prefix: string, fmt: TaxInvoiceFormat, seq: number): stri
   return `${prefix}${String(seq).padStart(6, '0')}`;
 }
 
-function Field({ label, value, onChange, textarea, placeholder }: { label: string; value: string; onChange: (v: string) => void; textarea?: boolean; placeholder?: string }) {
-  const cls = 'w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-sky-500';
+const INPUT_CLS =
+  'w-full px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-bold ' +
+  'placeholder:font-normal placeholder:text-slate-300 focus:outline-none focus:border-indigo-500 ' +
+  'focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-400';
+
+function Field({
+  label, value, onChange, textarea, placeholder, hint, required,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  textarea?: boolean; placeholder?: string; hint?: string; required?: boolean;
+}) {
   return (
     <label className="block">
-      <span className="text-xs font-bold text-slate-300">{label}</span>
+      <span className="text-[11px] font-black text-slate-500 uppercase tracking-wide">
+        {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+      </span>
       {textarea ? (
-        <textarea rows={2} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${cls} mt-1 resize-none`} />
+        <textarea rows={2} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${INPUT_CLS} mt-1.5 resize-none leading-relaxed`} />
       ) : (
-        <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${cls} mt-1`} />
+        <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${INPUT_CLS} mt-1.5`} />
       )}
+      {hint && <span className="block text-[11px] font-bold text-slate-400 mt-1">{hint}</span>}
     </label>
   );
 }
@@ -88,22 +105,53 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-        checked ? 'bg-emerald-500' : 'bg-slate-600'
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
+        checked ? 'bg-emerald-500' : 'bg-slate-300'
       }`}
     >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
+  );
+}
+
+// การ์ด section มาตรฐานของหน้านี้ — หัวข้อ + ไอคอนสี + เนื้อหา
+function Section({
+  icon, tint, title, subtitle, children, dimmed,
+}: {
+  icon: React.ReactNode; tint: string; title: string; subtitle?: string;
+  children: React.ReactNode; dimmed?: boolean;
+}) {
+  return (
+    <section className={`bg-white border border-slate-200 rounded-2xl overflow-hidden transition-opacity ${dimmed ? 'opacity-60' : ''}`}>
+      <header className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${tint}`}>{icon}</span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-black text-slate-800">{title}</h2>
+          {subtitle && <p className="text-[11px] font-bold text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
+      </header>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
+// แถวตั้งค่า: คำอธิบายซ้าย — ตัวควบคุมขวา
+function Row({ title, desc, children, last }: { title: string; desc?: string; children: React.ReactNode; last?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between gap-4 py-3.5 ${last ? '' : 'border-b border-slate-100'}`}>
+      <div className="min-w-0">
+        <p className="text-sm font-black text-slate-700">{title}</p>
+        {desc && <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{desc}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   );
 }
 
 export default function AccountingSettings() {
   const toast = useToast();
   const [s, setS] = useState<AccountingSettings>(DEFAULTS);
+  const [saved, setSaved] = useState<AccountingSettings>(DEFAULTS);
   const [seq, setSeq] = useState<number>(0);
   const [seqByPeriod, setSeqByPeriod] = useState<Record<string, number>>({});
   const [resetting, setResetting] = useState(false);
@@ -115,14 +163,16 @@ export default function AccountingSettings() {
     const unsub = onValue(ref(db, 'settings/accounting'), (snap) => {
       const v = snap.val() || {};
       const c = v.company || {};
-      setS({
+      const next: AccountingSettings = {
         order_emails_enabled: v.order_emails_enabled === true,
         vat_registered: v.vat_registered !== false,
         vat_rate_percent: typeof v.vat_rate_percent === 'number' ? v.vat_rate_percent : 7,
         tax_invoice_prefix: typeof v.tax_invoice_prefix === 'string' && v.tax_invoice_prefix ? v.tax_invoice_prefix : 'IV-',
         tax_invoice_format: (['plain', 'year_month', 'year'].includes(v.tax_invoice_format) ? v.tax_invoice_format : 'plain') as TaxInvoiceFormat,
         company: { ...DEFAULT_COMPANY, ...c },
-      });
+      };
+      setS(next);
+      setSaved(next); // baseline สำหรับ "มีการแก้ที่ยังไม่บันทึก"
       setSeq(typeof v.tax_invoice_seq === 'number' ? v.tax_invoice_seq : 0);
       setSeqByPeriod(v.tax_invoice_seq_by_period && typeof v.tax_invoice_seq_by_period === 'object' ? v.tax_invoice_seq_by_period : {});
       setLoaded(true);
@@ -131,6 +181,8 @@ export default function AccountingSettings() {
   }, []);
 
   const setCompany = (patch: Partial<CompanyProfile>) => setS((prev) => ({ ...prev, company: { ...prev.company, ...patch } }));
+
+  const dirty = useMemo(() => JSON.stringify(s) !== JSON.stringify(saved), [s, saved]);
 
   // Effective "issued so far" for the active format: global counter for 'plain',
   // current-period counter for 'year_month'/'year'.
@@ -200,188 +252,216 @@ export default function AccountingSettings() {
 
   if (!loaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-400">
-        <Loader2 className="animate-spin mr-2" size={20} /> กำลังโหลด...
+      <div className="p-8 flex items-center gap-2 text-slate-500 font-bold text-sm">
+        <Loader2 size={18} className="animate-spin" /> กำลังโหลดการตั้งค่า...
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-          <Calculator size={22} className="text-emerald-400" />
-        </div>
-        <div>
-          <h1 className="text-xl font-black text-white">ตั้งค่าระบบบัญชี</h1>
-          <p className="text-xs text-slate-400">อีเมลยืนยันออเดอร์ · ใบสำคัญรับเงิน · ใบกำกับภาษี</p>
-        </div>
-      </div>
-
-      {/* Master toggle */}
-      <div className={`rounded-3xl p-6 shadow-xl border ${s.order_emails_enabled ? 'bg-emerald-950/40 border-emerald-600/40' : 'bg-slate-800 border-slate-700/50'}`}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Power size={20} className={s.order_emails_enabled ? 'text-emerald-400 mt-0.5' : 'text-slate-400 mt-0.5'} />
-            <div>
-              <h2 className="text-base font-black text-white">เปิดใช้งานระบบส่งอีเมล + ออกเอกสารอัตโนมัติ</h2>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                เมื่อ<span className="text-emerald-400 font-bold">เปิด</span> ระบบจะส่งอีเมลยืนยันออเดอร์ให้ลูกค้า/แอดมิน และออกใบสำคัญรับเงิน/ใบกำกับภาษีตอนสถานะ "จ่ายเงินแล้ว".
-                เมื่อ<span className="text-rose-400 font-bold">ปิด</span> ระบบจะไม่ทำอะไรเลย (ไม่ส่งอีเมล ไม่จองเลขใบกำกับภาษี)
-              </p>
-            </div>
-          </div>
-          <Toggle checked={s.order_emails_enabled} onChange={(v) => setS({ ...s, order_emails_enabled: v })} />
-        </div>
-      </div>
-
-      {/* Resend reminder */}
-      <div className="rounded-2xl p-4 bg-amber-950/30 border border-amber-700/40 flex gap-3">
-        <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-200/90 leading-relaxed">
-          การส่งอีเมลจริงต้องตั้งค่า <span className="font-bold">Resend</span> ให้เสร็จก่อน (verify domain + ใส่ GitHub Secrets:
-          <code className="mx-1 px-1 rounded bg-black/30">RESEND_API_KEY</code>,
-          <code className="mx-1 px-1 rounded bg-black/30">EMAIL_FROM</code>,
-          <code className="mx-1 px-1 rounded bg-black/30">ORDER_NOTIFY_EMAIL</code>).
-          ถ้ายังไม่ตั้ง แม้เปิด toggle อีเมลจะถูก skip เงียบๆ (ไม่ error)
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto pb-28">
+      {/* Header */}
+      <div className="mb-5">
+        <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
+          <Calculator size={20} className="text-emerald-600" /> ตั้งค่าระบบบัญชี
+        </h1>
+        <p className="text-xs font-bold text-slate-500 mt-1">
+          สวิตช์หลักของระบบอีเมล · ข้อมูลนิติบุคคลบนเอกสาร · VAT · เลขที่ใบกำกับภาษี
         </p>
       </div>
 
-      {/* Business profile */}
-      <div className="bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-700/50 space-y-4">
-        <div className="flex items-center gap-2">
-          <Building2 size={18} className="text-sky-400" />
-          <h2 className="text-base font-black text-white">ข้อมูลธุรกิจ (สำหรับออกเอกสาร)</h2>
-        </div>
-        <div className="flex items-start gap-2 text-[11px] text-amber-300/80 bg-amber-950/20 rounded-lg p-2.5">
-          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <span>ชื่อนิติบุคคล / เลขผู้เสียภาษี / ที่อยู่ ต้องตรงกับที่จดทะเบียนจริง และควร sync กับหน้านโยบาย (PDPA) ของเว็บลูกค้า — ค่าที่นี่มีผลกับเอกสารบัญชี (ใบสำคัญรับเงิน / ใบกำกับภาษี)</span>
-        </div>
-        <Field label="ชื่อนิติบุคคล" value={s.company.legalName} onChange={(v) => setCompany({ legalName: v })} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="ชื่อทางการค้า (Trade name)" value={s.company.tradeName} onChange={(v) => setCompany({ tradeName: v })} />
-          <Field label="เลขประจำตัวผู้เสียภาษี" value={s.company.taxId} onChange={(v) => setCompany({ taxId: v })} />
-        </div>
-        <Field label="ที่อยู่" value={s.company.address} onChange={(v) => setCompany({ address: v })} textarea />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="สำนักงานใหญ่ / สาขา" value={s.company.branch} onChange={(v) => setCompany({ branch: v })} placeholder="สำนักงานใหญ่" />
-          <Field label="เบอร์ติดต่อ (บนเอกสาร)" value={s.company.phone} onChange={(v) => setCompany({ phone: v })} />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Business Name (EN, ไม่บังคับ)" value={s.company.nameEn} onChange={(v) => setCompany({ nameEn: v })} />
-          <Field label="Address (EN, ไม่บังคับ)" value={s.company.addressEn} onChange={(v) => setCompany({ addressEn: v })} />
-        </div>
-      </div>
-
-      {/* VAT settings */}
-      <div className="bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-700/50 space-y-5">
-        <div className="flex items-center gap-2">
-          <Percent size={18} className="text-blue-400" />
-          <h2 className="text-base font-black text-white">ภาษีมูลค่าเพิ่ม (VAT)</h2>
-        </div>
-
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-slate-200">บริษัทจดทะเบียน VAT</p>
-            <p className="text-xs text-slate-400 mt-0.5">เปิด = แตก VAT จากค่าบริการ + ออกใบกำกับภาษี / ปิด = ไม่ออกใบกำกับภาษี</p>
-          </div>
-          <Toggle checked={s.vat_registered} onChange={(v) => setS({ ...s, vat_registered: v })} />
-        </div>
-
-        <div className={`flex items-center justify-between gap-4 ${s.vat_registered ? '' : 'opacity-50'}`}>
-          <div>
-            <p className="text-sm font-bold text-slate-200">อัตรา VAT (%)</p>
-            <p className="text-xs text-slate-400 mt-0.5">ถอดจากค่าบริการที่เก็บ (ถือว่าเป็นยอดรวม VAT แล้ว)</p>
-          </div>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step={0.5}
-            disabled={!s.vat_registered}
-            value={s.vat_rate_percent}
-            onChange={(e) => setS({ ...s, vat_rate_percent: Number(e.target.value) })}
-            className="w-24 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-right font-bold focus:outline-none focus:border-blue-500 disabled:opacity-50"
-          />
-        </div>
-      </div>
-
-      {/* Tax invoice */}
-      <div className={`bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-700/50 space-y-4 ${s.vat_registered ? '' : 'opacity-50'}`}>
-        <div className="flex items-center gap-2">
-          <ReceiptText size={18} className="text-purple-400" />
-          <h2 className="text-base font-black text-white">ใบกำกับภาษี</h2>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-slate-200">คำนำหน้าเลขที่ใบกำกับภาษี</p>
-            <p className="text-xs text-slate-400 mt-0.5">ตัวอย่างเลขถัดไป: <code className="px-1 rounded bg-black/30">{nextNumber}</code></p>
-          </div>
-          <input
-            type="text"
-            maxLength={12}
-            disabled={!s.vat_registered}
-            value={s.tax_invoice_prefix}
-            onChange={(e) => setS({ ...s, tax_invoice_prefix: e.target.value })}
-            className="w-28 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-right font-bold focus:outline-none focus:border-purple-500 disabled:opacity-50"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-slate-200">รูปแบบเลขรัน</p>
-            <p className="text-xs text-slate-400 mt-0.5">ปี/เดือน และ ปี จะรีเซ็ตเลขรันอัตโนมัติเมื่อขึ้นงวดใหม่</p>
-          </div>
-          <select
-            disabled={!s.vat_registered}
-            value={s.tax_invoice_format}
-            onChange={(e) => setS({ ...s, tax_invoice_format: e.target.value as TaxInvoiceFormat })}
-            className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
-          >
-            <option value="plain">ต่อเนื่อง (000001)</option>
-            <option value="year_month">ปี/เดือน (2026060001)</option>
-            <option value="year">ปี (20260001)</option>
-          </select>
-        </div>
-        <div className="text-xs text-slate-400 bg-slate-900/50 rounded-xl p-3 flex items-start gap-2">
-          <Info size={14} className="shrink-0 mt-0.5" />
-          <span>ออกใบกำกับภาษีเฉพาะออเดอร์ที่มีค่าบริการรับเครื่อง (pickup) ตอนสถานะ "จ่ายเงินแล้ว" — เลขรันเดินหน้าต่อเนื่องอัตโนมัติ</span>
-        </div>
-
-        {/* Running number + reset */}
-        <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-xs text-slate-400">ออกใบกำกับภาษีไปแล้ว{periodKey ? ` (งวด ${periodKey})` : ''}</p>
-              <p className="text-lg font-black text-white">{currentSeq.toLocaleString()} <span className="text-sm font-normal text-slate-400">ใบ</span></p>
-              <p className="text-xs text-slate-400 mt-1">ใบถัดไป: <span className="text-emerald-400 font-bold">{nextNumber}</span></p>
+      {/* สวิตช์หลัก — สถานะปัจจุบันอ่านได้ในบรรทัดเดียว */}
+      <div className={`rounded-2xl border p-5 mb-4 ${s.order_emails_enabled ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-black text-slate-800">ระบบส่งอีเมล + ออกเอกสารอัตโนมัติ</h2>
+              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                s.order_emails_enabled ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-500 border-slate-300'
+              }`}>
+                {s.order_emails_enabled ? 'เปิดอยู่' : 'ปิดอยู่'}
+              </span>
             </div>
-            <button
-              onClick={handleResetSeq}
-              disabled={resetting || !s.vat_registered}
-              className="px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-600/50 text-rose-300 font-bold rounded-xl text-sm flex items-center gap-2 disabled:opacity-40"
+            <p className="text-xs font-bold text-slate-500 mt-1.5 leading-relaxed">
+              {s.order_emails_enabled
+                ? 'ระบบส่งอีเมลยืนยันออเดอร์ให้ลูกค้า/ทีม และออกใบสำคัญรับเงิน + ใบกำกับภาษีตอนสถานะ "จ่ายเงินแล้ว" อัตโนมัติ'
+                : 'ตอนนี้ระบบไม่ทำอะไรเลย — ไม่ส่งอีเมล ไม่จองเลขใบกำกับภาษี (ปลอดภัยสำหรับช่วงตั้งค่า)'}
+            </p>
+          </div>
+          <Toggle checked={s.order_emails_enabled} onChange={(v) => setS({ ...s, order_emails_enabled: v })} />
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-slate-200/70 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Link to="/email-settings" className="inline-flex items-center gap-1 text-[11px] font-black text-indigo-600 hover:text-indigo-700">
+            <Mail size={13} /> แก้ข้อความอีเมลรายสถานะ <ChevronRight size={12} />
+          </Link>
+          <span className="inline-flex items-start gap-1.5 text-[11px] font-bold text-slate-400">
+            <Info size={13} className="shrink-0 mt-px" />
+            ต้องตั้ง Resend (verify domain + GitHub Secrets: RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL) ก่อนอีเมลจึงออกจริง
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {/* ข้อมูลนิติบุคคล */}
+        <Section
+          icon={<Building2 size={17} className="text-sky-600" />}
+          tint="bg-sky-50"
+          title="ข้อมูลนิติบุคคล"
+          subtitle="ใช้พิมพ์บนใบสำคัญรับเงินและใบกำกับภาษี — ต้องตรงกับที่จดทะเบียนจริง"
+        >
+          <div className="space-y-4">
+            <Field label="ชื่อนิติบุคคล" required value={s.company.legalName} onChange={(v) => setCompany({ legalName: v })} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="ชื่อทางการค้า" value={s.company.tradeName} onChange={(v) => setCompany({ tradeName: v })} hint="ชื่อแบรนด์ที่ลูกค้ารู้จัก" />
+              <Field label="เลขประจำตัวผู้เสียภาษี" required value={s.company.taxId} onChange={(v) => setCompany({ taxId: v })} />
+            </div>
+            <Field label="ที่อยู่" required value={s.company.address} onChange={(v) => setCompany({ address: v })} textarea />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="สำนักงานใหญ่ / สาขา" value={s.company.branch} onChange={(v) => setCompany({ branch: v })} placeholder="สำนักงานใหญ่" />
+              <Field label="เบอร์ติดต่อบนเอกสาร" value={s.company.phone} onChange={(v) => setCompany({ phone: v })} placeholder="02-xxx-xxxx" />
+            </div>
+
+            <details className="group">
+              <summary className="cursor-pointer text-[11px] font-black text-slate-500 hover:text-slate-700 list-none flex items-center gap-1">
+                <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
+                ภาษาอังกฤษ (ไม่บังคับ)
+              </summary>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <Field label="Business Name (EN)" value={s.company.nameEn} onChange={(v) => setCompany({ nameEn: v })} />
+                <Field label="Address (EN)" value={s.company.addressEn} onChange={(v) => setCompany({ addressEn: v })} />
+              </div>
+            </details>
+
+            <p className="flex items-start gap-2 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              ค่าชุดนี้ควร sync กับหน้านโยบายความเป็นส่วนตัว (PDPA) ของเว็บลูกค้าด้วย
+            </p>
+          </div>
+        </Section>
+
+        {/* VAT */}
+        <Section
+          icon={<Percent size={17} className="text-blue-600" />}
+          tint="bg-blue-50"
+          title="ภาษีมูลค่าเพิ่ม (VAT)"
+          subtitle="ใช้กับค่าบริการรับเครื่องและการขายสินค้า"
+        >
+          <Row
+            title="บริษัทจดทะเบียน VAT"
+            desc="ปิด = ไม่ออกใบกำกับภาษีและไม่แตก VAT จากยอดใดๆ"
+          >
+            <Toggle checked={s.vat_registered} onChange={(v) => setS({ ...s, vat_registered: v })} />
+          </Row>
+          <Row
+            title="อัตรา VAT"
+            desc="ถอดจากยอดที่เก็บ (ถือว่าเป็นยอดรวม VAT แล้ว)"
+            last
+          >
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number" min={0} max={100} step={0.5}
+                disabled={!s.vat_registered}
+                value={s.vat_rate_percent}
+                onChange={(e) => setS({ ...s, vat_rate_percent: Number(e.target.value) })}
+                className={`${INPUT_CLS} w-20 text-right`}
+              />
+              <span className="text-sm font-black text-slate-400">%</span>
+            </div>
+          </Row>
+        </Section>
+
+        {/* ใบกำกับภาษี */}
+        <Section
+          icon={<ReceiptText size={17} className="text-purple-600" />}
+          tint="bg-purple-50"
+          title="เลขที่ใบกำกับภาษี"
+          subtitle="ออกอัตโนมัติตอนสถานะ &quot;จ่ายเงินแล้ว&quot; และตอนขายสินค้า"
+          dimmed={!s.vat_registered}
+        >
+          {/* ตัวอย่างเลขถัดไป — ตัวเลขจริงที่จะออกใบหน้า */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[11px] font-black text-slate-400 uppercase tracking-wide">เลขใบถัดไป</p>
+              <p className="text-2xl font-black text-slate-800 font-mono mt-0.5">{nextNumber}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] font-black text-slate-400 uppercase tracking-wide">
+                ออกไปแล้ว{periodKey ? ` (งวด ${periodKey})` : ''}
+              </p>
+              <p className="text-2xl font-black text-slate-800 mt-0.5">
+                {currentSeq.toLocaleString()} <span className="text-sm font-bold text-slate-400">ใบ</span>
+              </p>
+            </div>
+          </div>
+
+          <Row title="คำนำหน้าเลขที่" desc="ตัวอักษรนำหน้า เช่น IV-">
+            <input
+              type="text" maxLength={12}
+              disabled={!s.vat_registered}
+              value={s.tax_invoice_prefix}
+              onChange={(e) => setS({ ...s, tax_invoice_prefix: e.target.value })}
+              className={`${INPUT_CLS} w-28 text-right font-mono`}
+            />
+          </Row>
+          <Row title="รูปแบบเลขรัน" desc="แบบปี และ ปี/เดือน จะเริ่มนับ 1 ใหม่เมื่อขึ้นงวดใหม่" last>
+            <select
+              disabled={!s.vat_registered}
+              value={s.tax_invoice_format}
+              onChange={(e) => setS({ ...s, tax_invoice_format: e.target.value as TaxInvoiceFormat })}
+              className={`${INPUT_CLS} w-auto`}
             >
-              {resetting ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />} รีเซ็ตเลขรันเป็น 0
+              <option value="plain">ต่อเนื่อง (000001)</option>
+              <option value="year_month">ปี/เดือน (2026080001)</option>
+              <option value="year">ปี (20260001)</option>
+            </select>
+          </Row>
+
+          {/* Danger zone — แยกออกจากการตั้งค่าปกติชัดเจน */}
+          <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50/60 p-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-sm font-black text-rose-700">รีเซ็ตเลขรันเป็น 0</p>
+                <p className="text-[11px] font-bold text-rose-600/80 mt-1 leading-relaxed">
+                  ใช้เฉพาะ<span className="font-black">ก่อนเปิดใช้งานจริง</span> เพื่อล้างเลขจากการทดสอบ —
+                  <span className="font-black"> ห้ามรีเซ็ตหลังออกใบจริงแล้ว</span> เพราะเลขจะซ้ำ (ผิดกฎหมายภาษี)
+                </p>
+              </div>
+              <button
+                onClick={handleResetSeq}
+                disabled={resetting || !s.vat_registered}
+                className="px-4 py-2 bg-white hover:bg-rose-100 border border-rose-300 text-rose-700 font-black rounded-xl text-xs flex items-center gap-2 disabled:opacity-40 shrink-0"
+              >
+                {resetting ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />} รีเซ็ต
+              </button>
+            </div>
+          </div>
+        </Section>
+      </div>
+
+      {/* แถบบันทึกลอยล่าง — ไม่ต้องเลื่อนสุดหน้าเพื่อกดบันทึก */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-4">
+          <div className={`pointer-events-auto rounded-2xl border shadow-lg px-4 py-3 flex items-center justify-between gap-4 backdrop-blur transition-colors ${
+            dirty ? 'bg-white/95 border-indigo-200' : 'bg-white/90 border-slate-200'
+          }`}>
+            <p className="text-[11px] font-black text-slate-500 min-w-0 truncate">
+              {showSuccess ? <span className="text-emerald-600">บันทึกเรียบร้อยแล้ว</span>
+                : dirty ? <span className="text-indigo-600">มีการแก้ไขที่ยังไม่ได้บันทึก</span>
+                : 'การตั้งค่าเป็นปัจจุบัน'}
+            </p>
+            <button
+              onClick={handleSave}
+              disabled={saving || !dirty}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-sm transition-all flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-emerald-600 shrink-0"
+            >
+              {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</>
+                : showSuccess ? <><CheckCircle2 size={14} /> บันทึกแล้ว</>
+                : <><Save size={14} /> บันทึกการตั้งค่า</>}
             </button>
           </div>
-          <div className="mt-3 flex items-start gap-2 text-[11px] text-amber-300/80 bg-amber-950/20 rounded-lg p-2.5">
-            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-            <span>
-              ใช้ "รีเซ็ต" เฉพาะ<span className="font-bold">ก่อนเปิดใช้งานจริง</span>เพื่อล้างเลขจากการทดสอบ —
-              <span className="font-bold"> ห้ามรีเซ็ตหลังออกใบกำกับภาษีจริง</span> เพราะจะทำให้เลขซ้ำ (ผิดกฎหมายภาษี)
-            </span>
-          </div>
         </div>
       </div>
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full sm:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-      >
-        {saving ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</>
-          : showSuccess ? <><CheckCircle2 size={16} /> บันทึกเรียบร้อย</>
-          : <><Save size={16} /> บันทึกการตั้งค่า</>}
-      </button>
     </div>
   );
 }
