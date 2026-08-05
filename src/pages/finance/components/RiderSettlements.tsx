@@ -10,6 +10,15 @@ import { useToast } from '../../../components/ui/ToastProvider';
 export const RiderSettlements = () => {
   const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
+  // สถานะการจ้างของไรเดอร์ตัดสินวิธีทางภาษีของเงินก้อนนี้ คนที่กดจ่ายจึงต้อง
+  // เห็นก่อนกด — ไรเดอร์ที่ยังไม่ระบุสถานะแปลว่ายังไม่รู้ว่าต้องหัก ณ ที่จ่าย
+  // หรือเข้าระบบเงินเดือน ซึ่งแก้ย้อนหลังยากกว่ากรอกให้ครบก่อนจ่าย
+  const { data: riders } = useDatabase('riders');
+  const riderById = useMemo(() => {
+    const m: Record<string, any> = {};
+    (Array.isArray(riders) ? riders : []).forEach((r: any) => { if (r?.id) m[r.id] = r; });
+    return m;
+  }, [riders]);
 
   // 🧠 กรองเฉพาะงานที่จบแล้ว แต่ยังไม่ได้จ่ายค่าเที่ยว
   const pendingFees = useMemo(() => {
@@ -102,7 +111,7 @@ export const RiderSettlements = () => {
           <thead className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-widest">
             <tr>
               <th className="p-6 pl-10">Job Ref</th>
-              <th className="p-6">Rider ID</th>
+              <th className="p-6">Rider</th>
               <th className="p-6">Device Details</th>
               <th className="p-6 text-center">Fee Amount</th>
               <th className="p-6 text-right pr-10">Action</th>
@@ -115,7 +124,15 @@ export const RiderSettlements = () => {
                   <div className="font-bold text-blue-600 flex items-center gap-2"><FileText size={14}/> {item.ref_no}</div>
                   <div className="text-[10px] font-bold text-slate-400 mt-1">{formatDate(item.completed_at || item.created_at)}</div>
                 </td>
-                <td className="p-6 font-mono font-bold text-slate-600">{item.rider_id}</td>
+                <td className="p-6">
+                  <div className="font-mono font-bold text-slate-600">{item.rider_id}</div>
+                  {(() => {
+                    const t = riderById[item.rider_id]?.employment?.type;
+                    if (t === 'employee') return <div className="text-[10px] font-black text-slate-400 mt-1">ลูกจ้างประจำ · เข้าระบบเงินเดือน</div>;
+                    if (t === 'freelance') return <div className="text-[10px] font-black text-amber-600 mt-1">รับจ้างอิสระ · ต้องหัก ณ ที่จ่าย</div>;
+                    return <div className="text-[10px] font-black text-rose-500 mt-1">ยังไม่ระบุสถานะการจ้าง</div>;
+                  })()}
+                </td>
                 <td className="p-6 font-bold text-xs text-slate-700 uppercase">{item.model || 'Unknown Device'}</td>
                 <td className="p-6 text-center">
                    <span className="font-black text-emerald-600 text-lg bg-emerald-50 px-3 py-1 rounded-xl">+{formatCurrency(item.rider_fee || 150)}</span>
