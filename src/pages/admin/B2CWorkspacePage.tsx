@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
-import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
 
 import { AdminKYCModal } from '../mobile/components/AdminKYCModal';
 import { SmartPipeline } from './components/SmartPipeline';
@@ -172,11 +172,17 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     });
     setIsAddingCoupon(false); setAdminCouponCode(''); setAdminCouponValue('');
   };
-  const handleRemoveCoupon = async () => {
-    if (!confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) return;
+  // ลบคูปองทีละใบ — `onJobCouponsRevoked` diff array แล้วคืน ledger/quota ให้
+  // เฉพาะใบที่หลุด ใบที่เหลือไม่ถูกแตะ
+  const handleRemoveCoupon = async (index: number) => {
+    const target = listAppliedCoupons(job)[index];
+    if (!target) return;
+    if (!confirm(`ยืนยันการลบคูปอง ${target.code || ''} และดึงเงินกลับ?`)) return;
+    const remainingCoupon = couponTotalWithout(job, index);
     await update(ref(db, `jobs/${job.id}`), {
-      ...REVOKED_COUPON_FIELDS, net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
-      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ') || '-'} (-${couponValue}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
+      ...removeCouponAtFields(job, index),
+      net_payout: Math.max(0, basePrice - pickupFee + remainingCoupon + adjustmentsSum),
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${target.code || '-'} (-${couponValue - remainingCoupon}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
   };
 

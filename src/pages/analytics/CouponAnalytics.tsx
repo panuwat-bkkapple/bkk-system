@@ -4,7 +4,7 @@
 // use, % of limit consumed, last-used timestamp. Aggregates the
 // authoritative used_count from /coupons (kept current by the
 // validateAndCreateOrder Cloud Function transaction) and walks /jobs to
-// derive per-coupon discount totals from each job's applied_coupon
+// derive per-coupon discount totals from each job's applied_coupons
 // snapshot. The two sources should agree on count; if they drift, the
 // table surfaces both so admin can investigate.
 //
@@ -352,7 +352,7 @@ export const CouponAnalytics: React.FC = () => {
       </div>
 
       <p className="text-xs text-slate-400 mt-4 leading-relaxed">
-        <strong>หมายเหตุ:</strong> "ใช้แล้ว" และ "มูลค่ารวม" คำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/applied_coupon</code> ตาม date range. "% ของ limit" ใช้ <code className="bg-slate-100 px-1 rounded">coupons.used_count</code> ที่ Cloud Function <code className="bg-slate-100 px-1 rounded">validateAndCreateOrder</code> increment ผ่าน transaction (all-time, ไม่ filter by date). ถ้า used_count กับจำนวนนับจาก jobs ต่างกันตอน "ทั้งหมด" → MISMATCH badge ขึ้น (อาจเป็น order ถูกลบ/archive)
+        <strong>หมายเหตุ:</strong> "ใช้แล้ว" และ "มูลค่ารวม" คำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/applied_coupons</code> (นับทุกใบที่งานถืออยู่ — งานเก่า fallback ไปที่ <code className="bg-slate-100 px-1 rounded">applied_coupon</code> ใบเดียว) ตาม date range. "% ของ limit" ใช้ <code className="bg-slate-100 px-1 rounded">coupons.used_count</code> ที่ Cloud Function <code className="bg-slate-100 px-1 rounded">validateAndCreateOrder</code> increment ผ่าน transaction (all-time, ไม่ filter by date). ถ้า used_count กับจำนวนนับจาก jobs ต่างกันตอน "ทั้งหมด" → MISMATCH badge ขึ้น (อาจเป็น order ถูกลบ/archive)
       </p>
     </div>
   );

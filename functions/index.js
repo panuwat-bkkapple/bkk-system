@@ -1394,8 +1394,11 @@ exports.onNewTicketCreated = onValueCreated(
         if (locLine) tgLines.push(locLine);
         const apptLine = tgAppointmentLine(job);
         if (apptLine) tgLines.push(apptLine);
-        if (job.applied_coupon && job.applied_coupon.code) {
-          tgLines.push(`🎟 คูปอง: ${tgEscape(job.applied_coupon.code)}`);
+        // ลิสต์ครบทุกใบ — งานที่มาจากเว็บถือคูปองได้หลายใบ ถ้าโชว์ใบเดียว
+        // แอดมินที่อ่านจาก Telegram จะเข้าใจผิดว่าออเดอร์นี้ได้แค่ใบนั้น
+        const tgCoupons = listAppliedCoupons(job).map((c) => c && c.code).filter(Boolean);
+        if (tgCoupons.length > 0) {
+          tgLines.push(`🎟 คูปอง: ${tgEscape(tgCoupons.join(", "))}`);
         }
         if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
         await dispatchTelegram(tgLines.join("\n"), "onNewTicket");

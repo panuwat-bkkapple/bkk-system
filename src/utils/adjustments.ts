@@ -138,3 +138,49 @@ export function adminTopUpCouponFields(code: string, value: number) {
     applied_coupons: null,
   };
 }
+
+function couponAmount(c: AppliedCouponLine | undefined | null): number {
+  const v = Number(c?.actual_value ?? c?.value);
+  return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * ลบคูปอง **ใบเดียว** ออกจากงาน (index ตามลำดับที่ `listAppliedCoupons` คืนมา)
+ *
+ * `onJobCouponsRevoked` diff before/after ของ array อยู่แล้ว จึงคืน ledger/quota
+ * ให้เฉพาะใบที่หลุดออกไป ใบที่เหลือไม่ถูกแตะ — ฝั่ง client มีหน้าที่แค่เขียน
+ * array ที่เหลือกับสำเนาให้ถูก
+ *
+ * **สำเนาต้องติดธง `mirrored` เสมอ** ไม่งั้น trigger ตัวเดี่ยวจะคืน quota ซ้ำกับ
+ * ตัว array ตอนถูกลบรอบหน้า. เหลือใบเดียวก็ยังเป็นสำเนา — ความเป็นสำเนาไม่ได้
+ * ขึ้นกับจำนวนใบ แต่ขึ้นกับว่ามี array เป็นตัวจริงอยู่หรือเปล่า
+ *
+ * ลบใบสุดท้าย = ล้างทั้งสองฟิลด์เหมือน `REVOKED_COUPON_FIELDS`
+ */
+export function removeCouponAtFields(job: unknown, index: number) {
+  const remaining = listAppliedCoupons(job).filter((_, i) => i !== index);
+  if (remaining.length === 0) return { ...REVOKED_COUPON_FIELDS };
+
+  const primary = remaining.reduce(
+    (best, c) => (couponAmount(c) > couponAmount(best) ? c : best),
+    remaining[0],
+  );
+  return {
+    applied_coupons: remaining,
+    applied_coupon: {
+      code: primary.code ?? null,
+      value: primary.value ?? couponAmount(primary),
+      actual_value: couponAmount(primary),
+      name: primary.name ?? '',
+      type: primary.type ?? 'fixed',
+      mirrored: true,
+    },
+  };
+}
+
+/** ยอดคูปองที่จะเหลือหลังลบใบที่ index — ใช้คิด net_payout ใหม่ก่อนเขียน */
+export function couponTotalWithout(job: unknown, index: number): number {
+  return listAppliedCoupons(job)
+    .filter((_, i) => i !== index)
+    .reduce((sum, c) => (c?.type === 'service' ? sum : sum + couponAmount(c)), 0);
+}

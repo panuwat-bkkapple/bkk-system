@@ -24,7 +24,8 @@ interface PricingSidebarHandlers {
   handleReviseOffer: () => Promise<void>;
   handleCloseNegotiation: () => Promise<void>;
   handleApplyAdminCoupon: () => Promise<void>;
-  handleRemoveCoupon: () => Promise<void>;
+  /** ลบคูปองใบเดียวตาม index ของ listAppliedCoupons(job) */
+  handleRemoveCoupon: (index: number) => Promise<void>;
   handleSaveNotes: () => Promise<void>;
   handleReopen: (keepRider: boolean) => Promise<void>;
   handleCloseLost: () => Promise<void>;
@@ -603,12 +604,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                       <p className="text-sm font-black text-emerald-600">
                         {c.type === 'service' ? 'ฟรีค่าบริการ' : `+${Number(c.actual_value ?? c.value) || 0} ฿`}
                       </p>
-                      {/* ปุ่มเดียวลบทั้งชุด — ตรงกับสิ่งที่ handler ทำจริง
-                          (REVOKED_COUPON_FIELDS ล้างทั้งสองฟิลด์) การมีปุ่มรายใบ
-                          จะสัญญาการลบทีละใบที่ยังทำไม่ได้ */}
-                      {i === 0 && (
-                        <button onClick={handleRemoveCoupon} className="p-1.5 bg-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="นำคูปองออกทั้งหมด"><X size={14} /></button>
-                      )}
+                      <button onClick={() => handleRemoveCoupon(i)} className="p-1.5 bg-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100" title={`นำคูปอง ${c.code || ''} ออก`}><X size={14} /></button>
                     </div>
                   </div>
                 ))}

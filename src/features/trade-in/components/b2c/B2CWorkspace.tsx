@@ -19,7 +19,7 @@ import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '@/components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '@/utils/sickwApi';
-import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout } from '@/utils/adjustments';
 import { useAuth } from '@/hooks/useAuth';
 
 export const B2CWorkspace = ({
@@ -119,17 +119,21 @@ export const B2CWorkspace = ({
   };
 
   // 🌟 THE FIX 3: ป้องกันยอดติดลบตอนดึงคูปองออก
-  const handleRemoveCoupon = () => {
-    if (confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) {
+  const handleRemoveCoupon = (index: number) => {
+    const target = listAppliedCoupons(job)[index];
+    if (!target) return;
+    if (confirm(`ยืนยันการลบคูปอง ${target.code || ''} และดึงเงินกลับ?`)) {
       const currentBasePrice = Number(job?.final_price || job?.price || 0);
-      const newNetPayout = Math.max(0, currentBasePrice - pickupFee + sumAppliedAdjustments(job)); // 🛡️ ใส่ Math.max ป้องกันติดลบ
+      const remainingCoupon = couponTotalWithout(job, index);
+      // 🛡️ Math.max ป้องกันติดลบ
+      const newNetPayout = Math.max(0, currentBasePrice - pickupFee + remainingCoupon + sumAppliedAdjustments(job));
 
       onUpdateStatus(
-        job.id, 
-        job.status, 
-        `แอดมินยกเลิกการใช้คูปอง: ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ') || '-'} (-${couponValue}฿)`, 
+        job.id,
+        job.status,
+        `แอดมินยกเลิกการใช้คูปอง: ${target.code || '-'} (-${couponValue - remainingCoupon}฿)`,
         {
-          ...REVOKED_COUPON_FIELDS,
+          ...removeCouponAtFields(job, index),
           net_payout: newNetPayout
         }
       );
@@ -462,33 +466,38 @@ export const B2CWorkspace = ({
            {/* Coupon Management */}
            <div className="mt-4 relative z-10">
              {listAppliedCoupons(job).length > 0 ? (
-               <div className="bg-white/10 border border-white/20 p-4 rounded-2xl flex justify-between items-center backdrop-blur-sm group transition-all">
-                 <div className="flex items-center gap-3 min-w-0">
-                   <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400 shrink-0"><Ticket size={18} /></div>
-                   <div className="min-w-0">
-                     <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest mb-0.5">
-                       Applied Coupon{listAppliedCoupons(job).length > 1 ? ` (${listAppliedCoupons(job).length})` : ''}
-                     </p>
-                     <p className="text-xs font-black text-white truncate">
-                       {listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(' · ')}
-                     </p>
+               /* บรรทัดละใบ ลบได้ทีละใบ — trigger คืน ledger/quota ให้เฉพาะใบที่หลุด */
+               <div className="bg-white/10 border border-white/20 rounded-2xl backdrop-blur-sm group transition-all divide-y divide-white/10">
+                 {listAppliedCoupons(job).map((c, i) => (
+                   <div key={`${c.code || 'coupon'}-${i}`} className="p-4 flex justify-between items-center gap-3">
+                     <div className="flex items-center gap-3 min-w-0">
+                       <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400 shrink-0"><Ticket size={18} /></div>
+                       <div className="min-w-0">
+                         <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest mb-0.5">
+                           {c.bucket === 'device' ? 'Device Coupon' : c.bucket === 'review' ? 'Review Reward' : 'Applied Coupon'}
+                         </p>
+                         <p className="text-xs font-black text-white truncate">{c.code}</p>
+                       </div>
+                     </div>
+                     <div className="text-right flex items-center gap-3 shrink-0">
+                       <div>
+                         <p className="text-[9px] text-slate-400 mb-0.5 uppercase tracking-widest">Top-up Value</p>
+                         <p className="text-sm font-black text-emerald-400">
+                           {c.type === 'service' ? 'ฟรีค่าบริการ' : `+${Number(c.actual_value ?? c.value) || 0} ฿`}
+                         </p>
+                       </div>
+                       {showApproveButtons && (
+                         <button
+                           onClick={() => handleRemoveCoupon(i)}
+                           className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                           title={`นำคูปอง ${c.code || ''} ออก`}
+                         >
+                           <X size={14} />
+                         </button>
+                       )}
+                     </div>
                    </div>
-                 </div>
-                 <div className="text-right flex items-center gap-3 shrink-0">
-                   <div>
-                     <p className="text-[9px] text-slate-400 mb-0.5 uppercase tracking-widest">Top-up Value</p>
-                     <p className="text-sm font-black text-emerald-400">+{couponValue} ฿</p>
-                   </div>
-                   {showApproveButtons && (
-                     <button 
-                       onClick={handleRemoveCoupon}
-                       className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                       title="นำคูปองออก"
-                     >
-                       <X size={14} />
-                     </button>
-                   )}
-                 </div>
+                 ))}
                </div>
              ) : (
                showApproveButtons && (

@@ -24,7 +24,7 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
-import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
@@ -422,12 +422,16 @@ export const MobileTicketDetail = () => {
     setCouponFormOpen(false); setCouponCode(''); setCouponAmount('');
     toast.success('บันทึกคูปองแล้ว');
   };
-  const handleRemoveCoupon = async () => {
-    if (!confirm(`ยืนยันการลบคูปอง ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ')} และดึงเงินกลับ?`)) return;
+  // ลบทีละใบ — trigger ฝั่ง server คืน ledger/quota ให้เฉพาะใบที่หลุดจาก array
+  const handleRemoveCoupon = async (index: number) => {
+    const target = listAppliedCoupons(job)[index];
+    if (!target) return;
+    if (!confirm(`ยืนยันการลบคูปอง ${target.code || ''} และดึงเงินกลับ?`)) return;
+    const remainingCoupon = couponTotalWithout(job, index);
     await update(ref(db, `jobs/${job.id}`), {
-      ...REVOKED_COUPON_FIELDS,
-      net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
-      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ') || '-'} (-฿${couponValue.toLocaleString()})`), ...(job.qc_logs || [])],
+      ...removeCouponAtFields(job, index),
+      net_payout: Math.max(0, basePrice - pickupFee + remainingCoupon + adjustmentsSum),
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${target.code || '-'} (-฿${(couponValue - remainingCoupon).toLocaleString()})`), ...(job.qc_logs || [])],
       updated_at: Date.now(),
     });
     toast.success('ลบคูปองแล้ว');
@@ -996,10 +1000,9 @@ export const MobileTicketDetail = () => {
                   </div>
                 </>
               )}
-              {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — งานจากเว็บถือได้หลายใบ. ปุ่มแก้/ลบอยู่
-                  บรรทัดแรกใบเดียว เพราะ handler ทำงานกับทั้งชุด (Manual Top-up
-                  แทนที่คูปองทั้งหมด, ลบก็ล้างทั้งหมด) — ปุ่มรายใบจะสัญญาสิ่งที่
-                  ระบบยังทำไม่ได้ */}
+              {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — งานจากเว็บถือได้หลายใบ ลบได้ทีละใบ
+                  (trigger คืน ledger/quota ให้เฉพาะใบที่หลุด). ปุ่ม "แก้ไข" อยู่
+                  บรรทัดแรกใบเดียวเพราะมันคือ Manual Top-up ซึ่งแทนที่ทั้งชุด */}
               {!couponFormOpen && listAppliedCoupons(job).map((c, i) => {
                 const v = Number(c.actual_value ?? c.value) || 0;
                 if (v <= 0 && c.type !== 'service') return null;
@@ -1007,13 +1010,15 @@ export const MobileTicketDetail = () => {
                   <div key={`${c.code || 'coupon'}-${i}`} className="flex justify-between items-center text-sm">
                     <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
                       <span className="truncate">คูปอง ({c.code})</span>
-                      {i === 0 && isPrivileged && canTouchMoney && (
+                      {isPrivileged && canTouchMoney && (
                         <>
-                          <button
-                            onClick={() => { setCouponCode(c.code || ''); setCouponAmount(String(v || '')); setCouponFormOpen(true); }}
-                            className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
-                          >แก้ไข</button>
-                          <button onClick={handleRemoveCoupon} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบคูปอง">
+                          {i === 0 && (
+                            <button
+                              onClick={() => { setCouponCode(c.code || ''); setCouponAmount(String(v || '')); setCouponFormOpen(true); }}
+                              className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
+                            >แก้ไข</button>
+                          )}
+                          <button onClick={() => handleRemoveCoupon(i)} className="text-slate-300 active:text-red-500 shrink-0" aria-label={`ลบคูปอง ${c.code || ''}`}>
                             <CloseIcon size={12} />
                           </button>
                         </>
