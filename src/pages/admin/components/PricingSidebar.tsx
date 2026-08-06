@@ -15,7 +15,7 @@ import type { BranchRecord } from '@/utils/receiveMethod';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import { CustomerOfferDecisionCard } from './CustomerOfferDecisionCard';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
-import { canReviewAdjustments } from '@/utils/adjustments';
+import { canReviewAdjustments, listAppliedCoupons } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
 
 interface PricingSidebarHandlers {
@@ -457,15 +457,21 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               </>
             )}
 
-            {couponValue > 0 && (
-              <div className="flex justify-between items-center text-sm font-bold text-emerald-400">
-                <span className="flex items-center gap-2">
-                  <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border border-emerald-500/30">Coupon</span>
-                  <span className="text-xs">{job.applied_coupon?.code || 'Manual Top-up'}</span>
-                </span>
-                <span>+{formatCurrency(couponValue)}</span>
-              </div>
-            )}
+            {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — งานที่มาจากเว็บถือได้หลายใบ (ผูกกับเครื่อง
+                รายตัว + รีวิว + โปรโมชั่น) ยุบเป็นบรรทัดเดียวแล้วยอดจะอธิบายไม่ได้ */}
+            {listAppliedCoupons(job).map((c, i) => {
+              const v = Number(c.actual_value ?? c.value) || 0;
+              if (v <= 0 && c.type !== 'service') return null;
+              return (
+                <div key={`${c.code || 'coupon'}-${i}`} className="flex justify-between items-center text-sm font-bold text-emerald-400">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-widest border border-emerald-500/30 shrink-0">Coupon</span>
+                    <span className="text-xs truncate">{c.code || 'Manual Top-up'}</span>
+                  </span>
+                  <span className="shrink-0">{c.type === 'service' ? 'ฟรีค่าบริการ' : `+${formatCurrency(v)}`}</span>
+                </div>
+              );
+            })}
 
             {/* Itemised ad-hoc adjustments (admin QC / approved rider proposal).
                 Each is a transparent line the customer also sees — replaces the
@@ -572,16 +578,40 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
         {/* Coupon section */}
         {!isCancelled && !hasBeenPaid && (
           <div className="mb-4 border-b border-slate-200 pb-6">
-            {job.applied_coupon ? (
-              <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex justify-between items-center transition-all group">
-                <div>
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Applied Coupon</p>
-                  <p className="text-sm font-black text-emerald-800">{job.applied_coupon.code}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-sm font-black text-emerald-600">+{job.applied_coupon.actual_value || job.applied_coupon.value} ฿</p>
-                  <button onClick={handleRemoveCoupon} className="p-1.5 bg-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="นำคูปองออก"><X size={14} /></button>
-                </div>
+            {listAppliedCoupons(job).length > 0 ? (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl transition-all group divide-y divide-emerald-100">
+                {/* งานที่ถือหลายใบต้องมีบรรทัดรวม ไม่งั้นแอดมินต้องบวกเอง
+                    เพื่อเช็คว่าตรงกับยอดโอนไหม */}
+                {listAppliedCoupons(job).length > 1 && (
+                  <div className="px-4 py-2.5 flex justify-between items-center bg-emerald-100/60 rounded-t-2xl">
+                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">
+                      รวม {listAppliedCoupons(job).length} ใบ
+                    </p>
+                    <p className="text-sm font-black text-emerald-700">+{couponValue.toLocaleString()} ฿</p>
+                  </div>
+                )}
+                {listAppliedCoupons(job).map((c, i) => (
+                  <div key={`${c.code || 'coupon'}-${i}`} className="p-4 flex justify-between items-center gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+                        {c.bucket === 'device' ? 'Device Coupon' : c.bucket === 'review' ? 'Review Reward' : 'Applied Coupon'}
+                      </p>
+                      <p className="text-sm font-black text-emerald-800 truncate">{c.code}</p>
+                      {c.name && <p className="text-[10px] font-bold text-emerald-500 truncate">{c.name}</p>}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <p className="text-sm font-black text-emerald-600">
+                        {c.type === 'service' ? 'ฟรีค่าบริการ' : `+${Number(c.actual_value ?? c.value) || 0} ฿`}
+                      </p>
+                      {/* ปุ่มเดียวลบทั้งชุด — ตรงกับสิ่งที่ handler ทำจริง
+                          (REVOKED_COUPON_FIELDS ล้างทั้งสองฟิลด์) การมีปุ่มรายใบ
+                          จะสัญญาการลบทีละใบที่ยังทำไม่ได้ */}
+                      {i === 0 && (
+                        <button onClick={handleRemoveCoupon} className="p-1.5 bg-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="นำคูปองออกทั้งหมด"><X size={14} /></button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               !isAddingCoupon ? (

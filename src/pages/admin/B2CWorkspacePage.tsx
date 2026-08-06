@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
-import { sumAppliedAdjustments, sumAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
 
 import { AdminKYCModal } from '../mobile/components/AdminKYCModal';
 import { SmartPipeline } from './components/SmartPipeline';
@@ -176,7 +176,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     if (!confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) return;
     await update(ref(db, `jobs/${job.id}`), {
       ...REVOKED_COUPON_FIELDS, net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
-      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-${job.applied_coupon?.value}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ') || '-'} (-${couponValue}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
   };
 

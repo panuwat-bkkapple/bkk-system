@@ -19,7 +19,7 @@ import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '@/components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '@/utils/sickwApi';
-import { sumAppliedAdjustments, sumAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS } from '@/utils/adjustments';
 import { useAuth } from '@/hooks/useAuth';
 
 export const B2CWorkspace = ({
@@ -127,7 +127,7 @@ export const B2CWorkspace = ({
       onUpdateStatus(
         job.id, 
         job.status, 
-        `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-${couponValue}฿)`, 
+        `แอดมินยกเลิกการใช้คูปอง: ${listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(', ') || '-'} (-${couponValue}฿)`, 
         {
           ...REVOKED_COUPON_FIELDS,
           net_payout: newNetPayout
@@ -445,27 +445,36 @@ export const B2CWorkspace = ({
                      </div>
                    </>
                  )}
-                 {couponValue > 0 && (
-                   <div className="flex justify-between text-emerald-400">
-                     <span>คูปอง ({job.applied_coupon?.code})</span>
-                     <span>+ ฿{formatCurrency(couponValue)}</span>
-                   </div>
-                 )}
+                 {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — งานจากเว็บถือได้หลายใบ */}
+                 {listAppliedCoupons(job).map((c, i) => {
+                   const v = Number(c.actual_value ?? c.value) || 0;
+                   if (v <= 0) return null;
+                   return (
+                     <div key={`${c.code || 'coupon'}-${i}`} className="flex justify-between text-emerald-400">
+                       <span>คูปอง ({c.code})</span>
+                       <span>+ ฿{formatCurrency(v)}</span>
+                     </div>
+                   );
+                 })}
               </div>
            )}
 
            {/* Coupon Management */}
            <div className="mt-4 relative z-10">
-             {job.applied_coupon ? (
+             {listAppliedCoupons(job).length > 0 ? (
                <div className="bg-white/10 border border-white/20 p-4 rounded-2xl flex justify-between items-center backdrop-blur-sm group transition-all">
-                 <div className="flex items-center gap-3">
-                   <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400"><Ticket size={18} /></div>
-                   <div>
-                     <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest mb-0.5">Applied Coupon</p>
-                     <p className="text-xs font-black text-white">{job.applied_coupon.code}</p>
+                 <div className="flex items-center gap-3 min-w-0">
+                   <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400 shrink-0"><Ticket size={18} /></div>
+                   <div className="min-w-0">
+                     <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest mb-0.5">
+                       Applied Coupon{listAppliedCoupons(job).length > 1 ? ` (${listAppliedCoupons(job).length})` : ''}
+                     </p>
+                     <p className="text-xs font-black text-white truncate">
+                       {listAppliedCoupons(job).map((c) => c.code).filter(Boolean).join(' · ')}
+                     </p>
                    </div>
                  </div>
-                 <div className="text-right flex items-center gap-3">
+                 <div className="text-right flex items-center gap-3 shrink-0">
                    <div>
                      <p className="text-[9px] text-slate-400 mb-0.5 uppercase tracking-widest">Top-up Value</p>
                      <p className="text-sm font-black text-emerald-400">+{couponValue} ฿</p>
