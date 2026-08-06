@@ -75,6 +75,8 @@ export default function GlobalSettings() {
     checkout_ttl_min: 15,
     lock_days: 7,
     assessment_gc_days: 30,
+    // ให้ลูกค้าพิมพ์รหัสประเมินกู้ตะกร้าข้ามเครื่อง — ปิดเป็นค่าเริ่มต้น
+    allow_code_recovery: false,
   });
   const [isSavingQuote, setIsSavingQuote] = useState(false);
   const [showQuoteSuccess, setShowQuoteSuccess] = useState(false);
@@ -88,6 +90,7 @@ export default function GlobalSettings() {
           checkout_ttl_min: Number(v.checkout_ttl_min) > 0 ? Number(v.checkout_ttl_min) : prev.checkout_ttl_min,
           lock_days: Number(v.lock_days) > 0 ? Number(v.lock_days) : prev.lock_days,
           assessment_gc_days: Number(v.assessment_gc_days) > 0 ? Number(v.assessment_gc_days) : prev.assessment_gc_days,
+          allow_code_recovery: v.allow_code_recovery === true,
         }));
       }
     });
@@ -377,6 +380,22 @@ export default function GlobalSettings() {
             </p>
           </div>
         </div>
+
+        <label className="mt-5 flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={quote.allow_code_recovery}
+            onChange={(e) => setQuote({ ...quote, allow_code_recovery: e.target.checked })}
+            className="mt-0.5 w-4 h-4 accent-indigo-600 shrink-0"
+          />
+          <span>
+            <span className="block text-xs font-black text-slate-700">ให้ลูกค้ากรอกรหัสประเมินเพื่อกู้ตะกร้าข้ามเครื่อง</span>
+            <span className="block text-[11px] font-medium text-slate-400 mt-1 leading-relaxed">
+              ปิดไว้เป็นค่าเริ่มต้น — แทบไม่มีลูกค้าจำรหัสข้ามอุปกรณ์จริง และช่องกรอกที่เปิดทิ้งไว้
+              คือช่องให้เดารหัสของคนอื่น แอดมินเปิดดูรหัสจากตั๋วได้อยู่แล้วโดยไม่ต้องเปิดสวิตช์นี้
+            </span>
+          </span>
+        </label>
 
         <div className="mt-5 bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3">
           <Info size={16} className="text-indigo-500 shrink-0 mt-0.5" />
