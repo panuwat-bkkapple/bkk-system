@@ -7,7 +7,7 @@ import { JOB_STATUS } from '@/types/job-statuses';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
 import { withRetry } from '@/utils/firebaseRetry';
-import { sumAppliedAdjustments } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons } from '@/utils/adjustments';
 
 // นำเข้า Components หลัก (ลบ Modal เก่าๆ ออกไปแล้ว)
 import { JobTable } from './components/modal/TradeInUI';
@@ -261,7 +261,7 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
     const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
     const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
     const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-    const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+    const couponValue = sumAppliedCoupons(job);
     const adjustmentsSum = sumAppliedAdjustments(job);
     const newBasePrice = Math.max(0, newNetPayout + pickupFee - couponValue - adjustmentsSum);
 

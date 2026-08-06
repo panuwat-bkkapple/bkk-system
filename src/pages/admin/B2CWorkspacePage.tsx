@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '@/types/job-statuses';
 import type { CancelCategory } from '@/types/job-statuses';
 import { normalizeQcLogs } from '@/utils/jobNormalizer';
-import { sumAppliedAdjustments, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments, type JobAdjustment } from '@/utils/adjustments';
 
 import { AdminKYCModal } from '../mobile/components/AdminKYCModal';
 import { SmartPipeline } from './components/SmartPipeline';
@@ -90,7 +90,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
   const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
   const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-  const couponValue = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+  const couponValue = sumAppliedCoupons(job);
   // Applied ad-hoc adjustments (admin QC / approved rider proposal). Folded into
   // every net_payout recompute below so an admin price edit can't wipe them.
   const adjustmentsSum = sumAppliedAdjustments(job);
@@ -167,16 +167,22 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     if (!adminCouponCode || !adminCouponValue) { toast.warning('กรุณาระบุชื่อโค้ดและจำนวนเงิน'); return; }
     const val = Number(adminCouponValue);
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val, actual_value: val },
+      ...adminTopUpCouponFields(adminCouponCode, val),
       net_payout: Math.max(0, basePrice - pickupFee + val + adjustmentsSum), qc_logs: [makeLog('Admin Top-up', `แอดมินเพิ่มคูปองพิเศษ: ${adminCouponCode} (+${val}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
     setIsAddingCoupon(false); setAdminCouponCode(''); setAdminCouponValue('');
   };
-  const handleRemoveCoupon = async () => {
-    if (!confirm('ยืนยันการลบคูปองและดึงเงินกลับ?')) return;
+  // ลบคูปองทีละใบ — `onJobCouponsRevoked` diff array แล้วคืน ledger/quota ให้
+  // เฉพาะใบที่หลุด ใบที่เหลือไม่ถูกแตะ
+  const handleRemoveCoupon = async (index: number) => {
+    const target = listAppliedCoupons(job)[index];
+    if (!target) return;
+    if (!confirm(`ยืนยันการลบคูปอง ${target.code || ''} และดึงเงินกลับ?`)) return;
+    const remainingCoupon = couponTotalWithout(job, index);
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: null, net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
-      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-${job.applied_coupon?.value}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
+      ...removeCouponAtFields(job, index),
+      net_payout: Math.max(0, basePrice - pickupFee + remainingCoupon + adjustmentsSum),
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${target.code || '-'} (-${couponValue - remainingCoupon}฿)`), ...(job.qc_logs || [])], updated_at: Date.now()
     });
   };
 

@@ -57,3 +57,130 @@ export function sumAppliedAdjustments(job: unknown): number {
     return Number.isFinite(amt) ? sum + amt : sum;
   }, 0);
 }
+
+// ─── คูปอง ────────────────────────────────────────────────────────────────
+//
+// งานหนึ่งใบถือคูปองได้หนึ่งใบต่อหนึ่ง bucket — คูปองที่ผูกกับสินค้า (ได้ทุกเครื่อง
+// ในออเดอร์), คูปองรีวิว 1 ใบ, คูปองโปรโมชั่นระดับออเดอร์ 1 ใบ — เก็บที่
+// `jobs/{id}/applied_coupons`. งานเก่าและ Manual Top-up ของแอดมินยังเป็น object
+// เดี่ยว `applied_coupon`. **ห้ามบวกทั้งสองรูปแบบ** เพราะตอนสร้างงาน server ยัง
+// เขียน `applied_coupon` = ใบที่มูลค่าสูงสุด ไว้ให้ UI ที่ยังไม่ย้ายโชว์ได้ —
+// array มาก่อนเสมอ
+//
+// MIRROR 4 ที่ (ต้อง sync): bkk-frontend-next/functions/src/index.ts,
+// bkk-frontend-next/app/utils/jobPricing.ts, bkk-system/functions/index.js,
+// bkk-rider-app/src/utils/adjustments.ts
+
+export interface AppliedCouponLine {
+  /** ช่องที่คูปองใบนี้ครอง — หนึ่งใบต่อหนึ่งช่องต่อออเดอร์
+   *  (`device` ได้หนึ่งใบต่อหนึ่งเครื่อง) */
+  bucket?: 'device' | 'review' | 'promo';
+  code?: string;
+  coupon_id?: string;
+  name?: string;
+  type?: string;
+  value?: number;
+  actual_value?: number;
+  /** เฉพาะ bucket `device` — เครื่องที่คูปองใบนี้เกาะอยู่ */
+  device_id?: string;
+  model_id?: string;
+  /** เฉพาะคูปองที่ออกให้รายบุคคล (รีวิว) — คีย์ใน users/{uid}/coupons */
+  wallet_id?: string;
+  applied_at?: number;
+}
+
+export function listAppliedCoupons(job: unknown): AppliedCouponLine[] {
+  const j = job as { applied_coupons?: unknown; applied_coupon?: AppliedCouponLine } | null;
+  const raw = j?.applied_coupons;
+  const list = Array.isArray(raw)
+    ? (raw as AppliedCouponLine[])
+    : (raw && typeof raw === 'object' ? Object.values(raw as Record<string, AppliedCouponLine>) : []);
+  const present = list.filter(Boolean);
+  if (present.length > 0) return present;
+  return j?.applied_coupon ? [j.applied_coupon] : [];
+}
+
+/** เงินที่คูปองบวกเข้ายอดโอน — คูปองชนิด `service` (ส่งฟรี) ไม่มีตัวเงิน
+ *  มันไปล้างค่าบริการรับเครื่องแทน */
+export function sumAppliedCoupons(job: unknown): number {
+  return listAppliedCoupons(job).reduce((sum, c) => {
+    if (!c || c.type === 'service') return sum;
+    const v = Number(c.actual_value ?? c.value);
+    return Number.isFinite(v) ? sum + v : sum;
+  }, 0);
+}
+
+/**
+ * ลบคูปองทั้งหมดออกจากงาน — **ต้องล้างทั้งสองฟิลด์**
+ *
+ * งานที่สร้างจากเว็บใหม่เก็บของจริงไว้ที่ `applied_coupons` ส่วน `applied_coupon`
+ * เป็นแค่สำเนาไว้ให้ UI เก่าโชว์ ถ้าล้างแค่ตัวเดียว `sumAppliedCoupons` จะยังนับ
+ * เงินก้อนเดิมอยู่ = กด "ดึงเงินกลับ" แล้วเงินไม่กลับ
+ *
+ * cloud function `onJobCouponsRevoked` จะคืน ledger/quota ให้เองหลังจากนี้
+ */
+export const REVOKED_COUPON_FIELDS = {
+  applied_coupon: null,
+  applied_coupons: null,
+} as const;
+
+/**
+ * Manual Top-up ของแอดมิน — **แทนที่คูปองทั้งชุดบนงาน** (พฤติกรรมเดิมของช่องนี้
+ * ตั้งแต่ยังมีคูปองใบเดียว) คูปองแคมเปญที่ลูกค้าได้มาจะถูกถอดออกและ
+ * `onJobCouponsRevoked` จะคืน ledger/quota ให้ครบ
+ *
+ * ไม่ใส่ `mirrored` เพราะนี่เป็นคูปองจริงของมันเอง ไม่ใช่สำเนา — trigger ตัวเดี่ยว
+ * (`onJobCouponRevoked`) จึงยังเป็นเจ้าของการ reconcile ใบนี้ตอนถูกลบทีหลัง
+ */
+export function adminTopUpCouponFields(code: string, value: number) {
+  return {
+    applied_coupon: { code, name: 'Admin Manual Top-up', value, actual_value: value },
+    applied_coupons: null,
+  };
+}
+
+function couponAmount(c: AppliedCouponLine | undefined | null): number {
+  const v = Number(c?.actual_value ?? c?.value);
+  return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * ลบคูปอง **ใบเดียว** ออกจากงาน (index ตามลำดับที่ `listAppliedCoupons` คืนมา)
+ *
+ * `onJobCouponsRevoked` diff before/after ของ array อยู่แล้ว จึงคืน ledger/quota
+ * ให้เฉพาะใบที่หลุดออกไป ใบที่เหลือไม่ถูกแตะ — ฝั่ง client มีหน้าที่แค่เขียน
+ * array ที่เหลือกับสำเนาให้ถูก
+ *
+ * **สำเนาต้องติดธง `mirrored` เสมอ** ไม่งั้น trigger ตัวเดี่ยวจะคืน quota ซ้ำกับ
+ * ตัว array ตอนถูกลบรอบหน้า. เหลือใบเดียวก็ยังเป็นสำเนา — ความเป็นสำเนาไม่ได้
+ * ขึ้นกับจำนวนใบ แต่ขึ้นกับว่ามี array เป็นตัวจริงอยู่หรือเปล่า
+ *
+ * ลบใบสุดท้าย = ล้างทั้งสองฟิลด์เหมือน `REVOKED_COUPON_FIELDS`
+ */
+export function removeCouponAtFields(job: unknown, index: number) {
+  const remaining = listAppliedCoupons(job).filter((_, i) => i !== index);
+  if (remaining.length === 0) return { ...REVOKED_COUPON_FIELDS };
+
+  const primary = remaining.reduce(
+    (best, c) => (couponAmount(c) > couponAmount(best) ? c : best),
+    remaining[0],
+  );
+  return {
+    applied_coupons: remaining,
+    applied_coupon: {
+      code: primary.code ?? null,
+      value: primary.value ?? couponAmount(primary),
+      actual_value: couponAmount(primary),
+      name: primary.name ?? '',
+      type: primary.type ?? 'fixed',
+      mirrored: true,
+    },
+  };
+}
+
+/** ยอดคูปองที่จะเหลือหลังลบใบที่ index — ใช้คิด net_payout ใหม่ก่อนเขียน */
+export function couponTotalWithout(job: unknown, index: number): number {
+  return listAppliedCoupons(job)
+    .filter((_, i) => i !== index)
+    .reduce((sum, c) => (c?.type === 'service' ? sum : sum + couponAmount(c)), 0);
+}

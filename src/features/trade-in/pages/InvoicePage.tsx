@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '@/api/firebase'; // ⚠️ ปรับ path ให้ตรงกับโปรเจกต์ของคุณ
 import { Printer, ChevronLeft, ShieldCheck } from 'lucide-react';
+import { listAppliedCoupons } from '@/utils/adjustments';
 
 export const InvoicePage = () => {
   const { id } = useParams();
@@ -175,12 +176,17 @@ export const InvoicePage = () => {
         {/* 💰 สรุปยอดเงิน + ลายเซ็น (ไม่ให้แตกหน้ากลางคัน) */}
         <div className="flex justify-end mt-4" style={isB2B ? { pageBreakInside: 'avoid', breakInside: 'avoid' } : undefined}>
           <div className="w-1/2">
-            {job.applied_coupon && (
-              <div className="flex justify-between items-center py-2 border-b border-slate-100 text-sm">
-                <span className="font-bold text-slate-500">คูปองเพิ่มมูลค่า ({job.applied_coupon.code})</span>
-                <span className="font-black text-emerald-600">+{formatCurrency(job.applied_coupon.actual_value || job.applied_coupon.value)}</span>
-              </div>
-            )}
+            {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — เอกสารต้องอธิบายยอดได้ทุกบาท */}
+            {listAppliedCoupons(job).map((c, i) => {
+              const v = Number(c.actual_value ?? c.value) || 0;
+              if (v <= 0) return null;
+              return (
+                <div key={`${c.code || 'coupon'}-${i}`} className="flex justify-between items-center py-2 border-b border-slate-100 text-sm">
+                  <span className="font-bold text-slate-500">คูปองเพิ่มมูลค่า ({c.code})</span>
+                  <span className="font-black text-emerald-600">+{formatCurrency(v)}</span>
+                </div>
+              );
+            })}
             <div className="flex justify-between items-center py-4 text-xl">
               <span className="font-black text-slate-800 uppercase tracking-widest">ยอดรับซื้อสุทธิ (Net Total)</span>
               <span className="font-black text-blue-600 text-2xl">{formatCurrency(job.final_price || job.price)}</span>

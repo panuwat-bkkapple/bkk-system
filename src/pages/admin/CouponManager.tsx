@@ -257,6 +257,13 @@ export const CouponManager = () => {
                 // claim_valid_days = wallet coupon expiry (days after collecting).
                 claim_limit: 0, claimed_count: 0, claim_valid_days: 0,
                 is_active: true, show_on_homepage: true,
+                // ช่องที่คูปองใบนี้ครองในออเดอร์ (ดู bkk-frontend-next couponEngine.ts)
+                // 'promo' = ระดับออเดอร์ ใบเดียวต่อออเดอร์ (พฤติกรรมเดิม) —
+                // ค่าเริ่มต้นต้องเป็นตัวนี้เสมอ ห้ามเดา 'device' จากการจำกัดรุ่น
+                scope: 'promo',
+                // สวิตช์ให้ระบบหยิบคูปองใบนี้ให้ลูกค้าเอง ไม่ต้องพิมพ์โค้ด —
+                // ปิดไว้ = ทำงานแบบเดิมทุกอย่าง
+                auto_apply: false,
                 new_customer_only: false, // ใช้ได้เฉพาะลูกค้าใหม่ (เช็คฝั่ง server ด้วย uid/เบอร์)
                 applicable_models: [], // 🌟 [] = ใช้ได้ทุกรุ่น, ถ้าระบุ ID จะใช้ได้เฉพาะรุ่นนั้นๆ
                 excluded_models: [] // 🌟 รุ่นที่ "ไม่ร่วมรายการ" — exclude ชนะ include เสมอ
@@ -290,7 +297,19 @@ export const CouponManager = () => {
             const applicable_model_names = (Array.isArray(editingItem.applicable_models) ? editingItem.applicable_models : [])
                 .map(nameOfModel)
                 .filter(Boolean);
-            const payload = { ...editingItem, is_model_restricted: isModelRestricted, applicable_model_names, updated_at: Date.now() };
+            // คูปองเก่าที่บันทึกก่อนมีระบบ bucket ไม่มีสองฟิลด์นี้ — เขียนค่า
+            // ปลอดภัยลงไปตอน save เพื่อให้ทุกใบมีความหมายชัดเจน ไม่ต้องพึ่ง
+            // การเดาฝั่ง server (promo = ใบเดียวต่อออเดอร์แบบเดิม, ไม่ auto)
+            const scope = ['device', 'review', 'promo'].includes(editingItem.scope)
+                ? editingItem.scope : 'promo';
+            const payload = {
+                ...editingItem,
+                scope,
+                auto_apply: editingItem.auto_apply === true,
+                is_model_restricted: isModelRestricted,
+                applicable_model_names,
+                updated_at: Date.now(),
+            };
 
             if (editingItem.id) {
                 await update(ref(db, `coupons/${editingItem.id}`), payload);
@@ -435,6 +454,19 @@ export const CouponManager = () => {
                                                 <span className="text-rose-500 ml-1">· ยกเว้น {c.excluded_models.length} รุ่น</span>
                                             )}
                                         </div>
+                                        {/* ช่องที่ครอง + สวิตช์อัตโนมัติ — สองอย่างนี้เปลี่ยนว่า
+                                            ลูกค้าได้กี่ใบและได้โดยไม่ต้องพิมพ์โค้ดไหม จึงต้องเห็น
+                                            จากตารางโดยไม่ต้องเปิดเข้าไปดูทีละใบ */}
+                                        <div className="flex items-center gap-1.5 mt-1.5">
+                                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                                                {c.scope === 'device' ? 'ต่อเครื่อง' : c.scope === 'review' ? 'รีวิว' : 'ต่อออเดอร์'}
+                                            </span>
+                                            {c.auto_apply === true && (
+                                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                                                    อัตโนมัติ
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="p-5">
                                         <div className="w-full bg-slate-100 rounded-full h-2 mb-2 overflow-hidden">
@@ -497,6 +529,36 @@ export const CouponManager = () => {
                                             <p className="text-[10px] font-bold text-blue-500 mt-1">ให้ลูกค้ากด "เก็บคูปอง" สไตล์ Trip.com ได้เลย</p>
                                         </div>
                                         <input type="checkbox" checked={editingItem.show_on_homepage} readOnly className="w-5 h-5 rounded text-blue-600 pointer-events-none" />
+                                    </div>
+
+                                    {/* ช่องที่คูปองครอง — ออเดอร์หนึ่งใบถือได้ใบเดียวต่อช่อง
+                                        เจ้าของ logic คือ couponEngine.ts ฝั่ง bkk-frontend-next */}
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500 mb-1.5 block">คูปองใบนี้ผูกกับอะไร (Scope)</label>
+                                        <select
+                                            value={editingItem.scope || 'promo'}
+                                            onChange={(e) => setEditingItem({ ...editingItem, scope: e.target.value })}
+                                            className="w-full p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:border-blue-500">
+                                            <option value="promo">ระดับออเดอร์ — ได้ใบเดียวต่อออเดอร์ (ค่าเริ่มต้น)</option>
+                                            <option value="device">ผูกกับเครื่อง — ขายหลายเครื่องได้คูปองหลายใบ</option>
+                                            <option value="review">คูปองรีวิว — ได้ใบเดียวต่อออเดอร์</option>
+                                        </select>
+                                        <p className="text-[10px] font-bold text-slate-400 mt-1.5 leading-relaxed">
+                                            เลือก "ผูกกับเครื่อง" แล้วลูกค้าที่ขาย MacBook + iPhone พร้อมกันจะได้คูปองทั้งสองใบ
+                                            (แคมเปญเดียวกันยังใช้ได้ครั้งเดียวต่อออเดอร์ ขาย MacBook สองเครื่องไม่ได้สองเท่า)
+                                        </p>
+                                    </div>
+
+                                    {/* สวิตช์เปิดระบบเลือกคูปองอัตโนมัติ — ปิดไว้ = ลูกค้าต้องพิมพ์โค้ดเองเหมือนเดิม */}
+                                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-amber-50 transition" onClick={() => setEditingItem({ ...editingItem, auto_apply: !editingItem.auto_apply })}>
+                                        <div className="pr-3">
+                                            <p className="text-sm font-black text-amber-900">ใส่ให้ลูกค้าอัตโนมัติ</p>
+                                            <p className="text-[10px] font-bold text-amber-600 mt-1 leading-relaxed">
+                                                ระบบจะหยิบใบนี้ให้เองถ้าลูกค้าเข้าเงื่อนไข ไม่ต้องพิมพ์โค้ด
+                                                — เปิดแล้วมีผลกับออเดอร์ใหม่ทันที ตรวจมูลค่ากับโควตาให้ดีก่อนเปิด
+                                            </p>
+                                        </div>
+                                        <input type="checkbox" checked={!!editingItem.auto_apply} readOnly className="w-5 h-5 rounded text-amber-600 pointer-events-none shrink-0" />
                                     </div>
 
                                     <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-emerald-50 transition" onClick={() => setEditingItem({ ...editingItem, new_customer_only: !editingItem.new_customer_only })}>

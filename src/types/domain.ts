@@ -317,6 +317,21 @@ export interface AppliedCoupon {
   type: CouponType;
   /** มูลค่าส่วนลด (บาท หรือ %) */
   value: number;
+  /** มูลค่าที่คิดออกมาเป็นบาทจริง (percentage คูปองจะต่างจาก `value`) */
+  actual_value?: number;
+  /** ชื่อแคมเปญที่โชว์ให้ลูกค้า */
+  name?: string;
+  /** ช่องที่คูปองใบนี้ครอง — หนึ่งใบต่อหนึ่งช่องต่อออเดอร์
+   *  (`device` ได้หนึ่งใบต่อหนึ่งเครื่อง) */
+  bucket?: 'device' | 'review' | 'promo';
+  /** คีย์ของ master ที่ /coupons */
+  coupon_id?: string;
+  /** เฉพาะ bucket `device` — เครื่องที่คูปองใบนี้เกาะอยู่ */
+  device_id?: string;
+  model_id?: string;
+  /** เฉพาะคูปองที่ออกให้รายบุคคล (รีวิว) — คีย์ใน users/{uid}/coupons */
+  wallet_id?: string;
+  applied_at?: number;
 }
 
 /** งาน (Job) - ข้อมูลหลักของการรับซื้อ/ขาย */
@@ -409,8 +424,13 @@ export interface Job {
   };
 
   // คูปอง & QC
-  /** คูปองที่ใช้ */
+  /** คูปองที่ใช้ (รูปแบบเดิม ใบเดียว) — งานเก่าและ Manual Top-up ของแอดมิน.
+   *  งานใหม่ยังเขียนฟิลด์นี้เป็นใบที่มูลค่าสูงสุดไว้ให้ UI ที่ยังไม่ย้าย */
   applied_coupon?: AppliedCoupon;
+  /** คูปองที่ใช้ (รูปแบบหลายใบ) — หนึ่งใบต่อหนึ่ง bucket: คูปองผูกสินค้าได้ทุกเครื่อง
+   *  + รีวิว 1 ใบ + โปรโมชั่นระดับออเดอร์ 1 ใบ. **อ่านผ่าน `sumAppliedCoupons()`
+   *  เท่านั้น** ห้ามบวกคู่กับ `applied_coupon` (นับซ้ำ) */
+  applied_coupons?: AppliedCoupon[];
   /** ประวัติการตรวจ QC */
   qc_logs: QCLog[];
   /** รายการอุปกรณ์ในงาน */

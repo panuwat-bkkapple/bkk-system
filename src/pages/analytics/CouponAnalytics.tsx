@@ -4,7 +4,7 @@
 // use, % of limit consumed, last-used timestamp. Aggregates the
 // authoritative used_count from /coupons (kept current by the
 // validateAndCreateOrder Cloud Function transaction) and walks /jobs to
-// derive per-coupon discount totals from each job's applied_coupon
+// derive per-coupon discount totals from each job's applied_coupons
 // snapshot. The two sources should agree on count; if they drift, the
 // table surfaces both so admin can investigate.
 //
@@ -18,6 +18,7 @@ import {
   Ticket, Loader2, ArrowUpDown, TrendingUp, BadgeDollarSign,
   Percent, ListChecks, AlertTriangle,
 } from 'lucide-react';
+import { listAppliedCoupons } from '../../utils/adjustments';
 
 interface Coupon {
   id: string;
@@ -48,6 +49,7 @@ interface Job {
   status?: string;
   created_at?: number;
   applied_coupon?: AppliedCoupon | null;
+  applied_coupons?: AppliedCoupon[] | null;
 }
 
 interface CouponStats {
@@ -106,6 +108,7 @@ export const CouponAnalytics: React.FC = () => {
           status: j.status,
           created_at: j.created_at,
           applied_coupon: j.applied_coupon || null,
+          applied_coupons: j.applied_coupons || null,
         }));
         setJobs(list);
       } else {
@@ -125,18 +128,22 @@ export const CouponAnalytics: React.FC = () => {
     // Aggregate per-coupon-code from jobs once, then attach to coupon master.
     const bucket: Record<string, { count: number; total: number; lastTs: number | null }> = {};
     for (const job of jobs) {
-      const ac = job.applied_coupon;
-      if (!ac?.code) continue;
       if (dateRange !== 0 && !isWithinDateRange(job.created_at, fromTs, toTs)) continue;
-      const key = ac.code.toUpperCase();
-      const v = Number(ac.actual_value ?? ac.value ?? 0);
-      // value is negative when stored (it's a discount applied to net); take absolute.
-      const amount = Math.abs(v);
-      if (!bucket[key]) bucket[key] = { count: 0, total: 0, lastTs: null };
-      bucket[key].count += 1;
-      bucket[key].total += amount;
-      if (job.created_at && (bucket[key].lastTs == null || job.created_at > bucket[key].lastTs)) {
-        bucket[key].lastTs = job.created_at;
+      // งานหนึ่งใบถือคูปองได้หลายใบ (คูปองผูกสินค้าต่อเครื่อง + รีวิว + โปรโมชั่น)
+      // — listAppliedCoupons อ่าน array ก่อน แล้วค่อย fallback ใบเดี่ยวของงานเก่า
+      // ถ้านับแค่ `applied_coupon` แคมเปญที่ไม่ใช่ใบใหญ่สุดจะหายไปจากรายงานเงียบๆ
+      for (const ac of listAppliedCoupons(job)) {
+        if (!ac?.code) continue;
+        const key = ac.code.toUpperCase();
+        const v = Number(ac.actual_value ?? ac.value ?? 0);
+        // value is negative when stored (it's a discount applied to net); take absolute.
+        const amount = Math.abs(v);
+        if (!bucket[key]) bucket[key] = { count: 0, total: 0, lastTs: null };
+        bucket[key].count += 1;
+        bucket[key].total += amount;
+        if (job.created_at && (bucket[key].lastTs == null || job.created_at > bucket[key].lastTs)) {
+          bucket[key].lastTs = job.created_at;
+        }
       }
     }
 
@@ -345,7 +352,7 @@ export const CouponAnalytics: React.FC = () => {
       </div>
 
       <p className="text-xs text-slate-400 mt-4 leading-relaxed">
-        <strong>หมายเหตุ:</strong> "ใช้แล้ว" และ "มูลค่ารวม" คำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/applied_coupon</code> ตาม date range. "% ของ limit" ใช้ <code className="bg-slate-100 px-1 rounded">coupons.used_count</code> ที่ Cloud Function <code className="bg-slate-100 px-1 rounded">validateAndCreateOrder</code> increment ผ่าน transaction (all-time, ไม่ filter by date). ถ้า used_count กับจำนวนนับจาก jobs ต่างกันตอน "ทั้งหมด" → MISMATCH badge ขึ้น (อาจเป็น order ถูกลบ/archive)
+        <strong>หมายเหตุ:</strong> "ใช้แล้ว" และ "มูลค่ารวม" คำนวณจาก <code className="bg-slate-100 px-1 rounded">jobs/&#123;id&#125;/applied_coupons</code> (นับทุกใบที่งานถืออยู่ — งานเก่า fallback ไปที่ <code className="bg-slate-100 px-1 rounded">applied_coupon</code> ใบเดียว) ตาม date range. "% ของ limit" ใช้ <code className="bg-slate-100 px-1 rounded">coupons.used_count</code> ที่ Cloud Function <code className="bg-slate-100 px-1 rounded">validateAndCreateOrder</code> increment ผ่าน transaction (all-time, ไม่ filter by date). ถ้า used_count กับจำนวนนับจาก jobs ต่างกันตอน "ทั้งหมด" → MISMATCH badge ขึ้น (อาจเป็น order ถูกลบ/archive)
       </p>
     </div>
   );

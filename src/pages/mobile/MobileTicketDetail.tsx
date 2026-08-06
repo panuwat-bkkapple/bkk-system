@@ -24,7 +24,7 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
-import { sumAppliedAdjustments, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
@@ -248,7 +248,7 @@ export const MobileTicketDetail = () => {
   const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
   const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
   const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-  const couponValue = Number(job.applied_coupon?.value || 0);
+  const couponValue = sumAppliedCoupons(job);
   const adjustmentsSum = sumAppliedAdjustments(job);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue + adjustmentsSum);
   const appliedAdjustments = listAdjustments(job).filter((a) => a && a.status === 'applied');
@@ -414,20 +414,24 @@ export const MobileTicketDetail = () => {
     const val = Number(couponAmount);
     if (!code || !Number.isFinite(val) || val <= 0) { toast.warning('กรุณาระบุโค้ดและจำนวนเงิน'); return; }
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: { code, name: 'Admin Manual Top-up', value: val, actual_value: val },
+      ...adminTopUpCouponFields(code, val),
       net_payout: Math.max(0, basePrice - pickupFee + val + adjustmentsSum),
-      qc_logs: [makeLog('Admin Top-up', `แอดมิน${job.applied_coupon ? 'แก้ไข' : 'เพิ่ม'}คูปอง: ${code} (+฿${val.toLocaleString()})`), ...(job.qc_logs || [])],
+      qc_logs: [makeLog('Admin Top-up', `แอดมิน${listAppliedCoupons(job).length > 0 ? 'แก้ไข' : 'เพิ่ม'}คูปอง: ${code} (+฿${val.toLocaleString()})`), ...(job.qc_logs || [])],
       updated_at: Date.now(),
     });
     setCouponFormOpen(false); setCouponCode(''); setCouponAmount('');
     toast.success('บันทึกคูปองแล้ว');
   };
-  const handleRemoveCoupon = async () => {
-    if (!confirm(`ยืนยันการลบคูปอง ${job.applied_coupon?.code || ''} และดึงเงินกลับ?`)) return;
+  // ลบทีละใบ — trigger ฝั่ง server คืน ledger/quota ให้เฉพาะใบที่หลุดจาก array
+  const handleRemoveCoupon = async (index: number) => {
+    const target = listAppliedCoupons(job)[index];
+    if (!target) return;
+    if (!confirm(`ยืนยันการลบคูปอง ${target.code || ''} และดึงเงินกลับ?`)) return;
+    const remainingCoupon = couponTotalWithout(job, index);
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: null,
-      net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
-      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-฿${Number(job.applied_coupon?.value || 0).toLocaleString()})`), ...(job.qc_logs || [])],
+      ...removeCouponAtFields(job, index),
+      net_payout: Math.max(0, basePrice - pickupFee + remainingCoupon + adjustmentsSum),
+      qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${target.code || '-'} (-฿${(couponValue - remainingCoupon).toLocaleString()})`), ...(job.qc_logs || [])],
       updated_at: Date.now(),
     });
     toast.success('ลบคูปองแล้ว');
@@ -767,7 +771,7 @@ export const MobileTicketDetail = () => {
         const grossFeeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
         const riderDiscNum = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
         const feeNum = Math.max(0, grossFeeNum - riderDiscNum);
-        const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+        const couponNum = sumAppliedCoupons(job);
         payload.final_price = priceNum;
         payload.net_payout = Math.max(0, priceNum - feeNum + couponNum + adjustmentsSum);
 
@@ -996,26 +1000,37 @@ export const MobileTicketDetail = () => {
                   </div>
                 </>
               )}
-              {couponValue > 0 && !couponFormOpen && (
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">คูปอง ({job.applied_coupon?.code})</span>
-                    {isPrivileged && canTouchMoney && (
-                      <>
-                        <button
-                          onClick={() => { setCouponCode(job.applied_coupon?.code || ''); setCouponAmount(String(job.applied_coupon?.actual_value || job.applied_coupon?.value || '')); setCouponFormOpen(true); }}
-                          className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
-                        >แก้ไข</button>
-                        <button onClick={handleRemoveCoupon} className="text-slate-300 active:text-red-500 shrink-0" aria-label="ลบคูปอง">
-                          <CloseIcon size={12} />
-                        </button>
-                      </>
-                    )}
-                  </span>
-                  <span className="font-bold text-green-500 shrink-0">+฿{couponValue.toLocaleString()}</span>
-                </div>
-              )}
-              {isPrivileged && canTouchMoney && !job.applied_coupon && !couponFormOpen && (
+              {/* หนึ่งบรรทัดต่อหนึ่งคูปอง — งานจากเว็บถือได้หลายใบ ลบได้ทีละใบ
+                  (trigger คืน ledger/quota ให้เฉพาะใบที่หลุด). ปุ่ม "แก้ไข" อยู่
+                  บรรทัดแรกใบเดียวเพราะมันคือ Manual Top-up ซึ่งแทนที่ทั้งชุด */}
+              {!couponFormOpen && listAppliedCoupons(job).map((c, i) => {
+                const v = Number(c.actual_value ?? c.value) || 0;
+                if (v <= 0 && c.type !== 'service') return null;
+                return (
+                  <div key={`${c.code || 'coupon'}-${i}`} className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">คูปอง ({c.code})</span>
+                      {isPrivileged && canTouchMoney && (
+                        <>
+                          {i === 0 && (
+                            <button
+                              onClick={() => { setCouponCode(c.code || ''); setCouponAmount(String(v || '')); setCouponFormOpen(true); }}
+                              className="text-[10px] text-blue-500 underline underline-offset-2 shrink-0"
+                            >แก้ไข</button>
+                          )}
+                          <button onClick={() => handleRemoveCoupon(i)} className="text-slate-300 active:text-red-500 shrink-0" aria-label={`ลบคูปอง ${c.code || ''}`}>
+                            <CloseIcon size={12} />
+                          </button>
+                        </>
+                      )}
+                    </span>
+                    <span className="font-bold text-green-500 shrink-0">
+                      {c.type === 'service' ? 'ฟรีค่าบริการ' : `+฿${v.toLocaleString()}`}
+                    </span>
+                  </div>
+                );
+              })}
+              {isPrivileged && canTouchMoney && listAppliedCoupons(job).length === 0 && !couponFormOpen && (
                 <button onClick={() => { setCouponCode(''); setCouponAmount(''); setCouponFormOpen(true); }} className="w-full py-1.5 border border-dashed border-slate-200 rounded-lg text-[11px] font-bold text-slate-400 active:bg-slate-50">
                   + เพิ่มคูปอง / Top-up (Admin)
                 </button>

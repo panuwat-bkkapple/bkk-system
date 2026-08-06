@@ -946,7 +946,7 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "devices", "expected_items", "accessory_items", "offer_request",
   "price", "original_price", "initial_customer_price", "revised_price",
   "final_price", "net_payout", "pickup_fee", "rider_fee_discount",
-  "applied_coupon", "applied_rider_promo", "adjustments",
+  "applied_coupon", "applied_coupons", "applied_rider_promo", "adjustments",
   "revise_reason", "price_revision", "accepted_at",
   "customer_offer",
   "pickup_schedule", "appointment_date", "appointment_time",
@@ -1394,8 +1394,11 @@ exports.onNewTicketCreated = onValueCreated(
         if (locLine) tgLines.push(locLine);
         const apptLine = tgAppointmentLine(job);
         if (apptLine) tgLines.push(apptLine);
-        if (job.applied_coupon && job.applied_coupon.code) {
-          tgLines.push(`🎟 คูปอง: ${tgEscape(job.applied_coupon.code)}`);
+        // ลิสต์ครบทุกใบ — งานที่มาจากเว็บถือคูปองได้หลายใบ ถ้าโชว์ใบเดียว
+        // แอดมินที่อ่านจาก Telegram จะเข้าใจผิดว่าออเดอร์นี้ได้แค่ใบนั้น
+        const tgCoupons = listAppliedCoupons(job).map((c) => c && c.code).filter(Boolean);
+        if (tgCoupons.length > 0) {
+          tgLines.push(`🎟 คูปอง: ${tgEscape(tgCoupons.join(", "))}`);
         }
         if (job.ref_no) tgLines.push(`🆔 ${tgEscape(job.ref_no)}`);
         await dispatchTelegram(tgLines.join("\n"), "onNewTicket");
@@ -2418,7 +2421,7 @@ exports.onAdminJobStatusNotify = onValueUpdated(
                   (job.receive_method === "Pickup"
                     ? Math.max(0, Number(job.pickup_fee || 0) - Number(job.rider_fee_discount || 0))
                     : 0) +
-                  Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0)
+                  sumAppliedCoupons(job)
               )
         )
       : 0;
@@ -2637,6 +2640,38 @@ function sumAppliedAdjustments(job) {
   }, 0);
 }
 
+// คูปองบนงาน — รูปแบบหลายใบ
+//
+// งานหนึ่งใบถือคูปองได้หนึ่งใบต่อหนึ่ง bucket (คูปองที่ผูกกับสินค้าได้ทุกเครื่อง +
+// คูปองรีวิว 1 ใบ + คูปองโปรโมชั่นระดับออเดอร์ 1 ใบ) เก็บที่
+// jobs/{id}/applied_coupons ส่วนงานเก่าและ Manual Top-up ของแอดมินยังเป็น object
+// เดี่ยว jobs/{id}/applied_coupon เหมือนเดิม. ตอนสร้างงานเรายังเขียน
+// `applied_coupon` ให้เป็นใบที่มูลค่าสูงสุดด้วย เพื่อให้ UI ที่ยังไม่ย้ายโชว์ได้
+// **จึงห้ามบวกทั้งสองรูปแบบ** (จะนับซ้ำ) — array มาก่อนเสมอ
+//
+// MIRROR 4 ที่ (ต้อง sync): bkk-frontend-next/functions/src/index.ts,
+// bkk-frontend-next/app/utils/jobPricing.ts, bkk-system/src/utils/adjustments.ts,
+// bkk-rider-app/src/utils/adjustments.ts
+function listAppliedCoupons(job) {
+  const raw = job && job.applied_coupons;
+  const list = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === "object" ? Object.values(raw) : []);
+  const present = list.filter(Boolean);
+  if (present.length > 0) return present;
+  return (job && job.applied_coupon) ? [job.applied_coupon] : [];
+}
+
+// เงินที่คูปองบวกเข้ายอดโอน — คูปองชนิด `service` (ส่งฟรี) ไม่มีตัวเงิน
+// มันไปล้างค่าบริการรับเครื่องแทน
+function sumAppliedCoupons(job) {
+  return listAppliedCoupons(job).reduce((sum, c) => {
+    if (!c || c.type === "service") return sum;
+    const v = Number(c.actual_value != null ? c.actual_value : c.value);
+    return Number.isFinite(v) ? sum + v : sum;
+  }, 0);
+}
+
 exports.onReceiveMethodChanged = onValueUpdated(
   {
     ref: "/jobs/{jobId}/receive_method",
@@ -2654,9 +2689,7 @@ exports.onReceiveMethodChanged = onValueUpdated(
     const job = jobSnap.val();
 
     const basePrice = Number(job.final_price ?? job.price ?? 0);
-    const coupon = Number(
-      (job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0
-    );
+    const coupon = sumAppliedCoupons(job);
 
     const updates = {};
     const logs = [];
@@ -3724,87 +3757,150 @@ exports.checkPendingCustomerOffers = onSchedule(
 // =============================================================================
 // Coupon revoked/edited on a job → reconcile the redemption ledger
 // -----------------------------------------------------------------------------
-// Admin UIs may remove or replace jobs/{id}/applied_coupon, but the ledger
-// paths are server-write-only (issued_coupons, users/{uid}/coupons on other
-// accounts, /coupons quota). When a coupon that was redeemed at checkout is
-// pulled off a job, flip its ledger row back to 'issued', un-flag the wallet
-// entry, and free the master's quota — so /issued-coupons reconciliation and
-// re-use both stay correct. Admin "Manual Top-up" pseudo-coupons have no
-// ledger row and fall through as no-ops. All steps are best-effort.
+// Admin UIs may remove or replace the coupons on a job, but the ledger paths
+// are server-write-only (issued_coupons, users/{uid}/coupons on other accounts,
+// /coupons quota). When a coupon that was redeemed at checkout is pulled off a
+// job, flip its ledger row back to 'issued', un-flag the wallet entry, and free
+// the master's quota — so /issued-coupons reconciliation and re-use both stay
+// correct. Admin "Manual Top-up" pseudo-coupons have no ledger row and fall
+// through as no-ops. All steps are best-effort.
+//
+// TWO fields carry coupons and each has its own trigger:
+//   applied_coupons (array)  — the authoritative record on new orders
+//   applied_coupon  (object) — legacy single coupon; on new orders it is only a
+//                              display MIRROR of the biggest line, tagged
+//                              `mirrored: true`
+// Both are cleared in the same admin write, so without a guard both triggers
+// would fire for the same coupon and the quota would be refunded twice. The
+// singular trigger therefore ignores mirrored values: whenever an array exists,
+// the array trigger is the single reconciler.
 // =============================================================================
-exports.onJobCouponRevoked = onValueWritten(
-  { ref: "/jobs/{jobId}/applied_coupon", region: "asia-southeast1" },
-  async (event) => {
-    const before = event.data.before.val();
-    const after = event.data.after.val();
-    const beforeCode = String(before?.code || "").trim();
-    const afterCode = String(after?.code || "").trim();
-    // Only care when a previously-applied coupon disappears or is replaced.
-    if (!beforeCode || beforeCode === afterCode) return;
 
-    const jobId = event.params.jobId;
-    const db = getDatabase();
-    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
-    if (!jobSnap.exists()) return;
-    const uid = jobSnap.val().uid;
+// One coupon leaving one job. Safe to call for a code that was never redeemed
+// (Manual Top-up, a campaign the customer typed but never claimed) — every step
+// only touches rows that actually exist.
+async function reconcileRevokedCoupon(jobId, uid, code, couponId) {
+  const db = getDatabase();
+  const beforeCode = String(code || "").trim();
+  if (!beforeCode) return;
 
-    // 1) Ledger rows for this customer (indexed by uid) that were consumed by
-    //    THIS job with THIS code → back to 'issued'.
-    let revertedLedger = 0;
-    if (uid) {
-      try {
-        const ledgerSnap = await db.ref("issued_coupons").orderByChild("uid").equalTo(uid).once("value");
-        const updates = {};
-        ledgerSnap.forEach((row) => {
-          const v = row.val() || {};
-          if (v.status === "used" && v.used_job_id === jobId && String(v.code || "").trim() === beforeCode) {
-            updates[`issued_coupons/${row.key}/status`] = "issued";
-            updates[`issued_coupons/${row.key}/used_at`] = null;
-            updates[`issued_coupons/${row.key}/used_job_id`] = null;
-            updates[`issued_coupons/${row.key}/revoked_from_job_at`] = Date.now();
-            revertedLedger++;
-          }
-        });
-        if (revertedLedger > 0) await db.ref().update(updates);
-      } catch (err) {
-        console.error(`[onJobCouponRevoked] ledger revert failed for ${jobId}:`, err);
-      }
-
-      // 2) Wallet entry — clear is_used so the customer can redeem it again.
-      try {
-        const walletSnap = await db.ref(`users/${uid}/coupons`).once("value");
-        const updates = {};
-        walletSnap.forEach((row) => {
-          const v = row.val() || {};
-          if (v.is_used === true && String(v.code || "").trim().toUpperCase() === beforeCode.toUpperCase()) {
-            updates[`users/${uid}/coupons/${row.key}/is_used`] = false;
-          }
-        });
-        if (Object.keys(updates).length > 0) await db.ref().update(updates);
-      } catch (err) {
-        console.error(`[onJobCouponRevoked] wallet revert failed for ${jobId}:`, err);
-      }
+  // 1) Ledger rows for this customer (indexed by uid) that were consumed by
+  //    THIS job with THIS code → back to 'issued'.
+  let revertedLedger = 0;
+  if (uid) {
+    try {
+      const ledgerSnap = await db.ref("issued_coupons").orderByChild("uid").equalTo(uid).once("value");
+      const updates = {};
+      ledgerSnap.forEach((row) => {
+        const v = row.val() || {};
+        if (v.status === "used" && v.used_job_id === jobId && String(v.code || "").trim() === beforeCode) {
+          updates[`issued_coupons/${row.key}/status`] = "issued";
+          updates[`issued_coupons/${row.key}/used_at`] = null;
+          updates[`issued_coupons/${row.key}/used_job_id`] = null;
+          updates[`issued_coupons/${row.key}/revoked_from_job_at`] = Date.now();
+          revertedLedger++;
+        }
+      });
+      if (revertedLedger > 0) await db.ref().update(updates);
+    } catch (err) {
+      console.error(`[onJobCouponRevoked] ledger revert failed for ${jobId}:`, err);
     }
 
-    // 3) Master quota — free one use so the campaign counter stays truthful.
+    // 2) Wallet entry — clear is_used so the customer can redeem it again.
     try {
+      const walletSnap = await db.ref(`users/${uid}/coupons`).once("value");
+      const updates = {};
+      walletSnap.forEach((row) => {
+        const v = row.val() || {};
+        if (v.is_used === true && String(v.code || "").trim().toUpperCase() === beforeCode.toUpperCase()) {
+          updates[`users/${uid}/coupons/${row.key}/is_used`] = false;
+        }
+      });
+      if (Object.keys(updates).length > 0) await db.ref().update(updates);
+    } catch (err) {
+      console.error(`[onJobCouponRevoked] wallet revert failed for ${jobId}:`, err);
+    }
+  }
+
+  // 3) Master quota — free one use so the campaign counter stays truthful.
+  // Prefer the coupon_id the line recorded at redemption: an issued reward
+  // carries its own unique code (THX-xxxx) which matches no master by code,
+  // and matching by code alone would quietly skip the refund.
+  try {
+    let masterKey = null;
+    if (couponId) {
+      const direct = await db.ref(`coupons/${couponId}`).once("value");
+      if (direct.exists()) masterKey = couponId;
+    }
+    if (!masterKey) {
       const mastersSnap = await db.ref("coupons").once("value");
-      let masterKey = null;
       mastersSnap.forEach((row) => {
         if (String(row.val()?.code || "").trim().toUpperCase() === beforeCode.toUpperCase()) {
           masterKey = row.key;
         }
       });
-      if (masterKey) {
-        await db.ref(`coupons/${masterKey}/used_count`).transaction((cur) =>
-          Math.max(0, Number(cur || 0) - 1)
-        );
-      }
-    } catch (err) {
-      console.error(`[onJobCouponRevoked] quota revert failed for ${jobId}:`, err);
     }
+    if (masterKey) {
+      await db.ref(`coupons/${masterKey}/used_count`).transaction((cur) =>
+        Math.max(0, Number(cur || 0) - 1)
+      );
+    }
+  } catch (err) {
+    console.error(`[onJobCouponRevoked] quota revert failed for ${jobId}:`, err);
+  }
 
-    console.log(`[onJobCouponRevoked] ${jobId}: "${beforeCode}" removed — ledger rows reverted: ${revertedLedger}`);
+  console.log(`[onJobCouponRevoked] ${jobId}: "${beforeCode}" removed — ledger rows reverted: ${revertedLedger}`);
+}
+
+exports.onJobCouponRevoked = onValueWritten(
+  { ref: "/jobs/{jobId}/applied_coupon", region: "asia-southeast1" },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    // A mirror of an applied_coupons line — onJobCouponsRevoked owns it.
+    if (before && before.mirrored === true) return;
+    const beforeCode = String(before?.code || "").trim();
+    const afterCode = String(after?.code || "").trim();
+    // Only care when a previously-applied coupon disappears or is replaced.
+    if (!beforeCode || beforeCode === afterCode) return;
+
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${event.params.jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    await reconcileRevokedCoupon(event.params.jobId, jobSnap.val().uid, beforeCode, before?.coupon_id);
+  }
+);
+
+// Multi-coupon jobs. Reconciles every line that left the array — a job can hold
+// one coupon per device plus a review reward plus an order promo, and revoking
+// the set has to give all of them back, not just the one the legacy field showed.
+exports.onJobCouponsRevoked = onValueWritten(
+  { ref: "/jobs/{jobId}/applied_coupons", region: "asia-southeast1" },
+  async (event) => {
+    const toList = (raw) => {
+      const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === "object" ? Object.values(raw) : []);
+      return list.filter(Boolean);
+    };
+    const before = toList(event.data.before.val());
+    const after = toList(event.data.after.val());
+    if (before.length === 0) return;
+
+    // Key by code — the same campaign cannot appear twice on one job, and a
+    // code is what the ledger rows are written against.
+    const stillThere = new Set(after.map((c) => String(c.code || "").trim().toUpperCase()));
+    const removed = before.filter((c) => !stillThere.has(String(c.code || "").trim().toUpperCase()));
+    if (removed.length === 0) return;
+
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${event.params.jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const uid = jobSnap.val().uid;
+
+    for (const line of removed) {
+      await reconcileRevokedCoupon(event.params.jobId, uid, line.code, line.coupon_id);
+    }
   }
 );
 
@@ -4094,7 +4190,7 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
       const grossFee = job.receive_method === "Pickup" ? Number(job.pickup_fee || 0) : 0;
       const riderDisc = job.receive_method === "Pickup" ? Number(job.rider_fee_discount || 0) : 0;
       const effFee = Math.max(0, grossFee - riderDisc);
-      const coupon = Number((job.applied_coupon && (job.applied_coupon.actual_value ?? job.applied_coupon.value)) ?? 0);
+      const coupon = sumAppliedCoupons(job);
       const adjSum = list.reduce((s, a) => (a && a.status === "applied" && Number.isFinite(Number(a.amount)) ? s + Number(a.amount) : s), 0);
       u[`${jobBase}/net_payout`] = Math.max(0, base - effFee + coupon + adjSum);
       break;
