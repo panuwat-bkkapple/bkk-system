@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 // ⚠️ แก้ไข path db ให้ตรงกับโปรเจกต์ของคุณ
 import { db } from '../../api/firebase'; 
-import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle } from 'lucide-react';
+import { Settings, Map, Save, Loader2, Info, CheckCircle2, Navigation, AlertTriangle, Bike, XCircle, Timer } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 import { SickwSettingsSection } from './SickwSettingsSection';
 
@@ -65,6 +65,57 @@ export default function GlobalSettings() {
   });
   const [isSavingFlag, setIsSavingFlag] = useState(false);
   const [showFlagSuccess, setShowFlagSuccess] = useState(false);
+
+  // ⏱️ ราคาประเมิน / การยืนราคา — settings/quote
+  //
+  // ราคารับซื้อขยับได้ทุกวัน ระบบจึงไม่เก็บราคาไว้ฝั่งลูกค้าเลย (ตะกร้าเก็บแค่
+  // รหัสประเมิน ราคาคำนวณสดทุกครั้งที่เปิด) ค่าสองตัวนี้คือกรอบเวลาสองช่วงที่
+  // เหลืออยู่: ระหว่างกรอกฟอร์ม และหลังลงทะเบียนแล้ว
+  const [quote, setQuote] = useState({
+    checkout_ttl_min: 15,
+    lock_days: 7,
+    assessment_gc_days: 30,
+  });
+  const [isSavingQuote, setIsSavingQuote] = useState(false);
+  const [showQuoteSuccess, setShowQuoteSuccess] = useState(false);
+
+  useEffect(() => {
+    const quoteRef = ref(db, 'settings/quote');
+    const unsubscribe = onValue(quoteRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const v = snapshot.val() || {};
+        setQuote((prev) => ({
+          checkout_ttl_min: Number(v.checkout_ttl_min) > 0 ? Number(v.checkout_ttl_min) : prev.checkout_ttl_min,
+          lock_days: Number(v.lock_days) > 0 ? Number(v.lock_days) : prev.lock_days,
+          assessment_gc_days: Number(v.assessment_gc_days) > 0 ? Number(v.assessment_gc_days) : prev.assessment_gc_days,
+        }));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveQuote = async () => {
+    if (quote.checkout_ttl_min < 3) {
+      toast.warning('เวลากรอกฟอร์มสั้นเกินไป — ลูกค้ากรอกที่อยู่กับเลขบัญชีไม่ทัน');
+      return;
+    }
+    if (quote.assessment_gc_days < quote.lock_days) {
+      // รหัสประเมินถูกลบก่อนที่ราคาที่ยืนไว้จะหมดอายุ = อ้างอิงย้อนหลังไม่ได้
+      toast.warning('อายุรหัสประเมินต้องไม่น้อยกว่าจำนวนวันที่ยืนราคา');
+      return;
+    }
+    setIsSavingQuote(true);
+    setShowQuoteSuccess(false);
+    try {
+      await update(ref(db, 'settings/quote'), { ...quote, updated_at: Date.now() });
+      setShowQuoteSuccess(true);
+      setTimeout(() => setShowQuoteSuccess(false), 3000);
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการบันทึกการตั้งค่าราคา');
+    } finally {
+      setIsSavingQuote(false);
+    }
+  };
 
   const [testDistance, setTestDistance] = useState<number>(12); // สำหรับ Slider จำลองระยะทาง
   const [isSaving, setIsSaving] = useState(false);
@@ -272,6 +323,84 @@ export default function GlobalSettings() {
           ตั้งค่าระบบส่วนกลาง (Global Settings)
         </h1>
         <p className="text-slate-500 font-medium ml-12">กำหนดสมการคำนวณค่าบริการเข้ารับเครื่องตามระยะทาง (Distance-Based Pricing)</p>
+      </div>
+
+      {/* ⏱️ ราคาประเมิน / การยืนราคา */}
+      <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
+        <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
+          <Timer className="text-indigo-600" /> ราคาประเมิน และการยืนราคา
+        </h2>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-5 leading-relaxed">
+          ราคารับซื้อขยับตามตลาดทุกวัน ระบบจึง<strong>ไม่เก็บราคาไว้ในเครื่องลูกค้าเลย</strong> — ตะกร้าเก็บแค่รหัสประเมิน
+          ราคาคำนวณสดจาก <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">/models</code> ทุกครั้งที่เปิด
+          บันทึกเป็น <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/quote</code>
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-black text-slate-600 mb-1.5">เวลากรอกฟอร์ม (นาที)</label>
+            <input
+              type="number"
+              min={3}
+              value={quote.checkout_ttl_min}
+              onChange={(e) => setQuote({ ...quote, checkout_ttl_min: Number(e.target.value) })}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+            <p className="text-[11px] text-slate-400 font-medium mt-1.5">
+              นับตั้งแต่กดยืนยันจากตะกร้า เกินแล้วต้องประเมินราคาใหม่
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-slate-600 mb-1.5">ยืนราคาหลังลงทะเบียน (วัน)</label>
+            <input
+              type="number"
+              min={1}
+              value={quote.lock_days}
+              onChange={(e) => setQuote({ ...quote, lock_days: Number(e.target.value) })}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+            <p className="text-[11px] text-slate-400 font-medium mt-1.5">
+              ลงทะเบียนแล้วยืนราคานี้ให้ แม้ราคาตลาดจะปรับลงระหว่างรอเครื่อง
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-slate-600 mb-1.5">อายุรหัสประเมิน (วัน)</label>
+            <input
+              type="number"
+              min={1}
+              value={quote.assessment_gc_days}
+              onChange={(e) => setQuote({ ...quote, assessment_gc_days: Number(e.target.value) })}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+            <p className="text-[11px] text-slate-400 font-medium mt-1.5">
+              รหัสที่ไม่กลายเป็นงานถูกลบทิ้งอัตโนมัติหลังจากนี้
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3">
+          <Info size={16} className="text-indigo-500 shrink-0 mt-0.5" />
+          <p className="text-xs font-semibold text-indigo-900 leading-relaxed">
+            การยืนราคาครอบคลุมเฉพาะ <strong>ราคาตลาด</strong> ไม่ได้ยืนผลตรวจสภาพ —
+            ถ้า QC พบตำหนิที่ลูกค้าไม่ได้แจ้ง ยังหักได้ตามจริงเหมือนเดิม
+          </p>
+        </div>
+
+        <div className="mt-5 flex items-center gap-3">
+          <button
+            onClick={handleSaveQuote}
+            disabled={isSavingQuote}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3 rounded-xl flex items-center gap-2 disabled:opacity-50 transition-all"
+          >
+            {isSavingQuote ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            บันทึกการตั้งค่าราคา
+          </button>
+          {showQuoteSuccess && (
+            <span className="text-emerald-600 font-bold text-sm flex items-center gap-1.5">
+              <CheckCircle2 size={16} /> บันทึกแล้ว
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 🏍️ อัตราค่าวิ่งไรเดอร์ (Rider Fee Rates) */}
