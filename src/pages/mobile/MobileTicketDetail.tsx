@@ -24,7 +24,7 @@ import { SickwGateBanner } from '../../components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
-import { sumAppliedAdjustments, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
@@ -248,7 +248,7 @@ export const MobileTicketDetail = () => {
   const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
   const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
   const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-  const couponValue = Number(job.applied_coupon?.value || 0);
+  const couponValue = sumAppliedCoupons(job);
   const adjustmentsSum = sumAppliedAdjustments(job);
   const netPayout = Math.max(0, basePrice - pickupFee + couponValue + adjustmentsSum);
   const appliedAdjustments = listAdjustments(job).filter((a) => a && a.status === 'applied');
@@ -414,7 +414,7 @@ export const MobileTicketDetail = () => {
     const val = Number(couponAmount);
     if (!code || !Number.isFinite(val) || val <= 0) { toast.warning('กรุณาระบุโค้ดและจำนวนเงิน'); return; }
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: { code, name: 'Admin Manual Top-up', value: val, actual_value: val },
+      ...adminTopUpCouponFields(code, val),
       net_payout: Math.max(0, basePrice - pickupFee + val + adjustmentsSum),
       qc_logs: [makeLog('Admin Top-up', `แอดมิน${job.applied_coupon ? 'แก้ไข' : 'เพิ่ม'}คูปอง: ${code} (+฿${val.toLocaleString()})`), ...(job.qc_logs || [])],
       updated_at: Date.now(),
@@ -425,7 +425,7 @@ export const MobileTicketDetail = () => {
   const handleRemoveCoupon = async () => {
     if (!confirm(`ยืนยันการลบคูปอง ${job.applied_coupon?.code || ''} และดึงเงินกลับ?`)) return;
     await update(ref(db, `jobs/${job.id}`), {
-      applied_coupon: null,
+      ...REVOKED_COUPON_FIELDS,
       net_payout: Math.max(0, basePrice - pickupFee + adjustmentsSum),
       qc_logs: [makeLog('Coupon Revoked', `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-฿${Number(job.applied_coupon?.value || 0).toLocaleString()})`), ...(job.qc_logs || [])],
       updated_at: Date.now(),
@@ -767,7 +767,7 @@ export const MobileTicketDetail = () => {
         const grossFeeNum = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
         const riderDiscNum = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
         const feeNum = Math.max(0, grossFeeNum - riderDiscNum);
-        const couponNum = Number(job.applied_coupon?.actual_value || job.applied_coupon?.value || 0);
+        const couponNum = sumAppliedCoupons(job);
         payload.final_price = priceNum;
         payload.net_payout = Math.max(0, priceNum - feeNum + couponNum + adjustmentsSum);
 

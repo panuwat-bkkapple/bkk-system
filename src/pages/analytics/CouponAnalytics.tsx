@@ -18,6 +18,7 @@ import {
   Ticket, Loader2, ArrowUpDown, TrendingUp, BadgeDollarSign,
   Percent, ListChecks, AlertTriangle,
 } from 'lucide-react';
+import { listAppliedCoupons } from '../../utils/adjustments';
 
 interface Coupon {
   id: string;
@@ -48,6 +49,7 @@ interface Job {
   status?: string;
   created_at?: number;
   applied_coupon?: AppliedCoupon | null;
+  applied_coupons?: AppliedCoupon[] | null;
 }
 
 interface CouponStats {
@@ -106,6 +108,7 @@ export const CouponAnalytics: React.FC = () => {
           status: j.status,
           created_at: j.created_at,
           applied_coupon: j.applied_coupon || null,
+          applied_coupons: j.applied_coupons || null,
         }));
         setJobs(list);
       } else {
@@ -125,18 +128,22 @@ export const CouponAnalytics: React.FC = () => {
     // Aggregate per-coupon-code from jobs once, then attach to coupon master.
     const bucket: Record<string, { count: number; total: number; lastTs: number | null }> = {};
     for (const job of jobs) {
-      const ac = job.applied_coupon;
-      if (!ac?.code) continue;
       if (dateRange !== 0 && !isWithinDateRange(job.created_at, fromTs, toTs)) continue;
-      const key = ac.code.toUpperCase();
-      const v = Number(ac.actual_value ?? ac.value ?? 0);
-      // value is negative when stored (it's a discount applied to net); take absolute.
-      const amount = Math.abs(v);
-      if (!bucket[key]) bucket[key] = { count: 0, total: 0, lastTs: null };
-      bucket[key].count += 1;
-      bucket[key].total += amount;
-      if (job.created_at && (bucket[key].lastTs == null || job.created_at > bucket[key].lastTs)) {
-        bucket[key].lastTs = job.created_at;
+      // งานหนึ่งใบถือคูปองได้หลายใบ (คูปองผูกสินค้าต่อเครื่อง + รีวิว + โปรโมชั่น)
+      // — listAppliedCoupons อ่าน array ก่อน แล้วค่อย fallback ใบเดี่ยวของงานเก่า
+      // ถ้านับแค่ `applied_coupon` แคมเปญที่ไม่ใช่ใบใหญ่สุดจะหายไปจากรายงานเงียบๆ
+      for (const ac of listAppliedCoupons(job)) {
+        if (!ac?.code) continue;
+        const key = ac.code.toUpperCase();
+        const v = Number(ac.actual_value ?? ac.value ?? 0);
+        // value is negative when stored (it's a discount applied to net); take absolute.
+        const amount = Math.abs(v);
+        if (!bucket[key]) bucket[key] = { count: 0, total: 0, lastTs: null };
+        bucket[key].count += 1;
+        bucket[key].total += amount;
+        if (job.created_at && (bucket[key].lastTs == null || job.created_at > bucket[key].lastTs)) {
+          bucket[key].lastTs = job.created_at;
+        }
       }
     }
 

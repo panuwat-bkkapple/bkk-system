@@ -19,7 +19,7 @@ import { SickwGateBanner } from '@/components/sickw/SickwGateBanner';
 import { SickwStoredResultCard } from '@/components/sickw/SickwStoredResultCard';
 import { BatteryHealthCard } from '@/components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '@/utils/sickwApi';
-import { sumAppliedAdjustments } from '@/utils/adjustments';
+import { sumAppliedAdjustments, sumAppliedCoupons, adminTopUpCouponFields, REVOKED_COUPON_FIELDS } from '@/utils/adjustments';
 import { useAuth } from '@/hooks/useAuth';
 
 export const B2CWorkspace = ({
@@ -67,7 +67,7 @@ export const B2CWorkspace = ({
   // คือราคาที่ลูกค้าประเมินตอนสั่งขาย ซึ่งหยุดนิ่งหลังไรเดอร์ตรวจเครื่อง การเอามา
   // ตั้งเป็นบรรทัดแรกของ breakdown ทำให้ผลรวมไม่ตรงกับ Total Net Payout ด้านบน
   const basePrice = Number(job?.final_price || job?.price || job?.original_price || 0);
-  const couponValue = Number(job?.applied_coupon?.actual_value || job?.applied_coupon?.value || 0);
+  const couponValue = sumAppliedCoupons(job);
   // คิดสดด้วยสูตรเดียวกับ finance (TradeInPayouts.getNetPayout) — ค่า net_payout
   // ที่ค้างใน DB จาก path เก่าอาจไม่ตรงกับยอดที่โอนจริง
   const displayNetPayout = basePrice > 0
@@ -110,7 +110,7 @@ export const B2CWorkspace = ({
       job.status, 
       `แอดมินเพิ่มคูปอง/Top-up พิเศษ: ${adminCouponCode} (+${val}฿)`, 
       {
-        applied_coupon: { code: adminCouponCode, name: 'Admin Manual Top-up', value: val, actual_value: val },
+        ...adminTopUpCouponFields(adminCouponCode, val),
         net_payout: newNetPayout
         // ❌ เอา final_price และ price ออกไปเลย จะได้ไม่ไปทับข้อมูลเดิม
       }
@@ -129,7 +129,7 @@ export const B2CWorkspace = ({
         job.status, 
         `แอดมินยกเลิกการใช้คูปอง: ${job.applied_coupon?.code} (-${couponValue}฿)`, 
         {
-          applied_coupon: null,
+          ...REVOKED_COUPON_FIELDS,
           net_payout: newNetPayout
         }
       );
