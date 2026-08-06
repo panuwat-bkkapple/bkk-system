@@ -292,6 +292,38 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           {job.customer_offer && !isCancelled && (
             <CustomerOfferDecisionCard job={job} canReview={canReview} onDecide={handleDecideCustomerOffer} />
           )}
+          {/* ราคาที่ยืนให้ลูกค้า — ตั้งตอนสร้างงานจาก settings/quote (lock_days)
+              ล็อกเฉพาะ "ราคาตลาด" ไม่ได้ล็อกผลตรวจสภาพ ดังนั้นการหักจาก QC ยัง
+              ทำได้ตามปกติ สิ่งที่ป้ายนี้บอกคือ "ห้ามลดเพราะราคาตลาดลง" เท่านั้น */}
+          {job.price_locked_until && (
+            <div className={`mb-4 p-3 rounded-xl border ${
+              Date.now() > Number(job.price_locked_until)
+                ? 'bg-amber-500/15 border-amber-400/30'
+                : 'bg-emerald-500/10 border-emerald-400/25'
+            }`}>
+              <div className="flex justify-between items-center text-[11px] font-bold">
+                <span className={Date.now() > Number(job.price_locked_until) ? 'text-amber-200' : 'text-emerald-200'}>
+                  {Date.now() > Number(job.price_locked_until) ? 'ราคาที่ยืนไว้หมดอายุแล้ว' : 'ยืนราคาถึง'}
+                </span>
+                <span className="text-white">
+                  {new Date(Number(job.price_locked_until)).toLocaleDateString('th-TH', {
+                    day: 'numeric', month: 'short', year: '2-digit',
+                  })}
+                </span>
+              </div>
+              {job.price_locked_amount != null && (
+                <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 mt-1.5">
+                  <span>ราคาที่ยืนไว้</span>
+                  <span>{formatCurrency(Number(job.price_locked_amount))}</span>
+                </div>
+              )}
+              <p className="text-[10px] font-medium text-slate-400 mt-2 leading-relaxed">
+                {Date.now() > Number(job.price_locked_until)
+                  ? 'เกินกรอบที่ยืนราคาไว้ — คิดราคาตลาดวันที่รับเครื่องได้ แต่ต้องแจ้งลูกค้าก่อน'
+                  : 'ห้ามลดราคาเพราะราคาตลาดปรับลงภายในกรอบนี้ — หักตามผลตรวจสภาพจริงยังทำได้ตามปกติ'}
+              </p>
+            </div>
+          )}
           <div className="space-y-3 mb-6 pb-6 border-b border-white/10">
             {job.initial_customer_price && job.initial_customer_price !== basePrice && (
               <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 mb-3 pb-3 border-b border-white/5">
