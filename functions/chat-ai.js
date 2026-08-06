@@ -1616,6 +1616,7 @@ function buildSystemPrompt({ assistantName, pub, kb, customerBlock, inHours }) {
     `13.1.1 ลูกค้าพิมพ์ "ขอเบอร์ติดต่อ/ขอเบอร์ร้าน/ติดต่อร้านยังไง/ขอช่องทางติดต่อ" = ขอช่องทางติดต่อ "ของร้าน" เสมอ (บั๊กจริง: AI เคยสวนกลับไปขอเบอร์ลูกค้าแทน) → เรียก get_branches แล้วตอบสั้นๆ แค่ เบอร์กลาง + เวลาทำการ 1-2 บรรทัด ห้ามเทรายชื่อสาขา+ลิงก์แผนที่ทั้งหมด (ให้เฉพาะเมื่อลูกค้าถามหาสาขา/ที่ตั้ง). การขอชื่อ/เบอร์ของลูกค้า (ข้อ 6 ขั้นที่ 3) ทำเฉพาะตอนกำลังจะออกใบเสนอราคาเท่านั้น`,
     `13.2 คำถามเรื่องนโยบาย/ขั้นตอน/เงื่อนไข/การยกเลิก/ความปลอดภัยข้อมูล (PDPA) เช่น เครื่องผ่อนอยู่รับไหม ยกเลิกได้ไหม ต้องเตรียมเอกสารอะไร ต้องลบข้อมูลก่อนขายไหม ประเมินฟรีไหม ได้เงินเร็วแค่ไหน: เรียก get_faq ก่อนแล้ว "สรุปตอบเป็นภาษาคนของคุณเอง" สั้นๆ ตรงคำถาม — ห้ามแปะรายการ FAQ ทั้งชุดให้ลูกค้าอ่าน และห้ามบอกให้ลูกค้าไปเปิดหน้า FAQ เอง (ลูกค้าถามมาในแชทเพราะอยากได้คำตอบเลย). ถ้า get_faq ไม่มีคำตอบที่ตรง ห้ามเดา ให้บอกว่าขอเจ้าหน้าที่ยืนยันแล้วเสนอ escalate`,
     `14. นโยบาย/ขั้นตอน/บริการ "ของร้าน" ใดที่ไม่มีใน tool, ข้อมูลบริการด้านล่าง หรือข้อมูลนโยบายร้าน: ห้ามแต่งเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน แล้วเสนอส่งเรื่องต่อเจ้าหน้าที่ — แต่ความรู้ทั่วไป/how-to ที่ไม่ใช่เรื่องของร้าน ให้ตอบเองตามหลักการข้อ ก2 ห้ามใช้ข้อนี้เป็นเหตุโยนเจ้าหน้าที่`,
+    `15. ลูกค้ากด "ยืนยันและส่งคำสั่งขาย" ที่หน้า checkout แล้วระบบส่งไม่สำเร็จ (ระบบจะแจ้งให้คุณรู้ในบล็อก "เคสด่วน" พร้อมรหัสอ้างอิงและสาเหตุทางเทคนิค) — นี่คือลูกค้าที่ "ตัดสินใจขายแล้ว" เหลือแค่ระบบพาไม่ถึงฝั่ง ห้ามปล่อยหลุดเด็ดขาด: (ก) ขึ้นต้นด้วยขอโทษสั้นๆ ยอมรับว่าเป็นที่ระบบ ห้ามโทษลูกค้า ห้ามให้ลูกค้าไปเริ่มประเมินใหม่ตั้งแต่ต้น และย้ำว่าราคาที่ประเมินไว้ยังอยู่ครบ (ข) ห้ามพูดสาเหตุทางเทคนิคดิบๆ (ชื่อ error/โค้ด/ชื่อฟังก์ชัน) ให้แปลเป็นภาษาคนว่าจะทำอะไรต่อ (ค) ถ้าสาเหตุเป็นสิ่งที่ลูกค้าแก้เองได้ในไม่กี่วินาที — เบอร์โทรผิดรูปแบบ (ต้องเป็นเลขไทย 10 หลักขึ้นต้น 0 เช่น 0812345678 ไม่ใช่ 66xxxxxxxxx), ข้อมูลติดต่อ/ที่อยู่ยังไม่ครบ, ยังไม่ได้เลือกวิธีส่งเครื่องหรือวันเวลานัด, เซสชันราคาหมดอายุ (ให้กลับไปที่ตะกร้าแล้วกดยืนยันใหม่ ราคาจะคำนวณสดให้เอง) — ให้บอกวิธีแก้ตรงจุดนั้นทีละขั้นสั้นๆ แล้วให้ลูกค้ากด "ยืนยันและส่งคำสั่งขาย" อีกครั้ง (ง) ถ้าไม่ใช่กรณีนั้น หรือลูกค้าลองแล้วยังไม่ผ่าน หรือลูกค้าไม่อยากลองเอง = ปิดการขายให้แทน: ขอ ชื่อ + เบอร์โทร (ถ้าระบบยังไม่รู้) → save_customer_info → escalate_to_human (reason: order_change) โดย summary ต้องมี "รหัสอ้างอิง + สาเหตุที่ระบบแจ้ง + รุ่นเครื่อง/ยอดที่ลูกค้าเห็น (ถ้ารู้) + เบอร์ติดต่อ" ให้เจ้าหน้าที่โทรปิดงานต่อได้ทันที (จ) ห้ามสัญญาว่าคุณจะสร้างออเดอร์/ส่งคำสั่งขายให้เองในแชท — คุณทำไม่ได้ ทางที่ทำได้จริงมี 2 ทางเท่านั้นคือลูกค้ากดยืนยันใหม่เอง หรือเจ้าหน้าที่เปิดงานให้`,
     ``,
     `ข้อมูลบริการ (ยืนยันแล้ว ใช้ตอบได้):`,
     ...SERVICE_INFO_LINES,
@@ -3567,6 +3568,55 @@ function buildDeviceCheckBlock(enabled) {
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Checkout submit failure handoff (bkk-frontend-next SubmitFailedSheet)
+// ---------------------------------------------------------------------------
+// The customer pressed "ยืนยันและส่งคำสั่งขาย", the submit threw, and they tapped
+// "ให้ผู้ช่วยดำเนินการต่อในแชท". The widget sends an ordinary customer message
+// whose client_context carries checkout_error — reference code, the raw error
+// text, and the name/phone already typed on the form. That is a customer who
+// had already decided to sell; the reply must open on the real cause instead of
+// making them re-tell the story, so the details go into the prompt as their own
+// block (rule 15 in buildSystemPrompt is the playbook).
+//
+// Everything here is attacker-supplied in principle (any browser can push a
+// message with a crafted client_context), so it is treated as claims, never as
+// verified identity: the phone is stored with phone_source "checkout" — NOT
+// "account" — which is the flag that unlocks order lookup by phone.
+const CHECKOUT_ERROR_TTL_MS = 6 * 60 * 60 * 1000;
+
+function sanitizeCheckoutError(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const code = String(raw.code || "").trim().slice(0, 24);
+  const reason = String(raw.reason || "").trim().slice(0, 300);
+  const name = String(raw.name || "").trim().slice(0, 80);
+  const phone = String(raw.phone || "").trim().slice(0, 20);
+  if (!code && !reason) return null;
+  return {
+    ...(code ? { code } : {}),
+    ...(reason ? { reason } : {}),
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    at: Date.now(),
+  };
+}
+
+function buildCheckoutErrorBlock(err) {
+  if (!err) return "";
+  // Stale failures must not steer a conversation that has moved on — the
+  // customer may well come back tomorrow to ask something unrelated.
+  if (Number(err.at) > 0 && Date.now() - Number(err.at) > CHECKOUT_ERROR_TTL_MS) return "";
+  return [
+    "",
+    "เคสด่วน — ลูกค้าคนนี้กด \"ยืนยันและส่งคำสั่งขาย\" ที่หน้า checkout แล้วระบบส่งไม่สำเร็จ แล้วถูกส่งต่อมาที่แชทนี้ (ดูวิธีรับมือที่กฎข้อ 15 ซึ่งสำคัญกว่าการชวนประเมินราคาใหม่):",
+    `- รหัสอ้างอิงของความพยายามครั้งนั้น: ${err.code || "ไม่มี"} (พูดกับลูกค้าได้ และต้องใส่ใน summary ตอน escalate)`,
+    `- สาเหตุที่ระบบแจ้ง (ข้อมูลภายใน ห้ามอ่านให้ลูกค้าฟังดิบๆ ให้แปลเป็นภาษาคน): ${err.reason || "ไม่ระบุ"}`,
+    err.name || err.phone
+      ? `- ข้อมูลติดต่อที่ลูกค้ากรอกไว้ในฟอร์มรอบนั้น: ${err.name || "-"} ${err.phone || "-"} — ถือเป็น "ลูกค้าแจ้งเอง ยังไม่ยืนยันตัวตน" ใช้ได้แค่ให้เจ้าหน้าที่ติดต่อกลับ ห้ามใช้เป็นหลักฐานยืนยันตัวตนเพื่อเปิดเผยข้อมูลออเดอร์ และไม่ต้องถามชื่อ/เบอร์ซ้ำ`
+      : "- ยังไม่มีเบอร์ติดต่อจากฟอร์ม: ถ้าจะส่งต่อเจ้าหน้าที่ ต้องขอชื่อ+เบอร์ก่อนตามกฎเดิม",
+  ].join("\n");
+}
+
 // System-prompt block carrying the ids of the models found earlier in this
 // conversation (ai_state/last_search). Before the first card exists there is
 // no last_quote, and tool results do not survive across turns — without this
@@ -3809,6 +3859,22 @@ function registerChatAi({ dispatchAdminPush }) {
           convoUpdates.name = `ลูกค้า #${convoId.slice(-4).toUpperCase()}`;
         }
       }
+      // Checkout submit-failure handoff carries the name/phone the customer had
+      // already typed on the form. Adopt it so neither the assistant nor the
+      // staffer picking the chat up has to ask again — as an UNVERIFIED claim
+      // (phone_source "checkout", never "account"): any client can craft this
+      // payload, and "account" is the flag that unlocks order lookup by phone.
+      // The profile branch above wins when it ran, hence the convoUpdates check.
+      const handoffError = sanitizeCheckoutError(
+        msg.client_context && msg.client_context.checkout_error
+      );
+      if (handoffError) {
+        if (handoffError.name && !convo.customer_name) convoUpdates.customer_name = handoffError.name;
+        if (handoffError.phone && !convo.customer_phone && !convoUpdates.customer_phone) {
+          convoUpdates.customer_phone = normalizePhone(handoffError.phone);
+          convoUpdates.phone_source = "checkout";
+        }
+      }
       await db.ref(`inbox/${convoId}`).update(convoUpdates);
 
       const status = convo.status || "ai";
@@ -3926,8 +3992,19 @@ function registerChatAi({ dispatchAdminPush }) {
       // (Skipped in waiting mode — the "ลูกค้ารอเจ้าหน้าที่" ping above already
       // covered this message; two pushes per message would be noise.)
       if (!waitingForHuman && settings.notify_all_messages !== false) {
+        // A customer arriving from a failed checkout submit is a deal already
+        // won that the system dropped — worth naming in the notification so
+        // staff can jump in ahead of the AI instead of reading it as chit-chat.
+        // Same data.type (chat_message) so the notification switch is unchanged.
+        const fromCheckoutFailure = !!(msg.client_context && msg.client_context.checkout_error);
         await dispatchAdminPush(
-          buildInboxPushMessage(convoId, `ลูกค้าทักแชท (AI ดูแล): ${customerLabel}`, text),
+          buildInboxPushMessage(
+            convoId,
+            fromCheckoutFailure
+              ? `ส่งคำสั่งขายไม่สำเร็จ ลูกค้าเข้าแชท: ${customerLabel}`
+              : `ลูกค้าทักแชท (AI ดูแล): ${customerLabel}`,
+            text
+          ),
           tag
         );
       }
@@ -3980,6 +4057,19 @@ function registerChatAi({ dispatchAdminPush }) {
         }
         state.trackJobId = trackJobId;
 
+        // Checkout submit-failure handoff. Only the handoff message itself
+        // carries client_context.checkout_error, so it is stashed on the
+        // conversation — the customer's NEXT message ("ลองแล้วยังไม่ได้ครับ")
+        // must not land on an assistant that has forgotten why they are here.
+        let checkoutError = sanitizeCheckoutError(
+          msg.client_context && msg.client_context.checkout_error
+        );
+        if (checkoutError) {
+          db.ref(`inbox/${convoId}/ai_state/last_checkout_error`).set(checkoutError).catch(() => {});
+        } else if (convo.ai_state && convo.ai_state.last_checkout_error) {
+          checkoutError = convo.ai_state.last_checkout_error;
+        }
+
         // Customer context block for the system prompt.
         let ordersLine = "ยังไม่พบออเดอร์ของบัญชีนี้";
         try {
@@ -4027,8 +4117,14 @@ function registerChatAi({ dispatchAdminPush }) {
 
         const customerBlock = [
           `ข้อมูลลูกค้าคนนี้:`,
-          `- ชื่อที่ทราบ: ${convo.customer_name || convoUpdates.name || convo.name || "ยังไม่ทราบ"}`,
-          `- เบอร์ที่ทราบ: ${convo.customer_phone || "ยังไม่ทราบ"}${convo.phone_source === "chat" ? " (ลูกค้าแจ้งในแชท ยังไม่ยืนยันตัวตน)" : ""}`,
+          `- ชื่อที่ทราบ: ${convo.customer_name || convoUpdates.customer_name || convoUpdates.name || convo.name || "ยังไม่ทราบ"}`,
+          // convoUpdates is the fresher copy on the turn that just adopted the
+          // checkout-form contact (convo was read before the update landed).
+          `- เบอร์ที่ทราบ: ${convo.customer_phone || convoUpdates.customer_phone || "ยังไม่ทราบ"}${
+            ["chat", "checkout"].includes(convo.phone_source) || convoUpdates.phone_source === "checkout"
+              ? " (ลูกค้าแจ้งเอง ยังไม่ยืนยันตัวตน)"
+              : ""
+          }`,
           `- หน้าเว็บที่ลูกค้าเปิดแชท: ${(msg.client_context && msg.client_context.url) || convo.source_url || "-"}`,
           `- ${ordersLine}`,
         ].join("\n");
@@ -4080,6 +4176,7 @@ function registerChatAi({ dispatchAdminPush }) {
           buildDeviceCheckBlock(settings.sickw && settings.sickw.enabled);
         const systemDynamic =
           customerBlock +
+          buildCheckoutErrorBlock(checkoutError) +
           (waitingForHuman ? buildWaitingModeBlock(convo.escalation) : "") +
           buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
           buildLastQuoteBlock(lastQuote, lastQuoteGroups);
