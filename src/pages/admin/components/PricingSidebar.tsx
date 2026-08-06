@@ -85,6 +85,80 @@ interface PricingSidebarProps {
   currentUserRole?: string;
 }
 
+/**
+ * รหัสประเมินที่ลูกค้าเห็นตอนกดยืนยัน — กดแล้วดึงคำตอบจริงจาก
+ * `assessments/{code}` (rules เปิดให้แอดมินอ่านรายใบ) ไว้ตอบคำถามว่า
+ * "ลูกค้าประเมินอะไรไว้เท่าไหร่" โดยไม่ต้องเปิดช่องกรอกรหัสให้ลูกค้าหน้าเว็บ
+ */
+function AssessmentCodes({ codes }: { codes: string[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [data, setData] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState<string | null>(null);
+
+  const toggle = async (code: string) => {
+    if (open === code) { setOpen(null); return; }
+    setOpen(code);
+    if (data[code]) return;
+    setLoading(code);
+    try {
+      const snap = await get(ref(db, `assessments/${code}`));
+      setData((p) => ({ ...p, [code]: snap.val() || { _missing: true } }));
+    } catch {
+      setData((p) => ({ ...p, [code]: { _error: true } }));
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/10">
+      <div className="text-[10px] font-bold text-slate-400 mb-1.5">รหัสประเมินของลูกค้า</div>
+      {codes.map((code) => {
+        const row = data[code];
+        return (
+          <div key={code} className="mb-1.5">
+            <button
+              onClick={() => toggle(code)}
+              className="w-full flex justify-between items-center text-[11px] font-bold text-slate-200 hover:text-white transition-colors"
+            >
+              <span className="tracking-wider">{code}</span>
+              <span className="text-slate-400">{loading === code ? '...' : open === code ? 'ซ่อน' : 'ดูคำตอบ'}</span>
+            </button>
+            {open === code && row && (
+              <div className="mt-1.5 bg-black/20 rounded-lg p-2.5 space-y-1">
+                {row._missing ? (
+                  <div className="text-[10px] text-slate-400">ไม่พบข้อมูล (ถูกลบตามอายุรหัสแล้ว)</div>
+                ) : row._error ? (
+                  <div className="text-[10px] text-amber-300">อ่านข้อมูลไม่สำเร็จ</div>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-slate-400">ราคาตอนลูกค้าเก็บไว้</span>
+                      <span className="text-white">{formatCurrency(Number(row.saved_price) || 0)}</span>
+                    </div>
+                    {row.checkout_price != null && (
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-slate-400">ราคาตอนกดยืนยัน</span>
+                        <span className="text-white">{formatCurrency(Number(row.checkout_price) || 0)}</span>
+                      </div>
+                    )}
+                    {(row.device?.selectedConditions || []).map((c: any, i: number) => (
+                      <div key={i} className="flex justify-between text-[10px] gap-3">
+                        <span className="text-slate-400 truncate">{c.groupLabel}</span>
+                        <span className="text-slate-200 shrink-0">{c.optionLabel}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   job, handlers, couponState, pricing, currentUserName, currentUserRole
 }) => {
@@ -316,6 +390,9 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   <span>ราคาที่ยืนไว้</span>
                   <span>{formatCurrency(Number(job.price_locked_amount))}</span>
                 </div>
+              )}
+              {Array.isArray(job.assessment_codes) && job.assessment_codes.length > 0 && (
+                <AssessmentCodes codes={job.assessment_codes as string[]} />
               )}
               <p className="text-[10px] font-medium text-slate-400 mt-2 leading-relaxed">
                 {Date.now() > Number(job.price_locked_until)
