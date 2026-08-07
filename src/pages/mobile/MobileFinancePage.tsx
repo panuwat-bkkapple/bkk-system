@@ -145,7 +145,7 @@ export const MobileFinancePage = () => {
     try {
       const now = Date.now();
       const isB2B = selectedTx.type === 'B2B Trade-in';
-      const slipUrl = await uploadImageToFirebase(slipFile as File, `slips/tradein/${selectedTx.id}_${now}`);
+      const slipUrl = await uploadImageToFirebase(slipFile as File, `slips/tradein/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
       const actualTransferAmount = getNetPayout(selectedTx);
       // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)

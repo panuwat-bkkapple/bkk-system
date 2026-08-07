@@ -69,7 +69,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
     setIsUploading(true);
 
     try {
-      const imageUrl = await uploadImageToFirebase(file, `jobs/${jobId}/chats/images`);
+      const imageUrl = await uploadImageToFirebase(file, `jobs/${jobId}/chats/images`, { opaqueFilename: true });
 
       await sendJobChatMessage(jobId, {
         sender: 'admin',

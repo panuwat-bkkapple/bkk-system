@@ -54,7 +54,11 @@ export const CreateB2BModal = ({ onClose, onSubmit }: { onClose: () => void; onS
     if (!file) return;
     setUploading(true);
     try {
-      const fileRef = storageRef(storage, `b2b_attachments/${Date.now()}_${file.name}`);
+      // The original name is kept on the record as attached_file_name and is
+      // what the UI renders; the object itself gets an opaque name so a
+      // customer's own filename is not sitting in a readable path.
+      const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+      const fileRef = storageRef(storage, `b2b_attachments/${crypto.randomUUID()}.${ext}`);
       await uploadBytes(fileRef, file);
       const url = await getDownloadURL(fileRef);
       setFormData(prev => ({ ...prev, attached_file_name: file.name, attached_file_url: url }));

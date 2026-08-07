@@ -293,7 +293,7 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
         const data = inspectedDevicesData[i];
         if (data) {
           const uploadedUrls = await Promise.all(
-            data.photoFiles.map((file: File) => uploadImageToFirebase(file, `jobs/${job.id}/inspection/device_${i}`)),
+            data.photoFiles.map((file: File) => uploadImageToFirebase(file, `jobs/${job.id}/inspection/device_${i}`, { opaqueFilename: true })),
           );
           updatedDevices[i] = {
             ...updatedDevices[i],

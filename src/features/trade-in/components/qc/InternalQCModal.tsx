@@ -280,7 +280,7 @@ export const InternalQCModal = ({ isOpen, onClose, job, modelsData, conditionSet
                 if (device.temp_photo_files && device.temp_photo_files.length > 0) {
                     const urls = await Promise.all(
                         device.temp_photo_files.map((f: File) =>
-                            uploadImageToFirebase(f, `jobs/${job.id}/qc/device_${i}`)
+                            uploadImageToFirebase(f, `jobs/${job.id}/qc/device_${i}`, { opaqueFilename: true })
                         )
                     );
                     updatedDevices[i].photos = urls;

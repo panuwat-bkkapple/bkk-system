@@ -833,7 +833,7 @@ export const MobileTicketDetail = () => {
     if (!e.target.files?.[0] || !id) return;
     setIsUploading(true);
     try {
-      const url = await uploadImageToFirebase(e.target.files[0], `jobs/${id}/chats/images`);
+      const url = await uploadImageToFirebase(e.target.files[0], `jobs/${id}/chats/images`, { opaqueFilename: true });
       await sendJobChatMessage(id, {
         sender: 'admin', senderName: currentUser?.name || 'Admin',
         text: '📷 ส่งรูปภาพ', imageUrl: url,
