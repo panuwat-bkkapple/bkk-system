@@ -1052,7 +1052,14 @@ function maskCustomerEmailMirror(email) {
   const trimmed = email.trim();
   const at = trimmed.lastIndexOf("@");
   if (at <= 0 || at === trimmed.length - 1) return null;
-  return `${trimmed.slice(0, 2)}****${trimmed.slice(at)}`;
+  // Slice the LOCAL PART, not the whole string: "a@b.com" has a one-character
+  // local part, so slice(0, 2) on the raw string swallowed the "@" and this
+  // produced "a@****@b.com" where publicTrackFields.ts produces "a****@b.com".
+  // Harmless-looking, but it meant a backfilled mirror and a trigger-written
+  // mirror disagreed on the same job — found by diffing the two builders over
+  // a shared fixture set, which is the only way a drift like this surfaces.
+  const local = trimmed.slice(0, at);
+  return `${local.slice(0, 2)}****${trimmed.slice(at)}`;
 }
 
 /**
@@ -1111,11 +1118,141 @@ function hasPaymentSlipMirror(job) {
   );
 }
 
+// ─── nested allowlists (mirror of publicTrackFields.ts) ─────────────────
+//
+// Being on PUBLIC_TRACK_FIELDS_MIRROR means "this key may appear", never
+// "ship whatever is under it". devices[] has six independent writers and
+// carries 30+ keys in production against a declared type of 5 — the reason
+// these are ALLOWLISTS is that the seventh writer will not know this file
+// exists. See publicTrackFields.ts for the full rationale per list; the two
+// files must produce IDENTICAL output or the backfill undoes the trigger.
+const MIRROR_DEVICE_FIELDS = [
+  "model", "variant", "capacity", "grade",
+  "price", "estimated_price", "imageUrl",
+];
+const MIRROR_DEVICE_STRING_LISTS = ["photos", "deductions"];
+const MIRROR_CONDITION_FIELDS = [
+  "id", "title", "value", "deductAmount", "isNegative",
+  "groupLabel", "optionLabel",
+];
+// 3 of the 11 keys the Diagnos function stamps. Dropped: performed_by (the
+// staff/rider's REAL NAME), values (raw readings incl. gps.accuracy_m),
+// device_info (handset/OS/UA), session_id, mode, assessed_at, quote_shown.
+const MIRROR_MISMATCH_FIELDS = ["step_label", "reason", "customer_said"];
+// No approval trail, no admin reason, no evidence URLs.
+const MIRROR_ADJUSTMENT_FIELDS = ["id", "label", "amount", "status", "device_index", "at"];
+// wallet_id (pointer into users/{uid}/coupons) is dropped.
+const MIRROR_COUPON_FIELDS = [
+  "bucket", "code", "coupon_id", "name", "type",
+  "value", "actual_value", "device_id", "model_id", "applied_at", "mirrored",
+];
+// serial — entered by the technician at QCStation — is a device identifier.
+const MIRROR_ACCESSORY_FIELDS = ["id", "model_id", "model_name", "price"];
+// counter_reason STAYS (CustomerOfferCard shows it); who decided goes.
+const MIRROR_OFFER_FIELDS = [
+  "amount", "quote_at_offer", "reason", "status", "proposed_at",
+  "decided_at", "counter_amount", "counter_reason", "counter_decided_at",
+];
+
+/** Rebuild an object from an allowlist; null when nothing survives. */
+function pickAllowedMirror(value, allow) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = {};
+  for (const key of allow) {
+    if (value[key] !== undefined && value[key] !== null) out[key] = value[key];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** Map a collection through a sanitiser, preserving array vs push-keyed shape
+ *  (RTDB returns either depending on the writer; reordering the customer's
+ *  own price lines would be a visible bug). */
+function mapCollectionMirror(raw, sanitize) {
+  if (Array.isArray(raw)) {
+    const out = raw.map(sanitize).filter((item) => item !== null);
+    return out.length > 0 ? out : null;
+  }
+  if (raw && typeof raw === "object") {
+    const out = {};
+    for (const [key, item] of Object.entries(raw)) {
+      const clean = sanitize(item);
+      if (clean) out[key] = clean;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+  return null;
+}
+
+function stringListMirror(raw) {
+  const items = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? Object.values(raw) : []);
+  const out = items.filter((item) => typeof item === "string" && item.trim() !== "");
+  return out.length > 0 ? out : null;
+}
+
+function sanitizeDiagnosticsMirror(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = {};
+  if (raw.results && typeof raw.results === "object") {
+    const results = {};
+    // Values coerced to the three literals, so a raw per-step reading cannot
+    // ride along under a step id's name.
+    for (const [step, value] of Object.entries(raw.results)) {
+      if (value === "pass" || value === "fail" || value === "skipped") results[step] = value;
+    }
+    if (Object.keys(results).length > 0) out.results = results;
+  }
+  if (raw.summary && typeof raw.summary === "object") {
+    const summary = {};
+    for (const key of ["pass", "fail", "skipped"]) {
+      const n = Number(raw.summary[key]);
+      if (Number.isFinite(n)) summary[key] = n;
+    }
+    if (Object.keys(summary).length > 0) out.summary = summary;
+  }
+  const mismatches = mapCollectionMirror(raw.mismatches, (m) => pickAllowedMirror(m, MIRROR_MISMATCH_FIELDS));
+  if (mismatches) out.mismatches = mismatches;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function sanitizeDeviceMirror(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = pickAllowedMirror(raw, MIRROR_DEVICE_FIELDS) || {};
+  for (const key of MIRROR_DEVICE_STRING_LISTS) {
+    const list = stringListMirror(raw[key]);
+    if (list) out[key] = list;
+  }
+  const conditions = mapCollectionMirror(raw.customer_conditions, (c) => pickAllowedMirror(c, MIRROR_CONDITION_FIELDS));
+  if (conditions) out.customer_conditions = conditions;
+  const diagnostics = sanitizeDiagnosticsMirror(raw.diagnostics);
+  if (diagnostics) out.diagnostics = diagnostics;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** Apply every nested allowlist to a mirror that already had the top-level
+ *  copy-through applied. Mutates and returns `mirror`. */
+function sanitizeNestedMirror(mirror) {
+  const assign = (key, value) => {
+    if (value) mirror[key] = value;
+    else delete mirror[key];
+  };
+  assign("devices", mapCollectionMirror(mirror.devices, sanitizeDeviceMirror));
+  assign("adjustments", mapCollectionMirror(mirror.adjustments, (a) => pickAllowedMirror(a, MIRROR_ADJUSTMENT_FIELDS)));
+  assign("applied_coupons", mapCollectionMirror(mirror.applied_coupons, (c) => pickAllowedMirror(c, MIRROR_COUPON_FIELDS)));
+  assign("applied_coupon", pickAllowedMirror(mirror.applied_coupon, MIRROR_COUPON_FIELDS));
+  assign("accessory_items", mapCollectionMirror(mirror.accessory_items, (a) => pickAllowedMirror(a, MIRROR_ACCESSORY_FIELDS)));
+  assign("customer_offer", pickAllowedMirror(mirror.customer_offer, MIRROR_OFFER_FIELDS));
+  return mirror;
+}
+
 function buildPublicTrackMirror(job) {
   const mirror = {};
   for (const f of PUBLIC_TRACK_FIELDS_MIRROR) {
     if (job[f] !== undefined && job[f] !== null) mirror[f] = job[f];
   }
+  // The copy above brings object-valued fields across WHOLE. Reduce each one
+  // to its own allowlist before anything else touches the mirror.
+  sanitizeNestedMirror(mirror);
+
   const name = maskCustomerNameMirror(job.cust_name);
   if (name) mirror.cust_name_masked = name;
   const phone = maskCustomerPhoneMirror(job.cust_phone);
@@ -1150,22 +1287,52 @@ async function runPublicTrackBackfill({ dryRun }) {
   // how many rows this run actually cleans. Reported by the dry run so the
   // blast radius is known before anything is written.
   let withPii = 0;
+  // Second counter, for the nested pass: how many jobs carry internal data
+  // INSIDE an allow-listed object field (devices[].imei, .diagnostics
+  // .performed_by, adjustments[].evidence, accessory_items[].serial, ...).
+  // withPii alone would understate this round, because it only looks at
+  // top-level key names — which is exactly the blind spot being fixed.
+  let withInternal = 0;
   const RAW_PII_FIELDS = [
     "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
     "payment_info", "customer_signature",
     "payment_slip", "slip_image", "slip_url", "payment_proof",
+  ];
+  const NESTED_FIELDS = [
+    "devices", "adjustments", "applied_coupons", "applied_coupon",
+    "accessory_items", "customer_offer",
   ];
   jobsSnap.forEach((child) => {
     jobs++;
     const job = child.val();
     if (!job || typeof job !== "object") return;
     if (RAW_PII_FIELDS.some((f) => job[f] !== undefined && job[f] !== null)) withPii++;
+    // Compare the naive copy against the sanitised one. Cheap enough: this is
+    // a manual, run-once endpoint that already reads the whole node.
+    const naive = {};
+    for (const f of NESTED_FIELDS) {
+      if (job[f] !== undefined && job[f] !== null) naive[f] = job[f];
+    }
+    if (Object.keys(naive).length > 0) {
+      const before = JSON.stringify(naive);
+      const after = JSON.stringify(sanitizeNestedMirror(JSON.parse(before)));
+      if (before !== after) withInternal++;
+    }
     updates[`public_track/${child.key}`] = buildPublicTrackMirror(job);
     mirrors++;
   });
   if (!dryRun && mirrors > 0) await db.ref().update(updates);
-  console.log(`[backfill-public-track] ${dryRun ? "dry:" : "wrote"} ${mirrors} mirrors from ${jobs} jobs (${withPii} carry raw PII today)`);
-  return { jobs, mirrors, jobs_with_pii: withPii, dry_run: !!dryRun };
+  console.log(
+    `[backfill-public-track] ${dryRun ? "dry:" : "wrote"} ${mirrors} mirrors from ${jobs} jobs ` +
+    `(${withPii} carry raw PII, ${withInternal} carry internal data nested inside an allow-listed field)`,
+  );
+  return {
+    jobs,
+    mirrors,
+    jobs_with_pii: withPii,
+    jobs_with_nested_internal: withInternal,
+    dry_run: !!dryRun,
+  };
 }
 
 /**
