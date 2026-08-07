@@ -1017,6 +1017,11 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "applied_coupon", "applied_coupons", "applied_rider_promo", "adjustments",
   "revise_reason", "price_revision", "accepted_at",
   "customer_offer",
+  // Live rider progress — SCALARS computed server-side by bkk-frontend-next's
+  // functions/src/riderEta.ts, never coordinates. NOT to be confused with
+  // rider_fee / rider_fee_estimate (what we PAY the rider), which stay off this
+  // list: rider_distance_km is how far the rider is from the customer.
+  "rider_distance_km", "rider_eta_mins", "rider_eta_updated_at", "rider_eta_source",
   "pickup_schedule", "appointment_date", "appointment_time",
   "pickup_date", "pickup_time", "tracking_number",
   "quote_expiry_date",
@@ -1228,6 +1233,31 @@ function sanitizeDeviceMirror(raw) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/**
+ * Live rider progress. Numbers, and one closed-vocabulary label.
+ *
+ * These sit on the copy-through list, and "verbatim applies to SCALARS ONLY" is
+ * a rule this file states but cannot enforce by listing a key — so they are
+ * COERCED rather than trusted. The coercion is for the writer who comes after
+ * and does not know this node is world-readable: a route polyline or a
+ * {lat,lng} parked under one of these names cannot survive it.
+ *
+ * MIRROR of sanitizeRiderEta in bkk-frontend-next/functions/src/
+ * publicTrackFields.ts — the two write the SAME node and must agree exactly.
+ */
+const MIRROR_RIDER_ETA_SOURCES = ["routes", "estimate"];
+
+function sanitizeRiderEtaMirror(mirror) {
+  for (const key of ["rider_distance_km", "rider_eta_mins", "rider_eta_updated_at"]) {
+    const n = Number(mirror[key]);
+    if (Number.isFinite(n)) mirror[key] = n;
+    else delete mirror[key];
+  }
+  if (!MIRROR_RIDER_ETA_SOURCES.includes(mirror.rider_eta_source)) {
+    delete mirror.rider_eta_source;
+  }
+}
+
 /** Apply every nested allowlist to a mirror that already had the top-level
  *  copy-through applied. Mutates and returns `mirror`. */
 function sanitizeNestedMirror(mirror) {
@@ -1241,6 +1271,7 @@ function sanitizeNestedMirror(mirror) {
   assign("applied_coupon", pickAllowedMirror(mirror.applied_coupon, MIRROR_COUPON_FIELDS));
   assign("accessory_items", mapCollectionMirror(mirror.accessory_items, (a) => pickAllowedMirror(a, MIRROR_ACCESSORY_FIELDS)));
   assign("customer_offer", pickAllowedMirror(mirror.customer_offer, MIRROR_OFFER_FIELDS));
+  sanitizeRiderEtaMirror(mirror);
   return mirror;
 }
 
