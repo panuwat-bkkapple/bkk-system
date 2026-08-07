@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { onValueCreated, onValueUpdated, onValueWritten } = require("firebase-functions/v2/database");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
@@ -868,8 +869,64 @@ exports.finalizeCancelledJobs = onSchedule(
 );
 
 /**
+ * Shared-secret gate for migrateOldJobs.
+ *
+ * WHY: the endpoint is a public onRequest with no auth of any kind. Every one
+ * of its actions reads ALL of /jobs, and two of them WRITE across the whole
+ * node — `archive` moves jobs to jobs_archived, `backfill-public-track`
+ * rewrites every public_track mirror. Anyone who learned the URL could fire
+ * either one, or just run up the RTDB bill by repeating a full-node read.
+ *
+ * The key lives in MIGRATION_API_KEY (functions/.env, written by CI from the
+ * GitHub secret) — never in the source. Supply it as:
+ *   - header  x-migration-key: <key>     ← preferred
+ *   - query   ?key=<key>                 ← convenient, but query strings are
+ *                                          recorded in Cloud Run request logs
+ *
+ * FAIL CLOSED: an unset MIGRATION_API_KEY disables the endpoint entirely
+ * rather than leaving it open. This is a manual migration tool — refusing to
+ * run is always safer than running for an anonymous caller.
+ *
+ * Returns true when the request may proceed; otherwise it has already sent
+ * the response. Never logs the key or any part of it.
+ */
+function migrationKeyAccepted(req, res) {
+  const expected = process.env.MIGRATION_API_KEY || "";
+  if (!expected) {
+    console.error("[migrateOldJobs] refused: MIGRATION_API_KEY is not configured");
+    res.status(503).json({
+      success: false,
+      error: "Endpoint disabled: MIGRATION_API_KEY is not configured on this deployment.",
+    });
+    return false;
+  }
+
+  const headerKey = req.get("x-migration-key");
+  const provided = String(headerKey || req.query.key || "");
+
+  // Constant-time compare. Length is compared first because timingSafeEqual
+  // throws on a length mismatch; a differing length is not a secret worth
+  // protecting (and the reject below is uniform either way).
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+  if (!ok) {
+    // Deliberately logs neither the provided nor the expected value.
+    console.warn(`[migrateOldJobs] denied: bad or missing key (action=${String(req.query.action || "archive")})`);
+    res.status(401).json({ success: false, error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+/**
  * HTTP Function: เรียกด้วยมือเพื่อ migrate งานเก่าทันที
  * ใช้สำหรับการ migrate ครั้งแรก หรือเรียกเมื่อต้องการ archive ทันที
+ *
+ * REQUIRES the MIGRATION_API_KEY shared secret on EVERY action, dry runs
+ * included — a dry run still reads the whole /jobs node, and letting it
+ * through unauthenticated would leak job data in the response.
  *
  * Two modes via ?action= query param:
  *   - default / 'archive'      → runArchive() (the original behavior)
@@ -884,6 +941,10 @@ exports.finalizeCancelledJobs = onSchedule(
 exports.migrateOldJobs = onRequest(
   { region: "asia-southeast1", cors: true },
   async (req, res) => {
+    // Gate FIRST — before reading req.query.action for dispatch, and before
+    // anything touches /jobs.
+    if (!migrationKeyAccepted(req, res)) return;
+
     const action = String(req.query.action || "archive");
 
     if (action === "rename-statuses" || action === "rename-statuses-dry") {

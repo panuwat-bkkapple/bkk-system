@@ -22,7 +22,7 @@
 
 ## Cloud Functions env vars (กับดักที่กัดมาแล้ว)
 - **`functions/.env` = ที่ที่ env var ทุกตัวถูกประกาศตอน deploy** (แต่ละ function เป็น Cloud Run service ของตัวเอง ตัวที่ไม่ได้ deploy ไม่กระทบกัน)
-- `.env` ถูก gitignore → CI เขียนขึ้นจาก GitHub Secrets ที่ step "Create Functions .env" ใน `firebase-hosting-deploy.yml` (12 ตัว: THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL, EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL, TELEGRAM_*, ANTHROPIC_API_KEY, CHAT_AI_MODEL)
+- `.env` ถูก gitignore → CI เขียนขึ้นจาก GitHub Secrets ที่ step "Create Functions .env" ใน `firebase-hosting-deploy.yml` (13 ตัว: THAILAND_POST_API_KEY, GOOGLE_MAPS_API_KEY, SICKW_API_KEY, RESEND_API_KEY, EMAIL_FROM, ORDER_NOTIFY_EMAIL, EMAIL_REPLY_TO, CUSTOMER_TRACKING_BASE_URL, TELEGRAM_*, ANTHROPIC_API_KEY, CHAT_AI_MODEL, MIGRATION_API_KEY)
 - **deploy ด้วยมือจาก clone ที่ไม่มี `.env` — สังเกตแล้วว่า env var ที่ตั้งไว้เดิม "ไม่" ถูกล้าง** (30 ก.ค. 2026: deploy มือ 13:02 UTC → งาน 13:29 ยังขึ้น `rider_fee_estimate ... (calculated, 0 km)` = ยังมีคีย์ Routes API อยู่). อย่าอนุมานเกินหลักฐานนี้ทั้งสองทาง — ยังไม่ได้ทดสอบเคส env var ที่ตั้ง**ครั้งแรก** จาก clone ที่ไม่มี `.env`. ทางที่ปลอดภัยยังเป็นให้ CI deploy (push main) เพราะ `.env` ถูกเขียนจาก secrets ครบทุกตัวแน่นอน
 - **วิธีเช็คว่าคีย์ Maps ยังใช้ได้จริง** (ไม่ต้องเดาจาก config): `firebase functions:log --only onNewTicketCreated -n 30` แล้วดู `reason` ในบรรทัด `rider_fee_estimate` — `calculated` = Routes API ตอบจริง, `routes_api_*` = คีย์/เน็ตมีปัญหา, `missing_customer_coords` = งานไม่มีหมุด (ปกติสำหรับ Store-in/Mail-in)
 
@@ -35,7 +35,7 @@
 
 ## Firebase Database Paths
 - **`jobs/`** — ข้อมูล ticket/job ทั้งหมด (ห้ามฝัง blob โต ๆ เพิ่ม — ทุก byte คูณด้วยทุกคนอ่าน)
-- **`job_chats/{jobId}/`** — ข้อความแชทของงาน (ย้ายออกจาก `jobs/{id}/chats` เพื่อลดค่า download RTDB). ตัว job มีแค่ `chat_flags` (`unread_from_admin/rider/customer`, `last_at`) ที่ cloud function (`onJobChatMessageV2`/`onChatMessageCreated`) เซ็ตให้ badge อ่าน — client อ่าน/เขียนผ่าน helper `src/utils/jobChats.ts` (mirror ใน bkk-rider-app; frontend inline ใน `RiderChatModal`) ซึ่ง dual-read path เก่า+ใหม่ช่วงเปลี่ยนผ่าน. migration ครั้งเดียว: `migrateOldJobs?action=move-chats` (รันหลัง deploy rules + ทุก client). archive จะ fold แชทกลับเข้า `jobs_archived/{id}/chats`
+- **`job_chats/{jobId}/`** — ข้อความแชทของงาน (ย้ายออกจาก `jobs/{id}/chats` เพื่อลดค่า download RTDB). ตัว job มีแค่ `chat_flags` (`unread_from_admin/rider/customer`, `last_at`) ที่ cloud function (`onJobChatMessageV2`/`onChatMessageCreated`) เซ็ตให้ badge อ่าน — client อ่าน/เขียนผ่าน helper `src/utils/jobChats.ts` (mirror ใน bkk-rider-app; frontend inline ใน `RiderChatModal`) ซึ่ง dual-read path เก่า+ใหม่ช่วงเปลี่ยนผ่าน. migration ครั้งเดียว: `migrateOldJobs?action=move-chats` (รันหลัง deploy rules + ทุก client; **ทุก action ของ `migrateOldJobs` ต้องแนบ shared secret** — header `x-migration-key` หรือ `?key=` เทียบกับ env `MIGRATION_API_KEY`, ไม่ตั้ง = endpoint ปิดสนิท 503). archive จะ fold แชทกลับเข้า `jobs_archived/{id}/chats`
 - **`jobs_archived/`** — งานเก่าที่ archive แล้ว (>90 วัน)
 - **`admin_fcm_tokens/{staffId}/{tokenKey}`** — FCM tokens ของ admin สำหรับ push notification
 - **`riders/{riderId}/fcm_token`** — FCM token ของ rider
