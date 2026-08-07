@@ -1000,11 +1000,26 @@ function maskCustomerEmailMirror(email) {
  * one address format leaks the house number it was meant to strip, silently.
  * Legacy jobs without components get null and the UI hides the block.
  */
+/**
+ * Drop an admin prefix the stored value may already carry, so the one added
+ * below is never doubled ("อำเภออำเภอบางเสาธง"). Google returns the tambon as
+ * "ตำบล บางบ่อ" and the strip at parse time was added AFTER orders had been
+ * written — legacy rows, which is precisely what this backfill rewrites, hold
+ * either form.
+ */
+function stripAdminPrefixMirror(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/^(เขต|อำเภอ|แขวง|ตำบล)\s*/, "")
+    .replace(/^(Khet|Khwaeng|Amphoe|Amphure|Tambon|Tambol)\s+/i, "")
+    .trim();
+}
+
 function customerAddressAreaMirror(job) {
   const c = job && job.cust_address_components;
   if (!c || typeof c !== "object") return null;
-  const subdistrict = String(c.subdistrict || "").trim();
-  const district = String(c.district || "").trim();
+  const subdistrict = stripAdminPrefixMirror(c.subdistrict);
+  const district = stripAdminPrefixMirror(c.district);
   const province = String(c.province || "").trim();
   if (!subdistrict && !district && !province) return null;
   const bkk = province === "กรุงเทพมหานคร" || province === "กรุงเทพ" || province === "กรุงเทพฯ";
