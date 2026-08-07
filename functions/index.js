@@ -935,10 +935,17 @@ exports.migrateOldJobs = onRequest(
 // repo's deploy service account cannot create new public HTTPS functions
 // (cloudfunctions.functions.setIamPolicy).
 //
-// FIELD LIST MIRRORS PUBLIC_TRACK_FIELDS in
-// bkk-frontend-next/functions/src/publicTrack.ts — keep both in sync. Drift
-// self-heals for any job that gets written again (the DB trigger there is
-// the long-term source of truth); this list only matters for dormant jobs.
+// FIELD LIST AND MASKING MIRROR bkk-frontend-next/functions/src/
+// publicTrackFields.ts — keep both in sync. Drift self-heals for any job that
+// gets written again (the DB trigger there is the long-term source of truth);
+// this list only matters for dormant jobs.
+//
+// public_track is world-readable (".read": true) so a guest with a tracking
+// link can open it. That makes the mask non-negotiable: NO full-value name,
+// phone, email, address, bank account, signature image or slip URL may be
+// written here. Re-running this backfill also REPAIRS mirrors written by the
+// previous (unmasked) revision, because each mirror is assigned whole — the
+// old keys are dropped, not merged over.
 // =============================================================================
 const PUBLIC_TRACK_FIELDS_MIRROR = [
   "ref_no", "OID", "status", "model", "type", "created_at", "updated_at",
@@ -951,12 +958,109 @@ const PUBLIC_TRACK_FIELDS_MIRROR = [
   "customer_offer",
   "pickup_schedule", "appointment_date", "appointment_time",
   "pickup_date", "pickup_time", "tracking_number",
-  "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
-  "payment_info", "payment_proof", "payment_slip", "slip_image", "slip_url",
-  "customer_signature", "quote_expiry_date",
+  "quote_expiry_date",
   "is_reviewed", "uid", "rider_id",
   "cancelled_at", "cancel_reason", "cancellation_reason", "reopened_at",
 ];
+
+// ─── masking (mirrors publicTrackFields.ts — keep behaviour identical) ───────
+
+/** "ปณุวัฒน์ นาคทอง" -> "ปณุวัฒน์ น." A trailing "(Company)" is dropped. */
+function maskCustomerNameMirror(name) {
+  if (typeof name !== "string") return null;
+  const base = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (!base) return null;
+  const parts = base.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  const surname = parts[parts.length - 1];
+  return `${parts.slice(0, -1).join(" ")} ${surname.charAt(0)}.`;
+}
+
+/** "0812346556" -> "xxx-xxx-6556". */
+function maskCustomerPhoneMirror(phone) {
+  if (typeof phone !== "string" && typeof phone !== "number") return null;
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.length < 4) return null;
+  return `xxx-xxx-${digits.slice(-4)}`;
+}
+
+/** "panuvat@gmail.com" -> "pa****@gmail.com". */
+function maskCustomerEmailMirror(email) {
+  if (typeof email !== "string") return null;
+  const trimmed = email.trim();
+  const at = trimmed.lastIndexOf("@");
+  if (at <= 0 || at === trimmed.length - 1) return null;
+  return `${trimmed.slice(0, 2)}****${trimmed.slice(at)}`;
+}
+
+/**
+ * Area only, composed from the structured components written at checkout.
+ * NEVER parsed out of the flat cust_address string — a regex that misreads
+ * one address format leaks the house number it was meant to strip, silently.
+ * Legacy jobs without components get null and the UI hides the block.
+ */
+function customerAddressAreaMirror(job) {
+  const c = job && job.cust_address_components;
+  if (!c || typeof c !== "object") return null;
+  const subdistrict = String(c.subdistrict || "").trim();
+  const district = String(c.district || "").trim();
+  const province = String(c.province || "").trim();
+  if (!subdistrict && !district && !province) return null;
+  const bkk = province === "กรุงเทพมหานคร" || province === "กรุงเทพ" || province === "กรุงเทพฯ";
+  return [
+    subdistrict ? `${bkk ? "แขวง" : "ตำบล"}${subdistrict}` : "",
+    district ? `${bkk ? "เขต" : "อำเภอ"}${district}` : "",
+    province,
+  ].filter(Boolean).join(" ");
+}
+
+/** Channel + bank + last 4 only; account_name and the full number are dropped. */
+function maskPaymentInfoMirror(paymentInfo) {
+  if (!paymentInfo || typeof paymentInfo !== "object") return null;
+  const out = {};
+  if (typeof paymentInfo.type === "string" && paymentInfo.type.trim()) out.type = paymentInfo.type.trim();
+  if (typeof paymentInfo.bank === "string" && paymentInfo.bank.trim()) out.bank = paymentInfo.bank.trim();
+  const digits = String(paymentInfo.account_number === undefined || paymentInfo.account_number === null
+    ? "" : paymentInfo.account_number).replace(/\D/g, "");
+  if (digits.length >= 4) out.account_last4 = digits.slice(-4);
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function hasPaymentSlipMirror(job) {
+  return Boolean(
+    job.payment_slip || job.slip_image || job.slip_url || job.payment_proof ||
+    job.slipUrl || (job.payment_info && job.payment_info.slip_url) ||
+    (job.documents && job.documents.slip_url),
+  );
+}
+
+function buildPublicTrackMirror(job) {
+  const mirror = {};
+  for (const f of PUBLIC_TRACK_FIELDS_MIRROR) {
+    if (job[f] !== undefined && job[f] !== null) mirror[f] = job[f];
+  }
+  const name = maskCustomerNameMirror(job.cust_name);
+  if (name) mirror.cust_name_masked = name;
+  const phone = maskCustomerPhoneMirror(job.cust_phone);
+  if (phone) mirror.cust_phone_masked = phone;
+  const email = maskCustomerEmailMirror(job.cust_email);
+  if (email) mirror.cust_email_masked = email;
+  const area = customerAddressAreaMirror(job);
+  if (area) mirror.cust_address_area = area;
+  const payment = maskPaymentInfoMirror(job.payment_info);
+  if (payment) mirror.payment_info_masked = payment;
+  // The signature IMAGE never ships — a handwritten signature cannot be
+  // reissued once copied. Only the timestamp does.
+  if (job.customer_signature) {
+    const signedAt = typeof job.customer_signature_at === "number"
+      ? job.customer_signature_at
+      : (typeof job.accepted_at === "number" ? job.accepted_at : null);
+    if (signedAt) mirror.signed_at = signedAt;
+  }
+  if (hasPaymentSlipMirror(job)) mirror.has_payment_slip = true;
+  return mirror;
+}
 
 async function runPublicTrackBackfill({ dryRun }) {
   const db = getDatabase();
@@ -966,20 +1070,26 @@ async function runPublicTrackBackfill({ dryRun }) {
   const updates = {};
   let jobs = 0;
   let mirrors = 0;
+  // How many of those mirrors currently hold at least one raw PII value, i.e.
+  // how many rows this run actually cleans. Reported by the dry run so the
+  // blast radius is known before anything is written.
+  let withPii = 0;
+  const RAW_PII_FIELDS = [
+    "cust_name", "cust_phone", "cust_email", "cust_address", "cust_notes",
+    "payment_info", "customer_signature",
+    "payment_slip", "slip_image", "slip_url", "payment_proof",
+  ];
   jobsSnap.forEach((child) => {
     jobs++;
     const job = child.val();
     if (!job || typeof job !== "object") return;
-    const mirror = {};
-    for (const f of PUBLIC_TRACK_FIELDS_MIRROR) {
-      if (job[f] !== undefined && job[f] !== null) mirror[f] = job[f];
-    }
-    updates[`public_track/${child.key}`] = mirror;
+    if (RAW_PII_FIELDS.some((f) => job[f] !== undefined && job[f] !== null)) withPii++;
+    updates[`public_track/${child.key}`] = buildPublicTrackMirror(job);
     mirrors++;
   });
   if (!dryRun && mirrors > 0) await db.ref().update(updates);
-  console.log(`[backfill-public-track] ${dryRun ? "dry:" : "wrote"} ${mirrors} mirrors from ${jobs} jobs`);
-  return { jobs, mirrors, dry_run: !!dryRun };
+  console.log(`[backfill-public-track] ${dryRun ? "dry:" : "wrote"} ${mirrors} mirrors from ${jobs} jobs (${withPii} carry raw PII today)`);
+  return { jobs, mirrors, jobs_with_pii: withPii, dry_run: !!dryRun };
 }
 
 /**
