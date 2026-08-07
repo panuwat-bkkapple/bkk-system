@@ -90,7 +90,7 @@ export const RiderWithdrawals = () => {
       const now = Date.now();
       
       // 1. อัปโหลดสลิป
-      const slipUrl = await uploadImageToFirebase(slipFile, `slips/withdrawals/${selectedTx.id}_${now}`);
+      const slipUrl = await uploadImageToFirebase(slipFile, `slips/withdrawals/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
       // Atomic multi-path update: job + transaction ในครั้งเดียว
       const txKey = push(child(ref(db), 'transactions')).key;

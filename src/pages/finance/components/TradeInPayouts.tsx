@@ -118,7 +118,7 @@ export const TradeInPayouts = () => {
     try {
       const now = Date.now();
       const isB2B = selectedTx.type === 'B2B Trade-in';
-      const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`);
+      const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
       // 🌟 ใช้ยอดสุทธิและค่าไรเดอร์ที่ถูกต้อง
       const actualTransferAmount = getNetPayout(selectedTx);

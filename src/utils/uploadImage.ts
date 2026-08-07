@@ -61,7 +61,15 @@ export const uploadImageToFirebase = async (
     // ยาวแบบ immutable ได้ — ถ้าไม่ตั้ง Firebase จะเสิร์ฟ `private, max-age=0`
     // ทำให้ browser ลูกค้าโหลดรูปซ้ำทุกครั้งและเห็นรูปแตกทันทีที่เน็ต/CDN สะดุด
     // (KYC ใช้ private กัน shared cache; รูปสินค้า public ให้ CDN cache ได้)
+    // contentType is now SET, not inferred. Storage rules enforce an
+    // explicit image allowlist on the job/rider paths, and the value they
+    // check is whatever Firebase decides the Blob is — which is the Blob's
+    // own `type`, empty on some pickers, in which case the upload is
+    // labelled application/octet-stream and the rule rejects it. `outputType`
+    // is already known here (it is what the compressor was told to emit), so
+    // state it and the rule and the upload can never disagree.
     const snapshot = await uploadBytes(storageRef, compressedFile, {
+      contentType: outputType,
       cacheControl: `${options.opaqueFilename ? 'private' : 'public'}, max-age=31536000, immutable`,
     });
     return await getDownloadURL(snapshot.ref);

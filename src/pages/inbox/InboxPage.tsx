@@ -688,6 +688,7 @@ export const InboxPage = () => {
       const imageUrl = await uploadImageToFirebase(file, `chat_staff_uploads/${selectedConvo}`, {
         maxWidthOrHeight: 1600,
         maxSizeMB: 0.6,
+        opaqueFilename: true,
       });
       const convo = conversations.find((c) => c.id === selectedConvo);
       const isWidgetConvo = !!convo?.status;

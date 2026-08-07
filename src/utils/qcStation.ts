@@ -117,7 +117,7 @@ const uploadQcPhotoFiles = async (
    if (photoFiles.length > 0) {
       onProgress?.(`กำลังอัปโหลดรูป ${photoFiles.length} รูป...`);
       const uploaded = await Promise.all(photoFiles.map(f =>
-         uploadImageToFirebase(f, `jobs/${jobId}/qc/station`, { maxWidthOrHeight: 1600, maxSizeMB: 0.8 })
+         uploadImageToFirebase(f, `jobs/${jobId}/qc/station`, { maxWidthOrHeight: 1600, maxSizeMB: 0.8, opaqueFilename: true })
       ));
       qcPhotos = [...qcPhotos, ...uploaded].slice(0, MAX_QC_PHOTOS);
    }

@@ -66,7 +66,11 @@ export const LotDetail = () => {
     try {
       const urls: string[] = [];
       for (const file of Array.from(files).slice(0, 8 - target.existing.length)) {
-        const path = `lot_photos/${target.jobId}/${Date.now()}-${file.name.replace(/[^A-Za-z0-9._-]/g, '')}`;
+        // Opaque filename: the object path is readable by any authenticated
+        // user (Anonymous Auth = every visitor), so a guessable name is the
+        // only thing standing between a known jobId and the photo.
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const path = `lot_photos/${target.jobId}/${crypto.randomUUID()}.${ext}`;
         const snap = await uploadBytes(sRef(storage, path), file);
         urls.push(await getDownloadURL(snap.ref));
       }
