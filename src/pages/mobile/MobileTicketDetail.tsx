@@ -8,8 +8,9 @@ import {
   ClipboardCheck, AlertTriangle, CheckCircle2, XCircle,
   Image as ImageIcon, RefreshCw, FileText, Camera,
   ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info,
-  Edit3, Trash2, X as CloseIcon, History
+  Edit3, Trash2, X as CloseIcon, History, Save
 } from 'lucide-react';
+import { ThaiPostTracking } from '../admin/components/ThaiPostTracking';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { subscribeJobChats, sendJobChatMessage } from '../../utils/jobChats';
@@ -55,6 +56,11 @@ const STATUS_COLORS: Record<string, string> = {
   'Heading to Customer': 'bg-sky-100 text-sky-700',
   'Arrived':           'bg-teal-100 text-teal-700',
   'In-Transit':        'bg-yellow-100 text-yellow-700',
+  'Waiting Drop-off':  'bg-teal-100 text-teal-700',
+  'Awaiting Shipping': 'bg-indigo-100 text-indigo-700',
+  'Parcel In Transit': 'bg-yellow-100 text-yellow-700',
+  'Parcel Received':   'bg-orange-100 text-orange-700',
+  'Drop-off Received': 'bg-teal-100 text-teal-700',
   'Being Inspected':   'bg-purple-100 text-purple-700',
   'Pending QC':        'bg-pink-100 text-pink-700',
   'Revised Offer':     'bg-rose-100 text-rose-700',
@@ -82,7 +88,7 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
 // pickup pill activates. When a legacy code path writes
 // `Heading to Customer`, the same pill activates.
 const PIPELINE = [
-  { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'] },
+  { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'] },
   {
     label: 'รับเครื่อง',
     statuses: [
@@ -93,10 +99,27 @@ const PIPELINE = [
       'Heading to Customer', 'In-Transit', 'Rider En Route',
       // On-site (legacy "Arrived", canonical "Rider Arrived")
       'Arrived', 'Rider Arrived',
+      // Mail-in parcel / Store-in drop-off — same "device on its way to us"
+      // segment, just without a rider.
+      'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
     ],
   },
   { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
   { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
+];
+
+// Statuses where a Store-in / Mail-in job is still awaiting branch-intake work
+// (device verification + condition assessment), i.e. the admin has the device
+// or is about to. Covers the sales phase, the Mail-in parcel statuses written
+// by the customer's own tracking submission ('Parcel In Transit') and by the
+// desktop hold button ('Parcel Received'), the Store-in 'Drop-off Received',
+// and the legacy overloaded 'In-Transit'. Leaving the parcel statuses out is
+// what stranded Mail-in jobs on mobile with nothing but the Diagnos panel.
+const BRANCH_INTAKE_STATUSES = [
+  'Following Up', 'Appointment Set', 'Waiting Drop-off',
+  'Awaiting Shipping', 'Active Lead', 'Active Leads',
+  'In-Transit', 'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
+  'Being Inspected',
 ];
 
 // ---------------------------------------------------------------------------
@@ -127,6 +150,11 @@ export const MobileTicketDetail = () => {
   // Real branch list for the Store-in picker (settings/branches — same source
   // the customer checkout uses). Loaded once when the edit modal opens.
   const [branchList, setBranchList] = useState<BranchRecord[]>([]);
+  // Mail-in parcel tracking (mirrors CustomerInfoCard on desktop)
+  const [isEditingTracking, setIsEditingTracking] = useState(false);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [courierInput, setCourierInput] = useState('');
+  const [savingTracking, setSavingTracking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -518,6 +546,52 @@ export const MobileTicketDetail = () => {
     if (newStatus === 'In Stock') {
       const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
       if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
+    }
+  };
+
+  // Save the Mail-in parcel tracking number. Mirrors the desktop
+  // CustomerInfoCard.handleSaveTracking, with one deliberate difference: it
+  // writes the canonical `Parcel In Transit` (the value the customer's own
+  // tracking submission produces on the track page) instead of the legacy
+  // `In-Transit`, per the "writers emit canonical" rule in job-statuses.ts.
+  // Both are accepted by every reader (normalizeStatus splits the In-Transit
+  // overload by receive_method).
+  const handleSaveTracking = async () => {
+    const tracking = trackingInput.trim();
+    if (!tracking) {
+      toast.error('กรุณากรอกเลข Tracking');
+      return;
+    }
+    setSavingTracking(true);
+    try {
+      // Only flip the status while the parcel hasn't been logged as shipped
+      // yet — never drag a job that already reached QC/payout backwards.
+      const preShipping = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping', 'Active Lead', 'Active Leads']
+        .includes(job.status);
+      const payload: Record<string, unknown> = {
+        tracking_number: tracking,
+        courier_name: courierInput.trim() || '',
+        updated_at: Date.now(),
+      };
+      if (preShipping) {
+        payload.status = 'Parcel In Transit';
+        payload.qc_logs = [
+          makeLog('Parcel In Transit', `อัพเดทเลขพัสดุ: ${tracking} — สถานะเปลี่ยนเป็นพัสดุอยู่ระหว่างขนส่ง`),
+          ...(job.qc_logs || []),
+        ];
+      } else {
+        payload.qc_logs = [
+          makeLog('Tracking Updated', `อัพเดทเลขพัสดุ: ${tracking}`),
+          ...(job.qc_logs || []),
+        ];
+      }
+      await update(ref(db, `jobs/${job.id}`), payload);
+      toast.success(preShipping ? 'บันทึกเลขพัสดุ และอัพเดทสถานะเป็นกำลังจัดส่งแล้ว' : 'อัพเดทเลขพัสดุเรียบร้อย');
+      setIsEditingTracking(false);
+    } catch (e: unknown) {
+      toast.error('บันทึกไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingTracking(false);
     }
   };
 
@@ -1243,6 +1317,85 @@ export const MobileTicketDetail = () => {
             </div>
           </div>
 
+          {/* === Mail-in parcel tracking ===
+              PWA had no tracking UI at all — if the customer never submitted a
+              number themselves, admin had to reach for a desktop to enter it.
+              Same fields and same write as desktop CustomerInfoCard. */}
+          {job.receive_method === 'Mail-in' && !isCancelled && (
+            <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Truck size={16} className="text-orange-500" />
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">พัสดุ (Mail-in)</h3>
+                </div>
+                {!isEditingTracking && (
+                  <button
+                    onClick={() => {
+                      setTrackingInput(job.tracking_number || '');
+                      setCourierInput(job.courier_name || '');
+                      setIsEditingTracking(true);
+                    }}
+                    className="flex items-center gap-1 text-[10px] font-black text-orange-600 bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-100 uppercase tracking-wider active:bg-orange-100"
+                  >
+                    <Edit3 size={12} /> {job.tracking_number ? 'แก้ไข' : 'กรอกเลขพัสดุ'}
+                  </button>
+                )}
+              </div>
+
+              {isEditingTracking ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 ml-1">ขนส่ง (เช่น Kerry, Flash, J&amp;T)</label>
+                    <input
+                      type="text"
+                      value={courierInput}
+                      onChange={(e) => setCourierInput(e.target.value)}
+                      placeholder="ชื่อขนส่ง"
+                      className="w-full text-sm font-bold border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-orange-400 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 ml-1">เลข Tracking</label>
+                    <input
+                      type="text"
+                      value={trackingInput}
+                      onChange={(e) => setTrackingInput(e.target.value)}
+                      placeholder="เลข Tracking Number"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      className="w-full text-sm font-bold font-mono border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-orange-400 mt-1"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setIsEditingTracking(false)}
+                      className="flex-1 py-3 rounded-xl text-sm font-bold border border-slate-200 text-slate-500 bg-white"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      onClick={handleSaveTracking}
+                      disabled={savingTracking}
+                      className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-orange-500 disabled:bg-orange-300 flex justify-center items-center gap-1.5"
+                    >
+                      <Save size={14} /> {savingTracking ? 'กำลังบันทึก...' : 'บันทึกเลขพัสดุ'}
+                    </button>
+                  </div>
+                </div>
+              ) : job.tracking_number ? (
+                <div>
+                  {job.courier_name && (
+                    <p className="text-[10px] font-bold text-slate-500">{job.courier_name}</p>
+                  )}
+                  <p className="text-sm font-black text-orange-700 tracking-wider font-mono break-all">{job.tracking_number}</p>
+                  <ThaiPostTracking jobId={job.id} trackingNumber={job.tracking_number} />
+                </div>
+              ) : (
+                <p className="text-xs font-bold text-slate-400">รอลูกค้าส่งพัสดุและแจ้งเลข Tracking</p>
+              )}
+            </div>
+          )}
+
           {/* === On-site amendment banner (if pending/approved) === */}
           <AmendmentBanner jobId={job.id} />
 
@@ -1266,7 +1419,7 @@ export const MobileTicketDetail = () => {
           {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.verification_completed_at
             && !isCancelled
-            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Being Inspected'].includes(job.status) && (
+            && BRANCH_INTAKE_STATUSES.includes(job.status) && (
             <button
               onClick={() => setShowVerifyModal(true)}
               className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -1287,7 +1440,7 @@ export const MobileTicketDetail = () => {
           {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.inspected_at
             && !isCancelled
-            && ['Active Lead', 'Active Leads', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Being Inspected'].includes(job.status) && (
+            && BRANCH_INTAKE_STATUSES.includes(job.status) && (
             <button
               onClick={() => setShowInspectModal(true)}
               className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -1990,6 +2143,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
 
   const actions: { label: string; status: string; log: string; style: string; confirm?: string }[] = [];
   const isPickup = receiveMethod === 'Pickup';
+  const isMailIn = receiveMethod === 'Mail-in';
   // The "ส่งให้ไรเดอร์ (Active Leads)" broadcast button is available
   // through the whole sales phase for Pickup orders so admin can
   // dispatch as soon as the customer confirms — no need to walk
@@ -1999,6 +2153,28 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     status: 'Active Leads',
     log: 'แอดมินส่งงานให้ไรเดอร์ (broadcast pool)',
     style: 'bg-orange-500 text-white',
+  };
+  // Branch intake (Store-in drop-off / Mail-in parcel): the device is at the
+  // counter and admin runs the assessment — no rider in the loop. Being
+  // Inspected is the status the branch-intake inspection card unlocks, which
+  // then writes Pending QC on submit.
+  const branchIntakeAction = {
+    label: isMailIn
+      ? 'เปิดพัสดุแล้ว เริ่มตรวจสอบ (Being Inspected)'
+      : 'รับเครื่องแล้ว เริ่มตรวจสอบ (Being Inspected)',
+    status: 'Being Inspected',
+    log: isMailIn
+      ? 'พัสดุถึงสาขา เปิดพัสดุแล้ว เริ่มตรวจสอบ'
+      : 'รับเครื่องที่สาขา/พัสดุถึงแล้ว เริ่มตรวจสอบ',
+    style: 'bg-purple-500 text-white',
+  };
+  // Mail-in only — parcel is physically in hand but nobody has opened it yet.
+  // Mirrors the desktop "รับพัสดุไว้ก่อน (ยังไม่เปิด)" button in PricingSidebar.
+  const parcelHeldAction = {
+    label: 'รับพัสดุไว้ก่อน (ยังไม่เปิด)',
+    status: 'Parcel Received',
+    log: 'รับพัสดุที่สาขา รอเปิดและตรวจ',
+    style: 'bg-orange-50 text-orange-700 border border-orange-200',
   };
 
   switch (status) {
@@ -2029,8 +2205,34 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     }
     case 'Appointment Set':
     case 'Waiting Drop-off':
-      if (isPickup) actions.push(dispatchAction);
-      else actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+    case 'Awaiting Shipping':
+      if (isPickup) {
+        actions.push(dispatchAction);
+      } else {
+        // Store-in / Mail-in: the device can land at the counter at any point
+        // during the sales phase (customer walks in early, parcel arrives
+        // before anyone updates tracking), so offer the intake action here too
+        // instead of forcing a detour through Active Leads.
+        actions.push(branchIntakeAction);
+        if (isMailIn) actions.push(parcelHeldAction);
+        actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+      }
+      break;
+    // Mail-in logistics. `Parcel In Transit` is what the customer's own
+    // tracking submission writes (bkk-frontend-next /api/jobs/action) and
+    // `Parcel Received` is the desktop "hold the parcel unopened" state —
+    // neither was covered here, so a Mail-in job that reached either status
+    // had NO way forward on mobile (only the Diagnos panel rendered).
+    case 'Parcel In Transit':
+      actions.push(branchIntakeAction);
+      actions.push(parcelHeldAction);
+      break;
+    case 'Parcel Received':
+      actions.push(branchIntakeAction);
+      break;
+    // Store-in: parcel/device logged in at the branch, still needs assessment.
+    case 'Drop-off Received':
+      actions.push(branchIntakeAction);
       break;
     case 'Active Lead':
     case 'Active Leads': {
@@ -2041,7 +2243,8 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       // job at Active Leads with only a backward "Following Up" button and no
       // way to move the work forward.
       if (!isPickup) {
-        actions.push({ label: 'รับเครื่องแล้ว เริ่มตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'รับเครื่องที่สาขา/พัสดุถึงแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
+        actions.push(branchIntakeAction);
+        if (isMailIn) actions.push(parcelHeldAction);
         actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
         break;
       }
@@ -2083,6 +2286,14 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     case 'Heading to Customer':
     case 'In-Transit':
     case 'Arrived':
+      // 'In-Transit' is overloaded (see normalizeStatus in job-statuses.ts):
+      // Pickup = rider on the road, Mail-in = parcel with the courier. Legacy
+      // Mail-in jobs still sit on this value, so give them the parcel actions.
+      if (!isPickup) {
+        actions.push(branchIntakeAction);
+        if (isMailIn) actions.push(parcelHeldAction);
+        break;
+      }
       actions.push({ label: 'รับเครื่องแล้ว ตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'ได้รับเครื่องแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
       break;
     case 'Being Inspected':

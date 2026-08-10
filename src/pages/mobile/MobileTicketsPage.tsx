@@ -27,6 +27,10 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   'Heading to Customer':{ bg: 'bg-sky-100',      text: 'text-sky-700',     dot: 'bg-sky-500' },
   'Arrived':            { bg: 'bg-lime-100',     text: 'text-lime-700',    dot: 'bg-lime-500' },
   'In-Transit':         { bg: 'bg-yellow-100',   text: 'text-yellow-700',  dot: 'bg-yellow-500' },
+  'Awaiting Shipping':  { bg: 'bg-indigo-100',   text: 'text-indigo-700',  dot: 'bg-indigo-500' },
+  'Parcel In Transit':  { bg: 'bg-yellow-100',   text: 'text-yellow-700',  dot: 'bg-yellow-500' },
+  'Parcel Received':    { bg: 'bg-orange-100',   text: 'text-orange-700',  dot: 'bg-orange-500' },
+  'Drop-off Received':  { bg: 'bg-teal-100',     text: 'text-teal-700',    dot: 'bg-teal-500' },
   'Being Inspected':    { bg: 'bg-purple-100',   text: 'text-purple-700',  dot: 'bg-purple-500' },
   'Pending QC':         { bg: 'bg-pink-100',     text: 'text-pink-700',    dot: 'bg-pink-500' },
   'QC Review':          { bg: 'bg-fuchsia-100',  text: 'text-fuchsia-700', dot: 'bg-fuchsia-500' },
@@ -48,7 +52,7 @@ const PHASE_FILTERS = [
   { key: 'closed', label: 'ปิดงาน' },
 ];
 
-const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'];
+const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'];
 // Includes both legacy and canonical (JOB_STATUS) values so a job that
 // flips to `Rider En Route` doesn't fall out of the Logistics tab.
 const LOGISTICS_STATUSES = [
@@ -56,6 +60,9 @@ const LOGISTICS_STATUSES = [
   'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit',
   // Canonical (from JOB_STATUS)
   'Active Lead', 'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
+  // Mail-in / Store-in logistics — no rider, but just as much "in progress".
+  // Missing here meant a Mail-in parcel only showed under the "ทั้งหมด" tab.
+  'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
   // Inspection / payout phases — unchanged
   'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation',
   'Payout Processing', 'Waiting for Handover',
