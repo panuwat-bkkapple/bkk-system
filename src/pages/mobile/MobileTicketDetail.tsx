@@ -8,8 +8,9 @@ import {
   ClipboardCheck, AlertTriangle, CheckCircle2, XCircle,
   Image as ImageIcon, RefreshCw, FileText, Camera,
   ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info,
-  Edit3, Trash2, X as CloseIcon, History
+  Edit3, Trash2, X as CloseIcon, History, Save
 } from 'lucide-react';
+import { ThaiPostTracking } from '../admin/components/ThaiPostTracking';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
 import { subscribeJobChats, sendJobChatMessage } from '../../utils/jobChats';
@@ -149,6 +150,11 @@ export const MobileTicketDetail = () => {
   // Real branch list for the Store-in picker (settings/branches — same source
   // the customer checkout uses). Loaded once when the edit modal opens.
   const [branchList, setBranchList] = useState<BranchRecord[]>([]);
+  // Mail-in parcel tracking (mirrors CustomerInfoCard on desktop)
+  const [isEditingTracking, setIsEditingTracking] = useState(false);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [courierInput, setCourierInput] = useState('');
+  const [savingTracking, setSavingTracking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Chat state
@@ -540,6 +546,52 @@ export const MobileTicketDetail = () => {
     if (newStatus === 'In Stock') {
       const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
       if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
+    }
+  };
+
+  // Save the Mail-in parcel tracking number. Mirrors the desktop
+  // CustomerInfoCard.handleSaveTracking, with one deliberate difference: it
+  // writes the canonical `Parcel In Transit` (the value the customer's own
+  // tracking submission produces on the track page) instead of the legacy
+  // `In-Transit`, per the "writers emit canonical" rule in job-statuses.ts.
+  // Both are accepted by every reader (normalizeStatus splits the In-Transit
+  // overload by receive_method).
+  const handleSaveTracking = async () => {
+    const tracking = trackingInput.trim();
+    if (!tracking) {
+      toast.error('กรุณากรอกเลข Tracking');
+      return;
+    }
+    setSavingTracking(true);
+    try {
+      // Only flip the status while the parcel hasn't been logged as shipped
+      // yet — never drag a job that already reached QC/payout backwards.
+      const preShipping = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping', 'Active Lead', 'Active Leads']
+        .includes(job.status);
+      const payload: Record<string, unknown> = {
+        tracking_number: tracking,
+        courier_name: courierInput.trim() || '',
+        updated_at: Date.now(),
+      };
+      if (preShipping) {
+        payload.status = 'Parcel In Transit';
+        payload.qc_logs = [
+          makeLog('Parcel In Transit', `อัพเดทเลขพัสดุ: ${tracking} — สถานะเปลี่ยนเป็นพัสดุอยู่ระหว่างขนส่ง`),
+          ...(job.qc_logs || []),
+        ];
+      } else {
+        payload.qc_logs = [
+          makeLog('Tracking Updated', `อัพเดทเลขพัสดุ: ${tracking}`),
+          ...(job.qc_logs || []),
+        ];
+      }
+      await update(ref(db, `jobs/${job.id}`), payload);
+      toast.success(preShipping ? 'บันทึกเลขพัสดุ และอัพเดทสถานะเป็นกำลังจัดส่งแล้ว' : 'อัพเดทเลขพัสดุเรียบร้อย');
+      setIsEditingTracking(false);
+    } catch (e: unknown) {
+      toast.error('บันทึกไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingTracking(false);
     }
   };
 
@@ -1264,6 +1316,85 @@ export const MobileTicketDetail = () => {
               )}
             </div>
           </div>
+
+          {/* === Mail-in parcel tracking ===
+              PWA had no tracking UI at all — if the customer never submitted a
+              number themselves, admin had to reach for a desktop to enter it.
+              Same fields and same write as desktop CustomerInfoCard. */}
+          {job.receive_method === 'Mail-in' && !isCancelled && (
+            <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Truck size={16} className="text-orange-500" />
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">พัสดุ (Mail-in)</h3>
+                </div>
+                {!isEditingTracking && (
+                  <button
+                    onClick={() => {
+                      setTrackingInput(job.tracking_number || '');
+                      setCourierInput(job.courier_name || '');
+                      setIsEditingTracking(true);
+                    }}
+                    className="flex items-center gap-1 text-[10px] font-black text-orange-600 bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-100 uppercase tracking-wider active:bg-orange-100"
+                  >
+                    <Edit3 size={12} /> {job.tracking_number ? 'แก้ไข' : 'กรอกเลขพัสดุ'}
+                  </button>
+                )}
+              </div>
+
+              {isEditingTracking ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 ml-1">ขนส่ง (เช่น Kerry, Flash, J&amp;T)</label>
+                    <input
+                      type="text"
+                      value={courierInput}
+                      onChange={(e) => setCourierInput(e.target.value)}
+                      placeholder="ชื่อขนส่ง"
+                      className="w-full text-sm font-bold border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-orange-400 mt-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 ml-1">เลข Tracking</label>
+                    <input
+                      type="text"
+                      value={trackingInput}
+                      onChange={(e) => setTrackingInput(e.target.value)}
+                      placeholder="เลข Tracking Number"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      className="w-full text-sm font-bold font-mono border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:border-orange-400 mt-1"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setIsEditingTracking(false)}
+                      className="flex-1 py-3 rounded-xl text-sm font-bold border border-slate-200 text-slate-500 bg-white"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      onClick={handleSaveTracking}
+                      disabled={savingTracking}
+                      className="flex-[2] py-3 rounded-xl text-sm font-bold text-white bg-orange-500 disabled:bg-orange-300 flex justify-center items-center gap-1.5"
+                    >
+                      <Save size={14} /> {savingTracking ? 'กำลังบันทึก...' : 'บันทึกเลขพัสดุ'}
+                    </button>
+                  </div>
+                </div>
+              ) : job.tracking_number ? (
+                <div>
+                  {job.courier_name && (
+                    <p className="text-[10px] font-bold text-slate-500">{job.courier_name}</p>
+                  )}
+                  <p className="text-sm font-black text-orange-700 tracking-wider font-mono break-all">{job.tracking_number}</p>
+                  <ThaiPostTracking jobId={job.id} trackingNumber={job.tracking_number} />
+                </div>
+              ) : (
+                <p className="text-xs font-bold text-slate-400">รอลูกค้าส่งพัสดุและแจ้งเลข Tracking</p>
+              )}
+            </div>
+          )}
 
           {/* === On-site amendment banner (if pending/approved) === */}
           <AmendmentBanner jobId={job.id} />
