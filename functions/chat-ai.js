@@ -611,6 +611,89 @@ function ipadAirGenAliasNote(query) {
 // iPad (A16). Symmetric cleanup: strip punctuation exactly like the name
 // side, then re-glue chip designators (A16/M1) BEFORE the single-letter
 // filter can eat the bare "a"/"m" the splitter leaves behind.
+// Intent words: what the customer WANTS, not what they own. Mirrors
+// INTENT_STOPWORDS in bkk-frontend-next/lib/searchMatch.ts — the two matchers
+// answer the same question about the same catalogue and must not disagree
+// about which words identify a device.
+const INTENT_STOPWORDS = new Set([
+  "ขาย", "อยากขาย", "ขอขาย", "รับซื้อ", "ราคา", "เช็คราคา", "ประเมิน",
+  "ประเมินราคา", "มือสอง", "เครื่อง", "ตัว", "ได้เท่าไหร่", "เท่าไหร่",
+  "sell", "selling", "my", "price", "quote", "used", "the",
+]);
+
+// The Thai ones again as PREFIXES, longest first.
+//
+// Thai is written without spaces, so an intent word arrives glued to the model
+// name: "ขายไอโฟน 13" is ONE token, and a whole-token lookup never fires. The
+// web search found six models for "iphone 13" and none for "ขายไอโฟน 13" —
+// the phrasing a Thai customer is most likely to use. The chat matcher had
+// exactly the same hole, for exactly the same reason.
+//
+// Longest first, so "ประเมินราคา" comes off before "ประเมิน" would leave a
+// dangling "ราคา..." behind. Latin words are excluded: English already puts
+// spaces between words, so stripping latin prefixes would be all risk.
+const THAI_INTENT_PREFIXES = [...INTENT_STOPWORDS]
+  .filter((w) => /[฀-๿]/.test(w))
+  .sort((a, b) => b.length - a.length);
+
+// What has to survive the strip for it to be worth doing. Two characters,
+// because real model tokens get that short ("se", "sm"), and the operation is
+// safe for a checkable reason: not one name, alias or series in the live
+// catalogue contains any of these words, so a strip can never turn a token
+// that matched into one that does not. Re-check if a Thai product name ever
+// enters the catalogue.
+const MIN_STRIPPED_REMAINDER = 2;
+
+function stripIntentPrefix(token) {
+  if (INTENT_STOPWORDS.has(token)) return token;
+  for (const w of THAI_INTENT_PREFIXES) {
+    if (token.startsWith(w) && token.length - w.length >= MIN_STRIPPED_REMAINDER) {
+      return token.slice(w.length);
+    }
+  }
+  return token;
+}
+
+/**
+ * What the assistant says when it cannot answer at all.
+ *
+ * The old line was "ขออภัยครับ ระบบขัดข้องชั่วคราว ผมส่งเรื่องให้เจ้าหน้าที่
+ * ดูแลต่อแล้วครับ". Both halves were a problem. "ระบบขัดข้อง" tells a customer
+ * our machine is broken and gives them nothing to do about it, and the second
+ * half is a promise we cannot keep: the shop is small, nobody is guaranteed to
+ * be watching the inbox, and a hand-off to a person who is not there is
+ * silence with extra steps.
+ *
+ * So this says only what is true and hands over something the customer can
+ * act on now: the hours a person really is here, and the LINE account that is
+ * answered. Both come from settings (the /store-settings page) — never
+ * hardcoded, because a wrong LINE id is worse than none.
+ */
+async function buildAiDownMessage(db) {
+  let lineId = null;
+  let hours = null;
+  try {
+    const sp = (await db.ref("settings/store_profile").once("value")).val() || {};
+    lineId = sp.line_id || null;
+    if (sp.hours_start && sp.hours_end) hours = `${sp.hours_start}-${sp.hours_end} น.`;
+  } catch { /* best-effort — the apology must not depend on a read */ }
+  if (!hours) {
+    try {
+      const pub = (await db.ref("settings/chat_widget/public").once("value")).val() || {};
+      if (pub.hours_start && pub.hours_end) hours = `${pub.hours_start}-${pub.hours_end} น.`;
+    } catch { /* best-effort */ }
+  }
+
+  const parts = ["ขออภัยครับ ตอนนี้ผมตอบให้ไม่ได้ชั่วคราว"];
+  parts.push(
+    hours
+      ? `ข้อความของคุณอยู่ในระบบแล้ว เจ้าหน้าที่จะมาตอบในแชทนี้ในเวลาทำการ ${hours} ครับ`
+      : "ข้อความของคุณอยู่ในระบบแล้ว เจ้าหน้าที่จะมาตอบในแชทนี้ในเวลาทำการครับ"
+  );
+  if (lineId) parts.push(`ถ้าต้องการคำตอบเร็วกว่านั้น ทักไลน์ ${lineId} ได้เลยครับ`);
+  return parts.join(" ");
+}
+
 function rankQueryTokens(rawQuery) {
   const q = String(rawQuery || "")
     .toLowerCase()
@@ -632,9 +715,17 @@ function rankQueryTokens(rawQuery) {
     }
     glued.push(raw[i]);
   }
-  // Single latin letters (the "i" of "i pad", stray splitter leftovers)
-  // carry no signal and substring-match everything — drop them.
-  const tokens = glued.filter((t) => t && t !== "gb" && t !== "tb" && !(t.length === 1 && /[a-z]/.test(t)));
+  // Peel a glued intent word off the front, THEN drop tokens that are nothing
+  // but intent: "ขายราคา" loses "ขาย" and the remaining "ราคา" is dropped
+  // whole. A query made only of intent words keeps its old behaviour — it ends
+  // up with no tokens, which is what the callers already treat as "nothing was
+  // actually searched for".
+  //
+  // Single latin letters (the "i" of "i pad", stray splitter leftovers) carry
+  // no signal and substring-match everything — drop them too.
+  const tokens = glued
+    .map(stripIntentPrefix)
+    .filter((t) => t && t !== "gb" && t !== "tb" && !INTENT_STOPWORDS.has(t) && !(t.length === 1 && /[a-z]/.test(t)));
   return { q, tokens };
 }
 
@@ -4883,14 +4974,23 @@ function registerChatAi({ dispatchAdminPush }) {
       } catch (err) {
         console.error(`[${tag}] AI turn failed:`, err);
         try {
-          await writeAiMessage(
-            db,
-            convoId,
-            assistantName,
-            "ขออภัยครับ ระบบขัดข้องชั่วคราว ผมส่งเรื่องให้เจ้าหน้าที่ดูแลต่อแล้วครับ"
-          );
-          await db.ref(`inbox/${convoId}`).update({
+          // SAY IT ONCE. This used to fire on every message, so a customer who
+          // kept typing got the same apology three times in a row — which
+          // reads as a machine stuck in a loop, and buries whatever they were
+          // trying to tell us under our own error. One notice per
+          // conversation; after that the assistant simply stays quiet and the
+          // thread waits for a person, which is what is actually happening.
+          const convoRef = db.ref(`inbox/${convoId}`);
+          const alreadyTold = (await convoRef.child("ai_error_notified").once("value")).val() === true;
+          if (alreadyTold) {
+            console.warn(`[${tag}] ${convoId} AI already reported down in this conversation — staying quiet`);
+            return;
+          }
+
+          await writeAiMessage(db, convoId, assistantName, await buildAiDownMessage(db));
+          await convoRef.update({
             status: "waiting_human",
+            ai_error_notified: true,
             escalation: { reason: "ai_error", summary: `ระบบ AI ขัดข้อง ข้อความล่าสุด: "${text.slice(0, 120)}"`, at: Date.now() },
           });
           await dispatchAdminPush(

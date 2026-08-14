@@ -54,6 +54,14 @@ const CASES = [
   // it must NOT be the top when the customer asks the active sibling.
   { q: "iPhone 13 mini", top: "iPhone 13 mini", topInactive: true },
   { q: "iPhone 13", top: "iPhone 13" },
+
+  // Thai has no spaces, so the intent word arrives glued to the model name.
+  // Reported on the web search, where "ขายไอโฟน 13" found nothing while
+  // "iphone 13" found six; the chat matcher had the same hole.
+  { q: "ขายmacbook air 13", top: 'MacBook Air 13" (Intel, 2020)' },
+  // Intent words and nothing else: no device was named, so nothing was
+  // searched for. Unchanged behaviour — the caller escalates.
+  { q: "ขายเครื่อง", expectEmpty: true },
 ];
 
 let failures = 0;
