@@ -10,8 +10,19 @@ import { useToast } from '../../components/ui/ToastProvider';
 //
 //   public/   world-readable (rules: settings/chat_widget/public .read true)
 //             — everything the customer-facing widget needs before auth:
-//             enabled (master gate), assistant_name, welcome/offline copy,
-//             business hours
+//             enabled (master gate), launcher_enabled, assistant_name,
+//             welcome/offline copy, business hours
+//
+// enabled vs launcher_enabled — do not merge these again:
+//   enabled          the ASSISTANT. Off = no AI anywhere on the site (search
+//                    box, /search, /sell header, checkout failure hand-off)
+//                    and the cloud function is inert.
+//   launcher_enabled ONLY the floating bubble in the corner. Off = nothing
+//                    covers the page; the assistant still answers and still
+//                    opens from the entry points above. Fail-open: absent or
+//                    anything other than false means the bubble shows.
+// They were one switch until Aug 2026, so an admin who just wanted the bubble
+// out of the way turned the whole assistant off without being told.
 //   kb        knowledge text injected into the AI system prompt
 //   daily_call_cap, model
 //             read only by the chatWidgetAiReply cloud function
@@ -23,6 +34,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 
 interface ChatWidgetConfig {
   enabled: boolean;
+  launcher_enabled: boolean;
   preview_enabled: boolean;
   assistant_name: string;
   welcome_message: string;
@@ -86,6 +98,8 @@ interface BuiltinKnowledge {
 }
 const DEFAULTS: ChatWidgetConfig = {
   enabled: false,
+  // Fail-open, matching the website: only an explicit false hides the bubble.
+  launcher_enabled: true,
   preview_enabled: false,
   assistant_name: 'BKK APPLE Assistant',
   welcome_message: '',
@@ -143,6 +157,7 @@ export default function ChatWidgetSettings() {
           const pub = val.public || {};
           setConfig({
             enabled: pub.enabled === true,
+            launcher_enabled: pub.launcher_enabled !== false,
             preview_enabled: pub.preview_enabled === true,
             assistant_name: pub.assistant_name || DEFAULTS.assistant_name,
             welcome_message: pub.welcome_message || '',
@@ -200,6 +215,7 @@ export default function ChatWidgetSettings() {
       await update(ref(db, 'settings/chat_widget'), {
         public: {
           enabled: config.enabled,
+          launcher_enabled: config.launcher_enabled,
           preview_enabled: config.preview_enabled,
           assistant_name: config.assistant_name.trim() || DEFAULTS.assistant_name,
           welcome_message: config.welcome_message.trim(),
@@ -246,22 +262,55 @@ export default function ChatWidgetSettings() {
         </div>
       </div>
 
-      {/* Master gate */}
+      {/* Master gate — the ASSISTANT, not the bubble. These two used to be one
+          switch, so "เอาปุ่มที่บังจอออก" also silently switched the AI off
+          everywhere (ช่องค้นหาหน้าแรก, /search, ปุ่มในหน้า /sell, ทางออกตอน
+          checkout ล้มเหลว). Separated on purpose — read both cards together. */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center justify-between">
         <div>
           <h2 className="font-black text-sm text-slate-800 flex items-center gap-2">
-            <MessageCircle size={16} className="text-blue-600" /> เปิดใช้งานแชทหน้าเว็บ
+            <Bot size={16} className="text-violet-600" /> เปิดใช้งานผู้ช่วย AI (ทั้งระบบ)
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            ปิดอยู่ = ลูกค้าไม่เห็นปุ่มแชทบนเว็บ และระบบ AI ไม่ทำงานทั้งหมด (ตั้งค่าอื่นล่วงหน้าได้อย่างปลอดภัย)
+          <p className="text-xs text-slate-400 mt-1 max-w-md">
+            สวิตช์ใหญ่ของ &quot;ตัว AI&quot; ไม่ใช่ของปุ่มที่ลอยอยู่มุมจอ —
+            ปิดอยู่ = ไม่มีผู้ช่วยที่ไหนเลยบนเว็บ ทั้งช่องค้นหาหน้าแรก หน้า /search ปุ่มในหน้าขาย
+            และทางออกตอน checkout ล้มเหลว รวมถึงระบบตอบอัตโนมัติฝั่งเซิร์ฟเวอร์ก็หยุดทำงาน
+            (ตั้งค่าอื่นล่วงหน้าได้อย่างปลอดภัย). <b className="text-slate-500">
+            ถ้าแค่ไม่อยากให้มีอะไรบังจอ ให้เปิดตัวนี้ไว้ แล้วไปปิด &quot;ปุ่มแชทลอยมุมจอ&quot; ข้างล่างแทน</b>
           </p>
         </div>
         <button
           onClick={() => setConfig((c) => ({ ...c, enabled: !c.enabled }))}
-          className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ${config.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
-          aria-label="เปิด/ปิดแชท"
+          className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ml-4 ${config.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+          aria-label="เปิด/ปิดผู้ช่วย AI"
         >
           <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${config.enabled ? 'left-7' : 'left-1'}`} />
+        </button>
+      </div>
+
+      {/* Launcher — the thing that physically sits on top of the page */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center justify-between">
+        <div>
+          <h2 className="font-black text-sm text-slate-800 flex items-center gap-2">
+            <MessageCircle size={16} className="text-blue-600" /> ปุ่มแชทลอยมุมจอ
+          </h2>
+          <p className="text-xs text-slate-400 mt-1 max-w-md">
+            ปุ่มกลมรูปผู้ช่วยที่ลอยอยู่มุมขวาล่างทุกหน้า — ปิดตัวนี้ = ไม่มีอะไรบังจอลูกค้าอีก
+            แต่ <b className="text-slate-500">AI ยังทำงานปกติ</b> เข้าได้จากช่องค้นหาหน้าแรก หน้า /search
+            ปุ่มแชทในหัวหน้าขาย และตอน checkout ล้มเหลว
+            <br />
+            <span className="text-slate-400">
+              ข้อแลกเปลี่ยน: หน้าที่ไม่มีทางเข้าของตัวเอง (หน้ารุ่นสินค้า ตารางราคา บทความ)
+              จะไม่มีปุ่มแชทให้กดเลย
+            </span>
+          </p>
+        </div>
+        <button
+          onClick={() => setConfig((c) => ({ ...c, launcher_enabled: !c.launcher_enabled }))}
+          className={`w-14 h-8 rounded-full transition-colors relative shrink-0 ml-4 ${config.launcher_enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+          aria-label="เปิด/ปิดปุ่มแชทลอยมุมจอ"
+        >
+          <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-all ${config.launcher_enabled ? 'left-7' : 'left-1'}`} />
         </button>
       </div>
 
@@ -318,6 +367,11 @@ export default function ChatWidgetSettings() {
               <p className="text-[11px] text-slate-400 max-w-md mt-0.5">
                 ฟองข้อความเล็กๆ ข้างปุ่มแชทที่เด้งขึ้นหลังลูกค้าเปิดหน้าเว็บ 5 วินาที เพื่อชวนกดคุย —
                 ปิดเองได้ต่อครั้ง ไม่ตื๊อ (ไม่โชว์ในหน้า /sell และคนที่เคยแชทแล้ว)
+                {!config.launcher_enabled && (
+                  <span className="block text-amber-600 font-bold mt-1">
+                    ตอนนี้ไม่แสดงอยู่แล้ว เพราะปิด &quot;ปุ่มแชทลอยมุมจอ&quot; ไว้ (ฟองนี้เกาะปุ่มนั้น)
+                  </span>
+                )}
               </p>
             </div>
             <button
