@@ -148,6 +148,10 @@ export default function ChatWidgetSettings() {
   const [sickw, setSickw] = useState<ChatSickwConfig>(SICKW_DEFAULTS);
   const [sickwServices, setSickwServices] = useState<SickwServiceOption[]>([]);
   const [sickwServicesError, setSickwServicesError] = useState('');
+  // Server-written health flag. Null = healthy. Separate from `config` because
+  // nothing on this form may write it by accident — only the button below.
+  const [suspended, setSuspended] = useState<{ at: number; reason: string } | null>(null);
+  const [resuming, setResuming] = useState(false);
 
   useEffect(() => {
     get(ref(db, 'settings/chat_widget'))
@@ -170,6 +174,11 @@ export default function ChatWidgetSettings() {
             daily_call_cap: Number(val.daily_call_cap) || DEFAULTS.daily_call_cap,
             model: val.model || '',
           });
+          setSuspended(
+            pub.ai_suspended === true
+              ? { at: Number(pub.ai_suspended_at) || 0, reason: String(pub.ai_suspended_reason || '') }
+              : null,
+          );
           const sw = val.sickw || {};
           setSickw({
             enabled: sw.enabled === true,
@@ -212,19 +221,24 @@ export default function ChatWidgetSettings() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Written INTO public, not OVER it. `public` also carries fields the
+      // server owns (ai_suspended and friends — see suspendAssistant in
+      // functions/chat-ai.js), and replacing the whole child would have an
+      // admin silently un-suspending the assistant by saving an unrelated
+      // setting, with no credit to run it on.
+      await update(ref(db, 'settings/chat_widget/public'), {
+        enabled: config.enabled,
+        launcher_enabled: config.launcher_enabled,
+        preview_enabled: config.preview_enabled,
+        assistant_name: config.assistant_name.trim() || DEFAULTS.assistant_name,
+        welcome_message: config.welcome_message.trim(),
+        offline_message: config.offline_message.trim(),
+        hours_start: config.hours_start,
+        hours_end: config.hours_end,
+        teaser_enabled: config.teaser_enabled,
+        teaser_message: config.teaser_message.trim(),
+      });
       await update(ref(db, 'settings/chat_widget'), {
-        public: {
-          enabled: config.enabled,
-          launcher_enabled: config.launcher_enabled,
-          preview_enabled: config.preview_enabled,
-          assistant_name: config.assistant_name.trim() || DEFAULTS.assistant_name,
-          welcome_message: config.welcome_message.trim(),
-          offline_message: config.offline_message.trim(),
-          hours_start: config.hours_start,
-          hours_end: config.hours_end,
-          teaser_enabled: config.teaser_enabled,
-          teaser_message: config.teaser_message.trim(),
-        },
         kb: config.kb,
         daily_call_cap: Number(config.daily_call_cap) || DEFAULTS.daily_call_cap,
         model: config.model.trim() || null,
@@ -244,12 +258,55 @@ export default function ChatWidgetSettings() {
     }
   };
 
+  // Clearing the flag is its own action, never a side effect of Save. Someone
+  // has to look at why it tripped, fix the credit or the key, and then decide
+  // — which is the whole reason nothing re-enables it automatically.
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      await update(ref(db, 'settings/chat_widget/public'), {
+        ai_suspended: false,
+        ai_suspended_at: null,
+        ai_suspended_reason: null,
+      });
+      setSuspended(null);
+      toast.success('เปิดผู้ช่วย AI กลับมาแล้ว');
+    } catch {
+      toast.error('เปิดกลับไม่สำเร็จ');
+    } finally {
+      setResuming(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-10 text-center text-gray-400 font-bold animate-pulse">กำลังโหลด...</div>;
   }
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {suspended && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <p className="font-black text-amber-900 text-sm">ผู้ช่วย AI ถูกปิดอัตโนมัติ</p>
+          <p className="text-[13px] text-amber-800 mt-1 leading-relaxed">
+            ระบบเรียก Claude API ไม่สำเร็จแบบที่ไม่หายเอง (เครดิตหมด หรือคีย์ใช้ไม่ได้) จึงซ่อนทางเข้าแชท AI
+            ทั้งเว็บไว้ก่อน — ลูกค้าไม่เห็นปุ่มเทาและไม่เห็นข้อความขอโทษ ส่วนระบบค้นหาและการขายยังทำงานเต็มรูปแบบ
+          </p>
+          {suspended.reason && (
+            <p className="text-[11px] text-amber-700/90 mt-2 font-mono break-all">{suspended.reason}</p>
+          )}
+          <p className="text-[12px] text-amber-800 mt-2">
+            แก้เครดิตหรือคีย์เรียบร้อยแล้วค่อยกดเปิด — ระบบจะไม่เปิดคืนให้เอง
+          </p>
+          <button
+            type="button"
+            onClick={handleResume}
+            disabled={resuming}
+            className="mt-3 px-4 py-2 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 disabled:opacity-50"
+          >
+            {resuming ? 'กำลังเปิด...' : 'เปิดผู้ช่วย AI อีกครั้ง'}
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <div className="p-2.5 bg-violet-100 rounded-xl">
           <Bot size={24} className="text-violet-600" />

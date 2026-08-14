@@ -655,6 +655,83 @@ function stripIntentPrefix(token) {
 }
 
 /**
+ * Is this a failure that will still be there on the next message?
+ *
+ * The distinction is the whole point of the health flag. A 429 rate limit, a
+ * 529 overload, a timeout — those clear by themselves, and taking the
+ * assistant off the site for them would be an outage we caused. An exhausted
+ * credit balance or a revoked key will not fix itself no matter how many
+ * customers walk into it, and every one of them is a lead we lose while
+ * apologising.
+ *
+ * Anything we cannot positively identify as permanent is treated as
+ * transient: the cost of guessing wrong in that direction is one bad reply,
+ * and in the other direction it is the assistant vanishing from the site
+ * until someone notices.
+ */
+function isPermanentAiFailure(err) {
+  const msg = String((err && err.message) || "");
+  const m = msg.match(/Claude API HTTP (\d{3})/);
+  if (!m) return false; // network, timeout, parse — nothing to conclude
+  const status = Number(m[1]);
+  if (status === 401 || status === 403) return true; // key revoked or not permitted
+  if (status === 402) return true; // payment required
+  // 400 and 429 are both overloaded meanings: only the billing flavours are
+  // permanent. A plain 429 is "slow down", which is the opposite of "give up".
+  if ((status === 400 || status === 429) && /credit balance|billing|insufficient|quota|exceeded your/i.test(msg)) return true;
+  return false;
+}
+
+/**
+ * Take the assistant off the site until a human puts it back.
+ *
+ * Writes a field of its OWN, next to but never on top of the admin's switch.
+ * `enabled` means "we want an assistant"; `ai_suspended` means "it cannot work
+ * right now". One is a decision, the other is a fact, and a machine editing
+ * the human's decision is how an admin comes back to a setting they did not
+ * change and cannot explain. Effective = enabled AND NOT suspended, computed
+ * on the client.
+ *
+ * It lives in settings/chat_widget/public because every client already
+ * subscribes to that node — so the entry points disappear on the next tick,
+ * with no new read, no new rule and no deploy.
+ *
+ * NO AUTO RE-ENABLE, deliberately. Fast to close, slow to open, and a person
+ * decides: the credit may be topped up while the key is still wrong, and an
+ * assistant that switches itself back on to fail again teaches customers that
+ * we are unreliable rather than that we were briefly down.
+ */
+async function suspendAssistant(db, err, tag, dispatchOpsAlert) {
+  const ref = db.ref("settings/chat_widget/public");
+  try {
+    if ((await ref.child("ai_suspended").once("value")).val() === true) return;
+    await ref.update({
+      ai_suspended: true,
+      ai_suspended_at: Date.now(),
+      ai_suspended_reason: String((err && err.message) || "").slice(0, 300),
+    });
+    console.error(`[${tag}] assistant SUSPENDED — permanent AI failure: ${String((err && err.message) || "").slice(0, 200)}`);
+    if (typeof dispatchOpsAlert === "function") {
+      // Nobody complains about a door that is not there, so this alarm is the
+      // only thing standing between "suspended" and "quietly gone for a week".
+      await dispatchOpsAlert(
+        {
+          data: {
+            type: "system_health_alert",
+            title: "ผู้ช่วย AI ถูกปิดอัตโนมัติ",
+            body: "เรียก Claude API ไม่สำเร็จแบบถาวร (เครดิต/คีย์) — ทางเข้าแชท AI ถูกซ่อนทั้งเว็บแล้ว ค้นหายังทำงานปกติ เปิดคืนที่หน้าตั้งค่าแชท",
+          },
+        },
+        `ผู้ช่วย AI ถูกปิดอัตโนมัติ — เรียก Claude API ไม่สำเร็จแบบถาวร (เครดิตหรือคีย์)\n\nทางเข้าแชท AI ถูกซ่อนทั้งเว็บแล้ว ระบบค้นหายังทำงานเต็มรูปแบบ\n\nแก้เครดิต/คีย์แล้วต้องกดเปิดเองที่หน้าตั้งค่าแชท — ระบบจะไม่เปิดคืนอัตโนมัติ`,
+        tag
+      );
+    }
+  } catch (e) {
+    console.error(`[${tag}] could not suspend the assistant:`, e);
+  }
+}
+
+/**
  * What the assistant says when it cannot answer at all.
  *
  * The old line was "ขออภัยครับ ระบบขัดข้องชั่วคราว ผมส่งเรื่องให้เจ้าหน้าที่
@@ -3869,7 +3946,7 @@ async function attachCustomerImages(messages, messageList) {
 // The trigger
 // ---------------------------------------------------------------------------
 
-function registerChatAi({ dispatchAdminPush }) {
+function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
   const chatWidgetAiReply = onValueCreated(
     {
       ref: "/inbox/{convoId}/messages/{msgId}",
@@ -4973,6 +5050,10 @@ function registerChatAi({ dispatchAdminPush }) {
         await writeAiMessage(db, convoId, assistantName, finalText.slice(0, 2000));
       } catch (err) {
         console.error(`[${tag}] AI turn failed:`, err);
+        // Credit gone or key dead: take the assistant off the site before the
+        // next customer walks into the same wall. Transient failures fall
+        // through and only produce the one-time notice below.
+        if (isPermanentAiFailure(err)) await suspendAssistant(db, err, tag, dispatchOpsAlert);
         try {
           // SAY IT ONCE. This used to fire on every message, so a customer who
           // kept typing got the same apology three times in a row — which
