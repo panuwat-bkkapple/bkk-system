@@ -857,6 +857,19 @@ function rankModels(list, rawQuery, limit = 5) {
     .map((m) => {
       // ทั้ง 3 ชื่อของรุ่นเข้าตัวจับคู่: ชื่อทางการ + ชื่อเรียกไทย + ชื่อเรียกอังกฤษ
       // (aliases ตั้งจากหน้าแก้ไขสินค้า) — ลูกค้าพิมพ์ชื่อไหนก็เจอ รวมภาษาไทยล้วน
+      // THAI NAMES LIVE IN alias_th, AND NOWHERE ELSE ON THIS SIDE.
+      //
+      // A customer typing "ขายไอโฟน 13" now reaches ["ไอโฟน", "13"] — the
+      // stopword strip above handles the glued intent word. But "ไอโฟน" only
+      // becomes iPhone if the catalogue row carries it in alias_th: unlike the
+      // web matcher (bkk-frontend-next/lib/searchMatch.ts), which generates
+      // Thai aliases from a table in code, this side reads them from the data.
+      //
+      // So a model with an empty alias_th is unreachable in Thai here while
+      // being reachable in Thai on the website — the same query, two answers,
+      // and the failure is silent. Fill it from PriceEditor ("เติมชื่อเรียก
+      // อัตโนมัติ") when adding models. If chat ever starts missing Thai
+      // queries that the site finds, check this field first.
       const hay = `${m.brand} ${m.name} ${m.alias_th || ""} ${m.alias_en || ""} ${officialChipAlias(m)} ${m.category}`.toLowerCase();
       // Strip punctuation so 13" / (Intel, / 2017) tokenize to bare words —
       // else a version match on "13" would miss 'MacBook Air 13"'.
