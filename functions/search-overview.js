@@ -20,6 +20,7 @@
  * else's idea of a good time.
  */
 
+const crypto = require("crypto");
 const { onRequest } = require("firebase-functions/v2/https");
 const { getDatabase } = require("firebase-admin/database");
 const { isPermanentAiFailure, suspendAssistant } = require("./chat-ai");
@@ -46,6 +47,40 @@ const MAX_CONTEXT_CHARS = 6000;
  * alone.
  */
 const DEFAULT_DAILY_OVERVIEW_CAP = 2000;
+
+/**
+ * How long a written answer stays good, in seconds.
+ *
+ * MIRROR of CATALOG_REVALIDATE_SECONDS in bkk-frontend-next/lib/cachePolicy.ts
+ * — the website reads the catalog on that clock, and this answer quotes
+ * prices computed from it. If this outlives that, the page argues with
+ * itself: the paragraph says 22,000 while the card underneath says 21,000.
+ * Two repos, two languages, so it cannot be one constant — CHANGE BOTH.
+ */
+const OVERVIEW_CACHE_TTL_SECONDS = 300;
+
+/**
+ * The cache lives HERE rather than in Next, and that is the point.
+ *
+ * The website's unstable_cache worked in a local production build (1 call for
+ * 3 identical requests) but not on Vercel, where every request lands on a
+ * different lambda instance — three identical questions produced three
+ * different paragraphs and three charges. Rather than keep guessing at a
+ * platform's caching semantics, the cache sits beside the thing it protects:
+ * the daily cap and the auto-suspension are already here, and so is the only
+ * place money is actually spent.
+ *
+ * Keyed on the CONTEXT as well as the query. The context carries the prices,
+ * so when the catalog moves the key moves with it — a price change mid-window
+ * cannot leave a stale number being served under the same question.
+ */
+function cacheKeyFor(query, context) {
+  return crypto
+    .createHash("sha256")
+    .update(`${query}\n\n${context}`)
+    .digest("hex")
+    .slice(0, 32);
+}
 
 function bangkokYmd() {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -78,6 +113,11 @@ function buildOverviewSystemPrompt(assistantName) {
     "5. ราคาที่บอกคือราคารับซื้อของเรา ไม่ใช่ราคาขายต่อในตลาด ห้ามเปรียบเทียบกับราคาที่ขายเองได้",
     "6. รุ่นที่ระบุว่างดรับซื้อ ให้บอกตามนั้น ห้ามเสนอราคาให้",
     "7. ห้ามใช้อีโมจิ",
+    // The rule that stops the production bug from coming back: the per-model
+    // rows are a SAMPLE, and a range computed from a sample is stated as if
+    // it covered everything. The website sends the true span of every match
+    // as its own line precisely so this can be forbidden.
+    "8. ถ้าจะพูดถึง 'ช่วงราคารวม' ของหลายรุ่น ให้ใช้ตัวเลขจากบรรทัด 'ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้' เท่านั้น ห้ามคำนวณช่วงรวมเองจากรายการรุ่นด้านล่าง เพราะรายการนั้นอาจแสดงไม่ครบทุกรุ่น",
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
     '{"summary": "...", "detail": "..."}',
@@ -175,6 +215,23 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         return;
       }
 
+      // CACHE BEFORE CAP, deliberately. The daily ceiling exists to bound
+      // spending, and a cache hit spends nothing — counting it would let
+      // popular questions exhaust a budget they are not consuming.
+      const key = cacheKeyFor(query, context);
+      const cacheRef = db.ref(`search_overview_cache/${key}`);
+      try {
+        const hit = (await cacheRef.once("value")).val();
+        if (hit && Number(hit.expires_at) > Date.now() && hit.summary) {
+          res.json({ summary: hit.summary, detail: hit.detail || "", cached: true });
+          return;
+        }
+      } catch (e) {
+        // A cache that cannot be read is a cache miss, never an error: the
+        // customer's paragraph must not depend on this lookup succeeding.
+        console.warn(`[${tag}] cache read failed:`, e);
+      }
+
       const ymd = bangkokYmd();
       const cap = Number(pub.daily_overview_cap) || DEFAULT_DAILY_OVERVIEW_CAP;
       const capTx = await db
@@ -228,6 +285,19 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           res.json({ skipped: "unparseable" });
           return;
         }
+        // Best-effort, and after the answer is in hand: a failed write costs
+        // us the next call, while a failed response costs the customer their
+        // answer. Only good answers are stored — an unparseable reply above
+        // returned already, so a bad turn is never cached into the window.
+        cacheRef
+          .set({
+            summary: parsed.summary,
+            detail: parsed.detail || "",
+            query: query.slice(0, 200),
+            created_at: Date.now(),
+            expires_at: Date.now() + OVERVIEW_CACHE_TTL_SECONDS * 1000,
+          })
+          .catch((e) => console.warn(`[${tag}] cache write failed:`, e));
         res.json(parsed);
       } catch (err) {
         console.error(`[${tag}] failed for "${query}":`, err);
