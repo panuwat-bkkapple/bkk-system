@@ -176,6 +176,7 @@ jobs:
             printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
             printf 'CHAT_AI_MODEL=%s\n' "$CHAT_AI_MODEL"
             printf 'MIGRATION_API_KEY=%s\n' "$MIGRATION_API_KEY"
+            printf 'SEARCH_OVERVIEW_KEY=%s\n' "$SEARCH_OVERVIEW_KEY"
           } > functions/.env
         env:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
@@ -194,6 +195,11 @@ jobs:
           # secret is unset the endpoint deploys DISABLED (503) rather than
           # open -- see migrationKeyAccepted() in functions/index.js.
           MIGRATION_API_KEY: ${{ secrets.MIGRATION_API_KEY }}
+          # Shared secret gating customerSearchOverview, the /search AI
+          # summary endpoint the website calls. Unset = the endpoint deploys
+          # DISABLED (503) rather than as an open Anthropic proxy. The same
+          # value goes in the website's Vercel env as SEARCH_OVERVIEW_KEY.
+          SEARCH_OVERVIEW_KEY: ${{ secrets.SEARCH_OVERVIEW_KEY }}
 
       # Deploy via firebase-tools directly (pinned), authenticating with the
       # SAME service-account secret the Hosting job uses successfully, exposed
