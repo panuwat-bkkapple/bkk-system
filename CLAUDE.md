@@ -6,6 +6,12 @@
 - **ฝั่งผู้ใช้ (บันทึกไว้เพื่อให้ทั้งสองฝั่งเล่นตามกติกาเดียวกัน):** งานความเสี่ยงสูง — push, เปิด PR, merge, deploy, แตะ secret — ให้สั่งเป็น turn สั้นๆ ที่จบเร็ว เพื่อให้มีจุดเบรกถี่
 - **ผลที่ตามมาสำหรับงานความเสี่ยงสูง:** อย่ารวบหลายอย่างไว้ใน turn เดียว จบให้ไวแล้วรายงาน ดีกว่าทำยาวแล้วพบว่ามีคำสั่งเบรกค้างอยู่กลางทาง
 
+## ตรวจ NUL byte ก่อน commit ไฟล์ text (ด่านอัตโนมัติจับไม่ได้)
+- **อาการ:** `git diff` ขึ้น `Bin 11924 -> 16119 bytes` แทน diff อ่านได้ / `grep` ตอบ `binary file matches` / `file` บอก `data` แทน `JavaScript source, UTF-8 text`
+- **ทำไมต้องตรวจมือ:** NUL byte ตัวเดียวใน string literal **ผ่าน `node --check`, ผ่าน `tsc`, ผ่าน eslint, ผ่านเทส, รันได้ปกติ** — ไม่มีด่านอัตโนมัติตัวไหนจับได้ แต่ git จะถือว่าไฟล์เป็น binary ตั้งแต่นั้น **แปลว่า code review ของไฟล์นั้นตายถาวร** (เคสจริง ส.ค. 2026: `functions/search-overview.js` ตอนตั้งใจเขียนช่องว่างใน `` `${query} ${context}` `` แล้วได้ `\x00` แทน)
+- **วิธีเช็ค:** ดูว่า `git diff --stat` ไม่มีคำว่า `Bin` หรือรัน `python3 -c "print(open(F,'rb').read().count(b'\\x00'))"` ต้องได้ 0 ทุกไฟล์ที่แก้
+- **เสี่ยงสุดตอนไหน:** เขียนไฟล์ผ่าน heredoc/สคริปต์ที่มี escape ซ้อนกันหลายชั้น ไม่ใช่ตอนพิมพ์ในเอดิเตอร์
+
 ## Project Overview
 - **Project:** BKK System (Admin Panel สำหรับธุรกิจ Trade-in มือถือ)
 - **Stack:** Vite + React 19 + TypeScript + Firebase (Realtime DB, Auth, Storage, FCM)
