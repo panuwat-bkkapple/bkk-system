@@ -1,4 +1,9 @@
-import { defineConfig } from 'vite'
+// `vitest/config`, not `vite` — it is the same defineConfig with the `test`
+// key added to the type. Imported from 'vite' the config below fails
+// `tsc -b` with "'test' does not exist in type 'UserConfigExport'", which
+// `tsc --noEmit` does NOT catch: the root tsconfig does not include this
+// file, the project build does.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path' // 🌟 1. นำเข้า path
 

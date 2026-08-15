@@ -53,8 +53,14 @@ jobs:
 
       # These two DO gate. Both are clean today, so red here means the change
       # under test broke something.
+      #
+      # `tsc -b`, not `tsc --noEmit` — the same command `npm run build` runs.
+      # --noEmit uses the root tsconfig, which does NOT include vite.config.ts
+      # or the other node-side files; -b builds every referenced project. The
+      # difference is not theoretical: a type error in vite.config.ts passed
+      # --noEmit locally and then failed the deploy build in this very PR.
       - name: Type check
-        run: npx tsc --noEmit
+        run: npx tsc -b
       - name: Test
         run: npm test
 
