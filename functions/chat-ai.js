@@ -60,6 +60,7 @@ const {
   loadKbGraph,
   loadBranches,
   loadPromotions,
+  loadAcceptDefective,
 } = require("./service-facts");
 
 const REGION = "asia-southeast1";
@@ -2700,8 +2701,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           // toggle is on (missing key = off, fail closed — same as the web).
           let acceptDefective = false;
           try {
-            const adSnap = await db.ref("settings/store/accept_defective_devices").once("value");
-            acceptDefective = adSnap.val() === true;
+            acceptDefective = (await loadAcceptDefective(db)) === true;
           } catch { /* fail closed */ }
           // Deterministic battery bucketing: when the customer stated a %,
           // pick the battery option from the number, overriding whatever the
