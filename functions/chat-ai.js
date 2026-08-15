@@ -43,6 +43,24 @@ const {
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 const { resolveCustomer } = require("./crm");
+// Store facts (branches, FAQ, KB, campaigns, the zone table) live in one
+// module because a second surface — the /search AI overview — needs the same
+// answers. What is NOT there is deliberate: every price formula stays in this
+// file, because pricing needs conversation input the overview does not have.
+// See the header of service-facts.js.
+const {
+  OFFICIAL_FAQ_LINES,
+  searchFaq,
+  deliveryZonesFrom,
+  promoWindowOpen,
+  quotaFull,
+  kbGraphRows,
+  buildStoreProfileBlock,
+  loadStoreProfile,
+  loadKbGraph,
+  loadBranches,
+  loadPromotions,
+} = require("./service-facts");
 
 const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -226,43 +244,6 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-const DEFAULT_DELIVERY_ZONES = [
-  {
-    id: "metro",
-    name: "กรุงเทพและปริมณฑล",
-    provinceIds: [1, 2, 3, 4, 58, 59],
-    pricing: { type: "distance", baseFare: 50, freeRadius: 5, perKmRate: 10, maxFee: 300 },
-    etaText: "1-2 ชั่วโมง",
-  },
-  {
-    id: "eastern",
-    name: "ชลบุรี / พัทยา / ฉะเชิงเทรา",
-    provinceIds: [11, 15],
-    pricing: { type: "flat", flatFee: 500 },
-    etaText: "2-3 ชั่วโมง",
-  },
-];
-
-function deliveryZonesFrom(raw) {
-  if (raw && typeof raw === "object" && Array.isArray(raw.zones)) return raw.zones;
-  if (raw && typeof raw === "object" && (raw.baseFare != null || raw.perKmRate != null)) {
-    return [
-      {
-        ...DEFAULT_DELIVERY_ZONES[0],
-        pricing: {
-          type: "distance",
-          baseFare: typeof raw.baseFare === "number" ? raw.baseFare : 50,
-          freeRadius: typeof raw.freeRadius === "number" ? raw.freeRadius : 5,
-          perKmRate: typeof raw.perKmRate === "number" ? raw.perKmRate : 10,
-          maxFee: typeof raw.maxFee === "number" ? raw.maxFee : 300,
-        },
-      },
-      DEFAULT_DELIVERY_ZONES[1],
-    ];
-  }
-  return DEFAULT_DELIVERY_ZONES;
-}
-
 function zoneFeeOf(zone, distanceKm) {
   const p = zone && zone.pricing;
   if (!p) return null;
@@ -273,29 +254,6 @@ function zoneFeeOf(zone, distanceKm) {
   const maxFee = Number(p.maxFee) || 0;
   if (maxFee > 0 && fee > maxFee) fee = maxFee;
   return fee;
-}
-
-function toEpochMs(v) {
-  if (v == null || v === "") return null;
-  if (typeof v === "number" && Number.isFinite(v)) return v > 1e11 ? v : v * 1000;
-  const t = Date.parse(String(v));
-  return Number.isFinite(t) ? t : null;
-}
-
-function promoWindowOpen(item, now) {
-  const start = toEpochMs(item.start_date);
-  let end = toEpochMs(item.end_date);
-  // end_date แบบ date-only ("2026-07-31") ให้เผื่อถึงสิ้นวัน
-  if (end != null && typeof item.end_date === "string" && !/[T ]/.test(item.end_date)) {
-    end += 86399999;
-  }
-  if (start != null && now < start) return false;
-  if (end != null && now > end) return false;
-  return true;
-}
-
-function quotaFull(item) {
-  return !!(item.total_limit && (item.used_count || 0) >= item.total_limit);
 }
 
 // Pick the single best public coupon a device qualifies for, to surface on the
@@ -396,76 +354,6 @@ async function geocodeThaiArea(text) {
   } catch {
     return { error: "geocode_failed" };
   }
-}
-
-// ---------------------------------------------------------------------------
-// FAQ — mirror จาก bkk-frontend-next/app/faq/faqData.ts (มาสเตอร์ 50 ข้อ 5 หมวด)
-// AI อ่านเป็น knowledge แล้ว "สรุปตอบเป็นภาษาคน" ไม่ใช่แปะให้ลูกค้าอ่าน
-// แก้ FAQ ที่ faqData.ts ต้อง sync ที่นี่ด้วย
-// ---------------------------------------------------------------------------
-const FAQ = [
-  { c: "การรับซื้อ", q: "รับซื้ออุปกรณ์อะไรบ้าง", a: "รับซื้ออุปกรณ์ Apple ทุกประเภท: iPhone (iPhone 7 ขึ้นไป), iPad ทุกรุ่น, MacBook (Air/Pro), iMac, Mac mini, Apple Watch, AirPods และอุปกรณ์เสริม ราคาอิงตลาดจริงอัปเดตทุกวัน" },
-  { c: "การรับซื้อ", q: "ขั้นตอนการขายเป็นอย่างไร", a: "1) เลือกรุ่นบนเว็บ 2) ระบุสภาพเครื่องตามจริงเพื่อประเมินราคา 3) เลือกวิธีส่งมอบ (Rider รับถึงบ้าน / มาที่สาขา / ส่งพัสดุ Mail-in) 4) ทีมงานตรวจเช็คแล้วโอนเงินทันที" },
-  { c: "การรับซื้อ", q: "ราคาประเมินบนเว็บเป็นราคาสุดท้ายไหม", a: "เป็นราคาสูงสุดโดยประมาณ ราคาสุดท้ายขึ้นกับผลตรวจสภาพจริง ถ้าสภาพตรงที่ระบุจะได้ราคาตามประเมิน ถ้ามีตำหนิเพิ่มราคาอาจปรับลดลง" },
-  { c: "การรับซื้อ", q: "รับซื้อเครื่องจอแตก เครื่องเสีย มีปัญหาไหม", a: "รับซื้อทุกสภาพ ทั้งจอแตก แบตเสื่อม ลำโพงเสีย Face ID ใช้ไม่ได้ เครื่องค้าง ราคาปรับตามสภาพความเสียหาย เลือกสภาพตามจริงตอนประเมิน" },
-  { c: "การรับซื้อ", q: "ต้องเตรียมเอกสารอะไร", a: "การขายทั่วไปไม่ต้องใช้เอกสาร แต่ควร Sign Out Apple ID/iCloud + ปิด Find My iPhone มีกล่อง/ใบเสร็จช่วยเพิ่มมูลค่าเล็กน้อย ขายในนามนิติบุคคลอาจต้องใช้เอกสารเพิ่ม" },
-  { c: "การรับซื้อ", q: "ต้องลบข้อมูลก่อนขายไหม", a: "ไม่จำเป็น ทีมงาน Factory Reset ให้หลังตรวจเช็คเสร็จ แต่แนะนำสำรองข้อมูลสำคัญไว้ก่อน และออกจาก iCloud เพื่อความรวดเร็ว" },
-  { c: "การรับซื้อ", q: "รับซื้อเครื่องผ่อนอยู่ได้ไหม", a: "ไม่รับซื้อเครื่องที่ยังผ่อนไม่หมด ติดล็อก MDM หรือติดล็อก iCloud/Activation Lock เนื่องจากมีข้อจำกัดในการใช้งานและด้านกรรมสิทธิ์ ถ้าผ่อนครบหรือปลดล็อกเรียบร้อยแล้วค่อยนำมาประเมินราคาได้" },
-  { c: "การรับซื้อ", q: "รับซื้อเครื่องติด iCloud หรือ Activation Lock ไหม", a: "ไม่รับซื้อเครื่องที่ติดล็อก iCloud/Activation Lock หรือยัง Sign out Apple ID ไม่ได้ ในทุกกรณี (ไม่มีการรับแล้วหักราคาหรือรับไปปลดล็อกเอง) ลูกค้าต้องปลดล็อก/Sign out iCloud ให้เรียบร้อยก่อน ถึงจะนำเครื่องมาประเมินราคาได้" },
-  { c: "การรับซื้อ", q: "ต้องมีกล่อง อุปกรณ์ ใบเสร็จไหม", a: "ไม่จำเป็น รับซื้อตัวเครื่องเปล่าได้ แต่ถ้ามีกล่องครบ อุปกรณ์ครบ หรือใบเสร็จ/ใบรับประกัน อาจได้ราคาดีขึ้นเล็กน้อย" },
-  { c: "การรับซื้อ", q: "มีบริการรับซื้อถึงบ้านไหม", a: "มี พื้นที่บริการมี Rider รับถึงหน้าบ้าน มีค่าบริการตามระยะทาง (ระบบแจ้งยอดชัดเจนก่อนยืนยัน และบางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ — เช็คได้ในแชท) ต่างจังหวัดใช้ส่งพัสดุ Mail-in ฟรี ค่าส่งทางร้านออกให้" },
-  { c: "การรับซื้อ", q: "ตรวจสภาพเครื่องอย่างไร", a: "ตรวจทั้งภายนอก-ใน: หน้าจอ ตัวเครื่อง ฟังก์ชัน (Face ID/Touch ID/ลำโพง/กล้อง/แบต) สถานะ iCloud Lock และ Battery Health ใช้เวลา 5-10 นาที" },
-  { c: "การยกเลิก", q: "ยกเลิกการขายได้ไหม", a: "ได้ ยกเลิกได้ตลอดก่อนกดยืนยันรับเงิน ถ้ายังไม่ส่งมอบเครื่องยกเลิกผ่านระบบได้ทันที" },
-  { c: "การยกเลิก", q: "ยกเลิกหลังส่งเครื่องแล้วได้ไหม", a: "ถ้าส่งมาแล้วแต่ยังไม่กดยืนยันรับเงิน แจ้งยกเลิกได้ (ติดต่อทีมงาน) ร้านส่งเครื่องคืนให้ฟรีภายใน 7 วัน" },
-  { c: "การยกเลิก", q: "ยกเลิกหลังรับเงินแล้วได้ไหม", a: "หลังกดยืนยันรับเงินและโอนแล้วถือว่าซื้อขายสมบูรณ์ ยกเลิกไม่ได้ กรุณาตรวจสอบราคาและเงื่อนไขให้ดีก่อนยืนยัน" },
-  { c: "การยกเลิก", q: "ยกเลิกมีค่าใช้จ่ายไหม", a: "ไม่มีค่าใช้จ่ายในการยกเลิก กรณีส่งเครื่องมาแล้ว ค่าจัดส่งคืนทางร้านรับผิดชอบทั้งหมด" },
-  { c: "การยกเลิก", q: "ราคาจริงต่ำกว่าประเมิน ยกเลิกได้ไหม", a: "ได้ ถ้าราคาหลังตรวจต่ำกว่าที่ประเมิน มีสิทธิ์ไม่รับราคาใหม่และยกเลิกได้ทันที ไม่มีค่าใช้จ่าย ร้านส่งเครื่องคืนให้" },
-  { c: "การยกเลิก", q: "ได้เครื่องคืนกี่วัน", a: "กรณีส่งเครื่องมาแล้ว หลังแจ้งยกเลิกส่งคืนภายใน 1-3 วันทำการ ผ่าน Kerry/Flash พร้อมเลขพัสดุติดตาม" },
-  { c: "การยกเลิก", q: "ยกเลิกนัด Rider ได้ไหม", a: "ได้ ยกเลิกก่อนเวลานัดอย่างน้อย 1 ชั่วโมง ถ้ายกเลิกหลัง Rider ออกเดินทางแล้วอาจมีค่าเดินทางเล็กน้อย" },
-  { c: "การยกเลิก", q: "ยกเลิกแล้วคูปองหายไหม", a: "ถ้าใช้คูปอง/โปรในคำสั่งขาย เมื่อยกเลิกคูปองจะคืนกลับอัตโนมัติ ใช้ครั้งถัดไปได้ภายในวันหมดอายุ" },
-  { c: "ค่าบริการ", q: "คิดค่าบริการรับซื้อไหม", a: "ประเมินราคาและตรวจสภาพฟรี ไม่มีค่าธรรมเนียมแอบแฝง มีเฉพาะกรณีเลือกให้ Rider ไปรับถึงบ้านที่มีค่าบริการตามระยะทาง (ระบบแจ้งยอดชัดเจนก่อนยืนยัน และบางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ) ส่วนมาที่สาขาหรือส่งพัสดุ Mail-in ไม่มีค่าใช้จ่ายใดๆ" },
-  { c: "ค่าบริการ", q: "มีค่าจัดส่งไหม", a: "Rider รับถึงบ้านมีค่าบริการตามระยะทาง แจ้งยอดก่อนยืนยันเสมอ (บางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ — สอบถามในแชทได้เลย) ส่งพัสดุ Mail-in ฟรีทั่วประเทศ ร้านออกค่าส่งให้พร้อมประกันความเสียหายเต็มมูลค่า มาที่สาขาไม่มีค่าใช้จ่าย" },
-  { c: "ค่าบริการ", q: "ชำระเงินช่องทางไหน", a: "โอนเข้าบัญชีธนาคารโดยตรง รองรับทุกธนาคารและพร้อมเพย์ หรือรับเงินสดที่สาขา" },
-  { c: "ค่าบริการ", q: "ได้เงินเร็วแค่ไหน", a: "มาสาขา: ภายใน 15 นาที | Rider: โอนภายใน 5 นาทีหลังตรวจเสร็จ | Mail-in: โอนภายในวันที่ร้านได้รับเครื่อง (อาจช้าเล็กน้อยตามเวลาธนาคาร)" },
-  { c: "ค่าบริการ", q: "ใช้คูปอง/โปรอย่างไร", a: "กรอกรหัสคูปองตอนยืนยันคำสั่งขาย ส่วนลดจะเพิ่มเป็นราคารับซื้อที่สูงขึ้น เช่นคูปอง +200 บาท = ราคาเพิ่ม 200 จากราคาประเมิน" },
-  { c: "ค่าบริการ", q: "โอนเงินไม่สำเร็จทำไง", a: "ตรวจเลขบัญชีให้ถูก ถ้าถูกแล้วเงินไม่เข้า ติดต่อทีมงาน LINE @bkkapple ตรวจสอบและโอนซ้ำภายใน 24 ชั่วโมง" },
-  { c: "ค่าบริการ", q: "ขอใบเสร็จได้ไหม", a: "ระบบส่งสลิปโอนอัตโนมัติทางอีเมล/LINE ถ้าต้องการใบเสร็จรับเงินอย่างเป็นทางการแจ้งทีมงานได้ ออกให้ภายใน 3 วันทำการ" },
-  { c: "ค่าบริการ", q: "ราคาอัปเดตบ่อยแค่ไหน", a: "ราคารับซื้ออัปเดตทุกวัน อิงราคาตลาดจริงในและต่างประเทศ อาจเปลี่ยนตามตลาด โดยเฉพาะช่วง Apple เปิดตัวรุ่นใหม่" },
-  { c: "ค่าบริการ", q: "ขายหลายเครื่องมีโปรไหม", a: "มี ขายตั้งแต่ 2 เครื่องขึ้นไปครั้งเดียวได้โบนัสเพิ่ม องค์กร/บริษัทขายจำนวนมากติดต่อทีม Corporate ที่หน้า /corporate เพื่อราคาพิเศษ" },
-  { c: "PDPA", q: "เก็บข้อมูลส่วนบุคคลอะไรบ้าง", a: "เก็บเฉพาะที่จำเป็น: ชื่อ-นามสกุล เบอร์โทร อีเมล ที่อยู่จัดส่ง เลขบัญชี และข้อมูลอุปกรณ์ (รุ่น IMEI) ตาม PDPA" },
-  { c: "PDPA", q: "ข้อมูลถูกนำไปใช้อย่างไร", a: "ใช้เพื่อ: รับซื้อ+โอนเงิน, ติดต่อเรื่องคำสั่งขาย, ออกเอกสารบัญชี, ปรับปรุงบริการ (ถ้ายินยอม) ไม่ขาย/เปิดเผยให้บุคคลภายนอกโดยไม่ได้รับอนุญาต" },
-  { c: "PDPA", q: "ขอลบข้อมูลส่วนบุคคลได้ไหม", a: "ได้ ตาม PDPA ติดต่อ DPO ที่ dpo@bkkapple.com ดำเนินการภายใน 30 วัน ยกเว้นข้อมูลที่จำเป็นทางกฎหมาย (เอกสารบัญชี) อาจลบไม่ได้" },
-  { c: "PDPA", q: "ข้อมูลในเครื่องที่ขายจัดการอย่างไร", a: "หลังรับซื้อ ทีมงาน Factory Reset ลบข้อมูลทั้งหมดกู้คืนไม่ได้ แนะนำสำรองข้อมูลและ Sign Out Apple ID ก่อน" },
-  { c: "PDPA", q: "ถอนความยินยอมได้ไหม", a: "ได้ตลอดเวลา ผ่านหน้าตั้งค่าบัญชีหรืออีเมล dpo@bkkapple.com ไม่กระทบธุรกรรมที่เกิดก่อนหน้า" },
-  { c: "PDPA", q: "DPO ติดต่ออย่างไร", a: "เจ้าหน้าที่คุ้มครองข้อมูลส่วนบุคคล (DPO) ติดต่อ dpo@bkkapple.com ตอบกลับภายใน 7 วันทำการ" },
-  { c: "PDPA", q: "เก็บข้อมูลนานเท่าไร", a: "ข้อมูลธุรกรรมเก็บตามกฎหมาย (บัญชี 5 ปี) จากนั้นลบหรือทำให้ระบุตัวตนไม่ได้ ข้อมูลการตลาดเก็บจนกว่าจะถอนความยินยอม" },
-  { c: "PDPA", q: "สิทธิ์ตาม PDPA มีอะไรบ้าง", a: "เข้าถึง แก้ไข ลบ ระงับการใช้ คัดค้าน โอนย้ายข้อมูล และถอนความยินยอม ใช้สิทธิ์ผ่าน dpo@bkkapple.com" },
-  { c: "ทั่วไป", q: "ต้องสมัครสมาชิกก่อนไหม", a: "เช็คราคาได้เลยไม่ต้องสมัคร แต่ถ้าจะทำรายการขายต้องสมัคร/ล็อกอินก่อน เพื่อเก็บประวัติและรับแจ้งเตือนสถานะ สมัครง่ายผ่านเบอร์โทรหรือ LINE" },
-  { c: "ทั่วไป", q: "ติดตามสถานะคำสั่งขายอย่างไร", a: "ล็อกอินบนเว็บแล้วไปหน้า 'คำสั่งขายของฉัน' เห็นสถานะ Real-time และมีแจ้งเตือนผ่าน LINE/อีเมลทุกครั้งที่สถานะเปลี่ยน" },
-  { c: "ทั่วไป", q: "น่าเชื่อถือไหม ปลอดภัยไหม", a: "จดทะเบียนถูกกฎหมาย ดำเนินกิจการมาหลายปี มีหน้าร้านชัดเจน รีวิว 5 ดาวจากลูกค้ากว่า 300+ รีวิวบน Google Maps" },
-  { c: "ทั่วไป", q: "มีบริการลูกค้าองค์กร Corporate ไหม", a: "มี สำหรับองค์กรที่ขายอุปกรณ์จำนวนมาก (เปลี่ยนเครื่องพนักงาน โรงเรียน สถาบัน) ได้ราคาพิเศษ ดูที่หน้า /corporate" },
-];
-
-function normFaq(s) {
-  return String(s || "").toLowerCase().replace(/\s+/g, "");
-}
-
-function searchFaq(query) {
-  const q = normFaq(query);
-  if (!q) return FAQ.slice(0, 8).map((f) => ({ q: f.q, a: f.a }));
-  const tokens = String(query).toLowerCase().split(/\s+/).filter((t) => t && t.length >= 2);
-  const scored = FAQ.map((f) => {
-    const hay = normFaq(f.c + f.q + f.a);
-    let hits = 0;
-    for (const t of tokens) if (hay.includes(t.replace(/\s+/g, ""))) hits++;
-    if (hay.includes(q)) hits += 2;
-    return { f, hits };
-  })
-    .filter((x) => x.hits > 0)
-    .sort((a, b) => b.hits - a.hits)
-    .slice(0, 6)
-    .map((x) => ({ q: x.f.q, a: x.f.a }));
-  return scored;
 }
 
 // ---------------------------------------------------------------------------
@@ -750,7 +638,7 @@ async function buildAiDownMessage(db) {
   let lineId = null;
   let hours = null;
   try {
-    const sp = (await db.ref("settings/store_profile").once("value")).val() || {};
+    const sp = await loadStoreProfile(db);
     lineId = sp.line_id || null;
     if (sp.hours_start && sp.hours_end) hours = `${sp.hours_start}-${sp.hours_end} น.`;
   } catch { /* best-effort — the apology must not depend on a read */ }
@@ -1700,20 +1588,6 @@ const SERVICE_INFO_LINES = [
   `- ช่องทางขายเครื่องมี 3 แบบ: (1) Pickup ไรเดอร์ไปรับถึงบ้าน เฉพาะพื้นที่บริการ มีค่าบริการตามระยะทาง — เช็คพื้นที่และค่าบริการด้วย check_pickup_service (2) Store-in นำเครื่องมาที่หน้าร้าน ไม่มีค่าบริการ (3) Mail-in ส่งพัสดุถึงร้านฟรีทั่วประเทศ พร้อมประกันความเสียหายเต็มมูลค่า`,
   `- การจ่ายเงิน (ห้ามอธิบายผิดขั้นตอน): ทุกช่องทาง = ตรวจสภาพเสร็จ ยืนยันราคา แล้ว "จ่ายเงินหน้างานทันที" ตอนรับเครื่อง. Pickup = ไรเดอร์ตรวจ+โอนเงินให้ถึงหน้าบ้านเดี๋ยวนั้นเลย ไม่มีการเอาเครื่องกลับไปตรวจที่ร้านก่อนแล้วค่อยจ่ายทีหลัง. Store-in = โอนที่ร้าน. Mail-in = โอนทันทีหลังเครื่องถึงร้านและตรวจเสร็จ. ไม่ต้องรอหลายวัน`,
   `- ระยะเวลา/SLA อื่นใดที่ไม่ได้เขียนไว้ตรงนี้หรือไม่ได้มาจาก tool (เช่น กี่วันทำการ, กี่ชั่วโมง): ห้ามแต่งตัวเลขเอง ให้บอกว่าขอให้เจ้าหน้าที่ยืนยัน`,
-];
-
-// FAQ ทางการ — mirror จาก bkk-frontend-next (app/components/home/FaqSection.tsx +
-// app/components/checkout/CheckoutFAQ.tsx) แก้ FAQ เว็บต้อง sync ที่นี่ด้วย
-const OFFICIAL_FAQ_LINES = [
-  `- ไม่รับซื้อเครื่องที่ยังผ่อนไม่หมด (ผ่อนกับไฟแนนซ์/บัตรเครดิต), ติดล็อก iCloud/FMI (Find My)/Activation Lock, ติดล็อก MDM, หรือติด Blacklist/ล็อกเครือข่าย เด็ดขาด — ถ้าลูกค้าถามว่าเครื่องผ่อนอยู่/ติด iCloud/ติด MDM/ติด Blacklist รับไหม ตอบว่า "ไม่รับซื้อ" และแนะนำว่าถ้าผ่อนครบหรือปลดล็อกเรียบร้อยแล้วค่อยนำมาประเมินได้`,
-  `- *** ย้ำเรื่อง iCloud/Activation Lock (ห้ามพลาดเด็ดขาด) ***: เครื่องที่ยังติดล็อก iCloud/ยัง Sign out Apple ID ไม่ได้/ติด Activation Lock = "ไม่รับซื้อ" ในทุกกรณี ไม่ว่าลูกค้าจะยอมขายถูกแค่ไหน. ห้ามพูดว่า "รับซื้อได้แต่ราคาต่ำ", "รับแล้วเอาไปปลดล็อกเอง", "หักราคาค่าปลดล็อก" หรืออะไรทำนองนี้เด็ดขาด — ข้อมูลนั้นผิด ร้านเราไม่รับความเสี่ยงเรื่องกรรมสิทธิ์/เครื่องหาย. คำตอบที่ถูกต้องคือ "ไม่รับ ต้องปลดล็อก/Sign out iCloud ให้เรียบร้อยก่อนถึงจะประเมินได้"`,
-  `- เครื่องมีตำหนิ/จอแตก/เสียหาย: รับซื้อ ราคาลดตามสภาพจริง ให้เลือกสภาพตามจริงตอนประเมิน (ผ่านขั้นตอนถามสภาพ+ใบเสนอราคา) — ห้ามบอกเปอร์เซ็นต์การหักเอง`,
-  `- *** เส้นแดงเรื่องการปลดล็อก iCloud/Activation Lock ***: แนะนำได้เฉพาะ "ช่องทางทางการของเจ้าของเครื่องเอง" เท่านั้น คือ Sign out ด้วยรหัส Apple ID ของตัวเอง, กู้รหัสผ่านที่ iforgot.apple.com, หรือติดต่อ Apple Support พร้อมหลักฐานการซื้อ — "ห้ามแนะนำวิธี bypass/hack/เครื่องมือปลดล็อก/บริการปลดล็อกภายนอก" เด็ดขาดทุกกรณี และถ้าบริบทส่อว่าเครื่องไม่ใช่ของลูกค้าเอง (เก็บได้ ซื้อต่อมาแบบไม่รู้ที่มา ไม่รู้รหัสและไม่ใช่บัญชีตัวเอง) ให้ปฏิเสธการช่วยปลดล็อกอย่างสุภาพและไม่ต้องแนะนำช่องทางใดๆ ต่อ`,
-  `- ประเมินราคาฟรี 100% ไม่ต้องตกลงขายทันที ไม่มีค่าใช้จ่ายแอบแฝง`,
-  `- จ่ายเงิน: ตรวจเช็คสภาพเสร็จ โอนเข้าบัญชีเต็มจำนวนทันทีหน้างาน ไม่เกิน 5 นาที`,
-  `- ข้อมูลส่วนตัว/เตรียมเครื่องก่อนขาย: ลูกค้า "ไม่จำเป็นต้อง Factory Reset มาเอง" — ร้านทำ Factory Reset + Data Wipe ให้ดูต่อหน้าตอนรับเครื่อง พร้อมออก Data Wipe Certificate. สิ่งเดียวที่ลูกค้าต้องเตรียมคือ Sign out iCloud/ปิด Find My ให้ได้ (ต้องจำรหัส Apple ID) — "อย่าแนะนำให้ลูกค้าล้างเครื่องเองก่อนมา" เพราะถ้าล้างแล้วลืม Sign out iCloud เครื่องจะติด Activation Lock รับซื้อไม่ได้เลย. ตอบเรื่องนี้ให้ตรงนี้เสมอ ห้ามสลับไปมา`,
-  `- ถ้าราคาหน้างานไม่ตรงที่ประเมิน: ปฏิเสธได้เสมอ ไม่มีค่าใช้จ่าย. กรณี Pickup/Store-in เครื่องยังอยู่กับลูกค้า/ตรวจต่อหน้า ปฏิเสธแล้วลูกค้าเก็บเครื่องกลับได้เลย (ไรเดอร์ไม่เอาเครื่องไป). กรณี Mail-in (ส่งมาแล้ว) ปฏิเสธได้และร้าน "ส่งเครื่องคืนฟรี" — คำว่าส่งคืนฟรีใช้กับ Mail-in เท่านั้น อย่าเอาไปพูดกับ Pickup`,
-  `- รับซื้อทุกยี่ห้อทุกรุ่น เน้น iPhone/Samsung/iPad/MacBook/Apple Watch`,
 ];
 
 const DEDUCTION_POLICY_LINES = [
@@ -3161,45 +3035,11 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "get_branches": {
-        // Central profile rides along so the model never has to stitch a
-        // "main number / standard hours" out of per-branch rows (the source
-        // of the 08:00 vs 10:00 contradiction).
-        let central = null;
-        try {
-          const spSnap = await db.ref("settings/store_profile").once("value");
-          const sp = spSnap.exists() ? spSnap.val() || {} : {};
-          if (sp.phone || sp.line_id || sp.hours_start) {
-            central = {
-              phone: sp.phone || null,
-              line_id: sp.line_id || null,
-              email: sp.email || null,
-              standard_hours: sp.hours_start && sp.hours_end ? `${sp.hours_start}-${sp.hours_end} น.` : null,
-            };
-          }
-        } catch { /* best-effort */ }
-        const snap = await db.ref("settings/branches").once("value");
-        const list = [];
-        const all = snap.val() || {};
-        for (const key of Object.keys(all)) {
-          const b = all[key];
-          if (!b || b.isActive === false) continue;
-          const fmtHour = (h) =>
-            Number.isFinite(Number(h)) ? `${String(Number(h)).padStart(2, "0")}:00` : null;
-          const open = fmtHour(b.openHour);
-          const close = fmtHour(b.closeHour);
-          list.push({
-            name: b.name || key,
-            address: b.address || null,
-            phone: b.phone || null,
-            open_hours: open && close ? `${open} - ${close} น.` : null,
-            open_today: b.isOpen === false ? false : true,
-            map_link:
-              typeof b.lat === "number" && typeof b.lng === "number"
-                ? `https://www.google.com/maps?q=${b.lat},${b.lng}`
-                : null,
-            map_info: b.mapInfo || null,
-          });
-        }
+        // Data from service-facts (shared with the /search overview); the
+        // note below is the half that stays here, because it instructs a
+        // CHAT — attach the map link, offer an escalation — and a search
+        // results page has neither.
+        const { central, branches: list } = await loadBranches(db);
         return list.length > 0
           ? {
               ...(central ? { central } : {}),
@@ -3218,52 +3058,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
       }
 
       case "get_promotions": {
-        const nowG = Date.now();
-        const [couponsSnap, promosSnap] = await Promise.all([
-          db.ref("coupons").once("value"),
-          db.ref("rider_fee_promotions").once("value"),
-        ]);
-        const coupons = [];
-        const cs = couponsSnap.val() || {};
-        for (const key of Object.keys(cs)) {
-          const c = cs[key];
-          // system master (เช่น REVIEW_REWARD) ห้ามโฆษณาเป็นคูปองแจก
-          if (!c || c.system === true) continue;
-          if (c.is_active === false || !promoWindowOpen(c, nowG) || quotaFull(c)) continue;
-          coupons.push({
-            code: c.code || key,
-            name: c.name || c.title || "",
-            type: c.type || "fixed",
-            value: Number(c.value || 0),
-            min_trade_value: Number(c.min_trade_value || 0) || undefined,
-            model_restricted:
-              c.is_model_restricted === true ||
-              (Array.isArray(c.applicable_models) && c.applicable_models.length > 0) ||
-              undefined,
-            end_date: c.end_date || null,
-          });
-        }
-        const riderPromos = [];
-        const ps = promosSnap.val() || {};
-        for (const key of Object.keys(ps)) {
-          const p = ps[key];
-          if (!p || p.is_active === false || !promoWindowOpen(p, nowG) || quotaFull(p)) continue;
-          riderPromos.push({
-            name: p.name || p.code || key,
-            discount_type: p.discount_type || "fixed",
-            value: Number(p.value || 0),
-            max_discount: Number(p.max_discount || 0) || undefined,
-            province_restricted:
-              p.is_province_restricted === true ||
-              (Array.isArray(p.applicable_provinces) && p.applicable_provinces.length > 0) ||
-              undefined,
-            model_restricted:
-              p.is_model_restricted === true ||
-              (Array.isArray(p.applicable_models) && p.applicable_models.length > 0) ||
-              undefined,
-            end_date: p.end_date || null,
-          });
-        }
+        const { coupons, pickup_fee_promotions: riderPromos } = await loadPromotions(db);
         return {
           coupons,
           pickup_fee_promotions: riderPromos,
@@ -3596,65 +3391,6 @@ function shouldOverrideDeclinedReply(finalText) {
   return true;
 }
 
-// System-prompt block enabling the IMEI/serial device check in chat. Only
-// appended when the back-office toggle (settings/chat_widget/sickw.enabled)
-// is on, so a disabled integration never even tempts the model to offer it.
-// Admin-authored knowledge graph (settings/chat_kb) — the "answer web" the
-// owner edits visually on the bkk-system /chat-kb canvas (React Flow). Nodes
-// are answer categories; each CUSTOM node holds Q&A items that are official
-// store answers (they outrank the built-in FAQ on conflict, same as the free-
-// text kb). LIVE nodes only mirror data the AI already reads via tools
-// (coupons/prices/branches) — no items, skipped here. Node hierarchy comes
-// from the drawn edges: a child category renders as "หมวดแม่ › หมวดลูก".
-// Pure so the offline test harness can cover it without Firebase.
-function buildKbGraphBlock(kbGraph) {
-  if (!kbGraph || typeof kbGraph !== "object") return "";
-  const nodes = kbGraph.nodes && typeof kbGraph.nodes === "object" ? kbGraph.nodes : {};
-  const edges = kbGraph.edges && typeof kbGraph.edges === "object" ? kbGraph.edges : {};
-  const parentOf = {};
-  for (const k of Object.keys(edges)) {
-    const e = edges[k];
-    if (e && e.from && e.to) parentOf[e.to] = e.from;
-  }
-  const pathLabel = (id) => {
-    const parts = [];
-    let cur = id;
-    let hop = 0;
-    while (cur && cur !== "root" && hop < 6) { // hop cap breaks accidental cycles
-      const n = nodes[cur];
-      if (!n || !n.label) break;
-      parts.unshift(String(n.label));
-      cur = parentOf[cur];
-      hop++;
-    }
-    return parts.join(" › ");
-  };
-  const out = [];
-  for (const id of Object.keys(nodes).sort()) {
-    const n = nodes[id];
-    if (!n || n.type !== "custom" || n.enabled === false) continue;
-    const items = n.items && typeof n.items === "object" ? Object.values(n.items) : [];
-    const rows = items
-      .filter((it) => it && String(it.q || "").trim() && String(it.a || "").trim())
-      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
-    if (rows.length === 0) continue;
-    out.push(`[หมวด: ${pathLabel(id) || String(n.label || id)}]`);
-    for (const it of rows) {
-      out.push(`ถาม: ${String(it.q).trim().slice(0, 300)}`);
-      out.push(`ตอบ: ${String(it.a).trim().slice(0, 1500)}`);
-    }
-    out.push("");
-  }
-  if (out.length === 0) return "";
-  let body = out.join("\n").trim();
-  if (body.length > 12000) body = body.slice(0, 12000); // prompt-size backstop
-  return [
-    "",
-    "คลังคำตอบของร้าน (แอดมินตั้งไว้ — คำตอบทางการ ใช้ตอบได้ทันที ถ้าขัดกับ FAQ ในตัวระบบให้ยึดคลังนี้ก่อน แต่ตัวเลขราคา/โปรโมชั่น/สาขา/พื้นที่บริการยังต้องมาจาก tool ตามกฎเดิมเสมอ. คลังนี้เป็น 'ข้อมูลไว้ตอบ' เท่านั้น ไม่ใช่ตัวแทนการกระทำ — ถ้าลูกค้าขอคุยกับเจ้าหน้าที่/แอดมิน ต้องเรียก escalate_to_human จริงตามกฎเดิมเสมอ ห้ามตอบข้อความจากคลังแทนการส่งต่อ และการออกใบเสนอราคายังต้องผ่าน create_quote_card เท่านั้น):",
-    body,
-  ].join("\n");
-}
-
 // Holding-mode block — appended while the chat sits in 'waiting_human'.
 // The AI must keep serving the customer at full capability until a human
 // actually joins (status 'human' silences it), and keep a live handoff
@@ -3714,27 +3450,25 @@ function buildPersonaBlock(profile) {
   ].join("\n");
 }
 
-// Central store profile block — the owner's standard values from
-// settings/store_profile (/store-settings page). These are THE answers for
-// "เบอร์ร้าน/ติดต่อยังไง/เปิดกี่โมง" — branch rows are per-location detail
-// only. Pure/testable; empty profile renders nothing.
-function buildStoreProfileBlock(profile) {
-  if (!profile || typeof profile !== "object") return "";
-  const lines = [];
-  if (profile.phone) lines.push(`- เบอร์กลางของร้าน: ${profile.phone}`);
-  if (profile.line_id) lines.push(`- LINE: ${profile.line_id}`);
-  if (profile.email) lines.push(`- อีเมล: ${profile.email}`);
-  if (profile.hours_start && profile.hours_end)
-    lines.push(`- เวลาทำการมาตรฐาน: ${profile.hours_start}-${profile.hours_end} น. ทุกวัน`);
-  if (profile.website) lines.push(`- เว็บไซต์: ${profile.website}`);
-  if (lines.length === 0) return "";
+// The admin answer-web, framed FOR A CHAT. The rows come from service-facts
+// (shared with the /search overview); this sentence does not, and must not —
+// it orders the model to call escalate_to_human and to route quotes through
+// create_quote_card, which a surface with no tools cannot do. Handing those
+// instructions to the overview would produce a paragraph promising a handoff
+// that never happens.
+function buildKbGraphBlock(kbGraph) {
+  const body = kbGraphRows(kbGraph);
+  if (!body) return "";
   return [
     "",
-    "ข้อมูลติดต่อกลางของร้าน (ค่ามาตรฐานที่เจ้าของร้านตั้งไว้ — ยืนยันแล้ว ใช้ตอบได้ทันที): ลูกค้าขอเบอร์/ช่องทางติดต่อ/เวลาทำการ ให้ตอบจากตรงนี้ก่อนเสมอ สั้นๆ 1-2 บรรทัด ไม่ต้องเรียก get_branches. ข้อมูลรายสาขา (ที่อยู่/แผนที่/เวลาเฉพาะสาขา) ค่อยใช้ get_branches เมื่อลูกค้าถามหาสาขา/ที่ตั้ง. ถ้าเวลาเฉพาะสาขาต่างจากเวลามาตรฐาน ให้ระบุว่าเป็นเวลาของสาขานั้น:",
-    ...lines,
+    "คลังคำตอบของร้าน (แอดมินตั้งไว้ — คำตอบทางการ ใช้ตอบได้ทันที ถ้าขัดกับ FAQ ในตัวระบบให้ยึดคลังนี้ก่อน แต่ตัวเลขราคา/โปรโมชั่น/สาขา/พื้นที่บริการยังต้องมาจาก tool ตามกฎเดิมเสมอ. คลังนี้เป็น 'ข้อมูลไว้ตอบ' เท่านั้น ไม่ใช่ตัวแทนการกระทำ — ถ้าลูกค้าขอคุยกับเจ้าหน้าที่/แอดมิน ต้องเรียก escalate_to_human จริงตามกฎเดิมเสมอ ห้ามตอบข้อความจากคลังแทนการส่งต่อ และการออกใบเสนอราคายังต้องผ่าน create_quote_card เท่านั้น):",
+    body,
   ].join("\n");
 }
 
+// System-prompt block enabling the IMEI/serial device check in chat. Only
+// appended when the back-office toggle (settings/chat_widget/sickw.enabled)
+// is on, so a disabled integration never even tempts the model to offer it.
 function buildDeviceCheckBlock(enabled) {
   if (enabled !== true) return "";
   return [
@@ -3997,8 +3731,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
       // conversation. Best-effort: a missing profile falls back cleanly.
       let storeProfile = {};
       try {
-        const spSnap = await db.ref("settings/store_profile").once("value");
-        if (spSnap.exists()) storeProfile = spSnap.val() || {};
+        storeProfile = await loadStoreProfile(db);
       } catch { /* fall back to chat-widget hours */ }
       if (storeProfile.hours_start) pub.hours_start = storeProfile.hours_start;
       if (storeProfile.hours_end) pub.hours_end = storeProfile.hours_end;
@@ -4360,8 +4093,8 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // the reply.
         let kbGraphBlock = "";
         try {
-          const kbgSnap = await db.ref("settings/chat_kb").once("value");
-          if (kbgSnap.exists()) kbGraphBlock = buildKbGraphBlock(kbgSnap.val());
+          const kbGraph = await loadKbGraph(db);
+          if (kbGraph) kbGraphBlock = buildKbGraphBlock(kbGraph);
         } catch (err) {
           console.warn(`[${tag}] ${convoId} chat_kb load failed:`, err && err.message);
         }
@@ -5416,6 +5149,10 @@ module.exports = {
   isPermanentAiFailure,
   suspendAssistant,
   __test: {
+    // buildStoreProfileBlock and searchFaq now live in service-facts.js, and
+    // buildKbGraphBlock is chat framing wrapped around rows from there — all
+    // three re-exported so the existing harness keeps reaching them at the
+    // same address.
     buildSystemPrompt,
     buildLastQuoteBlock,
     buildLastSearchBlock,
