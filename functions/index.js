@@ -6463,6 +6463,14 @@ const { registerChatAi } = require("./chat-ai");
 // route them to the chat app only, so the admin PWA no longer double-buzzes.
 const chatAi = registerChatAi({
   dispatchAdminPush: (message, tag) => dispatchAdminPush(message, tag, "chat"),
+  // The assistant being suspended is an OPS alarm, not a customer chat
+  // notification — it goes to the admin PWA and to Telegram like every other
+  // system-health alert, because the whole risk of hiding the AI is that
+  // nothing else will tell anyone it is gone.
+  dispatchOpsAlert: async (message, telegramText, tag) => {
+    await dispatchAdminPush(message, tag);
+    await dispatchTelegram(telegramText, tag);
+  },
 });
 exports.chatWidgetAiReply = chatAi.chatWidgetAiReply;
 // Read-only audit of the AI's built-in knowledge for the chat-settings page.
