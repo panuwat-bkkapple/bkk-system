@@ -10,7 +10,9 @@
 - **กฎ:** `git fetch origin main` **แล้วค่อย** `git checkout -B <branch> origin/main` — ห้ามใช้ `origin/main` ที่ค้างอยู่ในเครื่อง เพราะ ref ในเครื่องเก่าได้ทันทีที่มี PR อื่น merge ระหว่างทาง (เคสจริง ส.ค. 2026 ที่ bkk-frontend-next: ตัด branch จาก `origin/main` ที่ค้างอยู่ก่อน merge ไป 1 commit)
 - **อันตรายจริงไม่ใช่สิ่งที่คิดตอนแรก:** ตอนเจอเข้าใจว่า squash merge จะย้อน fix ที่ merge ไปแล้วทิ้งเงียบๆ ซึ่ง**ผิด** — ทดสอบแล้ว (สร้าง branch จำลองจากฐานเก่าแล้ว `git merge --squash` เข้า main จริง) git ทำ three-way merge และเก็บเวอร์ชันของ main ไว้สำหรับไฟล์ที่ branch ไม่ได้แตะ
 - **อันตรายที่แท้จริง: เทสผิดต้นไม้** — `tsc` เทส build ทั้งหมดรันบน tree ที่ไม่มีการแก้ล่าสุด แล้วไปรายงานตัวเลขที่ไม่ใช่ของโค้ดที่จะอยู่บน main จริง ถ้างานใหม่พึ่งพาสิ่งที่ commit ล่าสุดเปลี่ยน จะรู้ตอน merge ไปแล้ว (แตะไฟล์เดียวกัน = conflict ซึ่งดังพอ ตัวที่เงียบคือ semantic conflict)
-- **ยังไม่มีด่านอัตโนมัติ** วิธีเช็คมือ: `git fetch origin main && git merge-base --is-ancestor origin/main HEAD` — exit 0 = ฐานทันสมัย, exit 1 = ฐานเก่า ผลเทสเชื่อไม่ได้
+- **ด่านอัตโนมัติ: `.githooks/pre-push`** — fetch แล้วเช็ค `git merge-base --is-ancestor origin/main HEAD` ถ้าฐานเก่าจะบล็อกการ push พร้อมบอกวิธีแก้. เปิดใช้อัตโนมัติผ่าน `prepare` script ตอน `npm install` (ตั้ง `core.hooksPath .githooks`) — **clone ใหม่ต้อง `npm install` ก่อน hook ถึงทำงาน** ซึ่งเป็นจุดอ่อนของ container ที่ clone สดทุกครั้ง. ไม่มีเน็ต/ไม่มี remote = ปล่อยผ่าน (hook ที่บล็อกงานตอนเน็ตหลุดจะสอนให้คนพิมพ์ `--no-verify` จนติดเป็นนิสัย). ตั้งใจข้ามจริงๆ: `git push --no-verify`
+- **ด่านที่สอง: CI** (`.github/workflows/ci.yml`) — `pull_request` ของ GitHub checkout **ผลลัพธ์หลัง merge** ไม่ใช่ปลาย branch ตัวเลขจาก CI จึงเป็นของต้นไม้ที่จะมีอยู่จริงหลัง merge เสมอ แม้ฐานในเครื่องจะเก่า
+- วิธีเช็คมือ: `git fetch origin main && git merge-base --is-ancestor origin/main HEAD` — exit 0 = ฐานทันสมัย, exit 1 = ฐานเก่า ผลเทสเชื่อไม่ได้
 - เผลอตัดจากฐานเก่าไปแล้ว: `git fetch origin main && git reset --soft origin/main` แล้ว `git checkout origin/main -- <ไฟล์ที่ commit ใหม่แตะแต่เราไม่ได้แตะ>` จากนั้น**รันเทสใหม่ทั้งชุดก่อนรายงานตัวเลขใดๆ**
 
 ## ตรวจ NUL byte ก่อน commit ไฟล์ text (ด่านอัตโนมัติจับไม่ได้)

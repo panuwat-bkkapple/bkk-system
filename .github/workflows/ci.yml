@@ -1,0 +1,79 @@
+name: CI
+
+# Nothing in this repo has ever been checked automatically.
+#
+# The six offline suites under functions/test/ have been run by hand, which
+# means they have only ever run when somebody remembered — and the ones that
+# matter most are exactly the ones written to fail quietly in the background:
+# service-facts.test.mjs exists to go red when a pricing formula drifts into a
+# module the /search overview reads, and nobody would find out until a customer
+# was quoted a number we do not honour.
+#
+# A guard nobody watches fail is a guard nobody knows works.
+#
+# Runs on pull_request, where GitHub checks out the MERGE RESULT rather than
+# the branch tip. That is the point: the numbers here describe the tree that
+# will exist after merging, which is precisely what a local run on a stale base
+# cannot promise (see the pre-push hook and the branch-base rule in CLAUDE.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  admin-app:
+    name: Admin app (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+
+  functions:
+    name: Cloud Functions (syntax + offline suites)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
+      # Cheap, and it is the check that would have caught a bad edit to a
+      # 5,000-line file before anything else ran.
+      - name: Syntax check every function module
+        run: |
+          set -e
+          for f in functions/*.js; do node --check "$f"; done
+          echo "syntax OK: $(ls functions/*.js | wc -l) modules"
+
+      # Loading the entry point is what `firebase deploy` does first. A require
+      # that does not resolve fails the whole deploy for every function in the
+      # codebase, not just the one that is broken.
+      - name: Entry point loads
+        run: node -e "process.env.GCLOUD_PROJECT='ci'; require('./functions/index.js'); console.log('index.js loaded')"
+
+      - name: Offline test suites
+        run: |
+          set -e
+          fail=0
+          for t in functions/test/*.test.mjs; do
+            echo "--- $t"
+            node "$t" || fail=1
+          done
+          exit $fail
