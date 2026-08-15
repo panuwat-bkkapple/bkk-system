@@ -4139,6 +4139,50 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         return;
       }
 
+      // SUSPENDED — credit gone or key dead (see suspendAssistant). Placed
+      // right beside the daily-cap block because it is the same shape of
+      // event and must behave the same way: say so once, ALWAYS notify staff,
+      // and return before spending anything.
+      //
+      // Notifying is the part that matters. Suspension stops the AI answering;
+      // it must never stop a person receiving. The customer's message is
+      // already in inbox/{convoId} — they asked a real question and are
+      // waiting on a real answer, and the only thing standing between that and
+      // silence is this push. Returning early here also stops every subsequent
+      // message burning an API call that is certain to fail.
+      if (pub.ai_suspended === true) {
+        const convoRef = db.ref(`inbox/${convoId}`);
+        // SAME per-conversation flag the error path uses, on purpose. The
+        // message that broke the assistant already got this exact sentence
+        // from the catch below (which is what set ai_suspended in the first
+        // place); a separate counter here would say it a second time to the
+        // same customer and read as a machine stuck in a loop.
+        const alreadyTold = (await convoRef.child("ai_error_notified").once("value")).val() === true;
+        if (!alreadyTold) {
+          await writeAiMessage(db, convoId, assistantName, await buildAiDownMessage(db));
+          await convoRef.update({
+            status: "waiting_human",
+            ai_error_notified: true,
+            escalation: {
+              reason: "ai_suspended",
+              summary: `ผู้ช่วย AI ถูกปิดอัตโนมัติ ข้อความล่าสุด: "${text.slice(0, 120)}"`,
+              at: now,
+            },
+          });
+        }
+        // ALWAYS a push, but never two for one message: once this block has
+        // put the conversation in waiting_human, every later message already
+        // fired the "ลูกค้ารอเจ้าหน้าที่" ping higher up. Same rule the
+        // awareness push follows below.
+        if (!waitingForHuman) {
+          await dispatchAdminPush(
+            buildInboxPushMessage(convoId, `ผู้ช่วย AI ปิดอยู่ - แชทลูกค้า: ${customerLabel}`, text),
+            tag
+          );
+        }
+        return;
+      }
+
       // Daily spend cap — atomic counter, Bangkok day boundary.
       const { ymd } = bangkokNowParts();
       const cap = Number(settings.daily_call_cap) || DEFAULT_DAILY_CALL_CAP;
