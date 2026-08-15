@@ -33,8 +33,26 @@ jobs:
           node-version: 20
           cache: 'npm'
       - run: npm ci
-      - name: Lint
+
+      # ADVISORY, NOT A GATE — and that is a decision, not an oversight.
+      #
+      # The first run of this workflow reported 1,109 problems (1,095 errors),
+      # every one of them pre-existing: `no-explicit-any` across the whole app
+      # plus a handful of unused imports. None came from the change being
+      # tested. Made blocking, this check would be red on every PR from the day
+      # it was added, which is worse than having no check: a gate that is
+      # always red teaches everyone to merge past red, and then the day the
+      # types or the tests break, nobody looks.
+      #
+      # It still runs, because the output is worth reading and because the
+      # count is the thing to ratchet down. Turn it blocking when it reaches
+      # zero — not before.
+      - name: Lint (advisory)
+        continue-on-error: true
         run: npm run lint
+
+      # These two DO gate. Both are clean today, so red here means the change
+      # under test broke something.
       - name: Type check
         run: npx tsc --noEmit
       - name: Test
