@@ -1,0 +1,52 @@
+#!/bin/sh
+# Is this branch built on the CURRENT main?
+#
+# The failure this catches is not the one it looks like. A branch cut from a
+# stale main does NOT silently revert the commits it missed — that was the
+# first theory and it is wrong; git does a three-way merge and keeps main's
+# version of any file the branch never touched. It was tested.
+#
+# What it does do is make every local check answer the wrong question. tsc,
+# the test suite and the build all run against a tree that is missing the
+# latest work, and the numbers that come out get reported as if they described
+# what will exist after the merge. If the new work depends on something a
+# missed commit changed, that only shows up once it is merged — touching the
+# same file gives a conflict, which is loud, so the one that gets through
+# quietly is the semantic conflict.
+#
+# So the gate belongs HERE, before the push, because that is the moment just
+# after the misleading numbers were produced and just before they are reported.
+#
+# Escape hatch: git push --no-verify. Working deliberately off an older base is
+# a real thing; doing it without noticing is what this prevents.
+
+BASE="${BKK_BASE_BRANCH:-main}"
+
+# No network, no remote, no opinion. A hook that blocks work when the wifi
+# drops teaches people to pass --no-verify by reflex, and a gate everyone
+# bypasses is worse than no gate.
+git fetch -q origin "$BASE" 2>/dev/null || exit 0
+git rev-parse -q --verify "origin/$BASE" >/dev/null 2>&1 || exit 0
+
+if git merge-base --is-ancestor "origin/$BASE" HEAD 2>/dev/null; then
+  exit 0
+fi
+
+BEHIND=$(git rev-list --count "HEAD..origin/$BASE" 2>/dev/null || echo "?")
+
+cat >&2 <<EOF
+
+  ฐานของ branch นี้เก่ากว่า origin/$BASE อยู่ $BEHIND commit
+
+  ผลของ tsc / เทส / build ที่เพิ่งรันไป เป็นผลของต้นไม้ที่ไม่มีงานล่าสุด
+  จึงไม่ใช่ตัวเลขของโค้ดที่จะอยู่บน $BASE จริงหลัง merge — อย่ารายงานมัน
+
+  แก้:
+    git fetch origin $BASE
+    git rebase origin/$BASE     # หรือ git merge origin/$BASE
+    <รันเทสใหม่ทั้งชุด>
+
+  ถ้าตั้งใจทำงานบนฐานเก่าจริงๆ: git push --no-verify
+
+EOF
+exit 1

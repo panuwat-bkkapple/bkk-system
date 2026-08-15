@@ -1,9 +1,25 @@
-import { defineConfig } from 'vite'
+// `vitest/config`, not `vite` — it is the same defineConfig with the `test`
+// key added to the type. Imported from 'vite' the config below fails
+// `tsc -b` with "'test' does not exist in type 'UserConfigExport'", which
+// `tsc --noEmit` does NOT catch: the root tsconfig does not include this
+// file, the project build does.
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path' // 🌟 1. นำเข้า path
 
 export default defineConfig({
   plugins: [react()],
+  // Vitest owns src/ ONLY.
+  //
+  // functions/test/*.test.mjs are standalone harnesses run by plain `node` —
+  // they are the offline suites for the Cloud Functions, which cannot import
+  // the TS app and end in process.exit(). Left to the default glob, vitest
+  // collects them, sees the exit call and reports "process.exit unexpectedly
+  // called with 0" — six red files for six suites that all passed. The CI job
+  // that actually runs them is the functions job.
+  test: {
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
