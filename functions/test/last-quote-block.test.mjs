@@ -582,6 +582,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 const srcPath = join(dirname(fileURLToPath(import.meta.url)), "..", "chat-ai.js");
 const src = readFileSync(srcPath, "utf8");
+// The FAQ tables moved to service-facts.js when the store-facts layer was
+// extracted for the /search overview. The guards below are about FAQ CONTENT,
+// so they follow the content rather than the filename.
+const faqSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "service-facts.js"), "utf8");
 const declAt = src.indexOf("const contactGateWillBlock");
 const useAt = src.indexOf("announcedQuote && contactGateWillBlock");
 check("contactGateWillBlock declared before the recovery guard uses it", declAt > 0 && useAt > 0 && declAt < useAt);
@@ -725,9 +729,9 @@ check("haiku still gets the low-temperature guard", src.includes("body.temperatu
 // Three FAQ entries predated the distance-based rider fee and told customers
 // pickup was free ("ไม่มีค่าจัดส่ง", "ไม่คิดค่าบริการใดๆ") — contradicting the
 // checkout total the customer then sees. FAQ must match the fee system.
-check("FAQ no longer claims rider pickup is free of delivery fee", !src.includes("Rider รับถึงบ้าน (กทม.+ปริมณฑล) ไม่มีค่าจัดส่ง"));
-check("FAQ no longer claims zero service fees outright", !src.includes('a: "ไม่คิดค่าบริการใดๆ'));
-check("FAQ fee answers point to the promo + pre-confirm quote", src.includes("บางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ"));
+check("FAQ no longer claims rider pickup is free of delivery fee", !faqSrc.includes("Rider รับถึงบ้าน (กทม.+ปริมณฑล) ไม่มีค่าจัดส่ง"));
+check("FAQ no longer claims zero service fees outright", !faqSrc.includes('a: "ไม่คิดค่าบริการใดๆ'));
+check("FAQ fee answers point to the promo + pre-confirm quote", faqSrc.includes("บางรุ่น/บางพื้นที่มีโปรฟรีค่าบริการ"));
 
 // --- binary battery sets (iPhone 11 "แจ้ง 70% แต่การ์ดคิดปกติ" leak) ----------
 // Live condition set has only "ปกติ" / "แบตเตอรี่เสื่อม" — no numeric ranges,
