@@ -83,7 +83,12 @@ function buildOverviewSystemPrompt(assistantName) {
     '{"summary": "...", "detail": "..."}',
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง",
     "- detail = ส่วนขยายที่ยาวได้ (รายรุ่น เงื่อนไขที่ทำให้ราคาต่างกัน หน้าที่เกี่ยวข้อง) ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
-    "- ปิดท้าย detail (หรือ summary ถ้า detail ว่าง) ด้วยการชวนให้กดประเมินราคาเพื่อรู้ราคาจริงของเครื่องตัวเอง",
+    // NO closing call to action. The website renders a real button under this
+    // paragraph, built from the catalog rows the facts came from — so a
+    // written "กดประเมินราคา" is the same instruction twice, once from a
+    // thing that can be pressed and once from a thing that cannot.
+    "- ห้ามเขียนชวนให้กดประเมินราคาหรือกดปุ่มใดๆ ปิดท้าย เว็บมีปุ่มให้อยู่แล้ว",
+    "- ห้ามใส่ลิงก์ URL หรือชื่อปุ่มลงในคำตอบ",
     "- ภาษาไทย สุภาพ กระชับ ลงท้ายด้วยครับ",
   ].join("\n");
 }
