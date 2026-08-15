@@ -1,5 +1,11 @@
 # CLAUDE.md - Project Context for Claude Code
 
+## กฎ async-stop (อ่านก่อนเริ่มทุก turn)
+- **คำสั่งเบรกจากผู้ใช้มาถึงระหว่าง turn ได้** — ทุกครั้งที่เริ่ม turn ใหม่ ให้เช็คก่อนว่าข้อความล่าสุดมีคำสั่งหยุด/เปลี่ยนทิศไหม
+- **ถ้ามี:** งานที่ทำไปใน turn ก่อนหน้า **หลังจุดที่คำสั่งถูกส่ง** ถือเป็นงานที่ต้อง**รายงานและรอ confirm ก่อนต่อยอด** ห้ามเดินหน้าต่อเหมือนไม่มีอะไรเกิดขึ้น และห้าม revert ทิ้งเองด้วย — ให้ผู้ใช้ตัดสิน
+- **ฝั่งผู้ใช้ (บันทึกไว้เพื่อให้ทั้งสองฝั่งเล่นตามกติกาเดียวกัน):** งานความเสี่ยงสูง — push, เปิด PR, merge, deploy, แตะ secret — ให้สั่งเป็น turn สั้นๆ ที่จบเร็ว เพื่อให้มีจุดเบรกถี่
+- **ผลที่ตามมาสำหรับงานความเสี่ยงสูง:** อย่ารวบหลายอย่างไว้ใน turn เดียว จบให้ไวแล้วรายงาน ดีกว่าทำยาวแล้วพบว่ามีคำสั่งเบรกค้างอยู่กลางทาง
+
 ## Project Overview
 - **Project:** BKK System (Admin Panel สำหรับธุรกิจ Trade-in มือถือ)
 - **Stack:** Vite + React 19 + TypeScript + Firebase (Realtime DB, Auth, Storage, FCM)
@@ -80,6 +86,15 @@
 - **`onRiderFeeDiscountEdited`** — trigger เมื่อ `jobs/{id}/rider_fee_discount` เปลี่ยน (แอดมินแก้/ลบส่วนลดจาก ticket UI) → sync `issued_rider_fee_discounts/{jobId}` (row เดิมเท่านั้น ไม่สร้างใหม่)
 - **`onPickupLocationChanged`** — trigger เมื่อ `jobs/{id}/cust_lat` เปลี่ยน (admin ปรับจุดรับเครื่องของงาน Pickup) → `computeRiderFee` ใหม่จากระยะทางใหม่ แล้วเซ็ต `pickup_fee` + `rider_fee_estimate` + `net_payout` อัตโนมัติ, และถ้ามีไรเดอร์ถืองานอยู่ (`rider_id`) จะ push แจ้ง "จุดรับเครื่องเปลี่ยน". **สำคัญ:** ไรเดอร์นำทางด้วย `cust_lat/cust_lng` (ดู `bkk-rider-app` `useJobActions.handleOpenNavigation`) และจะ**ไม่สนใจที่อยู่ข้อความเมื่อมีหมุด** — ห้ามแก้ `cust_address` แล้วปล่อยหมุดเก่าค้าง (ไรเดอร์จะวิ่งผิดที่). ชื่อห้ามตั้งทั่วไปด้วยเหตุผล namespace เดียวกัน
 - **`onRiderAssignedRecalcEstimate`** — trigger เมื่อ `jobs/{id}/rider_id` เปลี่ยน (ไรเดอร์กดรับ / แอดมิน assign / ถอนงาน) → คิด `rider_fee_estimate` ใหม่ด้วย **การ์ดอัตราของยานพาหนะคนที่ถืองานจริง** (`computeRiderFeeForAssignee`). ใช้ `onValueWritten` เพราะเคสหลักคือ `rider_id` ถูก **สร้าง** ไม่ใช่แก้ (`onValueUpdated` จะไม่ยิง). **แตะเฉพาะเงินฝั่งไรเดอร์** — `pickup_fee`/`net_payout` ของลูกค้าห้ามขยับเพราะใครรับงาน (invariant #3). ข้ามงานที่ไม่ใช่ Pickup และงานที่ `rider_fee` (settlement) คิดไปแล้ว
+
+## AI Overview ของ /search เว็บลูกค้า (functions/search-overview.js)
+- **`customerSearchOverview`** (onRequest, POST) = ตัวเดียวที่เรียก Anthropic ให้หน้า `/search` ของ `bkk-frontend-next`. **มันไม่รู้ว่าอะไรราคาเท่าไหร่** — เว็บ match กับ catalog เองแล้วส่ง "ข้อเท็จจริง" (ราคา/สถานะงดรับซื้อ/ชื่อหน้า) มาให้ ฟังก์ชันนี้แค่เรียบเรียงเป็นภาษาไทย. **matcher อยู่ repo นั้น ห้าม mirror มาที่นี่**
+- **ทำไมอยู่ที่นี่ไม่ใช่ Vercel:** มันคือ**สิ่งที่สองในโปรเจกต์ที่จ่ายเงินค่า Anthropic** จึงต้องอยู่ใต้เพดานรายวันเดียวกันและ auto-suspension เดียวกับแชท. คีย์อีกใบบน Vercel = ทางเผาเครดิตที่ไม่มีอะไรคุมและปิดไม่ได้ ซึ่งคือความพังที่งาน suspension มีไว้กันพอดี — `isPermanentAiFailure` / `suspendAssistant` **export จาก chat-ai.js มาใช้ร่วม ไม่ก๊อป**
+- **เพดานเป็นของตัวเอง** (`chat_ai_usage/{ymd}/overview_calls`, default 2000, override ที่ `settings/chat_widget/public/daily_overview_cap`) — จ่ายเงินก้อนเดียวกันแต่พังคนละแบบ: search เป็นทราฟฟิกนิรนามตัดทิ้งได้ไม่มีใครเสียหาย ส่วนแชทที่หยุดตอบทิ้งลูกค้ากลางประโยค **ตัวนับเดียวกัน = ของถูกอดของแพง**
+- **shared secret `SEARCH_OVERVIEW_KEY` บังคับ fail closed** — ไม่ตั้ง = deploy แล้ว 503 ปิดสนิท (กฎเดียวกับ `migrateOldJobs`) ไม่งั้นมันคือ Anthropic proxy เปิดโล่งบนอินเทอร์เน็ต. CI เขียนลง `functions/.env` จาก GitHub Secret ชื่อเดียวกัน และค่านี้ต้องตรงกับ env `SEARCH_OVERVIEW_KEY` ฝั่ง Vercel
+- **gate เดียวกับ widget:** `enabled !== true` หรือ `ai_suspended === true` → ตอบ `{skipped}` ไม่เรียก API. ทุกการปฏิเสธตอบ 200 พร้อมเหตุผลที่มีชื่อ **ไม่ใช่ status code** เพราะหน้าค้นหาต้องไม่พังเพราะย่อหน้าเสริมเขียนไม่ได้
+- **กฎใน system prompt เขียนเป็นข้อห้าม** — ห้ามใช้ราคาตลาด/ราคาร้านอื่น/สเปกที่ไม่ได้ส่งมา, ข้อมูลไม่พอให้บอกตรงๆ ห้ามเดา, รุ่นที่งดรับซื้อห้ามเสนอราคา. ตอบเป็น JSON `{summary, detail}` (detail = ส่วนที่ถูกพับใต้ "แสดงเพิ่มเติม")
+- ชื่อ `customerSearchOverview` unique ระดับ project ตามกฎ `{region}/{name}` เหมือนทุกตัว
 
 ## System Health (ส.ค. 2026)
 - **หน้า `/system-health`** (`src/pages/admin/SystemHealth.tsx`, CEO/MANAGER, อยู่ใน settingsNav กลุ่ม Advanced) — สถานะ service/API ทุกตัวที่ระบบพึ่งพาในที่เดียว. logic ตรวจทั้งหมดอยู่ **`functions/health-check.js`** (`registerHealthCheck` inject `dispatchAdminPush`/`dispatchTelegram` จาก index.js แบบเดียวกับ dealer-portal)

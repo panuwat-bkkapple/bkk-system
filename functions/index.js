@@ -6485,6 +6485,22 @@ exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;
 // teaching in /chat-kb. Good scores are analytics-only.
 exports.onChatCsatSubmitted = chatAi.onChatCsatSubmitted;
 
+// =============================================================================
+// AI overview for the customer site's /search page (see ./search-overview.js).
+// The SECOND thing in this project that spends Anthropic credit, which is why
+// it lives here rather than on Vercel: same key, same daily cap, same
+// auto-suspension. It is handed already-matched facts by the website and only
+// writes them up — the matcher stays in bkk-frontend-next.
+// =============================================================================
+const { registerSearchOverview } = require("./search-overview");
+const searchOverview = registerSearchOverview({
+  dispatchOpsAlert: async (message, telegramText, tag) => {
+    await dispatchAdminPush(message, tag);
+    await dispatchTelegram(telegramText, tag);
+  },
+});
+exports.customerSearchOverview = searchOverview.customerSearchOverview;
+
 // ---------------------------------------------------------------------------
 // CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).
 // One trigger covers BOTH admin-created orders and customer self-checkout,

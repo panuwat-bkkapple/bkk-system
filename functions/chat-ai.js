@@ -5409,6 +5409,12 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
 // Not used by production code paths.
 module.exports = {
   registerChatAi,
+  // Shared with search-overview.js — the SECOND thing in this project that
+  // spends Anthropic credit. It must classify failures and take the assistant
+  // down by exactly the same rules, or the site ends up with one caller that
+  // gives up on a dead key and another that keeps hammering it.
+  isPermanentAiFailure,
+  suspendAssistant,
   __test: {
     buildSystemPrompt,
     buildLastQuoteBlock,
