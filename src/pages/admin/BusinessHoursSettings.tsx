@@ -20,7 +20,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import {
-  Clock, Save, Loader2, AlertTriangle, Plus, X, Power, CalendarDays, Info,
+  Clock, Save, Loader2, AlertTriangle, Plus, X, Power, CalendarDays, CalendarClock,
+  CalendarOff, Info,
 } from 'lucide-react';
 import { useToast } from '../../components/ui/ToastProvider';
 import { useDatabase } from '../../hooks/useDatabase';
@@ -49,6 +50,71 @@ const DEFAULT_CONFIG: BusinessHoursConfig = {
 };
 
 const DAY_NAMES = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+
+/**
+ * "2026-08-16" -> "อา. 16 ส.ค. 2026"
+ *
+ * แถวรายการโชว์ชื่อวันด้วย เพราะการปิดร้านมักผูกกับวันในสัปดาห์ ("ปิดวันจันทร์
+ * นั้น") มากกว่าตัวเลขวันที่ ส่วน YYYY-MM-DD ดิบยังโชว์ใต้ไว้เพื่อให้เทียบกับ
+ * ข้อมูลใน DB ได้ตรง ๆ. สร้าง Date แบบ local จาก 3 ส่วน ไม่ผ่าน Date.parse
+ * เพื่อไม่ให้ ISO string ถูกอ่านเป็น UTC แล้วเลื่อนวันบนเครื่องที่ไม่ใช่ ICT
+ */
+function formatThaiDate(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return ymd;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString('th-TH', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+/** การ์ด section มาตรฐาน — รูปเดียวกับ AccountingSettings / NotificationSettings */
+function Section({ icon, tint, title, subtitle, children }: {
+  icon: React.ReactNode; tint: string; title: string; subtitle?: string; children: React.ReactNode;
+}) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <header className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${tint}`}>{icon}</span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-black text-slate-800">{title}</h2>
+          {subtitle && <p className="text-[11px] font-bold text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
+      </header>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
+/** แถวตั้งค่า: คำอธิบายซ้าย — ตัวควบคุมขวา */
+function Row({ title, desc, children, last }: {
+  title: string; desc?: string; children: React.ReactNode; last?: boolean;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-4 ${last ? '' : 'pb-3.5 border-b border-slate-100'}`}>
+      <div className="min-w-0">
+        <p className="text-sm font-black text-slate-700">{title}</p>
+        {desc && <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{desc}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${checked ? 'bg-rose-500' : 'bg-slate-300'}`}
+    >
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+    </button>
+  );
+}
 
 export default function BusinessHoursSettings() {
   const toast = useToast();
@@ -150,75 +216,80 @@ export default function BusinessHoursSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-slate-400">
-        <Loader2 size={20} className="animate-spin mr-2" /> กำลังโหลด...
+      <div className="p-6 flex items-center justify-center py-20 text-slate-400">
+        <Loader2 size={20} className="animate-spin mr-2" />
+        <span className="text-sm font-bold">กำลังโหลด...</span>
       </div>
     );
   }
 
+  const closedCount = config.closedDays.length;
+
   return (
-    <div className="space-y-5 max-w-3xl">
-      <div>
-        <h1 className="text-lg font-black text-slate-900 flex items-center gap-2">
-          <Clock size={20} className="text-amber-500" /> เวลาทำการ &amp; วันหยุด
-        </h1>
-        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-          ค่าชุดนี้ควบคุมปฏิทินนัดรับเครื่องบนหน้า checkout ของลูกค้าโดยตรง
-          ทั้งเส้นทางไรเดอร์และเข้าสาขา — บันทึกแล้วมีผลทันที ไม่ต้อง deploy
-        </p>
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center">
+          <CalendarClock size={22} />
+        </div>
+        <div>
+          <h1 className="text-xl font-black text-slate-800">เวลาทำการ &amp; วันหยุด</h1>
+          <p className="text-xs font-bold text-slate-400">
+            คุมปฏิทินนัดรับเครื่องบนหน้า checkout ของลูกค้าโดยตรง ทั้งไรเดอร์และเข้าสาขา — บันทึกแล้วมีผลทันที
+          </p>
+        </div>
       </div>
 
       {/* กันสับสนกับ "เวลาทำการมาตรฐาน" ที่หน้าข้อมูลร้าน ซึ่งเป็นแค่ข้อความ
           ที่ AI เอาไปพูด ไม่ได้ควบคุมปฏิทินอะไรเลย */}
-      <div className="flex items-start gap-2.5 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
-        <Info size={15} className="text-blue-600 shrink-0 mt-0.5" />
-        <p className="text-[11.5px] text-blue-900 leading-relaxed">
-          <b>คนละอันกับ "เวลาทำการมาตรฐาน" ในหน้าข้อมูลร้าน</b> — อันนั้นเป็นข้อความที่ผู้ช่วย AI
-          ใช้ตอบลูกค้าเท่านั้น ไม่ได้ควบคุมว่าลูกค้าจองวันไหนได้ ถ้าต้องการปิดไม่ให้จอง ต้องตั้งที่หน้านี้
+      <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-100 flex gap-2">
+        <Info size={15} className="text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-[11px] font-bold text-amber-700 leading-relaxed">
+          คนละอันกับ &quot;เวลาทำการมาตรฐาน&quot; ในหน้าข้อมูลร้าน — อันนั้นเป็นข้อความที่ผู้ช่วย AI ใช้ตอบลูกค้าเท่านั้น
+          ไม่ได้ควบคุมว่าลูกค้าจองวันไหนได้ ถ้าต้องการปิดไม่ให้จอง ต้องตั้งที่หน้านี้
         </p>
       </div>
 
-      {/* ปิดรับชั่วคราว */}
-      <div className={`rounded-2xl border p-5 ${config.temporaryClosed ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="font-black text-sm text-slate-800 flex items-center gap-2">
-              <Power size={16} className={config.temporaryClosed ? 'text-red-500' : 'text-slate-400'} /> ปิดรับชั่วคราว
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-1">
-              เปิดสวิตช์นี้ = ลูกค้าจองนัดใหม่ไม่ได้ทุกวัน จนกว่าจะปิดสวิตช์
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => { setConfig((p) => ({ ...p, temporaryClosed: !p.temporaryClosed })); setDirty(true); }}
-            className={`px-4 py-2 rounded-xl font-bold text-xs shrink-0 transition-colors ${config.temporaryClosed ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            {config.temporaryClosed ? 'กำลังปิดรับ' : 'เปิดรับปกติ'}
-          </button>
-        </div>
-        {config.temporaryClosed && (
-          <input
-            value={config.temporaryClosedMessage}
-            onChange={(e) => { setConfig((p) => ({ ...p, temporaryClosedMessage: e.target.value })); setDirty(true); }}
-            placeholder="ข้อความที่ลูกค้าจะเห็น เช่น ปิดปรับปรุงร้าน 20-22 ส.ค."
-            className="w-full mt-3 px-4 py-2.5 bg-white border border-red-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-red-400"
+      <Section
+        icon={<Power size={18} />}
+        tint={config.temporaryClosed ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}
+        title="ปิดรับชั่วคราว"
+        subtitle="เปิดสวิตช์นี้ = ลูกค้าจองนัดใหม่ไม่ได้ทุกวัน จนกว่าจะปิดสวิตช์"
+      >
+        <Row
+          title={config.temporaryClosed ? 'กำลังปิดรับนัดใหม่' : 'เปิดรับนัดตามปกติ'}
+          desc={config.temporaryClosed ? 'นัดที่จองไว้แล้วไม่ถูกยกเลิก — ต้องติดต่อลูกค้าเอง' : undefined}
+          last={!config.temporaryClosed}
+        >
+          <Toggle
+            checked={config.temporaryClosed}
+            onChange={(v) => { setConfig((p) => ({ ...p, temporaryClosed: v })); setDirty(true); }}
           />
+        </Row>
+        {config.temporaryClosed && (
+          <div className="pt-3.5">
+            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wide block mb-1.5">
+              ข้อความที่ลูกค้าจะเห็น
+            </label>
+            <input
+              value={config.temporaryClosedMessage}
+              onChange={(e) => { setConfig((p) => ({ ...p, temporaryClosedMessage: e.target.value })); setDirty(true); }}
+              placeholder="เช่น ปิดปรับปรุงร้าน 20-22 ส.ค."
+              className="w-full px-4 py-2.5 bg-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         )}
-      </div>
+      </Section>
 
-      {/* ชั่วโมงเปิด-ปิด */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <h2 className="font-black text-sm text-slate-800 flex items-center gap-2 mb-1">
-          <Clock size={16} className="text-amber-500" /> ชั่วโมงที่เปิดให้จอง
-        </h2>
-        <p className="text-[11px] text-slate-500 mb-4">
-          รอบเวลาบนหน้า checkout ถูกแบ่งเป็นช่วงละ 2 ชั่วโมงจากค่านี้
-        </p>
+      <Section
+        icon={<Clock size={18} />}
+        tint="bg-blue-100 text-blue-600"
+        title="ชั่วโมงที่เปิดให้จอง"
+        subtitle="รอบเวลาบนหน้า checkout ถูกแบ่งเป็นช่วงละ 2 ชั่วโมงจากค่านี้"
+      >
         <div className="flex gap-4">
           {([['เปิด', 'openHour'], ['ปิด', 'closeHour']] as const).map(([label, key]) => (
             <div key={key} className="flex-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">{label}</label>
+              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wide block mb-1.5">{label}</label>
               <select
                 value={config[key]}
                 onChange={(e) => { setConfig((p) => ({ ...p, [key]: Number(e.target.value) })); setDirty(true); }}
@@ -231,14 +302,15 @@ export default function BusinessHoursSettings() {
             </div>
           ))}
         </div>
-      </div>
+      </Section>
 
-      {/* วันหยุดประจำสัปดาห์ */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <h2 className="font-black text-sm text-slate-800 flex items-center gap-2 mb-4">
-          <CalendarDays size={16} className="text-slate-500" /> วันหยุดประจำสัปดาห์
-        </h2>
-        <div className="grid grid-cols-7 gap-2">
+      <Section
+        icon={<CalendarDays size={18} />}
+        tint="bg-slate-100 text-slate-500"
+        title="วันหยุดประจำสัปดาห์"
+        subtitle={closedCount > 0 ? `ปิด ${closedCount} วันต่อสัปดาห์` : 'เปิดทุกวัน — กดวันที่ต้องการปิด'}
+      >
+        <div className="grid grid-cols-7 gap-1.5">
           {DAY_NAMES.map((name, i) => {
             const closed = config.closedDays.includes(i);
             return (
@@ -246,70 +318,79 @@ export default function BusinessHoursSettings() {
                 key={i}
                 type="button"
                 onClick={() => toggleClosedDay(i)}
-                className={`flex flex-col items-center py-3 rounded-xl border-2 transition-all ${closed ? 'border-red-200 bg-red-50 text-red-500' : 'border-emerald-200 bg-emerald-50 text-emerald-600'}`}
+                aria-pressed={closed}
+                className={`py-2.5 rounded-xl text-[11px] font-black transition-colors ${
+                  closed
+                    ? 'bg-rose-50 text-rose-600 border border-rose-100'
+                    : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
+                }`}
               >
-                <span className="text-[10px] font-bold">{name.slice(0, 2)}</span>
-                <span className="text-[9px] font-bold mt-1">{closed ? 'ปิด' : 'เปิด'}</span>
+                {name.slice(0, 2)}
               </button>
             );
           })}
         </div>
-        <p className="text-[10px] text-slate-400 mt-2">กดเพื่อสลับเปิด/ปิดในแต่ละวัน</p>
-      </div>
+      </Section>
 
-      {/* วันหยุดพิเศษ */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <h2 className="font-black text-sm text-slate-800 flex items-center gap-2 mb-4">
-          <AlertTriangle size={16} className="text-amber-500" /> วันหยุดพิเศษ
-        </h2>
-        <div className="flex gap-2 mb-3">
+      <Section
+        icon={<CalendarOff size={18} />}
+        tint="bg-slate-100 text-slate-500"
+        title="วันหยุดพิเศษ"
+        subtitle="วันที่ปิดเป็นครั้งคราว เช่น วันหยุดนักขัตฤกษ์ หรือปิดร้านกะทันหัน"
+      >
+        <div className="flex gap-2">
           <input
             type="date"
             value={newHoliday}
             onChange={(e) => setNewHoliday(e.target.value)}
-            className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-4 py-2.5 bg-slate-100 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="button"
             onClick={handleAddHoliday}
             disabled={!newHoliday}
-            className="px-4 py-2.5 bg-slate-900 text-white font-bold text-sm rounded-xl hover:bg-black disabled:opacity-30 transition-all flex items-center gap-1"
+            className="px-4 py-2.5 bg-slate-800 text-white font-black text-sm rounded-xl hover:bg-slate-900 disabled:opacity-30 transition-colors flex items-center gap-1"
           >
             <Plus size={14} /> เพิ่ม
           </button>
         </div>
+
         {config.holidays.length > 0 ? (
-          <div className="space-y-2">
+          <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
             {config.holidays.map((date) => {
               // ป้ายขึ้นเฉพาะเมื่ออ่านงานสำเร็จ — ไม่มีป้ายจึงแปลว่า "ไม่มีนัด"
               // ไม่ใช่ "ยังไม่รู้"
               const stranded = jobsLoading ? [] : (bookingsByDate.get(date) || []);
               return (
-                <div key={date} className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-amber-800">{date}</span>
+                <div key={date} className="py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-slate-700">{formatThaiDate(date)}</p>
+                      <p className="text-[11px] font-bold text-slate-400 mt-0.5">{date}</p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => { setConfig((p) => ({ ...p, holidays: p.holidays.filter((h) => h !== date) })); setDirty(true); }}
-                      className="p-1 text-amber-500 hover:text-red-500 transition-colors"
+                      className="shrink-0 p-1.5 text-slate-300 hover:text-rose-500 transition-colors"
                       aria-label={`ลบวันหยุด ${date}`}
                     >
-                      <X size={14} />
+                      <X size={15} />
                     </button>
                   </div>
                   {stranded.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-amber-200">
-                      <p className="text-[11px] font-bold text-red-600 flex items-center gap-1">
-                        <AlertTriangle size={11} /> มีนัดค้างอยู่ {stranded.length} งาน — ลูกค้ายังถือใบยืนยัน
+                    <div className="mt-2 p-3 rounded-xl bg-rose-50 border border-rose-100">
+                      <p className="text-[11px] font-black text-rose-700 flex items-center gap-1.5">
+                        <AlertTriangle size={12} className="shrink-0" />
+                        มีนัดค้างอยู่ {stranded.length} งาน — ลูกค้ายังถือใบยืนยัน
                       </p>
                       <div className="mt-1.5 space-y-0.5">
                         {stranded.map((r) => (
-                          <p key={r.id} className="text-[10px] text-amber-700 font-medium">
+                          <p key={r.id} className="text-[11px] font-bold text-rose-600/80">
                             {r.ref}{r.time ? ` · ${r.time}` : ''}{r.method ? ` · ${r.method}` : ''} · {r.status}
                           </p>
                         ))}
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-1.5">ติดต่อลูกค้าเพื่อเลื่อนนัด หรือลบวันหยุดนี้ออก</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1.5">ติดต่อลูกค้าเพื่อเลื่อนนัด หรือลบวันหยุดนี้ออก</p>
                     </div>
                   )}
                 </div>
@@ -317,64 +398,70 @@ export default function BusinessHoursSettings() {
             })}
           </div>
         ) : (
-          <p className="text-xs text-slate-400 text-center py-3">ยังไม่มีวันหยุดพิเศษ</p>
+          <p className="text-[11px] font-bold text-slate-400 text-center py-4 mt-2 border-t border-slate-100">
+            ยังไม่มีวันหยุดพิเศษ
+          </p>
         )}
-      </div>
+      </Section>
 
       <button
         onClick={handleSave}
         disabled={saving || !dirty}
-        className="w-full py-3.5 bg-blue-600 text-white rounded-2xl font-black text-sm hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-md shadow-blue-200 flex items-center justify-center gap-2"
+        className="w-full py-3.5 bg-blue-600 text-white rounded-2xl font-black text-sm hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
       >
         {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
         {saving ? 'กำลังบันทึก...' : dirty ? 'บันทึกเวลาทำการ' : 'บันทึกแล้ว'}
       </button>
 
-      {/* ยืนยันก่อนปิดวันที่มีนัดค้าง — รายชื่องานอยู่ในนี้เลยเพื่อให้ตัดสินใจ
+      {/* ยืนยันก่อนปิดวันที่มีนัดค้าง — รายชื่องานอยู่ตรงนี้เลยเพื่อให้ตัดสินใจ
           ได้ทันทีว่าจะเลื่อนนัดหรือไม่ปิด ไม่ต้องไปเปิดอีกหน้า */}
       {conflictPrompt && (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
           onClick={() => setConflictPrompt(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-5 border-b border-slate-100">
-              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                <AlertTriangle size={16} className="text-red-500 shrink-0" />
-                วันที่ {conflictPrompt.date} มีนัดอยู่แล้ว {conflictPrompt.rows.length} งาน
-              </h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                ปิดวันนี้ไม่ได้ยกเลิกนัดที่จองไว้ ลูกค้ายังถือใบยืนยันและจะมาตามนัด ถ้าจะปิดจริง ต้องติดต่อลูกค้าเพื่อเลื่อนนัดด้วย
-              </p>
-            </div>
-            <div className="p-5 overflow-y-auto flex-1 space-y-2">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <header className="px-5 py-4 border-b border-slate-100 flex items-start gap-3">
+              <span className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle size={18} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-black text-slate-800">
+                  {formatThaiDate(conflictPrompt.date)} มีนัดอยู่แล้ว {conflictPrompt.rows.length} งาน
+                </h2>
+                <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">
+                  ปิดวันนี้ไม่ได้ยกเลิกนัดที่จองไว้ ลูกค้ายังถือใบยืนยันและจะมาตามนัด ถ้าจะปิดจริงต้องติดต่อลูกค้าเพื่อเลื่อนนัดด้วย
+                </p>
+              </div>
+            </header>
+            <div className="px-5 py-4 overflow-y-auto flex-1 divide-y divide-slate-100">
               {conflictPrompt.rows.map((r) => (
-                <div key={r.id} className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                  <p className="text-xs font-bold text-slate-800">{r.ref}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                <div key={r.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <p className="text-[13px] font-black text-slate-700">{r.ref}</p>
+                  <p className="text-[11px] font-bold text-slate-400 mt-0.5">
                     {r.time || 'ไม่ระบุเวลา'}{r.method ? ` · ${r.method}` : ''} · {r.status}
                   </p>
                 </div>
               ))}
             </div>
-            <div className="p-5 border-t border-slate-100 flex gap-2">
+            <footer className="px-5 py-4 border-t border-slate-100 flex gap-2">
               <button
                 type="button"
                 onClick={() => setConflictPrompt(null)}
-                className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-black text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={() => { commitHoliday(conflictPrompt.date); setConflictPrompt(null); }}
-                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-all"
+                className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-black hover:bg-rose-700 transition-colors"
               >
                 ปิดวันนี้อยู่ดี
               </button>
-            </div>
+            </footer>
           </div>
         </div>
       )}
