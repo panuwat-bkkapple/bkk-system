@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ref, get, update } from 'firebase/database';
 import { db } from '../../api/firebase';
-import { Store, Save, Phone, Clock, Globe, MessageCircle, Mail } from 'lucide-react';
+import { Store, Save, Phone, Clock, Globe, MessageCircle, Mail, AlertTriangle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useToast } from '../../components/ui/ToastProvider';
 
 // =============================================================================
@@ -140,6 +141,17 @@ export default function StoreSettings() {
           ใช้เป็นเวลาทำการหลักในทุกข้อความของ AI (รวมข้อความ "เจ้าหน้าที่จะติดต่อกลับในเวลาทำการ")
           — ตั้งที่นี่ที่เดียว เลิกขัดกับข้อมูลสาขา. สาขาที่เวลาไม่ตรงค่ามาตรฐาน (เช่น ภูเก็ต) ตั้งเวลาเฉพาะที่หน้าจัดการสาขาได้
         </p>
+        {/* ค่านี้เป็น "คำพูด" ไม่ใช่ "กฎ" — แอดมินที่เข้ามาแก้ตรงนี้เพื่อหวังจะ
+            ปิดไม่ให้ลูกค้าจอง จะไม่เกิดอะไรขึ้นเลยและไม่มีอะไรบอกเขา ลิงก์นี้
+            คือสิ่งที่บอก */}
+        <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+          <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-900 leading-relaxed">
+            เวลาตรงนี้เป็น <b>ข้อความที่ AI ใช้ตอบลูกค้าเท่านั้น</b> ไม่ได้ควบคุมว่าลูกค้าจองนัดวันไหนได้
+            ถ้าต้องการตั้งวันหยุดหรือปิดรับนัด ให้ไปที่{' '}
+            <Link to="/business-hours" className="font-bold underline">เวลาทำการ &amp; วันหยุด</Link>
+          </p>
+        </div>
         <div className="flex gap-4">
           <div className="flex-1">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">เปิด</label>

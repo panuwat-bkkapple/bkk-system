@@ -1,7 +1,8 @@
 import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
-  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail
+  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail,
+  CalendarClock
 } from 'lucide-react';
 
 // Single source of truth ของโครงเมนูตั้งค่า (Reusely-style 3 กลุ่ม):
@@ -32,7 +33,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     title: 'Company Settings',
     subtitle: 'ข้อมูลบริษัท ทีมงาน และบัญชี',
     items: [
-      { path: '/store-settings', label: 'ข้อมูลร้าน', description: 'เบอร์โทร LINE อีเมล เวลาทำการ (ค่ากลางของระบบ)', icon: <Store size={18} />, roles: ['CEO', 'MANAGER'] },
+      { path: '/store-settings', label: 'ข้อมูลร้าน', description: 'เบอร์โทร LINE อีเมล และเวลาทำการที่ AI ใช้ตอบลูกค้า', icon: <Store size={18} />, roles: ['CEO', 'MANAGER'] },
+      { path: '/business-hours', label: 'เวลาทำการ & วันหยุด', description: 'วันหยุดพิเศษ วันหยุดประจำสัปดาห์ ชั่วโมงเปิดจอง — คุมปฏิทินนัดของลูกค้าโดยตรง', icon: <CalendarClock size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/admin/branches', label: 'สาขา (Locations)', description: 'จัดการสาขา ที่อยู่ หมุดแผนที่ เวลาเปิด-ปิด', icon: <MapPin size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/staff', label: 'พนักงาน (Users)', description: 'บัญชีพนักงาน role และสถานะการใช้งาน', icon: <Users size={18} />, roles: ['CEO'] },
       { path: '/accounting-settings', label: 'ระบบบัญชี & ใบกำกับภาษี', description: 'ข้อมูลนิติบุคคล VAT เลขรันใบกำกับ อีเมลเอกสาร', icon: <Calculator size={18} />, roles: ['CEO', 'FINANCE'] },
