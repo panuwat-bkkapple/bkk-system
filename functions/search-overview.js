@@ -60,11 +60,24 @@ const DEFAULT_DAILY_OVERVIEW_CAP = 2000;
  *
  * MIRROR of CATALOG_REVALIDATE_SECONDS in bkk-frontend-next/lib/cachePolicy.ts
  * — the website reads the catalog on that clock, and this answer quotes
- * prices computed from it. If this outlives that, the page argues with
- * itself: the paragraph says 22,000 while the card underneath says 21,000.
- * Two repos, two languages, so it cannot be one constant — CHANGE BOTH.
+ * prices computed from it. Two repos, two languages, so it cannot be one
+ * constant — CHANGE BOTH.
+ *
+ * Both moved 300 -> 3600 in Aug 2026, when the catalog stopped being polled
+ * and started being pushed: a Cloud Function now revalidates the website the
+ * moment a price is written, so this number is a backstop rather than the
+ * freshness mechanism.
+ *
+ * Worth understanding WHY the paragraph cannot outlive the prices it quotes
+ * even at an hour, because it is not this constant that guarantees it: the
+ * cache key is a hash of query AND context, and the context carries the
+ * prices. A price change produces a different key, so the old paragraph
+ * becomes unreachable rather than stale — nothing can look it up to serve it.
+ * The TTL only bounds how long an IDENTICAL question about an IDENTICAL
+ * catalog is answered from cache, which is exactly what it should bound.
+ * Keeping the two numbers equal is belt and braces, and cheap.
  */
-const OVERVIEW_CACHE_TTL_SECONDS = 300;
+const OVERVIEW_CACHE_TTL_SECONDS = 3600;
 
 /**
  * The cache lives HERE rather than in Next, and that is the point.
