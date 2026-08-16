@@ -167,7 +167,9 @@
 - helper geocode ฝั่ง client: `geocodeAddress()` export จาก `PickupLocationPicker.tsx` (ใช้ Maps JS Geocoder)
 
 ## public_track/{jobId} — โหนดที่ทั้งโลกอ่านได้ (repo นี้เป็นเจ้าของ backfill)
-- **`public_track/{jobId}` มี `.read: true` โดยตั้งใจ ห้ามปิด** — ลูกค้าที่ถือลิงก์ติดตามเป็น guest ไม่มีบัญชีให้ gate สิทธิ์ได้. มันคือกระจกเฉพาะฟิลด์ที่หน้า `/track` กับ `/quote` ของเว็บลูกค้าใช้จริง ซึ่งทำให้ `jobs/{id}` ตัวจริงถูกปิดเป็น owner/rider/admin ได้
+- **`public_track/$jobId` มี `.read: true` โดยตั้งใจ ห้ามปิด** — ลูกค้าที่ถือลิงก์ติดตามเป็น guest ไม่มีบัญชีให้ gate สิทธิ์ได้. มันคือกระจกเฉพาะฟิลด์ที่หน้า `/track` กับ `/quote` ของเว็บลูกค้าใช้จริง ซึ่งทำให้ `jobs/{id}` ตัวจริงถูกปิดเป็น owner/rider/admin ได้
+- **สิทธิ์อ่านต้องอยู่ที่ชั้น `$jobId` ห้ามเลื่อนขึ้นไปไว้ที่ `public_track`** — RTDB ให้สิทธิ์ read ไหลลงทั้ง subtree **และครอบตัวโหนดนั้นเอง** `.read: true` ที่ระดับ `public_track` จึงแปลว่า `curl .../public_track.json` ครั้งเดียวได้ทะเบียนออเดอร์ทั้งร้านโดยไม่ต้องรู้ jobId. **เคยเป็นแบบนั้นจริงจนถึง ส.ค. 2026** และรอดมาสองรอบเพราะบรรทัดนี้เคยเขียนว่า `public_track/{jobId}` ซึ่งอ่านเหมือนมีชั้น `$jobId` ทั้งที่ไฟล์กฎจริงไม่มี — คนรีวิวอ่านเอกสาร ไม่ได้เปิดไฟล์กฎ. **แก้ที่ `bkk-frontend-next/database.rules.json` แล้ว deploy จาก repo นั้น**
+- **sanitizer กับชั้นของกฎเป็นคนละแกน** — sanitizer คุม "หนึ่งใบมีอะไรบ้าง" (ซึ่ง backfill ของ repo นี้ต้องตรงกับ trigger เป๊ะ) ส่วนชั้นของกฎคุม "ดึงได้กี่ใบ" อย่าคิดว่าแกนหนึ่งผ่านแล้วอีกแกนปลอดภัยตาม
 - **เพราะมันเปิด จึงห้ามมี PII หรือข้อมูลภายในอยู่ในนั้น "ไม่ว่าระดับใด"** — รวมถึงข้างใน object และ array. ซ่อนที่ UI ไม่นับ เพราะ `curl .../public_track/{id}.json` ข้ามหน้าเว็บไปเลย
 - **allowlist อยู่ 2 ที่ ต้อง sync ด้วยมือ:**
   - `bkk-frontend-next/functions/src/publicTrackFields.ts` = **ต้นทาง** (trigger `onJobWritePublicTrack` เขียนทุกครั้งที่ job ถูกเขียน)
