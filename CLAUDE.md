@@ -301,6 +301,17 @@
 - **การผูก role ใช้อีเมล:** staff record มี `email` (lowercase) + `uid` ของบัญชี Auth — `useStaffSession` ฝั่ง client และ `lookupStaffByAuth` ฝั่ง functions จับคู่ด้วยอีเมล
 - **FCM token ต้อง key ด้วย staff push id** (`admin_fcm_tokens/{staffId}`) ไม่ใช่ Firebase uid — push แบบเจาะ role (`staffIdsByRoles` → `dispatchAdminPush(allowStaffIds)`) ฟิลเตอร์ด้วย staff id; session มี `id` เสมอ call sites ใช้ `currentUser?.id || currentUser?.uid`
 
+## เวลาทำการ & วันหยุด (settings/store/business_hours)
+- **หน้า `/business-hours`** (`src/pages/admin/BusinessHoursSettings.tsx`, CEO/MANAGER, กลุ่ม Company ใน settingsNav) = เจ้าของ `settings/store/business_hours`: `openHour` / `closeHour` / `closedDays[]` (0=อา..6=ส) / `holidays[]` (YYYY-MM-DD ปฏิทินไทย) / `temporaryClosed` + `temporaryClosedMessage`
+- **ค่าชุดนี้ gate หน้า checkout ของลูกค้าจริง** — ตัวเลือกวันใน modal นัดรับเครื่อง (ทั้งไรเดอร์และเข้าสาขา) มาจากมันโดยตรง และ `validateAndCreateOrder` ฝั่ง `bkk-frontend-next/functions` ตรวจซ้ำด้วยค่าเดียวกัน ตั้งวันหยุดที่นี่ = ลูกค้ากดจองวันนั้นไม่ได้ทันที ไม่ต้อง deploy
+- **ห้ามสับสนกับ "เวลาทำการมาตรฐาน" ที่ `/store-settings`** — อันนั้นคือ `settings/store_profile.hours_start/hours_end` ซึ่งเป็น**ข้อความที่ AI เอาไปพูดกับลูกค้าเท่านั้น ไม่ได้ควบคุมอะไร** แอดมินที่เข้าไปแก้ตรงนั้นเพื่อหวังปิดไม่ให้จองจะไม่เกิดอะไรขึ้นเลยและไม่มีอะไรบอกเขา — จึงมีกล่องเตือน + ลิงก์ข้ามไปหน้านี้ฝังไว้ที่ `StoreSettings.tsx` **ห้ามลบ**
+- **ที่มา:** เดิมค่านี้แก้ได้ที่ `bkk-frontend-next/app/admin/settings` ที่เดียว ซึ่งกำลังจะถูกยุบมารวมที่ระบบนี้ หน้านี้จึงเกิดขึ้นมารับช่วง — **ทั้งสองหน้าเขียน path เดียวกัน** ช่วงเปลี่ยนผ่านจึงใช้พร้อมกันได้ ไม่ต้อง migrate ข้อมูล
+- **เตือนเมื่อปิดวันที่มีนัดค้าง:** กดเพิ่มวันหยุดที่มีนัดอยู่ → โมดอลโชว์รายการงาน (ref/เวลา/วิธีรับ/สถานะ) + วันหยุดที่ตั้งไว้แล้วขึ้นป้ายแดงถ้ามีนัดค้าง **เตือน ไม่ใช่บล็อก** — ปิดร้านกะทันหันต้องทำได้จริง (พนักงานป่วย ไฟดับ) สิ่งที่ต้องไม่เกิดคือปิดไปเงียบๆ แล้วลูกค้ามาเจอประตูล็อก เพราะการปิดวันไม่ได้ยกเลิกนัดที่จองไว้
+- **MIRROR 2 ที่:** `src/utils/holidayConflicts.ts` ↔ `bkk-frontend-next/app/utils/holidayConflicts.ts` — กฎเดียวกัน เทสเดียวกัน แชร์ไม่ได้เพราะแต่ละ repo ถือ `job-statuses.ts` ของตัวเอง (ดู Data Contracts ข้อ 6) และตัวนี้อ่าน `getPhase()` จากมัน **แก้ที่หนึ่งต้องแก้ทั้งคู่พร้อมเทส**
+  - เกณฑ์คือ "ยังมีคนจะมาไหม" ไม่ใช่ `isTerminal()` — ข้ามงานที่เครื่องถึงมือแล้ว (`Drop-off Received`/`Parcel Received` + เฟส inspection/payout/inventory/terminal/pending_close) นอกนั้นนับหมด **รวมงานที่กำลังส่งเครื่องคืนลูกค้า** เพราะนั่นก็เป็นการเดินทางที่ตกวันหยุดได้
+  - **สถานะที่ไม่รู้จักนับว่ายังมีคนจะมา** โดยตั้งใจ — สถานะใหม่มีโอกาสเป็นขั้นกลางทางมากกว่าเป็นวิธีจบงานแบบใหม่ และต้นทุนเดาผิดไม่สมมาตร (เตือนเกิน = เหลือบมองครั้งเดียว / เตือนขาด = ลูกค้ายืนหน้าร้านที่ปิด)
+- **การตรวจนัดค้างใช้ `useDatabase('jobs')` ไม่ยิง query ใหม่** — แอปนี้ subscribe `jobs` อยู่แล้วทั้งแอป การเปิดหน้านี้จึงไม่เพิ่มค่า download เลย (กฎค่า RTDB)
+
 ## ราคาสด / ยืนราคา (settings/quote)
 - **ราคารับซื้อไม่ถูกเก็บไว้ในเครื่องลูกค้าอีกแล้ว** — ตะกร้าเว็บลูกค้าเก็บแค่รหัสประเมิน `Q-XXXXXX` ราคาคำนวณสดจาก `/models` ทุกครั้ง. ระบบทั้งหมดอยู่ `bkk-frontend-next/functions/src/assessments.ts` (ดู CLAUDE.md ของ repo นั้น) — repo นี้เป็นเจ้าของแค่**หน้าตั้งค่า**กับ**การแสดงผลบนตั๋ว**
 - **หน้าตั้งค่า:** `/global-settings` การ์ด "ราคาประเมิน และการยืนราคา" เขียน `settings/quote`: `checkout_ttl_min` (15 นาที ระหว่างกรอกฟอร์ม) / `lock_days` (7 วัน ยืนราคาหลังลงทะเบียน) / `assessment_gc_days` (30 วัน อายุรหัสที่ไม่กลายเป็นงาน)
