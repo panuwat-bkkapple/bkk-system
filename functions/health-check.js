@@ -479,6 +479,63 @@ function buildProbes(db) {
     },
 
     {
+      id: "search_analytics_ttl",
+      label: "Search Analytics — อายุข้อมูลตาม retention",
+      // ตัวจับ "TTL policy หายไป" ซึ่งเป็นความพังที่เงียบที่สุดในระบบนี้
+      //
+      // ตาราง search_events (Firestore, เว็บลูกค้าเขียน) ต้องหายเองใน 90 วัน
+      // ตามที่เขียนไว้ในนโยบายความเป็นส่วนตัวและ RoPA. **แต่ตัวลบไม่ได้อยู่ใน
+      // โค้ดของ repo ไหนเลย** — โค้ดแค่ประทับฟิลด์ `expires_at` ส่วนตัวที่ลบ
+      // จริงคือ TTL policy ที่ตั้งใน Google Cloud ต่อ collection. ถ้าไม่ได้ตั้ง
+      // (หรือถูกลบทีหลัง) ทุก write ยังสำเร็จ ไม่มี error ไม่มีอะไรเตือน
+      // แถวก็แค่ไม่หายไปไหน แล้วกลายเป็นทะเบียนคำค้นถาวรที่ไม่มีใครตั้งใจสร้าง
+      // และขัดกับสิ่งที่เราประกาศกับลูกค้าไว้ — ซึ่งเป็นปัญหา PDPA ไม่ใช่
+      // ปัญหาพื้นที่เก็บข้อมูล
+      //
+      // วิธีตรวจคือถามคำถามที่ตรงกับผลลัพธ์ที่ต้องการจริงๆ: เอกสารที่เก่าที่สุด
+      // อายุเท่าไหร่ ถ้ามันเกินเพดาน แปลว่าไม่มีอะไรมาลบมันอยู่ — ตรวจผลลัพธ์
+      // ไม่ใช่ตรวจว่า config ถูกตั้งไว้ไหม เพราะ config ที่ตั้งไว้แต่ไม่ทำงาน
+      // ก็ยังอ่านว่าตั้งแล้วอยู่ดี
+      run: async () => {
+        let store;
+        try {
+          store = require("firebase-admin/firestore").getFirestore();
+        } catch (e) {
+          return { status: "skip", message: "ยังไม่ได้เปิดใช้ Firestore" };
+        }
+        let snap;
+        try {
+          snap = await store.collection("search_events").orderBy("at", "asc").limit(1).get();
+        } catch (e) {
+          // ยังไม่ได้สร้าง database / ยังไม่มี index / ไม่มีสิทธิ์ — ทั้งหมด
+          // แปลว่า "ยังวัดไม่ได้" ไม่ใช่ "พัง" ตาม convention env-not-set
+          return { status: "skip", message: `อ่าน Firestore ไม่ได้: ${e.message}` };
+        }
+        if (snap.empty) {
+          return { status: "ok", message: "ยังไม่มีข้อมูล (ฟีเจอร์อาจยังปิดอยู่)" };
+        }
+        const oldestAt = Number(snap.docs[0].get("at")) || 0;
+        if (!oldestAt) return { status: "skip", message: "เอกสารเก่าสุดไม่มีฟิลด์ at" };
+        const ageDays = Math.floor((Date.now() - oldestAt) / 86400000);
+        // เผื่อ 7 วัน: TTL ของ Firestore เป็น best-effort ลบภายใน 24 ชม.
+        // หลังหมดอายุ "โดยทั่วไป" ไม่ใช่ตรงเป๊ะ — เตือนตั้งแต่ช้าไปวันเดียว
+        // คือเตือนหมาป่า ซึ่งเป็นบทเรียนเดียวกับ probe ที่ retry ก่อนตัดสิน
+        const RETENTION_DAYS = 90;
+        const GRACE_DAYS = 7;
+        if (ageDays > RETENTION_DAYS + GRACE_DAYS) {
+          return {
+            status: "fail",
+            message:
+              `เอกสารเก่าสุดอายุ ${ageDays} วัน เกินเพดาน ${RETENTION_DAYS} วัน — ` +
+              "TTL policy น่าจะไม่ได้ตั้งหรือถูกลบ (gcloud firestore fields ttls update " +
+              "expires_at --collection-group=search_events --enable-ttl)",
+          };
+        }
+        return { status: "ok", message: `เอกสารเก่าสุดอายุ ${ageDays} วัน (เพดาน ${RETENTION_DAYS})` };
+      },
+    },
+
+    {
       id: "anthropic",
       label: "Anthropic API (Chat AI)",
       run: async () => {
