@@ -17,6 +17,7 @@ const TradeInDashboard = lazy(() => import('./features/trade-in/TradeInDashboard
 const Inventory = lazy(() => import('./pages/inventory/Inventory').then(m => ({ default: m.Inventory })));
 const Analytics = lazy(() => import('./pages/analytics/Analytics').then(m => ({ default: m.Analytics })));
 const CouponAnalytics = lazy(() => import('./pages/analytics/CouponAnalytics').then(m => ({ default: m.CouponAnalytics })));
+const SearchAnalytics = lazy(() => import('./pages/analytics/SearchAnalytics').then(m => ({ default: m.SearchAnalytics })));
 const ChatAnalytics = lazy(() => import('./pages/analytics/ChatAnalytics').then(m => ({ default: m.ChatAnalytics })));
 const PriceEditor = lazy(() => import('./features/trade-in/PriceEditor').then(m => ({ default: m.PriceEditor })));
 const QCStation = lazy(() => import('./pages/lab/QCStation').then(m => ({ default: m.QCStation })));
@@ -137,6 +138,10 @@ export default function App() {
               <Route path="/analytics/trade-in" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="buying" /> : <Navigate to="/" replace />} />
               <Route path="/analytics/sales" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <Analytics mode="sales" /> : <Navigate to="/" replace />} />
               <Route path="/analytics/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponAnalytics /> : <Navigate to="/" replace />} />
+              {/* gate ตรงกับ READ_ROLES ใน functions/search-analytics.js — สิทธิ์
+                  CEO/MANAGER เป็นส่วนหนึ่งของการชั่งน้ำหนักตาม PDPA ที่บันทึกไว้
+                  ใน RoPA Activity 11 ไม่ใช่แค่การจัดเมนู */}
+              <Route path="/analytics/search" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SearchAnalytics /> : <Navigate to="/" replace />} />
               <Route path="/analytics/chat" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ChatAnalytics /> : <Navigate to="/" replace />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/accessories" element={<Accessories />} />
