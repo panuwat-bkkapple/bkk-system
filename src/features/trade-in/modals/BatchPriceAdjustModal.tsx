@@ -62,7 +62,12 @@ export const BatchPriceAdjustModal: React.FC<BatchPriceAdjustModalProps> = ({
     setSaving(true);
     try {
       const auth = getAuth(app);
-      const adminUser = auth.currentUser?.email || 'System Admin';
+      // uid ไม่ใช่อีเมล — `price_ledger` เป็นโหนดที่ `.read: true` (ตั้งใจ
+      // เปิดให้ลูกค้าดูประวัติการเปลี่ยนราคา) ดังนั้นทุกฟิลด์ในนั้นคือของ
+      // สาธารณะ อีเมลพนักงานจริงจึงอยู่ในนั้นไม่ได้ — `curl .../price_ledger.json`
+      // ครั้งเดียวได้ทะเบียนอีเมลทีมทั้งชุด. uid ยังตอบโจทย์ audit ภายในได้
+      // (แอดมิน map uid → คนได้จาก /staff) แต่คนนอกอ่านไม่ออก
+      const adminUser = auth.currentUser?.uid || 'admin';
 
       for (const item of preview) {
         const updatedVariants = item.original.variants.map((v: any, i: number) => ({
