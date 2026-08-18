@@ -22,7 +22,7 @@
 
 const crypto = require("crypto");
 const { onRequest } = require("firebase-functions/v2/https");
-const { getDatabase } = require("firebase-admin/database");
+const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { isPermanentAiFailure, suspendAssistant } = require("./chat-ai");
 const {
   searchFaq,
@@ -422,6 +422,151 @@ function parseOverview(raw) {
   }
 }
 
+
+// ─── Answer archive ──────────────────────────────────────────────────────────
+//
+// WHAT THIS IS FOR, and the line it must not cross.
+//
+// The customer's QUESTION is owned by one system: the search analytics table
+// in Firestore, written by bkk-frontend-next, where it is redacted before it
+// is stored and deleted after 90 days. This archive is the other half — the
+// things only the GENERATOR knows and the website has no way to see: which
+// model answered, how long it took, how much context it was given, and every
+// reason a request was refused.
+//
+// So the rule for this whole section, and the reason the tests walk every
+// field of every row: NOTHING WRITTEN HERE MAY CONTAIN THE CUSTOMER'S WORDS.
+// Not the query, not a fragment of it, not a "sample" of one. The moment it
+// does, this project has two stores of customer questions with two different
+// retentions and two different redaction rules, and the sentence in /privacy
+// that says we do not keep raw search text becomes false in the quietest
+// possible way.
+//
+// The join back to a question is `cacheKey` — the sha256 of query+context
+// that already exists to key the cache. It is returned to the website, which
+// stores it on its own (redacted) row. One identity, two halves, no text
+// copied across the boundary.
+//
+// Path: search_overview_archive/{ymd}/{hash} for anything with an answer
+// identity, and search_overview_archive/{ymd}/_gate/{reason} for refusals
+// that happen BEFORE a hash exists. The node is not declared in
+// database.rules.json, so it inherits the root deny — no client can read it,
+// exactly like search_overview_cache next to it.
+
+/**
+ * The cache row, as a builder so a test can prove what it does NOT contain.
+ *
+ * `query` USED TO BE HERE and was removed: it was the customer's raw text,
+ * unredacted, stored under a hash for an hour, and nothing ever read it —
+ * the cache lookup uses `expires_at`, `summary` and `detail` and never
+ * touched it (verified across all three repos before removing). It was the
+ * one place customer words lived outside the system that owns them.
+ */
+function buildCacheRow({ summary, detail, now }) {
+  return {
+    summary: String(summary || ""),
+    detail: String(detail || ""),
+    created_at: Number(now) || 0,
+    expires_at: (Number(now) || 0) + OVERVIEW_CACHE_TTL_SECONDS * 1000,
+  };
+}
+
+const ARCHIVE_ROOT = "search_overview_archive";
+
+/**
+ * A generated answer.
+ *
+ * `inputChars` rather than the context itself: the size is what tells you
+ * whether a slow answer was a big prompt or a slow model, and the context
+ * contains prices and store facts that are already in the catalog. Storing
+ * the text would also mean storing the customer's query inside it, because
+ * the context is built around the question.
+ */
+function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts }) {
+  return {
+    model: String(model || ""),
+    latencyMs: Number(latencyMs) || 0,
+    inputChars: Number(inputChars) || 0,
+    // OUR OWN words: written by our generator from our own catalog facts.
+    // This is the half a reviewer needs to judge whether an answer was any
+    // good, which is the entire point of keeping it.
+    summary: String(summary || ""),
+    detail: String(detail || ""),
+    topics: Array.isArray(topics) ? topics.map(String) : [],
+    ts: Number(ts) || 0,
+  };
+}
+
+/**
+ * A refusal, on a request that had got far enough to have an identity.
+ *
+ * Reason only. Which question hit the cap is answerable by joining the hash
+ * back to the analytics row; repeating the question here would be the second
+ * copy this file exists to avoid.
+ */
+function buildArchiveSkipRow(reason, ts) {
+  return { skipped: String(reason || "unknown"), ts: Number(ts) || 0 };
+}
+
+/**
+ * A cache hit, as a patch on the row the answer already wrote.
+ *
+ * A TRANSACTION rather than a blind update, for one reason: the row may not
+ * exist. A blind `update` would create `{hits, lastHitTs}` and no `ts`, and a
+ * row with no timestamp of its own is a row nobody can place in time. The
+ * transaction lets an orphan be seeded properly while an existing row keeps
+ * the answer — and its original `ts` — untouched.
+ *
+ * ONE EDGE, worth knowing before reading the data: the row is bucketed by
+ * TODAY, while the answer may have been generated yesterday (the cache holds
+ * for an hour, so this only happens across midnight). Those rows carry hits
+ * and no answer text, and that is what they mean — the answer lives in the
+ * bucket of the day it was written.
+ */
+function buildArchiveHitRow(current, ts) {
+  const at = Number(ts) || 0;
+  // No row yet: the answer was generated before this archive existed, or
+  // yesterday (the cache holds an hour, so this is the midnight case). Seed a
+  // row that says what it is — reuse, no answer text — rather than skipping
+  // the hit. Backfilling the missing answer is not worth a read on this path.
+  if (!current) return { hits: 1, lastHitTs: at, ts: at };
+  // A row exists: bump it and leave everything else exactly as the answer
+  // wrote it. `ts` is the moment the ANSWER was written and must survive
+  // every later hit — overwriting it would make a popular answer look freshly
+  // generated every time somebody asked again.
+  return { ...current, hits: (Number(current.hits) || 0) + 1, lastHitTs: at };
+}
+
+/**
+ * Every archive write goes through here, and none of them is awaited.
+ *
+ * The archive is a record of an answer, not part of producing one. A customer
+ * waiting on a paragraph must never wait on a write to it, and an archive
+ * that is down must never turn a good answer into a failed request — so this
+ * returns immediately, swallows rejections into a warn, and cannot throw even
+ * if `db.ref` itself blows up.
+ */
+function archiveWrite(db, tag, path, mutate) {
+  try {
+    const ref = db.ref(path);
+    const p = mutate(ref);
+    if (p && typeof p.catch === "function") {
+      p.catch((e) => console.warn(`[${tag}] archive write failed (${path}):`, e));
+    }
+  } catch (e) {
+    console.warn(`[${tag}] archive write threw (${path}):`, e);
+  }
+}
+
+/** Refusals that happen before a hash exists are counted per reason per day.
+ *  A counter, not a row: there is no answer identity to hang one on, and the
+ *  question that would identify it belongs to the other system. */
+function archiveGateSkip(db, tag, ymd, reason) {
+  archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/_gate/${reason}`, (ref) =>
+    ref.set(ServerValue.increment(1))
+  );
+}
+
 /**
  * POST { query, context, topics? } -> { summary, detail } | { skipped: reason }
  *
@@ -471,16 +616,27 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // "The assistant is off" and "the assistant is broken" both mean there
       // is no AI on this site right now, and a summary written by the thing
       // we just told everyone is unavailable would be a strange exception.
+      // From here on the caller is authenticated and has sent a real question,
+      // so every outcome is archived. The refusals ABOVE this point
+      // (method_not_allowed / not_configured / forbidden / empty_request) are
+      // deliberately not: they never reached the decision, and writing a row
+      // for `forbidden` would hand an unauthenticated caller a way to make us
+      // write to the database.
+      const gateYmd = bangkokYmd();
+
       let pub = {};
       try {
         pub = (await db.ref("settings/chat_widget/public").once("value")).val() || {};
       } catch (e) {
         console.error(`[${tag}] settings read failed:`, e);
+        archiveGateSkip(db, tag, gateYmd, "settings_unavailable");
         res.json({ skipped: "settings_unavailable" });
         return;
       }
       if (pub.enabled !== true || pub.ai_suspended === true) {
-        res.json({ skipped: pub.ai_suspended === true ? "suspended" : "disabled" });
+        const reason = pub.ai_suspended === true ? "suspended" : "disabled";
+        archiveGateSkip(db, tag, gateYmd, reason);
+        res.json({ skipped: reason });
         return;
       }
 
@@ -489,6 +645,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // setup working unchanged until OVERVIEW_API_KEY is actually set.
       const apiKey = process.env.OVERVIEW_API_KEY || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
+        archiveGateSkip(db, tag, gateYmd, "no_api_key");
         res.json({ skipped: "no_api_key" });
         return;
       }
@@ -512,7 +669,10 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       try {
         const hit = (await cacheRef.once("value")).val();
         if (hit && Number(hit.expires_at) > Date.now() && hit.summary) {
-          res.json({ summary: hit.summary, detail: hit.detail || "", cached: true });
+          archiveWrite(db, tag, `${ARCHIVE_ROOT}/${bangkokYmd()}/${key}`, (ref) =>
+            ref.transaction((cur) => buildArchiveHitRow(cur, Date.now()))
+          );
+          res.json({ summary: hit.summary, detail: hit.detail || "", cached: true, cacheKey: key });
           return;
         }
       } catch (e) {
@@ -528,11 +688,20 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         .transaction((cur) => (Number(cur) || 0) + 1);
       if ((Number(capTx.snapshot.val()) || 0) > cap) {
         console.warn(`[${tag}] daily overview cap reached (${cap})`);
-        res.json({ skipped: "cap_reached" });
+        archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+          ref.update(buildArchiveSkipRow("cap_reached", Date.now()))
+        );
+        res.json({ skipped: "cap_reached", cacheKey: key });
         return;
       }
 
       const assistantName = String(pub.assistant_name || "มาติน");
+      const overviewModel = process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL;
+      // Measured around the Anthropic call alone. Wrapping the cache read and
+      // the facts load into it would report a number nobody can act on: those
+      // are our own database, and the question the archive answers is whether
+      // the MODEL is slow.
+      const startedAt = Date.now();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), OVERVIEW_TIMEOUT_MS);
       try {
@@ -545,7 +714,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             "anthropic-version": ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL,
+            model: overviewModel,
             max_tokens: MAX_OUTPUT_TOKENS,
             system: buildOverviewSystemPrompt(assistantName),
             messages: [
@@ -571,7 +740,10 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         const parsed = parseOverview(text);
         if (!parsed) {
           console.warn(`[${tag}] unparseable reply for "${query}"`);
-          res.json({ skipped: "unparseable" });
+          archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+            ref.update(buildArchiveSkipRow("unparseable", Date.now()))
+          );
+          res.json({ skipped: "unparseable", cacheKey: key });
           return;
         }
         // Best-effort, and after the answer is in hand: a failed write costs
@@ -579,15 +751,22 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         // answer. Only good answers are stored — an unparseable reply above
         // returned already, so a bad turn is never cached into the window.
         cacheRef
-          .set({
-            summary: parsed.summary,
-            detail: parsed.detail || "",
-            query: query.slice(0, 200),
-            created_at: Date.now(),
-            expires_at: Date.now() + OVERVIEW_CACHE_TTL_SECONDS * 1000,
-          })
+          .set(buildCacheRow({ summary: parsed.summary, detail: parsed.detail, now: Date.now() }))
           .catch((e) => console.warn(`[${tag}] cache write failed:`, e));
-        res.json(parsed);
+        archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+          ref.update(
+            buildArchiveAnswerRow({
+              model: overviewModel,
+              latencyMs: Date.now() - startedAt,
+              inputChars: context.length,
+              summary: parsed.summary,
+              detail: parsed.detail,
+              topics,
+              ts: Date.now(),
+            })
+          )
+        );
+        res.json({ ...parsed, cacheKey: key });
       } catch (err) {
         console.error(`[${tag}] failed for "${query}":`, err);
         // Credit gone or key revoked: take the whole assistant down, exactly
@@ -596,7 +775,14 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         if (isPermanentAiFailure(err)) {
           await suspendAssistant(db, err, tag, dispatchOpsAlert);
         }
-        res.json({ skipped: "error" });
+        // A timeout is an abort, and it is the failure most worth telling
+        // apart from the rest when reading this back later.
+        archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+          ref.update(
+            buildArchiveSkipRow(err && err.name === "AbortError" ? "timeout" : "error", Date.now())
+          )
+        );
+        res.json({ skipped: "error", cacheKey: key });
       } finally {
         clearTimeout(timer);
       }
@@ -610,6 +796,13 @@ module.exports = {
   registerSearchOverview,
   __test: {
     parseOverview,
+    buildCacheRow,
+    buildArchiveAnswerRow,
+    buildArchiveSkipRow,
+    buildArchiveHitRow,
+    archiveWrite,
+    archiveGateSkip,
+    ARCHIVE_ROOT,
     buildOverviewSystemPrompt,
     sanitizeTopics,
     renderTopic,
