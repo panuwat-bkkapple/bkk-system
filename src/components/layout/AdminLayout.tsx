@@ -6,7 +6,8 @@ import {
   ChevronLeft, ChevronRight,
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
-  Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, FileSpreadsheet, BookOpen, HandCoins
+  Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, FileSpreadsheet, BookOpen, HandCoins,
+  Search
 } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -209,6 +210,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/analytics/trade-in" icon={<BarChart3 size={18} />} label="สถิติการรับซื้อ" />
                 {hasAccess(['CEO']) && <NavButton collapsed={isCollapsed} to="/analytics/sales" icon={<TrendingUp size={18} />} label="วิเคราะห์กำไร" />}
                 <NavButton collapsed={isCollapsed} to="/analytics/coupons" icon={<Ticket size={18} />} label="วิเคราะห์คูปอง" />
+                {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/analytics/search" icon={<Search size={18} />} label="วิเคราะห์การค้นหา" />}
                 <NavButton collapsed={isCollapsed} to="/offer-report" icon={<HandCoins size={18} />} label="วิเคราะห์ Make Offer" />
                 <NavButton collapsed={isCollapsed} to="/analytics/chat" icon={<MessageSquare size={18} />} label="Chat Analytics & SLA" />
               </div>

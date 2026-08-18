@@ -6636,6 +6636,13 @@ Object.assign(
 Object.assign(exports, require("./email-templates-admin").registerEmailTemplateAdmin());
 
 // =============================================================================
+// Search Analytics (/analytics/search) — ตัวอ่านของตาราง Firestore ที่เว็บ
+// ลูกค้าเขียน. ต้องผ่าน callable เพราะ firestore.rules ปิดทุก path และกฎ
+// Firestore อ่าน /admins ที่อยู่ใน RTDB ไม่ได้ (logic อยู่ search-analytics.js)
+// =============================================================================
+Object.assign(exports, require("./search-analytics").registerSearchAnalytics());
+
+// =============================================================================
 // หนังสือรับรองการหักภาษี ณ ที่จ่าย (50 ทวิ) ของไรเดอร์ — ออกอัตโนมัติเมื่อ
 // รายการถอนที่หักภาษีไว้ถูกบันทึก (logic อยู่ rider-wht-issue.js)
 // =============================================================================
