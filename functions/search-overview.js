@@ -376,6 +376,20 @@ function buildOverviewSystemPrompt(assistantName) {
     // service. It read like an answer and contained none. When the facts do
     // not cover the question, saying so is the answer.
     "9. ถ้าข้อมูลจากระบบด้านล่างไม่มีคำตอบของสิ่งที่ลูกค้าถาม (เช่น ถามเรื่องสาขาหรือขั้นตอน แต่ได้มาแต่ราคารุ่น) ให้บอกตรงๆ ในประโยคแรกว่ายังไม่มีข้อมูลส่วนนั้นตรงนี้ แล้วชี้ว่าหน้าไหนในเว็บน่าจะมี — ห้ามเขียนย่อหน้าที่ฟังดูเหมือนคำตอบโดยไม่มีข้อมูลรองรับ",
+    // Rules 10-11 ship BEFORE the website starts sending computed deduction
+    // lines (deploy order: function first, always). The moment those lines
+    // appear in the context, the model must already treat them as read-only
+    // figures. Until then both rules match nothing, which is the safe
+    // direction — same reasoning as the service-facts line that forbids
+    // quoting a deduction percentage.
+    "10. ถ้ามีบรรทัดระบุยอดหักตามสภาพ นั่นคือตัวเลขที่ระบบคำนวณจากเกณฑ์ประเมินจริงของรุ่นนั้นแล้ว ให้ใช้ตัวเลขนั้นตรงๆ เท่านั้น ห้ามคำนวณยอดหักหรือเปอร์เซ็นต์การหักเองจากราคารับซื้อ และตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเองเด็ดขาด ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
+    "11. ยอด 'เหลือประมาณ' ทุกตัวเป็นการประเมินก่อนตรวจเครื่องจริง ถ้าพูดถึงต้องบอกกำกับว่ายอดสุดท้ายยืนยันอีกครั้งหลังตรวจสภาพเครื่อง ห้ามใช้คำว่ารับประกัน การันตี หรือคำที่ทำให้เข้าใจว่าเป็นยอดที่ตกลงแล้ว",
+    // Search is answer-then-stop. This box is written once, cached per query,
+    // and never hears a reply — a question back ("ความจุเท่าไหร่ครับ?") is a
+    // conversation opener on a surface with no ears. Asking is the chat's and
+    // the assessment form's job; the overview answers from what it was given
+    // and says plainly when that is not enough (rules 3 and 9).
+    "12. ห้ามถามคำถามกลับไปหาลูกค้าไม่ว่ากรณีใด — สรุปจากข้อมูลที่มีให้จบในคำตอบเดียว ถ้าข้อมูลไม่พอให้บอกตรงๆ ตามข้อ 3 และข้อ 9 การซักถามข้อมูลเพิ่มเป็นหน้าที่ของแชทและฟอร์มประเมินราคา ไม่ใช่ของกล่องสรุปนี้",
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
     '{"summary": "...", "detail": "..."}',

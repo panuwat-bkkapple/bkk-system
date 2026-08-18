@@ -211,5 +211,24 @@ check("survives hostile input", sanitizeTopics([{ a: 1 }, 42, "x".repeat(500)]).
   check("earlier rules are untouched", prompt.includes("8. ถ้าจะพูดถึง 'ช่วงราคารวม'") && prompt.includes("7. ห้ามใช้อีโมจิ"));
 }
 
+// ---------------------------------------------------------------------------
+// Rules 10-12 — deduction figures are read-only, estimates are labelled as
+// estimates, and the overview never asks the customer anything back.
+// Written BEFORE the website ships computed deduction lines: deploy order is
+// function-first, so the model knows the rules before it ever sees a figure.
+// ---------------------------------------------------------------------------
+{
+  const prompt = buildOverviewSystemPrompt("มาติน");
+  check("rule 10 forbids computing a deduction", prompt.includes("10. ถ้ามีบรรทัดระบุยอดหักตามสภาพ") && prompt.includes("ห้ามคำนวณยอดหักหรือเปอร์เซ็นต์การหักเอง"));
+  check("rule 10 forbids estimating an unlisted defect", prompt.includes("ตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเองเด็ดขาด"));
+  check("rule 11 labels remainders as pre-inspection", prompt.includes("11. ยอด 'เหลือประมาณ'") && prompt.includes("ยืนยันอีกครั้งหลังตรวจสภาพเครื่อง"));
+  check("rule 11 forbids guarantee wording", prompt.includes("ห้ามใช้คำว่ารับประกัน การันตี"));
+  check("rule 12 forbids asking the customer back", prompt.includes("12. ห้ามถามคำถามกลับไปหาลูกค้าไม่ว่ากรณีใด"));
+  check("rule 12 hands questioning to chat and the form", prompt.includes("หน้าที่ของแชทและฟอร์มประเมินราคา"));
+  // The rules sit inside the numbered block, before the answer-format section
+  // — a rule after "รูปแบบคำตอบ" reads as formatting advice, not a rule.
+  check("rules 10-12 precede the format section", prompt.indexOf("12. ห้ามถามคำถามกลับ") < prompt.indexOf("รูปแบบคำตอบ"));
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
