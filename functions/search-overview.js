@@ -38,7 +38,13 @@ const ANTHROPIC_VERSION = "2023-06-01";
 // Haiku on purpose. The job is "restate these numbers in a sentence", not
 // reasoning — and this runs on a page a customer is waiting on, so latency is
 // part of the answer.
-const OVERVIEW_MODEL = "claude-haiku-4-5";
+//
+// The env override is OVERVIEW_MODEL, this surface's OWN variable — it used
+// to read CHAT_AI_MODEL first, which meant every time the chat was switched
+// between Haiku and Sonnet the overview silently switched with it and paid
+// Sonnet prices for sentence-restating. The overview never follows the chat
+// model again; unset env means the Haiku default below.
+const DEFAULT_OVERVIEW_MODEL = "claude-haiku-4-5";
 const OVERVIEW_TIMEOUT_MS = 20000;
 const MAX_OUTPUT_TOKENS = 700;
 const MAX_CONTEXT_CHARS = 6000;
@@ -464,7 +470,10 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         return;
       }
 
-      const apiKey = process.env.ANTHROPIC_API_KEY;
+      // Its own key first, so overview spend can be billed apart from the
+      // chat's — falling back to the shared key keeps today's single-key
+      // setup working unchanged until OVERVIEW_API_KEY is actually set.
+      const apiKey = process.env.OVERVIEW_API_KEY || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
         res.json({ skipped: "no_api_key" });
         return;
@@ -522,7 +531,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             "anthropic-version": ANTHROPIC_VERSION,
           },
           body: JSON.stringify({
-            model: process.env.CHAT_AI_MODEL || OVERVIEW_MODEL,
+            model: process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL,
             max_tokens: MAX_OUTPUT_TOKENS,
             system: buildOverviewSystemPrompt(assistantName),
             messages: [

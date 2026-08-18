@@ -175,6 +175,8 @@ jobs:
             printf 'TELEGRAM_CHAT_ID=%s\n' "$TELEGRAM_CHAT_ID"
             printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
             printf 'CHAT_AI_MODEL=%s\n' "$CHAT_AI_MODEL"
+            printf 'OVERVIEW_MODEL=%s\n' "$OVERVIEW_MODEL"
+            printf 'OVERVIEW_API_KEY=%s\n' "$OVERVIEW_API_KEY"
             printf 'MIGRATION_API_KEY=%s\n' "$MIGRATION_API_KEY"
             printf 'SEARCH_OVERVIEW_KEY=%s\n' "$SEARCH_OVERVIEW_KEY"
           } > functions/.env
@@ -191,6 +193,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHAT_AI_MODEL: ${{ secrets.CHAT_AI_MODEL }}
+          # The /search overview's OWN model + billing key. It must never
+          # follow CHAT_AI_MODEL: switching the chat between Haiku and Sonnet
+          # used to silently switch the overview with it and pay Sonnet prices
+          # for sentence-restating. Unset model = Haiku default in
+          # functions/search-overview.js; unset key = falls back to
+          # ANTHROPIC_API_KEY (single-bill setup keeps working).
+          OVERVIEW_MODEL: ${{ secrets.OVERVIEW_MODEL }}
+          OVERVIEW_API_KEY: ${{ secrets.OVERVIEW_API_KEY }}
           # Shared secret gating the public migrateOldJobs endpoint. If this
           # secret is unset the endpoint deploys DISABLED (503) rather than
           # open -- see migrationKeyAccepted() in functions/index.js.
