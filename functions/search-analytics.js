@@ -95,6 +95,8 @@ async function loadSearchAnalytics(db, days) {
   const zeroQueries = {};
   const modelHits = {};
   const topicCounts = {};
+  const bySource = {};
+  let withOverviewKey = 0;
   const uids = new Set();
   let questions = 0;
   let noResults = 0;
@@ -119,6 +121,13 @@ async function loadSearchAnalytics(db, days) {
     if (e.alone_hits === 0) rescued += 1;
     if (e.redacted) redactedCount += 1;
     if (e.uid) uids.add(e.uid);
+
+    // ใครตอบ: template (โค้ดเรียบเรียงตารางราคา ฟรีและทันที) vs ai (เรียก
+    // generator จริง) vs none — แกนที่ใช้ตัดสินว่าการลงทุนกับ AI คุ้มไหม
+    const src = e.source || "none";
+    bySource[src] = (bySource[src] || 0) + 1;
+    // คีย์ join ไปหา search_overview_archive — template ไม่มีโดยนิยาม
+    if (e.overview_key) withOverviewKey += 1;
 
     const ch = e.channel || "direct";
     byChannel[ch] = (byChannel[ch] || 0) + 1;
@@ -232,6 +241,7 @@ async function loadSearchAnalytics(db, days) {
       rescued,
       redacted: redactedCount,
       unverified,
+      with_overview_key: withOverviewKey,
       clicks: outcomes.length,
       searches_with_click: clickedSids.size,
       with_uid: withUid,
@@ -242,6 +252,7 @@ async function loadSearchAnalytics(db, days) {
     by_day: Object.entries(byDay)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([day, v]) => ({ day, ...v })),
+    by_source: topOf(bySource, 6),
     by_channel: topOf(byChannel, 12),
     by_entry_channel: topOf(byEntryChannel, 12),
     clicks_by_kind: topOf(clicksByKind, 12),

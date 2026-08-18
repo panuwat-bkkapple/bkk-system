@@ -34,11 +34,13 @@ interface Payload {
   totals?: {
     searches: number; questions: number; no_results: number; generated: number;
     cached: number; refined: number; rescued: number; redacted: number;
-    unverified: number; clicks: number; searches_with_click: number;
+    unverified: number; with_overview_key: number;
+    clicks: number; searches_with_click: number;
     with_uid: number; searches_with_order: number;
     question_searches: number; question_searches_with_order: number;
   };
   by_day?: DayRow[];
+  by_source?: Counted[];
   by_channel?: Counted[];
   by_entry_channel?: Counted[];
   clicks_by_kind?: Counted[];
@@ -63,6 +65,12 @@ const CHANNEL_LABEL: Record<string, string> = {
   referral: 'เว็บอื่น',
   internal: 'หน้าอื่นในเว็บเรา',
   direct: 'เข้าตรง',
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  ai: 'AI เขียนให้ (เรียก generator จริง)',
+  template: 'โค้ดเรียบเรียงจากตารางราคา (ฟรี)',
+  none: 'ไม่มีคำตอบสรุป',
 };
 
 const CLICK_LABEL: Record<string, string> = {
@@ -292,7 +300,12 @@ export function SearchAnalytics() {
             />
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-4 mb-4">
+          <div className="grid lg:grid-cols-2 gap-4 mb-4">
+            <CountTable
+              title="ใครเป็นคนตอบ" rows={data.by_source || []}
+              empty="ยังไม่มีข้อมูล" labelMap={SOURCE_LABEL}
+              note={`template ไม่ผ่าน generator จึงไม่มีคีย์เชื่อมไปหา archive — มีคีย์ ${data.totals?.with_overview_key ?? 0} จาก ${data.totals?.searches ?? 0} การค้นหา`}
+            />
             <CountTable
               title="ช่องทางที่มา (ของ request นี้)" rows={data.by_channel || []}
               empty="ยังไม่มีข้อมูล" labelMap={CHANNEL_LABEL}
