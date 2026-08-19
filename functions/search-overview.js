@@ -174,6 +174,79 @@ const TOPIC_RENDERERS = {
     return lines.concat(contactLines(central));
   },
 
+  /**
+   * The curated market facts — the ONE place anything about a future price
+   * may come from.
+   *
+   * The website owns the same node (bkk-frontend-next lib/priceForecast) and
+   * draws the numeric ones as a band on the price chart. This renderer is the
+   * second READER of one source, not a second source: nothing here computes a
+   * trend, and there is no path on either side from the price history to a
+   * prediction. That ban is written out in that module's header; the reason
+   * it holds here too is that a buyback price does not move because of its
+   * own past, so extending it hands our own pricing decisions to the customer
+   * dressed as a market forecast.
+   *
+   * EXPIRY IS ENFORCED HERE, not just where the fact is written. A fact past
+   * its date is skipped, and because the facts are hashed into the cache key
+   * (see the call site), the day it lapses the cached paragraphs quoting it
+   * stop being reachable too. That is what makes "forgetting to update means
+   * saying less, never saying something wrong" true rather than aspirational.
+   *
+   * PERCENTAGES, NEVER BAHT. This function does not know which device the
+   * reader is holding — `appliesTo` is a family, and one search can match a
+   * dozen models at a dozen prices. Converting 10-20% into a baht range here
+   * would mean picking a price, and the picked one would be wrong for most
+   * readers. The chart, which knows the variant, is where the band is drawn
+   * in money. Prompt rule 13 forbids the model doing the conversion itself.
+   */
+  async market_trend(db) {
+    const snap = await db.ref("settings/market_facts").once("value");
+    const raw = snap.val() || {};
+    const now = Date.now();
+    const lines = [];
+
+    for (const key of Object.keys(raw)) {
+      const f = raw[key];
+      if (!f || typeof f !== "object") continue;
+
+      const expiresAt = Number(f.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) continue;
+
+      const label = String(f.label || "").trim();
+      const appliesTo = String(f.appliesTo || "").trim();
+      if (!label || !appliesTo) continue;
+
+      const certainty = String(f.certainty || "").trim();
+      const text = String(f.text || "").trim();
+
+      // Prose wins, exactly as it does in the website's parser: a row with
+      // both is a sentence, never a percentage. Two readers of one node that
+      // disagreed about which kind a row was would be worse than either
+      // choice — this is the same rule, written the same way round.
+      if (text) {
+        lines.push(`- ${label}: ${text}${certainty ? ` (${certainty})` : ""}`);
+        continue;
+      }
+
+      const min = Number(f.dropPctMin);
+      const max = Number(f.dropPctMax);
+      // Both numbers or nothing. A single-figure forecast reads as a target,
+      // and a target is a promise about a price we have not agreed to pay.
+      if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
+      if (min < 0 || max < 0 || max > 100 || min > max) continue;
+      if (!certainty) continue;
+
+      lines.push(
+        `- ${label}: ราคารับซื้ออาจปรับลงประมาณ ${min}-${max}% จากราคาปัจจุบัน (${certainty})`
+      );
+    }
+
+    return lines.length
+      ? ["แนวโน้มราคาที่ทีมงานประเมินไว้ (ช่วงประมาณการ ไม่ใช่ราคาผูกมัด):"].concat(lines)
+      : [];
+  },
+
   async contact(db) {
     const sp = await loadStoreProfile(db);
     return contactLines({
@@ -390,6 +463,19 @@ function buildOverviewSystemPrompt(assistantName) {
     // the assessment form's job; the overview answers from what it was given
     // and says plainly when that is not enough (rules 3 and 9).
     "12. ห้ามถามคำถามกลับไปหาลูกค้าไม่ว่ากรณีใด — สรุปจากข้อมูลที่มีให้จบในคำตอบเดียว ถ้าข้อมูลไม่พอให้บอกตรงๆ ตามข้อ 3 และข้อ 9 การซักถามข้อมูลเพิ่มเป็นหน้าที่ของแชทและฟอร์มประเมินราคา ไม่ใช่ของกล่องสรุปนี้",
+    // The market-trend facts are the only sanctioned way to say anything
+    // about a future price, and they arrive as a PERCENTAGE range with a
+    // hedge attached. Three failure modes are foreclosed at once: inventing
+    // a forecast when none was supplied, tightening a range into a single
+    // number, and turning a percentage into baht — which would require
+    // picking a price the renderer deliberately did not pick, because one
+    // search matches many models at many prices.
+    //
+    // The last clause is about tone rather than fact. A true statement that
+    // the price may fall becomes a sales tactic the moment it is phrased as
+    // urgency, and this box is read by someone deciding whether to sell us
+    // their phone.
+    "13. เรื่องแนวโน้มราคาในอนาคต ให้พูดได้เฉพาะจากบรรทัด 'แนวโน้มราคาที่ทีมงานประเมินไว้' เท่านั้น ถ้าไม่มีบรรทัดนั้นห้ามคาดการณ์เองเด็ดขาด และเมื่อมี: ห้ามเปลี่ยนช่วงเปอร์เซ็นต์เป็นตัวเลขเดียว ห้ามแปลงเปอร์เซ็นต์เป็นจำนวนบาท ห้ามตัดข้อความกำกับความไม่แน่นอนออก และห้ามใช้ถ้อยคำเร่งเร้าให้รีบขาย",
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
     '{"summary": "...", "detail": "..."}',

@@ -230,5 +230,110 @@ check("survives hostile input", sanitizeTopics([{ a: 1 }, 42, "x".repeat(500)]).
   check("rules 10-12 precede the format section", prompt.indexOf("12. ห้ามถามคำถามกลับ") < prompt.indexOf("รูปแบบคำตอบ"));
 }
 
+// ---------------------------------------------------------------------------
+// market_trend — the only sanctioned source of anything about a future price
+//
+// The website owns the same node and draws the numeric facts as a band on the
+// price chart. This renderer is a second READER of one source, never a second
+// source, so the assertions below are mostly about refusals: an expired fact,
+// a half-written one, and a percentage turned into money.
+// ---------------------------------------------------------------------------
+{
+  const DAY = 86400000;
+  const now = Date.now();
+  const PRICE_FACT = {
+    label: "หลัง iPhone 18 เปิดตัว",
+    dropPctMin: 10,
+    dropPctMax: 20,
+    baseline: "current",
+    appliesTo: "iphone",
+    certainty: "ประมาณการจากรอบก่อน ไม่ใช่ราคาผูกมัด",
+    expiresAt: now + 30 * DAY,
+  };
+  const TEXT_FACT = {
+    label: "จังหวะขายก่อนเปิดตัวรุ่นใหม่",
+    text: "การขายช่วงก่อนเปิดตัวมักได้ราคาดีกว่ารอหลังเปิดตัว",
+    appliesTo: "all",
+    expiresAt: now + 30 * DAY,
+  };
+  const trendDb = (facts) => fakeDb({ settings: { market_facts: facts } });
+
+  {
+    factsMemo.clear();
+    const lines = await renderTopic(trendDb({ a: PRICE_FACT }), "market_trend");
+    const text = lines.join("\n");
+    check("market_trend states the range as a range", text.includes("10-20%"));
+    check("market_trend keeps the certainty wording", text.includes("ไม่ใช่ราคาผูกมัด"));
+    check("market_trend keeps the label", text.includes("หลัง iPhone 18 เปิดตัว"));
+    // The renderer does not know which device the reader holds, so it may not
+    // pick a price to convert against. Baht belongs to the chart.
+    check("market_trend never converts a percentage into baht", !/บาท/.test(text));
+  }
+
+  {
+    factsMemo.clear();
+    const lines = await renderTopic(trendDb({ a: TEXT_FACT }), "market_trend");
+    check("market_trend renders a prose fact as its sentence", lines.join("\n").includes("การขายช่วงก่อนเปิดตัว"));
+  }
+
+  {
+    // Prose wins on a row carrying both, exactly as it does in the website's
+    // parser. Two readers of one node that disagreed about which kind a row
+    // was would be worse than either choice on its own.
+    factsMemo.clear();
+    const both = { ...PRICE_FACT, text: TEXT_FACT.text };
+    const text = (await renderTopic(trendDb({ a: both }), "market_trend")).join("\n");
+    check("a row with both is read as prose", text.includes("การขายช่วงก่อนเปิดตัว") && !text.includes("10-20%"));
+  }
+
+  {
+    factsMemo.clear();
+    const expired = { ...PRICE_FACT, expiresAt: now - 1 };
+    const lines = await renderTopic(trendDb({ a: expired }), "market_trend");
+    // Gone entirely, heading included — an expired forecast leaves nothing
+    // behind, not a dimmed version of itself.
+    check("an expired fact renders nothing at all", lines.length === 0);
+  }
+
+  {
+    factsMemo.clear();
+    const lines = await renderTopic(
+      trendDb({
+        no_certainty: { ...PRICE_FACT, certainty: "" },
+        one_number: { ...PRICE_FACT, dropPctMax: undefined },
+        no_expiry: { ...PRICE_FACT, expiresAt: 0 },
+        no_label: { ...PRICE_FACT, label: "" },
+      }),
+      "market_trend"
+    );
+    // Every one of these is a fact somebody half-wrote. Rendering a default
+    // in place of the missing half is this module inventing the forecast.
+    check("half-written numeric facts are dropped", lines.length === 0);
+  }
+
+  {
+    factsMemo.clear();
+    const lines = await renderTopic(trendDb({}), "market_trend");
+    check("an empty node renders nothing", lines.length === 0);
+    factsMemo.clear();
+    const missing = await renderTopic(fakeDb({ settings: {} }), "market_trend");
+    check("a missing node renders nothing", missing.length === 0);
+  }
+
+  {
+    check("market_trend is a topic the generator accepts", sanitizeTopics(["market_trend"]).includes("market_trend"));
+  }
+
+  const prompt = buildOverviewSystemPrompt("มาติน");
+  check("rule 13 names the only allowed source", prompt.includes("13. เรื่องแนวโน้มราคาในอนาคต") && prompt.includes("แนวโน้มราคาที่ทีมงานประเมินไว้"));
+  check("rule 13 forbids forecasting without a fact", prompt.includes("ห้ามคาดการณ์เองเด็ดขาด"));
+  check("rule 13 forbids collapsing the range", prompt.includes("ห้ามเปลี่ยนช่วงเปอร์เซ็นต์เป็นตัวเลขเดียว"));
+  check("rule 13 forbids converting to baht", prompt.includes("ห้ามแปลงเปอร์เซ็นต์เป็นจำนวนบาท"));
+  check("rule 13 forbids dropping the hedge", prompt.includes("ห้ามตัดข้อความกำกับความไม่แน่นอนออก"));
+  check("rule 13 forbids urgency", prompt.includes("ห้ามใช้ถ้อยคำเร่งเร้าให้รีบขาย"));
+  check("rule 13 precedes the format section", prompt.indexOf("13. เรื่องแนวโน้มราคา") < prompt.indexOf("รูปแบบคำตอบ"));
+  check("rule 12 still precedes rule 13", prompt.indexOf("12. ห้ามถามคำถาม") < prompt.indexOf("13. เรื่องแนวโน้มราคา"));
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
