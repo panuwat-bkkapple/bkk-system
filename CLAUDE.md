@@ -111,7 +111,7 @@
   - **สิ่งที่กันย่อหน้าไม่ให้อ้างราคาเก่าคือ key ไม่ใช่ TTL** — key เป็น hash ของ query **และ context** ซึ่ง context มีราคาอยู่ ราคาขยับ = key เปลี่ยน = ย่อหน้าเก่า**หาไม่เจอ**ไม่ใช่แค่หมดอายุ. TTL คุมแค่ว่าคำถามเดิมบนแคตตาล็อกเดิมจะใช้คำตอบเดิมนานแค่ไหน ซึ่งเป็นสิ่งที่มันควรคุมพอดี
   - อ่าน/เขียนพังได้โดยไม่กระทบลูกค้า (อ่านไม่ได้ = ถือเป็น miss, เขียนไม่ได้ = เสียแค่ call ถัดไป) และ**เก็บเฉพาะคำตอบที่ parse ผ่านแล้ว** คำตอบเสียจึงไม่ถูกแช่ไว้ทั้งรอบ
   - โหนดนี้ไม่มี rule เป็นของตัวเอง = ตกกฎ root `.read/.write: false` ลูกค้าอ่านไม่ได้ Admin SDK เขียนได้ **ไม่ต้อง deploy rules**
-  - **ยังไม่มีตัวลบ entry ที่หมดอายุ** — โตตามจำนวนคำถามที่ไม่ซ้ำกัน ถ้าโตจนน่ากังวลให้เพิ่ม scheduler ลบตาม `expires_at` (ยังไม่ทำเพราะยังไม่รู้ปริมาณจริง)
+  - **มีตัวกวาดแล้ว: `pruneSearchOverviewCache`** (scheduler `0 4 * * *` เวลาไทย, ใน `functions/search-overview.js`) — `runCacheGc` ลบตาม `expires_at` ครั้งละไม่เกิน `CACHE_GC_BATCH = 500` และ **ไม่แตะแถวที่ไม่มี `expires_at`เลย**, `runRateBucketGc` ลบ bucket ของ rate limit ที่เก่ากว่า 48 ชม. · ต้องมี `.indexOn: ["expires_at"]` ที่โหนดนี้ (อยู่ใน `database.rules.json` ของ bkk-frontend-next, deploy แล้ว) ไม่งั้น query จะกวาดทั้งโหนด · log บรรทัดเดียวต่อรอบ `[searchOverviewGc] cache scanned=… deleted=… · rate buckets deleted=…` — **scanned ที่โตขึ้นเรื่อยๆ ขณะที่ deleted ยังน้อย = index หาย**
 - **ช่วงราคารวมต้องมาจากฟิลด์ของตัวเอง** — เว็บส่งบรรทัด "ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้" ที่คำนวณจาก**ทุกรุ่นที่ match** (ไม่ใช่แค่ที่ส่งมา) + จำนวนรุ่นที่ไม่ได้แสดง และ **กฎข้อ 8 ห้ามโมเดลคำนวณช่วงรวมเองจากรายรุ่น** เพราะรายรุ่นเป็นแค่ตัวอย่าง. เคสจริงที่ทำให้ต้องมีกฎนี้: สรุปว่า "M1 = 18,000-37,000" ทั้งที่ 13" M1 อยู่ที่ 12,000-16,000 แต่ถูกตัดเพราะไม่พอที่
 - **ห้ามให้โมเดลเขียนลิงก์หรือชวนกดปุ่ม** — เว็บ render ปุ่มเองจาก catalog (`buildCta`) กฎข้อนี้เขียนเป็นข้อห้ามเพราะกฎเดิม**สั่งให้**ชวนกด การลบเฉยๆ ไม่พอ
 - **เพดานเป็นของตัวเอง** (`chat_ai_usage/{ymd}/overview_calls`, default 2000, override ที่ `settings/chat_widget/public/daily_overview_cap`) — จ่ายเงินก้อนเดียวกันแต่พังคนละแบบ: search เป็นทราฟฟิกนิรนามตัดทิ้งได้ไม่มีใครเสียหาย ส่วนแชทที่หยุดตอบทิ้งลูกค้ากลางประโยค **ตัวนับเดียวกัน = ของถูกอดของแพง**
@@ -344,7 +344,7 @@
 ## RTDB Cost Rules (บทเรียนจากบิล ก.ค. 2026 — อย่าทำพัง)
 - **ห้าม scheduler อ่าน `/jobs` ทั้งก้อน** — ใช้ `fetchJobsByStatuses()` (query ตาม `.indexOn: status`) เสมอ. `checkOverdueReturns` รันทุก 5 นาที เคยกวาดทั้ง node = ~288 full download/วัน ลงบิลตรงๆ. ข้อยกเว้นที่ตั้งใจ: `autoFlagRiders` (วันละครั้ง ต้องดูทุกงานใน lookback) และ endpoint migration แบบ manual
 - **ห้าม client subscribe `/jobs` ทั้งก้อนจากอุปกรณ์จำนวนมาก** — rider ใช้ `useRiderJobs` (query rider_id + pool statuses). แอดมินใช้ shared keep-alive store ใน `useDatabase` (listener ต่อ path ตัวเดียวทั้งแอป ห้ามกลับไป subscribe/unsubscribe ต่อหน้า)
-- **ISR ฝั่ง bkk-frontend-next = 300s** — ห้ามลดต่ำกว่านี้โดยไม่คิดเรื่องบิล (ทุก revalidate = ดึง `/models.json` ทั้งก้อน)
+- **แคตตาล็อกฝั่ง bkk-frontend-next = 3600s + on-demand invalidate** (`CATALOG_REVALIDATE_SECONDS` ใน `lib/cachePolicy.ts`) — **ห้ามลดกลับโดยไม่อ่านหัวข้อ "แคตตาล็อกสด" ใน CLAUDE.md ของ repo นั้นก่อน**: ความสดมาจากการ invalidate ตอนมีคนแก้ราคา ไม่ใช่จากนาฬิกา ตัวเลข 3600 เป็นตาข่ายกันตกเฉยๆ (ทุก revalidate = ดึง `/models.json` ทั้งก้อน). บรรทัดนี้เคยเขียนว่า 300s ซึ่งเป็นค่าเก่าก่อนเปลี่ยนจาก poll เป็น push
 
 ## Known Issues & Workarounds
 - **VAPID Key + atob():** Firebase SDK ใช้ `atob()` ภายใน `getToken()` ซึ่ง fail กับ base64url ไม่มี padding → ต้อง patch `window.atob` ชั่วคราว (ดู `useAdminPushNotifications.ts`)
