@@ -80,7 +80,8 @@ check("layer3: tone — no urgency, no selling", P.includes("ไม่เร่�
 // The closing bans, kept verbatim in spirit from v1 — these are the lines the
 // positive layers must never override, and the original reason the whole
 // rulebook is negative.
-check("format: JSON only", P.includes('{"summary": "...", "detail": "..."}'));
+check("format: JSON only", P.includes('{"summary": "...", "detail": "...", "key_point": "..."}'));
+check("format: key_point demanded verbatim from summary", P.includes("คัดลอกมาจาก summary แบบคำต่อคำ"));
 check("format: no closing call-to-action", P.includes("ห้ามเขียนชวนให้กดประเมินราคาหรือกดปุ่มใดๆ"));
 check("format: no links, no button names", P.includes("ห้ามใส่ลิงก์ URL"));
 

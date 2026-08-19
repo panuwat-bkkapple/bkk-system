@@ -294,6 +294,48 @@ const ex = (over = {}) => ({
   check("ACC11: the vague note never shadows a computed figure", !context.includes("ยังไม่ระบุรุ่น"));
 }
 
+// ── ACC12 (feedback เทสมือ: ไฮไลท์ใจความ): key_point เป็น "ตัวชี้" ไม่ใช่ ──
+// ช่องส่งข้อความใหม่ — โมเดลชี้ประโยคในข้อความของตัวเอง โค้ดตรวจ verbatim
+// กับ summary ที่จะเสิร์ฟจริงเท่านั้น
+{
+  const { parseOverviewV2, exciseUnverifiedNumbers, admittedKeyPoint } = v2;
+  const clean = parseOverviewV2(
+    '{"summary": "ตอนนี้เป็นจังหวะขายที่ดีครับ ราคา 30,000 บาทครับ", "detail": "", "key_point": "ตอนนี้เป็นจังหวะขายที่ดีครับ"}'
+  );
+  check("ACC12: parser reads key_point", clean.keyPoint === "ตอนนี้เป็นจังหวะขายที่ดีครับ");
+  check(
+    "ACC12: verbatim key point is admitted",
+    admittedKeyPoint(clean.keyPoint, clean.summary) === "ตอนนี้เป็นจังหวะขายที่ดีครับ"
+  );
+  check(
+    "ACC12: a reworded key point is dropped — no text enters through the side door",
+    admittedKeyPoint("จังหวะขายดีมาก", clean.summary) === ""
+  );
+
+  // Excision interaction: a key point aimed at the sentence the number gate
+  // cut must die with it — a highlight would resurrect the cut sentence.
+  const parsed = parseOverviewV2(
+    '{"summary": "ราคารับซื้อ 30,000 บาทครับ เหลือประมาณ 21,120 บาทครับ", "key_point": "เหลือประมาณ 21,120 บาทครับ"}'
+  );
+  const served = exciseUnverifiedNumbers(parsed, "ราคารับซื้อ 30,000 บาท");
+  check("ACC12: excise cut the bad sentence", !served.summary.includes("21,120"));
+  check(
+    "ACC12: key point aimed at an excised sentence dies with it",
+    admittedKeyPoint(parsed.keyPoint, served.summary) === ""
+  );
+
+  const salvage = parseOverviewV2(
+    '{"summary": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "key_point": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "detail": "ยาวมากแล้วโดนตั'
+  );
+  check("ACC12: salvage path carries key_point too", salvage.keyPoint === "ขายก่อนเปิดตัวคุ้มกว่าครับ");
+
+  const P = v2.buildV2SystemPrompt("มาติน");
+  check(
+    "ACC12: prompt demands a verbatim copy, one sentence",
+    P.includes('"key_point"') && P.includes("คัดลอกมาจาก summary แบบคำต่อคำ")
+  );
+}
+
 // ── done ───────────────────────────────────────────────────────────────────
 
 if (failures) {

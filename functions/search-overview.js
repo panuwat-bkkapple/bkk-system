@@ -43,6 +43,7 @@ const {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  admittedKeyPoint,
   V2_MAX_OUTPUT_TOKENS,
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
@@ -654,10 +655,14 @@ function parseOverview(raw) {
  * touched it (verified across all three repos before removing). It was the
  * one place customer words lived outside the system that owns them.
  */
-function buildCacheRow({ summary, detail, now }) {
+function buildCacheRow({ summary, detail, keyPoint, now }) {
   return {
     summary: String(summary || ""),
     detail: String(detail || ""),
+    // The v2 key-point pointer, already verified verbatim against `summary`
+    // before it gets here — cached so a hit highlights the same sentence the
+    // original answer did. Empty on v1 rows and on answers without one.
+    ...(keyPoint ? { key_point: String(keyPoint) } : {}),
     created_at: Number(now) || 0,
     expires_at: (Number(now) || 0) + OVERVIEW_CACHE_TTL_SECONDS * 1000,
   };
@@ -1044,7 +1049,13 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           archiveWrite(db, tag, `${ARCHIVE_ROOT}/${bangkokYmd()}/${key}`, (ref) =>
             ref.transaction((cur) => buildArchiveHitRow(cur, Date.now()))
           );
-          res.json({ summary: hit.summary, detail: hit.detail || "", cached: true, cacheKey: key });
+          res.json({
+            summary: hit.summary,
+            detail: hit.detail || "",
+            ...(hit.key_point ? { key_point: String(hit.key_point) } : {}),
+            cached: true,
+            cacheKey: key,
+          });
           return;
         }
       } catch (e) {
@@ -1181,6 +1192,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         const salvaged = isV2 && parsed.salvaged === true;
         if (salvaged) console.warn(`[${tag}] v2 reply salvaged (truncated/fenced) for "${query}"`);
         let excised = 0;
+        let keyPoint = "";
         if (isV2) {
           // The last gate: a sentence quoting a number the context cannot
           // vouch for is cut before the answer is served, cached or archived.
@@ -1200,6 +1212,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           if (excised > 0) {
             console.warn(`[${tag}] v2 excised ${excised} sentence(s) with out-of-context numbers for "${query}"`);
           }
+          // The key point survives only verbatim, and only against the text
+          // actually being served — see admittedKeyPoint.
+          keyPoint = admittedKeyPoint(parsed.keyPoint, verified.summary);
           parsed = { summary: verified.summary, detail: verified.detail };
         }
         // Best-effort, and after the answer is in hand: a failed write costs
@@ -1207,7 +1222,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         // answer. Only good answers are stored — an unparseable reply above
         // returned already, so a bad turn is never cached into the window.
         cacheRef
-          .set(buildCacheRow({ summary: parsed.summary, detail: parsed.detail, now: Date.now() }))
+          .set(buildCacheRow({ summary: parsed.summary, detail: parsed.detail, keyPoint, now: Date.now() }))
           .catch((e) => console.warn(`[${tag}] cache write failed:`, e));
         archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
           ref.update(
@@ -1223,7 +1238,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             })
           )
         );
-        res.json({ ...parsed, cacheKey: key });
+        res.json({ ...parsed, ...(keyPoint ? { key_point: keyPoint } : {}), cacheKey: key });
       } catch (err) {
         console.error(`[${tag}] failed for "${query}":`, err);
         // Credit gone or key revoked: take the whole assistant down, exactly

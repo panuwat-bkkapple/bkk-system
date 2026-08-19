@@ -487,7 +487,14 @@ function parseOverviewV2(raw) {
     try {
       const obj = JSON.parse(text.slice(start, end + 1));
       const summary = String(obj.summary || "").trim();
-      if (summary) return { summary, detail: String(obj.detail || "").trim(), salvaged: false };
+      if (summary) {
+        return {
+          summary,
+          detail: String(obj.detail || "").trim(),
+          keyPoint: String(obj.key_point || "").trim(),
+          salvaged: false,
+        };
+      }
     } catch {
       /* fall through to salvage */
     }
@@ -503,7 +510,23 @@ function parseOverviewV2(raw) {
   };
   const summary = grab("summary");
   if (!summary) return null;
-  return { summary, detail: grab("detail"), salvaged: true };
+  return { summary, detail: grab("detail"), keyPoint: grab("key_point"), salvaged: true };
+}
+
+/**
+ * The key point, ADMITTED ONLY VERBATIM. The model does not write markup and
+ * does not get to introduce text through a side door either: key_point is a
+ * POINTER into the summary the customer will actually read, so it counts
+ * only when it appears there character-for-character — checked against the
+ * SERVED summary (post-excision), because a highlight pointing at a sentence
+ * the number gate just cut would resurrect it. Anything else — reworded,
+ * abbreviated, hallucinated, or orphaned by excision — is dropped silently:
+ * a missing highlight is a shrug, a wrong one is a lie about what matters.
+ */
+function admittedKeyPoint(keyPoint, servedSummary) {
+  const k = String(keyPoint || "").trim();
+  if (!k) return "";
+  return String(servedSummary || "").includes(k) ? k : "";
 }
 
 /**
@@ -610,8 +633,9 @@ function buildV2SystemPrompt(assistantName) {
     "16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ภาษาไทยธรรมชาติ มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ",
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
-    '{"summary": "...", "detail": "..."}',
+    '{"summary": "...", "detail": "...", "key_point": "..."}',
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง และคำฟันธงถ้าข้อมูลชี้ชัด",
+    "- key_point = ประโยคใจความสำคัญที่สุดหนึ่งประโยค คัดลอกมาจาก summary แบบคำต่อคำทุกตัวอักษร ห้ามเขียนใหม่ ห้ามย่อ — ประโยคที่ถ้าลูกค้าอ่านได้บรรทัดเดียวต้องเป็นบรรทัดนี้ (ปกติคือคำฟันธงหรือคำตอบตรงของคำถาม)",
     "- detail = ส่วนขยาย (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) — กระชับ: ไม่เกินราว 6 ประโยค เลือกเฉพาะที่ช่วยตัดสินใจจริง ห้ามทวนซ้ำสิ่งที่อยู่ใน summary แล้ว ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
     // Same two closing bans as v1, verbatim in spirit: the website renders the
     // real button, and an invitation written in text is the same instruction
@@ -1013,6 +1037,7 @@ module.exports = {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  admittedKeyPoint,
   V2_MAX_OUTPUT_TOKENS,
   __test: {
     normalizeCapacity,

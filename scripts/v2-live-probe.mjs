@@ -197,6 +197,9 @@ async function probe(query, ingredients) {
   }
   if (verified.excised > 0) console.log(`  NOTE:    excised ${verified.excised} sentence(s) with out-of-context numbers`);
   console.log(`stage 3 (${Date.now() - t1}ms):`);
+  const keyPoint = v2.admittedKeyPoint(parsed.keyPoint, verified.summary);
+  if (keyPoint) console.log(`  KEY:     ${keyPoint}`);
+  else if (parsed.keyPoint) console.log(`  NOTE:    key_point dropped (not verbatim in served summary)`);
   console.log(`  SUMMARY: ${verified.summary}`);
   if (verified.detail) console.log(`  DETAIL:  ${verified.detail}`);
   for (const n of quickChecks({ summary: verified.summary, detail: verified.detail }, context)) {
