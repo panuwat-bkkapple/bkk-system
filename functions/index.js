@@ -6500,6 +6500,10 @@ const searchOverview = registerSearchOverview({
   },
 });
 exports.customerSearchOverview = searchOverview.customerSearchOverview;
+// Daily sweep of the overview cache and the per-client rate buckets — both
+// are nodes that otherwise only ever grow. Name is unique at project level
+// like every other function here ({region}/{name}).
+exports.pruneSearchOverviewCache = searchOverview.pruneSearchOverviewCache;
 
 // ---------------------------------------------------------------------------
 // CRM Phase 2 — link every order to a Contact (keyed by phone/email, never uid).

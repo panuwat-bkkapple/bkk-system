@@ -22,6 +22,7 @@
 
 const crypto = require("crypto");
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { isPermanentAiFailure, suspendAssistant } = require("./chat-ai");
 const {
@@ -60,6 +61,35 @@ const MAX_CONTEXT_CHARS = 6000;
  * alone.
  */
 const DEFAULT_DAILY_OVERVIEW_CAP = 2000;
+
+/**
+ * PER-CLIENT CEILING — the second brake, and the one that stops a single
+ * source draining the first.
+ *
+ * The daily cap bounds the bill; it does not bound WHO spends it. One script
+ * can exhaust two thousand calls in minutes, and every customer for the rest
+ * of that day gets nothing. So calls are also counted per client per hour.
+ *
+ * WHY THE CLIENT IS NAMED BY THE WEBSITE AND NOT BY THIS FUNCTION. `/search`
+ * is a server component: the request reaching here comes from Vercel, not
+ * from the reader's browser, so the IP this function can see belongs to
+ * Vercel. Counting it would put every customer in the world into one bucket
+ * and cap the entire site at thirty answers an hour — the exact outage this
+ * limit exists to prevent, delivered by the limit itself.
+ *
+ * The website therefore sends `clientKey`, a SALTED HASH of the reader's IP.
+ * Two consequences worth stating plainly:
+ *   - No raw IP crosses the wire and none is ever written to RTDB. The same
+ *     rule the ledger and the search analytics already follow.
+ *   - NO KEY MEANS NO LIMIT. An unidentified caller is not throttled, because
+ *     the only fallback available — the request IP — is the site-wide bucket
+ *     described above. Fail-open is the safe direction here precisely because
+ *     the daily cap still bounds the money.
+ *
+ * Thirty an hour: a real customer asking real questions does not approach it;
+ * a script passes it inside a minute.
+ */
+const DEFAULT_CLIENT_HOURLY_LIMIT = 30;
 
 /**
  * How long a written answer stays good, in seconds.
@@ -378,6 +408,67 @@ async function factsFor(db, topic) {
  * cutting a sentence in half — a fact ending mid-word is worse than a fact
  * that is absent, because the model will finish the thought itself.
  */
+/**
+ * The hour bucket a call belongs to, Bangkok time.
+ *
+ * Bangkok rather than UTC so the numbers in the log line up with the working
+ * day somebody is reading them in, and with `bangkokYmd` next to it.
+ */
+function bangkokHourBucket(now = Date.now()) {
+  const t = new Date(now + 7 * 3600000);
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return (
+    `${t.getUTCFullYear()}${p(t.getUTCMonth() + 1)}${p(t.getUTCDate())}` +
+    `${p(t.getUTCHours())}`
+  );
+}
+
+/** Whatever the website sent, reduced to something safe to use as a key.
+ *  Hex only and short: the website sends a hash, and anything else is either
+ *  a mistake or an attempt to write somewhere it should not. */
+function sanitizeClientKey(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  return /^[a-f0-9]{16,64}$/.test(s) ? s : "";
+}
+
+/**
+ * Has this client had its hour's worth?
+ *
+ * COUNTED ONLY WHERE MONEY IS ABOUT TO BE SPENT. This is called after the
+ * cache lookup, for the same reason the daily cap is: a cache hit costs
+ * nothing, and charging someone for asking a popular question again would
+ * throttle the cheapest possible request. What is being protected is the
+ * bill, not the number of times a person is allowed to be curious.
+ *
+ * FAIL-OPEN ON EVERY ERROR. If the counter cannot be read or written, the
+ * answer goes ahead. A protective structure that turns a database wobble into
+ * a site-wide outage has become the thing it was built to prevent, and the
+ * daily cap is still standing behind it.
+ */
+async function clientOverBudget(db, tag, clientKey, limit) {
+  if (!clientKey || !(limit > 0)) return false;
+  const bucket = bangkokHourBucket();
+  try {
+    const tx = await db
+      .ref(`overview_rate/${bucket}/${clientKey}`)
+      .transaction((cur) => (Number(cur) || 0) + 1);
+    const count = Number(tx.snapshot.val()) || 0;
+    if (count > limit) {
+      // Logged every time it bites, with the hashed key and the count, so the
+      // ceiling can be tuned from what actually happened rather than from a
+      // guess about what customers do.
+      console.warn(
+        `[${tag}] client rate limit hit: key=${clientKey.slice(0, 12)} count=${count} limit=${limit} bucket=${bucket}`
+      );
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn(`[${tag}] rate limit check failed, allowing:`, e && e.message);
+    return false;
+  }
+}
+
 async function buildServiceFacts(db, topics) {
   const out = [];
   let used = 0;
@@ -653,6 +744,86 @@ function archiveGateSkip(db, tag, ymd, reason) {
   );
 }
 
+
+/**
+ * How many rows one sweep may delete.
+ *
+ * A cap rather than "everything expired", because the first sweep meets a
+ * cache nobody has ever pruned and a single delete of every row in it is a
+ * write spike against the same database that is serving customers. Whatever
+ * is left over is still expired an hour later, and the sweep runs every day —
+ * the backlog drains, it just drains politely.
+ */
+const CACHE_GC_BATCH = 500;
+
+/**
+ * Delete answers whose hour is up.
+ *
+ * The cache had no reaper. It grows with the number of DISTINCT questions
+ * ever asked, and every expired row is dead weight: unreachable by
+ * construction (the key is a hash of the question and the prices, so a
+ * changed price makes the old row unfindable rather than stale) and paid for
+ * in storage forever.
+ *
+ * QUERIED, NOT SCANNED. `orderByChild("expires_at")` needs `.indexOn` on this
+ * node — it lives in bkk-frontend-next/database.rules.json, the one place
+ * rules are allowed to live. Without the index RTDB still answers correctly,
+ * but by downloading the entire node and filtering in the client, which is
+ * the exact bill this function exists to stop growing. If the log line below
+ * ever reports a large `scanned` with a small `deleted`, check the index
+ * first.
+ *
+ * FOUR IN THE MORNING, not three: the daily archive rollup already runs at
+ * three, and two sweeps of the same database in the same minute make each
+ * other's timings unreadable when something goes wrong at four in the
+ * morning.
+ */
+async function runCacheGc(db, tag) {
+  const now = Date.now();
+  const snap = await db
+    .ref("search_overview_cache")
+    .orderByChild("expires_at")
+    .endAt(now)
+    .limitToFirst(CACHE_GC_BATCH)
+    .once("value");
+
+  const updates = {};
+  let scanned = 0;
+  snap.forEach((child) => {
+    scanned += 1;
+    // Belt and braces against a row with no expiry at all: those are not
+    // expired, they are malformed, and deleting data because a field is
+    // missing is how a cleanup turns into data loss.
+    const exp = Number(child.val() && child.val().expires_at);
+    if (Number.isFinite(exp) && exp <= now) updates[child.key] = null;
+    return false;
+  });
+
+  const deleted = Object.keys(updates).length;
+  if (deleted) await db.ref("search_overview_cache").update(updates);
+  return { scanned, deleted, batch: CACHE_GC_BATCH };
+}
+
+/**
+ * The hourly rate buckets, which expire by simply being yesterday's.
+ *
+ * Kept in the same sweep because they have the same shape of problem — a node
+ * that only ever grows — and because a second scheduler for two dozen small
+ * deletes is more moving parts than the job deserves.
+ */
+async function runRateBucketGc(db) {
+  const keepFrom = bangkokHourBucket(Date.now() - 48 * 3600000);
+  const snap = await db.ref("overview_rate").once("value");
+  const updates = {};
+  snap.forEach((child) => {
+    if (String(child.key) < keepFrom) updates[child.key] = null;
+    return false;
+  });
+  const deleted = Object.keys(updates).length;
+  if (deleted) await db.ref("overview_rate").update(updates);
+  return { deleted };
+}
+
 /**
  * POST { query, context, topics? } -> { summary, detail } | { skipped: reason }
  *
@@ -691,6 +862,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // and is appended below, so the two cannot squeeze each other out.
       const catalogContext = String(body.context || "").trim().slice(0, MAX_CONTEXT_CHARS);
       const topics = sanitizeTopics(body.topics);
+      // Absent on an older website deployment, and that is a supported state:
+      // the limit is simply inert until the caller identifies itself.
+      const clientKey = sanitizeClientKey(body.clientKey);
       if (!query || !catalogContext) {
         res.status(400).json({ skipped: "empty_request" });
         return;
@@ -768,6 +942,29 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       }
 
       const ymd = bangkokYmd();
+
+      // SECOND BRAKE, BEFORE THE FIRST IS TOUCHED. Checked after the cache
+      // (a hit spends nothing) and before the daily counter, so a throttled
+      // client does not consume a slot out of the site-wide ceiling on its
+      // way to being refused.
+      //
+      // The refusal is a `skipped`, exactly like "disabled" and
+      // "cap_reached": the website turns every skipped reason into the same
+      // null and falls back to what it can render itself. A reader behind a
+      // shared address — a shop, a campus — loses the AI paragraph for the
+      // rest of the hour and loses nothing else.
+      const clientLimit =
+        Number(process.env.OVERVIEW_CLIENT_HOURLY_LIMIT) ||
+        Number(pub.hourly_overview_client_limit) ||
+        DEFAULT_CLIENT_HOURLY_LIMIT;
+      if (await clientOverBudget(db, tag, clientKey, clientLimit)) {
+        archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+          ref.update(buildArchiveSkipRow("rate_limited", Date.now()))
+        );
+        res.json({ skipped: "rate_limited", cacheKey: key });
+        return;
+      }
+
       const cap = Number(pub.daily_overview_cap) || DEFAULT_DAILY_OVERVIEW_CAP;
       const capTx = await db
         .ref(`chat_ai_usage/${ymd}/overview_calls`)
@@ -875,7 +1072,34 @@ function registerSearchOverview({ dispatchOpsAlert }) {
     }
   );
 
-  return { customerSearchOverview };
+  /**
+   * One sweep a day, and it says what it did.
+   *
+   * The counts are the point: "deleted 0 of 0 scanned" every night means the
+   * cache is not growing, and a scanned count that keeps rising while deleted
+   * stays small is the index missing. Neither is visible without the line.
+   */
+  const pruneSearchOverviewCache = onSchedule(
+    { schedule: "0 4 * * *", timeZone: "Asia/Bangkok", region: REGION },
+    async () => {
+      const tag = "searchOverviewGc";
+      const db = getDatabase();
+      try {
+        const cache = await runCacheGc(db, tag);
+        const rate = await runRateBucketGc(db);
+        console.log(
+          `[${tag}] cache scanned=${cache.scanned} deleted=${cache.deleted} ` +
+            `(batch ${cache.batch}) · rate buckets deleted=${rate.deleted}`
+        );
+      } catch (e) {
+        // A failed sweep is tomorrow's slightly larger sweep, never an
+        // incident: nothing downstream depends on it having run.
+        console.error(`[${tag}] sweep failed:`, e);
+      }
+    }
+  );
+
+  return { customerSearchOverview, pruneSearchOverviewCache };
 }
 
 module.exports = {
@@ -896,5 +1120,12 @@ module.exports = {
     factsMemo,
     SERVICE_FACTS_MAX_CHARS,
     MAX_TOPICS,
+    sanitizeClientKey,
+    bangkokHourBucket,
+    clientOverBudget,
+    runCacheGc,
+    runRateBucketGc,
+    CACHE_GC_BATCH,
+    DEFAULT_CLIENT_HOURLY_LIMIT,
   },
 };
