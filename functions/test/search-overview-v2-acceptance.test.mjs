@@ -215,6 +215,85 @@ const ex = (over = {}) => ({
   check("ACC7: the absence still travels as words, never as an id", parsed.unknownModels[0] === "iPhone 18");
 }
 
+// ── ACC8 (probe round 1, fix 1): tolerant parser — a broken tail must not ──
+// cost the customer a complete summary.
+{
+  const { parseOverviewV2 } = v2;
+  const fenced = parseOverviewV2('```json\n{"summary": "ราคา 30,000 บาทครับ", "detail": "ขยาย"}\n```');
+  check("ACC8: markdown fence stripped, clean parse", !!fenced && fenced.summary === "ราคา 30,000 บาทครับ" && fenced.salvaged === false);
+
+  const truncated = parseOverviewV2('{"summary": "iPhone 16 Pro Max รับซื้อ 30,000 - 32,000 บาทครับ", "detail": "แนวโน้มหลัง iPhone 18 เปิดตัวราคาอาจปรับลง 5-12% ซึ่ง');
+  check("ACC8: truncated detail — the complete summary is salvaged whole", !!truncated && truncated.summary.includes("30,000 - 32,000") && truncated.salvaged === true);
+  check("ACC8: the cut-off detail never ships half a sentence", truncated.detail === "");
+
+  const cutSummary = parseOverviewV2('{"summary": "ราคาอยู่ที่ 30,0');
+  check("ACC8: a summary cut mid-string is refused, not served broken", cutSummary === null);
+}
+
+// ── ACC9 (probe round 1, fix 2): the number gate — 21,120 must never reach ──
+// the customer, however fluent the sentence around it.
+{
+  const { exciseUnverifiedNumbers } = v2;
+  const context = "ราคารับซื้อ 30,000 - 32,000 บาท\nหักประมาณ 6,000 - 6,400 บาท";
+  const good = exciseUnverifiedNumbers(
+    { summary: "รับซื้อ 30,000 - 32,000 บาทครับ หักจอแตกประมาณ 6,000 - 6,400 บาทครับ", detail: "" },
+    context
+  );
+  check("ACC9: verified numbers pass untouched", good.excised === 0 && good.summary.includes("30,000"));
+
+  const bad = exciseUnverifiedNumbers(
+    {
+      summary: "รับซื้อ 30,000 - 32,000 บาทครับ หักแล้วเหลือประมาณ 21,120 บาทครับ",
+      detail: "ยอด 21,120 บาทคือยอดหลังหักครับ",
+    },
+    context
+  );
+  check("ACC9: the self-computed 21,120 sentence is cut from summary", !!bad && !bad.summary.includes("21,120") && bad.summary.includes("30,000"));
+  check("ACC9: and cut from detail, with the excisions counted", !bad.detail.includes("21,120") && bad.excised === 2);
+
+  const allBad = exciseUnverifiedNumbers({ summary: "เหลือประมาณ 21,120 บาทครับ", detail: "" }, context);
+  check("ACC9: a summary with nothing verifiable left is refused, not served empty", allBad === null);
+
+  const commaFree = exciseUnverifiedNumbers({ summary: "รับซื้อสูงสุด 32000 บาทครับ", detail: "" }, context);
+  check("ACC9: comma-free restatement of a context number still verifies", commaFree.excised === 0);
+}
+
+// ── ACC10 (probe round 1, fix 3): a condition with no model gets the honest ─
+// generic answer — named, priced-by-inspection, and ZERO baht.
+{
+  const extraction = ex({ conditions: ["set16:1:1"], intent: "deduction" });
+  // Answerability asserted on a fixture with NO pages and NO facts — the ING
+  // fixture carries both, which let a mutation drop the conditions clause
+  // without any test noticing (mutation testing round: hollow test caught).
+  const bareIng = sanitizeIngredients({
+    models: [{ id: "m", name: "M", min: 1, max: 2 }],
+    conditionSets: ING.conditionSets,
+  });
+  check("ACC10: a picked condition ALONE is worth answering now", hasAnythingToWrite(bareIng, extraction));
+  const { context } = buildV2Context({
+    query: "เครื่องงอ ขายได้ไหม",
+    ingredients: ING,
+    extraction,
+    serviceFacts: "",
+  });
+  check("ACC10: the condition is acknowledged by name", context.includes("ตัวเครื่องงอ/บิด") && context.includes("ยังไม่ระบุรุ่น"));
+  check("ACC10: and carries no baht figure at all", !context.includes("บาท"));
+  check("ACC10: with the buy-any-condition fact stated", context.includes("เรารับซื้อเครื่องทุกสภาพ"));
+}
+
+// ── ACC11: the generic note stands down when a real figure exists ──────────
+{
+  const extraction = ex({ models: ["ip16pm"], conditions: ["set16:1:1"], intent: "deduction" });
+  const { context } = buildV2Context({
+    query: "iphone 16 pro max เครื่องงอ",
+    ingredients: ING,
+    extraction,
+    serviceFacts: "",
+  });
+  check("ACC11: real deduction line present", context.includes("หักประมาณ 3,000 บาท"));
+  check("ACC11: the vague note never shadows a computed figure", !context.includes("ยังไม่ระบุรุ่น"));
+}
+
 // ── done ───────────────────────────────────────────────────────────────────
 
 if (failures) {

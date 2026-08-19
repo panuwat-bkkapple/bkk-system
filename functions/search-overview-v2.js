@@ -68,6 +68,16 @@ const V2_MAX_CONTEXT_CHARS = 6000;
 const EXTRACT_MAX_TOKENS = 500;
 const EXTRACT_TIMEOUT_MS = 8000;
 
+/**
+ * The v2 writer's own output budget — twice v1's 700.
+ *
+ * Live probe round 1: 3/10 answers arrived as JSON cut off mid-`detail`,
+ * because a three-layer answer (verdict + reasons + comparison) simply is
+ * longer than "restate these numbers". V1 keeps its 700 untouched — its
+ * answers are the short kind, and the A/B stays honest.
+ */
+const V2_MAX_OUTPUT_TOKENS = 1400;
+
 const INTENTS = new Set([
   "price",
   "deduction",
@@ -447,6 +457,113 @@ function parseExtraction(raw, ingredients) {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3 — parsing and verifying the writer's reply
+// ---------------------------------------------------------------------------
+
+/**
+ * The v2 reply parser — tolerant where v1's is strict, because the failure it
+ * absorbs is REAL (live probe round 1: 3/10 replies unparseable): a model
+ * wrapping its JSON in a markdown fence, or a reply cut off mid-`detail` by
+ * the output cap. In both cases a COMPLETE summary is usually sitting right
+ * there, and throwing it away over a broken tail is the customer paying for
+ * an answer they never see.
+ *
+ * Salvage rules, strict on purpose:
+ *   - fences are stripped, then a clean brace-to-brace parse is tried first —
+ *     the salvage path never touches a well-formed reply
+ *   - salvage only accepts COMPLETE quoted strings (closing quote present),
+ *     so a summary cut mid-sentence is never served as whole
+ *   - no summary salvageable = null, same contract as before
+ *
+ * v1 keeps parseOverview untouched — its model, budget and failure rate are
+ * the production baseline the A/B measures against.
+ */
+function parseOverviewV2(raw) {
+  const text = String(raw || "").trim().replace(/```(?:json)?/gi, "");
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  const end = text.lastIndexOf("}");
+  if (end > start) {
+    try {
+      const obj = JSON.parse(text.slice(start, end + 1));
+      const summary = String(obj.summary || "").trim();
+      if (summary) return { summary, detail: String(obj.detail || "").trim(), salvaged: false };
+    } catch {
+      /* fall through to salvage */
+    }
+  }
+  const grab = (key) => {
+    const m = text.match(new RegExp(`"${key}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`));
+    if (!m) return "";
+    try {
+      return String(JSON.parse(m[1])).trim();
+    } catch {
+      return "";
+    }
+  };
+  const summary = grab("summary");
+  if (!summary) return null;
+  return { summary, detail: grab("detail"), salvaged: true };
+}
+
+/**
+ * Every price-shaped digit run the context can vouch for, commas stripped.
+ * Runs shorter than three digits are not collected — percentages, battery
+ * levels, day counts and generation numbers live down there, and none of
+ * them is a price a customer will quote at the door.
+ */
+function allowedNumberRuns(context) {
+  const out = new Set();
+  for (const m of String(context || "").replace(/,/g, "").match(/\d{3,}/g) || []) {
+    out.add(m);
+  }
+  return out;
+}
+
+/** Sentence-ish segments of a Thai answer. Newlines first, then the two
+ *  boundaries this register actually produces: a closing "ครับ" and Latin
+ *  terminal punctuation. Thai has no full stop — a field that never splits
+ *  stays one segment, and the caller drops it whole. */
+function splitSentences(text) {
+  return String(text || "")
+    .split(/\n+|(?<=ครับ)\s+|(?<=[.!?])\s+/u)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * THE LAST GATE BEFORE THE CUSTOMER: any sentence quoting a price-shaped
+ * number the context cannot account for is cut before the answer is served,
+ * cached or archived.
+ *
+ * Live probe round 1 caught the model doing arithmetic — 21,120 baht, a
+ * correct subtraction the rules forbid — and a prompt alone cannot make that
+ * impossible, only rarer. This makes it structural: the number never reaches
+ * the page, however fluent the sentence around it.
+ *
+ * Shape: {summary, detail, excised}. A summary with nothing left after
+ * excision returns null — serving an empty answer is worse than falling back.
+ * Deterministic on its inputs, so the cached copy and the served copy are
+ * always the same text.
+ */
+function exciseUnverifiedNumbers(parsed, context) {
+  const allowed = allowedNumberRuns(context);
+  let excised = 0;
+  const clean = (text) => {
+    const kept = [];
+    for (const sentence of splitSentences(text)) {
+      const runs = sentence.replace(/,/g, "").match(/\d{3,}/g) || [];
+      if (runs.every((r) => allowed.has(r))) kept.push(sentence);
+      else excised++;
+    }
+    return kept.join(" ");
+  };
+  const summary = clean(parsed.summary);
+  if (!summary) return null;
+  return { summary, detail: clean(parsed.detail || ""), excised };
+}
+
+// ---------------------------------------------------------------------------
 // Stage 3 — the three-layer prompt
 // ---------------------------------------------------------------------------
 
@@ -471,7 +588,7 @@ function buildV2SystemPrompt(assistantName) {
     "หน้าที่ของคุณคือตอบคำค้นของลูกค้าในหน้าค้นหา จากข้อมูลจากระบบที่ให้ไว้ด้านล่างเท่านั้น ให้จบในคำตอบเดียว",
     "",
     "ชั้นที่ 1 — ความจริง (ละเมิดไม่ได้ทุกกรณี):",
-    "1. ตัวเลขทุกตัวที่พูดถึงต้องมาจาก 'ข้อมูลจากระบบ' เท่านั้น ห้ามคำนวณ ห้ามประมาณ ห้ามปัดเศษเพิ่มเอง — ยอดหักตามสภาพ ยอดเหลือ และยอดที่แปลงเป็นบาทแล้ว เป็นตัวเลขสำเร็จที่ระบบคำนวณมาให้ ใช้ตรงๆ เท่านั้น ตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเอง ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
+    "1. ตัวเลขทุกตัวที่พูดถึงต้องมาจาก 'ข้อมูลจากระบบ' เท่านั้น ห้ามคำนวณ ห้ามประมาณ ห้ามปัดเศษเพิ่มเอง — ห้ามนำตัวเลขจากข้อมูลมาบวก ลบ คูณ หาร หรือประกอบเป็นตัวเลขใหม่ แม้ผลลัพธ์จะถูกต้องทางคณิตศาสตร์ ตัวเลขที่ไม่มีอยู่ในข้อมูลคือตัวเลขที่ห้ามพูดถึง — ยอดหักตามสภาพ ยอดเหลือ และยอดที่แปลงเป็นบาทแล้ว เป็นตัวเลขสำเร็จที่ระบบคำนวณมาให้ ใช้ตรงๆ เท่านั้น ตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเอง ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
     "2. ทุกยอดเป็นการประเมินก่อนตรวจเครื่องจริง — ถ้าพูดถึงยอดต้องกำกับว่ายอดสุดท้ายยืนยันหลังตรวจสภาพเครื่อง ห้ามใช้คำว่ารับประกัน การันตี หรือคำที่ฟังเป็นยอดที่ตกลงแล้ว",
     "3. เรื่องแนวโน้มราคาในอนาคต พูดได้เฉพาะจากบรรทัด 'แนวโน้มราคาที่ทีมงานประเมินไว้' — ไม่มีบรรทัดนั้นห้ามคาดการณ์เอง และเมื่อมี: ห้ามทำช่วงให้แคบลงหรือเปลี่ยนเป็นเลขเดี่ยว ห้ามแปลงเปอร์เซ็นต์เป็นบาทเอง (บรรทัด 'คิดเป็นเงินประมาณ' คือค่าที่ระบบแปลงให้แล้ว) ห้ามตัดคำกำกับความไม่แน่นอนออก — ส่วนบรรทัด 'ความเคลื่อนไหวราคาที่ผ่านมา' คือประวัติจริง ห้ามใช้มันพยากรณ์อนาคต",
     "4. รุ่นที่ระบุว่ายังไม่มีในระบบรับซื้อ ให้บอกตรงๆ ว่ายังไม่มีข้อมูลรุ่นนั้น ห้ามเดาราคา ห้ามบอกว่าเราไม่รับซื้อ และตัวเลขทุกตัวที่เอ่ยต้องระบุชัดว่าเป็นของรุ่นไหน — รุ่นที่ระบุว่างดรับซื้อ ให้บอกตามนั้น ห้ามเสนอราคาให้",
@@ -495,7 +612,7 @@ function buildV2SystemPrompt(assistantName) {
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
     '{"summary": "...", "detail": "..."}',
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง และคำฟันธงถ้าข้อมูลชี้ชัด",
-    "- detail = ส่วนขยายที่ยาวได้ (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
+    "- detail = ส่วนขยาย (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) — กระชับ: ไม่เกินราว 6 ประโยค เลือกเฉพาะที่ช่วยตัดสินใจจริง ห้ามทวนซ้ำสิ่งที่อยู่ใน summary แล้ว ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
     // Same two closing bans as v1, verbatim in spirit: the website renders the
     // real button, and an invitation written in text is the same instruction
     // twice — once from a thing that can be pressed and once from one that
@@ -580,10 +697,13 @@ function applicableMarketFacts(ingredients, extraction, now = Date.now()) {
 }
 
 /** Is there anything at all a paragraph could be written from? The caller
- *  turns false into {skipped:"nothing_to_write"} without paying for stage 3. */
+ *  turns false into {skipped:"nothing_to_write"} without paying for stage 3.
+ *  A picked condition counts even with no model: "จอแตกรับซื้อไหม" has a real
+ *  answer (yes, and here is what moves the price) before a model is named. */
 function hasAnythingToWrite(ingredients, extraction, now = Date.now()) {
   return (
     extraction.models.length > 0 ||
+    extraction.conditions.length > 0 ||
     extraction.topics.length > 0 ||
     extraction.unknownModels.length > 0 ||
     (extraction.intent === "family_overview" && !!extraction.family) ||
@@ -682,6 +802,42 @@ function deductionSection(chosen, ingredients, extraction) {
     "เงื่อนไขสภาพที่ลูกค้าระบุ (ยอดหักคำนวณจากเกณฑ์ประเมินจริงของแต่ละรุ่น):",
     ...lines,
     "ยอดหักและยอดเหลือทั้งหมดเป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง",
+  ].join("\n");
+}
+
+/**
+ * The condition, acknowledged WITHOUT a model to price it against.
+ *
+ * Live probe round 1: "เครื่องงอ" with no model picked produced silence — the
+ * deduction section (rightly) prices nothing it cannot anchor to a device,
+ * and the customer who asked whether we even buy a bent phone got nothing.
+ * The honest answer exists without a model: name the condition as one our
+ * inspection actually grades, say it moves the price, and say the figure
+ * needs the model. NO BAHT ANYWHERE — a number here would be a price for a
+ * device nobody named, which is the exact bug class the pipeline kills.
+ *
+ * Renders only when the deduction section produced nothing — when a real
+ * figure exists, a vague paragraph under it is noise.
+ */
+function conditionNoteSection(ingredients, extraction) {
+  if (!extraction.conditions.length) return "";
+  const lines = [];
+  const seen = new Set();
+  for (const cid of extraction.conditions) {
+    const [setId, giRaw, oiRaw] = cid.split(":");
+    const set = ingredients.conditionSets[setId];
+    const g = set && set.groups[Number(giRaw)];
+    const opt = g && g.options[Number(oiRaw)];
+    if (!opt) continue;
+    const label = `${g.title ? `${g.title} — ` : ""}${opt.label}`;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    lines.push(`- ${label}: เป็นเงื่อนไขที่มีผลต่อราคารับซื้อ ยอดหักจริงขึ้นกับรุ่นและผลตรวจสภาพเครื่อง`);
+  }
+  if (!lines.length) return "";
+  return [
+    "เงื่อนไขสภาพที่ลูกค้าพูดถึง (ยังไม่ระบุรุ่น จึงยังคำนวณยอดหักเป็นตัวเลขไม่ได้ — เรารับซื้อเครื่องทุกสภาพ ราคาปรับตามผลตรวจจริง):",
+    ...lines,
   ].join("\n");
 }
 
@@ -812,10 +968,14 @@ function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
 
   const serviceFirst = extraction.intent === "service" || extraction.intent === "store";
   const facts = applicableMarketFacts(ingredients, extraction);
+  const deductions = deductionSection(chosen, ingredients, extraction);
   const ordered = [
     { name: "prices", text: priceSection(chosen, extraction.capacity) },
     ...(serviceFirst ? [{ name: "service_facts", text: String(serviceFacts || "").trim() }] : []),
-    { name: "deductions", text: deductionSection(chosen, ingredients, extraction) },
+    { name: "deductions", text: deductions },
+    // The generic acknowledgement stands in ONLY when no real figure could —
+    // a vague line under a computed one is noise.
+    { name: "condition_note", text: deductions ? "" : conditionNoteSection(ingredients, extraction) },
     { name: "market_facts", text: marketFactSection(facts, chosen, extraction.capacity) },
     { name: "series", text: seriesSection(ingredients, chosen) },
     { name: "family", text: familySection(ingredients, extraction) },
@@ -851,6 +1011,9 @@ module.exports = {
   hasAnythingToWrite,
   buildV2Context,
   buildV2SystemPrompt,
+  parseOverviewV2,
+  exciseUnverifiedNumbers,
+  V2_MAX_OUTPUT_TOKENS,
   __test: {
     normalizeCapacity,
     stableStringify,
@@ -861,9 +1024,12 @@ module.exports = {
     familyOfCategory,
     priceSection,
     deductionSection,
+    conditionNoteSection,
     marketFactSection,
     seriesSection,
     familySection,
     siblingSection,
+    allowedNumberRuns,
+    splitSentences,
   },
 };

@@ -184,19 +184,22 @@ async function probe(query, ingredients) {
     model: overviewModel,
     system: v2.buildV2SystemPrompt("มาติน"),
     user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
-    maxTokens: 700,
+    maxTokens: v2.V2_MAX_OUTPUT_TOKENS,
   });
-  const start = ansText.indexOf("{");
-  const end = ansText.lastIndexOf("}");
-  let answer = null;
-  try {
-    answer = start !== -1 && end > start ? JSON.parse(ansText.slice(start, end + 1)) : null;
-  } catch { /* unparseable */ }
-  if (!answer || !answer.summary) return console.log(`stage 3 (${Date.now() - t1}ms): unparseable:\n${ansText}`);
+  // Same parse + same number gate the deployed handler runs — the probe must
+  // measure the path customers get, not a private approximation of it.
+  const parsed = v2.parseOverviewV2(ansText);
+  if (!parsed) return console.log(`stage 3 (${Date.now() - t1}ms): unparseable:\n${ansText}`);
+  if (parsed.salvaged) console.log("  NOTE:    reply salvaged (fence/truncation) — summary recovered whole");
+  const verified = v2.exciseUnverifiedNumbers(parsed, context);
+  if (!verified) {
+    return console.log(`stage 3 (${Date.now() - t1}ms): fully excised (unverified numbers):\n${ansText}`);
+  }
+  if (verified.excised > 0) console.log(`  NOTE:    excised ${verified.excised} sentence(s) with out-of-context numbers`);
   console.log(`stage 3 (${Date.now() - t1}ms):`);
-  console.log(`  SUMMARY: ${answer.summary}`);
-  if (answer.detail) console.log(`  DETAIL:  ${answer.detail}`);
-  for (const n of quickChecks({ summary: answer.summary, detail: answer.detail || "" }, context)) {
+  console.log(`  SUMMARY: ${verified.summary}`);
+  if (verified.detail) console.log(`  DETAIL:  ${verified.detail}`);
+  for (const n of quickChecks({ summary: verified.summary, detail: verified.detail }, context)) {
     console.log(`  CHECK:   ${n}`);
   }
 }

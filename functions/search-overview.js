@@ -41,6 +41,9 @@ const {
   hasAnythingToWrite,
   buildV2Context,
   buildV2SystemPrompt,
+  parseOverviewV2,
+  exciseUnverifiedNumbers,
+  V2_MAX_OUTPUT_TOKENS,
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
 } = require("./search-overview-v2");
@@ -671,7 +674,7 @@ const ARCHIVE_ROOT = "search_overview_archive";
  * the text would also mean storing the customer's query inside it, because
  * the context is built around the question.
  */
-function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs }) {
+function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, salvaged, excised }) {
   const row = {
     model: String(model || ""),
     latencyMs: Number(latencyMs) || 0,
@@ -691,6 +694,11 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
     row.v2 = true;
     row.extract_model = String(extractModel || "");
     row.extractMs = Number(extractMs) || 0;
+    // Repair telemetry, countable per day: how often the tolerant parser had
+    // to salvage, and how many sentences the number gate cut. Both are the
+    // probe's round-1 findings turned into measurable fields.
+    if (salvaged === true) row.salvaged = true;
+    if (Number(excised) > 0) row.excised = Number(excised);
   }
   return row;
 }
@@ -1154,10 +1162,14 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           model: overviewModel,
           system: isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName),
           user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
-          maxTokens: MAX_OUTPUT_TOKENS,
+          // V2 answers carry a verdict and its reasons and are simply longer —
+          // probe round 1 lost 3/10 replies to the 700 cap mid-`detail`.
+          maxTokens: isV2 ? V2_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
           timeoutMs: OVERVIEW_TIMEOUT_MS,
         });
-        const parsed = parseOverview(text);
+        // V2 parses tolerantly (fences, a truncated detail with a complete
+        // summary); v1 keeps its strict parser — it is the baseline.
+        let parsed = isV2 ? parseOverviewV2(text) : parseOverview(text);
         if (!parsed) {
           console.warn(`[${tag}] unparseable reply for "${query}"`);
           archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
@@ -1165,6 +1177,30 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           );
           res.json({ skipped: "unparseable", cacheKey: key });
           return;
+        }
+        const salvaged = isV2 && parsed.salvaged === true;
+        if (salvaged) console.warn(`[${tag}] v2 reply salvaged (truncated/fenced) for "${query}"`);
+        let excised = 0;
+        if (isV2) {
+          // The last gate: a sentence quoting a number the context cannot
+          // vouch for is cut before the answer is served, cached or archived.
+          // Probe round 1 caught a correct-but-forbidden subtraction (21,120)
+          // — the prompt now bans arithmetic harder, and this makes the ban
+          // structural rather than behavioural.
+          const verified = exciseUnverifiedNumbers(parsed, context);
+          if (!verified) {
+            console.warn(`[${tag}] v2 reply fully excised (unverified numbers) for "${query}"`);
+            archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+              ref.update(buildArchiveSkipRow("unverified_numbers", Date.now()))
+            );
+            res.json({ skipped: "unverified_numbers", cacheKey: key });
+            return;
+          }
+          excised = verified.excised;
+          if (excised > 0) {
+            console.warn(`[${tag}] v2 excised ${excised} sentence(s) with out-of-context numbers for "${query}"`);
+          }
+          parsed = { summary: verified.summary, detail: verified.detail };
         }
         // Best-effort, and after the answer is in hand: a failed write costs
         // us the next call, while a failed response costs the customer their
@@ -1183,7 +1219,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               detail: parsed.detail,
               topics: answerTopics,
               ts: Date.now(),
-              ...(isV2 ? { v2: true, extractModel, extractMs } : {}),
+              ...(isV2 ? { v2: true, extractModel, extractMs, salvaged, excised } : {}),
             })
           )
         );
