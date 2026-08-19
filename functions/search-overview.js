@@ -32,6 +32,17 @@ const {
   loadStoreProfile,
   loadDeliveryZones,
 } = require("./service-facts");
+const {
+  sanitizeIngredients,
+  v2CacheKey,
+  buildExtractSystemPrompt,
+  buildExtractUser,
+  parseExtraction,
+  hasAnythingToWrite,
+  buildV2Context,
+  EXTRACT_MAX_TOKENS,
+  EXTRACT_TIMEOUT_MS,
+} = require("./search-overview-v2");
 
 const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -659,8 +670,8 @@ const ARCHIVE_ROOT = "search_overview_archive";
  * the text would also mean storing the customer's query inside it, because
  * the context is built around the question.
  */
-function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts }) {
-  return {
+function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs }) {
+  const row = {
     model: String(model || ""),
     latencyMs: Number(latencyMs) || 0,
     inputChars: Number(inputChars) || 0,
@@ -672,6 +683,15 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
     topics: Array.isArray(topics) ? topics.map(String) : [],
     ts: Number(ts) || 0,
   };
+  // The v2 pipeline's extra half: which model read the query and how long it
+  // took, so the archive can split extraction cost from writing cost. Absent
+  // on v1 rows — and, like every field here, never the customer's words.
+  if (v2 === true) {
+    row.v2 = true;
+    row.extract_model = String(extractModel || "");
+    row.extractMs = Number(extractMs) || 0;
+  }
+  return row;
 }
 
 /**
@@ -825,7 +845,72 @@ async function runRateBucketGc(db) {
 }
 
 /**
+ * One Anthropic text call, the way this file has always made it — raw fetch,
+ * no SDK, its own timeout. Shared by the v1 writer, the v2 extractor and the
+ * v2 writer so there is exactly one place the request shape lives.
+ */
+async function callAnthropicText({ apiKey, model, system, user, maxTokens, timeoutMs }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const apiRes = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: user }],
+      }),
+    });
+    if (!apiRes.ok) {
+      const detail = await apiRes.text();
+      const err = new Error(`Anthropic ${apiRes.status}: ${detail.slice(0, 300)}`);
+      err.status = apiRes.status;
+      throw err;
+    }
+    const data = await apiRes.json();
+    return (data.content || [])
+      .filter((b) => b && b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The store-facts half of the V2 CACHE KEY.
+ *
+ * V2's key is query + ingredients, and the ingredients never carry the branch
+ * list or the live promotions — stage 2 loads those here, AFTER the cache
+ * lookup. Without this hash a branch edit could not bust a cached v2 answer
+ * that quotes the old branch. So the RTDB-backed topic blocks are rendered
+ * (through the same 60s memo stage 2 reads, so a hit costs no extra reads
+ * beyond that window) and hashed into the key. FAQ topics are code-static —
+ * a deploy changes them, and a deploy restarts the instance — so they are
+ * deliberately not part of the hash.
+ */
+const V2_FACT_VERSION_TOPICS = ["branches", "contact", "promotions", "delivery"];
+async function v2FactsVersion(db) {
+  const blocks = [];
+  for (const t of V2_FACT_VERSION_TOPICS) {
+    blocks.push((await factsFor(db, t)).join("\n"));
+  }
+  return crypto.createHash("sha256").update(blocks.join("\n\n")).digest("hex").slice(0, 16);
+}
+
+/**
  * POST { query, context, topics? } -> { summary, detail } | { skipped: reason }
+ * POST { query, v2: true, ingredients } -> same shape, via the two-call
+ *   pipeline in search-overview-v2.js (stage 1 reads the raw query against
+ *   the ingredient lists, code assembles the context, stage 3 writes).
  *
  * Always 200 with a body the caller can read. A search page must never fail
  * because the optional paragraph above the results could not be written, so
@@ -834,7 +919,9 @@ async function runRateBucketGc(db) {
  */
 function registerSearchOverview({ dispatchOpsAlert }) {
   const customerSearchOverview = onRequest(
-    { region: REGION, cors: false, timeoutSeconds: 30 },
+    // 40s, not 30: a v2 miss makes two model calls back to back (8s + 20s
+    // ceilings) and the platform must not kill the writer mid-sentence.
+    { region: REGION, cors: false, timeoutSeconds: 40 },
     async (req, res) => {
       const tag = "searchOverview";
       if (req.method !== "POST") {
@@ -865,7 +952,12 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // Absent on an older website deployment, and that is a supported state:
       // the limit is simply inert until the caller identifies itself.
       const clientKey = sanitizeClientKey(body.clientKey);
-      if (!query || !catalogContext) {
+      // The v2 pipeline is opted into per request, never by a server flag:
+      // the website decides which pipeline a search uses (its env flag), and
+      // a v1 payload must keep working unchanged through the whole rollout.
+      const isV2 = body.v2 === true;
+      const ingredients = isV2 ? sanitizeIngredients(body.ingredients) : null;
+      if (!query || (isV2 ? !ingredients : !catalogContext)) {
         res.status(400).json({ skipped: "empty_request" });
         return;
       }
@@ -918,13 +1010,24 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       //
       // The cost of that ordering is that a cache HIT still pays these reads,
       // which is what the per-instance memo above is for.
-      const facts = topics.length ? await buildServiceFacts(db, topics) : "";
-      const context = catalogContext + facts;
+      //
+      // V2 keys on the INGREDIENTS instead of a finished context — the
+      // context does not exist until stage 2, and a hit must cost zero model
+      // calls — plus v2FactsVersion for the store-facts half. Same property,
+      // computed from the halves that exist before any money is spent.
+      let context = "";
+      let key;
+      if (isV2) {
+        key = v2CacheKey(query, ingredients, await v2FactsVersion(db));
+      } else {
+        const facts = topics.length ? await buildServiceFacts(db, topics) : "";
+        context = catalogContext + facts;
+        key = cacheKeyFor(query, context);
+      }
 
       // CACHE BEFORE CAP, deliberately. The daily ceiling exists to bound
       // spending, and a cache hit spends nothing — counting it would let
       // popular questions exhaust a budget they are not consuming.
-      const key = cacheKeyFor(query, context);
       const cacheRef = db.ref(`search_overview_cache/${key}`);
       try {
         const hit = (await cacheRef.once("value")).val();
@@ -980,46 +1083,75 @@ function registerSearchOverview({ dispatchOpsAlert }) {
 
       const assistantName = String(pub.assistant_name || "มาติน");
       const overviewModel = process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL;
-      // Measured around the Anthropic call alone. Wrapping the cache read and
+      const extractModel = process.env.OVERVIEW_EXTRACT_MODEL || DEFAULT_OVERVIEW_MODEL;
+      let extractMs = 0;
+      let answerTopics = topics;
+      // Measured around each Anthropic call alone. Wrapping the cache read and
       // the facts load into it would report a number nobody can act on: those
       // are our own database, and the question the archive answers is whether
       // the MODEL is slow.
-      const startedAt = Date.now();
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), OVERVIEW_TIMEOUT_MS);
+      let startedAt = Date.now();
       try {
-        const apiRes = await fetch(ANTHROPIC_URL, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": ANTHROPIC_VERSION,
-          },
-          body: JSON.stringify({
-            model: overviewModel,
-            max_tokens: MAX_OUTPUT_TOKENS,
-            system: buildOverviewSystemPrompt(assistantName),
-            messages: [
-              {
-                role: "user",
-                content: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
-              },
-            ],
-          }),
-        });
-        if (!apiRes.ok) {
-          const detail = await apiRes.text();
-          const err = new Error(`Anthropic ${apiRes.status}: ${detail.slice(0, 300)}`);
-          err.status = apiRes.status;
-          throw err;
+        if (isV2) {
+          // ── Stage 1: the model reads the raw query against the id lists ──
+          const exStart = Date.now();
+          const exText = await callAnthropicText({
+            apiKey,
+            model: extractModel,
+            system: buildExtractSystemPrompt(),
+            user: buildExtractUser(query, ingredients),
+            maxTokens: EXTRACT_MAX_TOKENS,
+            timeoutMs: EXTRACT_TIMEOUT_MS,
+          });
+          extractMs = Date.now() - exStart;
+          const extraction = parseExtraction(exText, ingredients);
+          if (!extraction) {
+            console.warn(`[${tag}] v2 extract unparseable for "${query}"`);
+            archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+              ref.update(buildArchiveSkipRow("extract_unparseable", Date.now()))
+            );
+            res.json({ skipped: "extract_unparseable", cacheKey: key });
+            return;
+          }
+          // Ids outside the lists are already gone — parseExtraction dropped
+          // them — but the drop is logged, because a model that keeps
+          // inventing ids is a prompt problem someone needs to see.
+          const d = extraction.dropped;
+          if (d.models || d.conditions || d.topics) {
+            console.warn(
+              `[${tag}] v2 extract dropped out-of-list ids: models=${d.models} conditions=${d.conditions} topics=${d.topics} for "${query}"`
+            );
+          }
+          if (!hasAnythingToWrite(ingredients, extraction)) {
+            archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+              ref.update(buildArchiveSkipRow("nothing_to_write", Date.now()))
+            );
+            res.json({ skipped: "nothing_to_write", cacheKey: key });
+            return;
+          }
+          // ── Stage 2: code pulls and computes — zero AI ──
+          const serviceFacts = extraction.topics.length
+            ? await buildServiceFacts(db, extraction.topics)
+            : "";
+          const built = buildV2Context({ query, ingredients, extraction, serviceFacts });
+          if (built.droppedSections.length) {
+            console.warn(
+              `[${tag}] v2 context over budget, dropped sections: ${built.droppedSections.join(",")}`
+            );
+          }
+          context = built.context;
+          answerTopics = extraction.topics;
         }
-        const data = await apiRes.json();
-        const text = (data.content || [])
-          .filter((b) => b && b.type === "text")
-          .map((b) => b.text)
-          .join("")
-          .trim();
+        // ── Stage 3 (v2) / the only stage (v1): the writer ──
+        startedAt = Date.now();
+        const text = await callAnthropicText({
+          apiKey,
+          model: overviewModel,
+          system: buildOverviewSystemPrompt(assistantName),
+          user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
+          maxTokens: MAX_OUTPUT_TOKENS,
+          timeoutMs: OVERVIEW_TIMEOUT_MS,
+        });
         const parsed = parseOverview(text);
         if (!parsed) {
           console.warn(`[${tag}] unparseable reply for "${query}"`);
@@ -1044,8 +1176,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               inputChars: context.length,
               summary: parsed.summary,
               detail: parsed.detail,
-              topics,
+              topics: answerTopics,
               ts: Date.now(),
+              ...(isV2 ? { v2: true, extractModel, extractMs } : {}),
             })
           )
         );
@@ -1066,8 +1199,6 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           )
         );
         res.json({ skipped: "error", cacheKey: key });
-      } finally {
-        clearTimeout(timer);
       }
     }
   );
@@ -1127,5 +1258,7 @@ module.exports = {
     runRateBucketGc,
     CACHE_GC_BATCH,
     DEFAULT_CLIENT_HOURLY_LIMIT,
+    v2FactsVersion,
+    V2_FACT_VERSION_TOPICS,
   },
 };
