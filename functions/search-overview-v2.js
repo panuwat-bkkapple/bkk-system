@@ -733,7 +733,14 @@ function seriesSection(ingredients, chosen) {
 }
 
 function familySection(ingredients, extraction) {
-  if (extraction.intent !== "family_overview" || !extraction.family) return "";
+  if (!extraction.family) return "";
+  // Two doors in: the family-overview intent ("iphone" bare), and an unknown
+  // model with a known family and no real model chosen — "iPhone 20 Ultra"
+  // must be answered with the absence AND the real devices in that family,
+  // or the honest "ยังไม่มีข้อมูล" strands the customer with nothing to act
+  // on (acceptance: unknown_model บอกตรง + เสนอรุ่นจริง).
+  const unknownNeedsFamily = extraction.unknownModels.length > 0 && extraction.models.length === 0;
+  if (extraction.intent !== "family_overview" && !unknownNeedsFamily) return "";
   const members = ingredients.models.filter((m) => familyOf(m) === extraction.family && !m.paused && m.max > 0);
   if (!members.length) return "";
   let min = 0;
