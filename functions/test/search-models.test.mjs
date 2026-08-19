@@ -62,6 +62,28 @@ const CASES = [
   // Intent words and nothing else: no device was named, so nothing was
   // searched for. Unchanged behaviour — the caller escalates.
   { q: "ขายเครื่อง", expectEmpty: true },
+
+  // TWO GENERATIONS IN ONE SENTENCE (live bug, ส.ค. 2569 — found on the web
+  // search, fixed here because the rule is a mirror). Version tokens were
+  // {17, 18}; no device is both generations, and the old "candidate must
+  // contain EVERY version token" rule therefore rejected the whole catalogue.
+  // Asking about the phone you own alongside the one you are waiting for is
+  // the most natural way to ask when to sell, and it was the one shape that
+  // found nothing at all.
+  {
+    q: "ถ้าจะขาย iPhone 17 Pro Max 256GB เดือนหน้า หลังจาก iPhone 18 รุ่นใหม่ เปิดตัว ราคาจะลงอีกไหม",
+    top: "iPhone 17 Pro Max",
+  },
+  { q: "ขาย iphone 13 ก่อน iphone 18 เปิดตัว ดีไหม", top: "iPhone 13" },
+  // An incidental small number ("ภายใน 7 วัน") makes 7 a version token. The
+  // device that was actually named must still come first.
+  { q: "ขาย iphone 13 pro max ภายใน 7 วัน", top: "iPhone 13 Pro Max" },
+  // THE RULE THE FIX MUST NOT BREAK, restated with the generation named ONCE:
+  // with a single version token "one of" and "every" are the same test, so
+  // Series 5 (not carried) must still return nothing rather than Series 10.
+  // Covered by the first three cases above; repeated here in the two-number
+  // shape so a future edit cannot pass by loosening only the single case.
+  { q: "apple watch series 5 หรือ series 6 ดี", expectEmpty: true },
 ];
 
 let failures = 0;
