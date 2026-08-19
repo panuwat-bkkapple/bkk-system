@@ -723,9 +723,25 @@ function rankModels(list, rawQuery, limit = 5) {
   if (!q) return [];
   // Model-generation numbers live in 3..20 (iPhone 13, Watch Series 10, iPad 9).
   // Storage sizes (32..1024) are >20 and 1TB/2TB map to 1/2 (<3), so this cleanly
-  // separates generation from storage. A candidate must contain EVERY version
-  // token — otherwise "Apple Watch Series 5" falsely matches "Series 10/11" on
-  // 3 of 4 tokens for a model we do not carry.
+  // separates generation from storage. A candidate must contain ONE OF the
+  // version tokens — otherwise "Apple Watch Series 5" falsely matches
+  // "Series 10/11" on 3 of 4 tokens for a model we do not carry.
+  //
+  // ONE OF, not every — and the two are the SAME TEST whenever the customer
+  // named a single generation, so the Series 5-vs-10 case this rule was
+  // written for is untouched. They differ only when a sentence names two
+  // generations, which the original rule never met.
+  //
+  // LIVE BUG, ส.ค. 2569, found on /search and mirrored here because the rule
+  // is: "ถ้าจะขาย iPhone 16 Pro Max 256GB เดือนหน้า หลังจาก iPhone 18 รุ่นใหม่
+  // เปิดตัว ราคาจะลงอีกไหม" matched NOTHING — version tokens {16, 18} and no
+  // device is both. Asking about the phone you own alongside the one you are
+  // waiting for is the most natural way to ask when to sell, and it was the
+  // one shape that found nothing at all. In the chat the same input would
+  // make มาติน say we do not carry a phone we buy and price.
+  //
+  // MIRROR: bkk-frontend-next/lib/searchMatch.ts (matchNearby). Fixed in both
+  // in the same round — see the test there, which the site runs under vitest.
   const versionTokens = tokens.filter((t) => {
     const n = Number(t);
     return Number.isInteger(n) && n >= 3 && n <= 20;
@@ -782,7 +798,8 @@ function rankModels(list, rawQuery, limit = 5) {
       // 13 / 2013, so "Macbook Air M1" scored the delisted Intel Airs level
       // with (then above) the M1 2020 the customer meant (live case #CIF1).
       const hits = tokens.filter((t) => (/^\d+$/.test(t) ? nameTokens.includes(t) : hay.includes(t))).length;
-      const versionOk = versionTokens.every((vt) => nameTokens.includes(vt));
+      const versionOk =
+        versionTokens.length === 0 || versionTokens.some((vt) => nameTokens.includes(vt));
       const meaningfulOk =
         meaningfulTokens.length === 0 || meaningfulTokens.some((t) => hay.includes(t));
       const familyOk = !familyMismatch(q, hay);
