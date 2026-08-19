@@ -294,14 +294,18 @@ check(
   });
   check("context: carries the raw query", context.includes("คำค้นของลูกค้า: iphone 16 pro max 256 จอแตก"));
   check("context: capacity note present", context.includes("ลูกค้าระบุความจุ 256GB แล้ว"));
-  check("context: price is the 256GB rung, not the model span", context.includes("30,000 - 32,000 บาท"));
-  // Hand-computed: pct 20 of baseMin 30000 = 6000, of baseMax 32000 = 6400.
-  check("context: deduction baht from the resolver", context.includes("หักประมาณ 6,000 - 6,400 บาท"));
-  // Remain: min = 30000 - 6400 = 23600, max = 32000 - 6000 = 26000.
-  check("context: remainder worst-vs-worst", context.includes("เหลือประมาณ 23,600 - 26,000 บาท"));
+  // NET ONLY — the deduction worksheet is a trade secret (/sell has never
+  // shown it). Hand-computed net off the 256GB rung: pct 20 of 30000/32000 =
+  // 6000/6400 → remain 23,600 - 26,000. The หัก figures and the base price
+  // of the conditioned model must BOTH be absent, or the subtraction can be
+  // narrated back into existence.
+  check("context: net estimate from the resolver, worst-vs-worst", context.includes("ราคาประเมินเบื้องต้นอยู่ที่ประมาณ 23,600 - 26,000 บาท"));
+  check("context: no deduction amount anywhere", !context.includes("หักประมาณ"));
+  check("context: no base price for the conditioned model", !context.includes("30,000 - 32,000 บาท"));
+  check("context: the condition named in the customer's words", context.includes("สภาพที่ระบุ: จอแตก มองเห็นชัด"));
   check(
     "context: pre-inspection disclaimer line present",
-    context.includes("ยอดหักและยอดเหลือทั้งหมดเป็นการประเมินเบื้องต้น")
+    context.includes("เป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง")
   );
 }
 

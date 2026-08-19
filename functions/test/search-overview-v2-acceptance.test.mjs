@@ -171,8 +171,11 @@ const ex = (over = {}) => ({
     extraction,
     serviceFacts: "",
   });
-  check("ACC4: the bent-body option prices", context.includes("ตัวเครื่องงอ/บิด") && context.includes("หักประมาณ 3,000 บาท"));
-  check("ACC4: remainder present and hedged", context.includes("เหลือประมาณ") && context.includes("ประเมินเบื้องต้น"));
+  // NET ONLY: base 30,000-42,000 minus flat 3,000 → 27,000 - 39,000. The
+  // เครื่องงอ answer still carries a real figure — just never the worksheet.
+  check("ACC4: the bent-body condition prices as a NET estimate", context.includes("ตัวเครื่องงอ/บิด") && context.includes("ราคาประเมินเบื้องต้นอยู่ที่ประมาณ 27,000 - 39,000 บาท"));
+  check("ACC4: no deduction amount, no base price for the conditioned model", !context.includes("หักประมาณ") && !context.includes("30,000 - 42,000"));
+  check("ACC4: hedged as pre-inspection", context.includes("เป็นการประเมินเบื้องต้น"));
 }
 
 // ── ACC5: a service question must not leak market facts ────────────────────
@@ -290,8 +293,9 @@ const ex = (over = {}) => ({
     extraction,
     serviceFacts: "",
   });
-  check("ACC11: real deduction line present", context.includes("หักประมาณ 3,000 บาท"));
+  check("ACC11: real net estimate present", context.includes("ราคาประเมินเบื้องต้นอยู่ที่ประมาณ 27,000 - 39,000 บาท"));
   check("ACC11: the vague note never shadows a computed figure", !context.includes("ยังไม่ระบุรุ่น"));
+  check("ACC11: the worksheet stays secret here too", !context.includes("หักประมาณ"));
 }
 
 // ── ACC12 (feedback เทสมือ: ไฮไลท์ใจความ): key_point เป็น "ตัวชี้" ไม่ใช่ ──

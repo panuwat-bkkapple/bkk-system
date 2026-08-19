@@ -41,10 +41,14 @@ const P = buildV2SystemPrompt("มาติน");
 // ── 1. Layer 1: the v1 substance, present and negative ─────────────────────
 
 check("layer1: numbers from the system context only", P.includes("ข้อมูลจากระบบ") && P.includes("ห้ามคำนวณ"));
-check("layer1: deduction figures are read-only", P.includes("ยอดหักตามสภาพ") && P.includes("ใช้ตรงๆ เท่านั้น"));
+check("layer1: condition estimates are read-only", P.includes("ราคาประเมินตามสภาพ") && P.includes("ใช้ตรงๆ เท่านั้น"));
 check(
   "layer1: unpriced defects get an inspection answer, not an estimate",
-  P.includes("ตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเอง")
+  P.includes("ตำหนิที่ไม่มีบรรทัดราคาประเมินให้ ห้ามประมาณตัวเลขเอง")
+);
+check(
+  "layer1: the deduction table is a trade secret — net only, no worksheet",
+  P.includes("ความลับทางการค้า") && P.includes("ห้ามแจกแจงว่าราคาเต็มเท่าไหร่ หักรายการละเท่าไหร่")
 );
 check("layer1: every figure is pre-inspection", P.includes("ยืนยันหลังตรวจสภาพเครื่อง"));
 check("layer1: no guarantee words", P.includes("รับประกัน") && P.includes("การันตี"));

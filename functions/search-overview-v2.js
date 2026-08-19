@@ -630,12 +630,12 @@ function buildV2SystemPrompt(assistantName) {
     "หน้าที่ของคุณคือตอบคำค้นของลูกค้าในหน้าค้นหา จากข้อมูลจากระบบที่ให้ไว้ด้านล่างเท่านั้น ให้จบในคำตอบเดียว",
     "",
     "ชั้นที่ 1 — ความจริง (ละเมิดไม่ได้ทุกกรณี):",
-    "1. ตัวเลขทุกตัวที่พูดถึงต้องมาจาก 'ข้อมูลจากระบบ' เท่านั้น ห้ามคำนวณ ห้ามประมาณ ห้ามปัดเศษเพิ่มเอง — ห้ามนำตัวเลขจากข้อมูลมาบวก ลบ คูณ หาร หรือประกอบเป็นตัวเลขใหม่ แม้ผลลัพธ์จะถูกต้องทางคณิตศาสตร์ ตัวเลขที่ไม่มีอยู่ในข้อมูลคือตัวเลขที่ห้ามพูดถึง — ยอดหักตามสภาพ ยอดเหลือ และยอดที่แปลงเป็นบาทแล้ว เป็นตัวเลขสำเร็จที่ระบบคำนวณมาให้ ใช้ตรงๆ เท่านั้น ตำหนิที่ไม่มีบรรทัดยอดหักให้ ห้ามประมาณตัวเลขเอง ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
+    "1. ตัวเลขทุกตัวที่พูดถึงต้องมาจาก 'ข้อมูลจากระบบ' เท่านั้น ห้ามคำนวณ ห้ามประมาณ ห้ามปัดเศษเพิ่มเอง — ห้ามนำตัวเลขจากข้อมูลมาบวก ลบ คูณ หาร หรือประกอบเป็นตัวเลขใหม่ แม้ผลลัพธ์จะถูกต้องทางคณิตศาสตร์ ตัวเลขที่ไม่มีอยู่ในข้อมูลคือตัวเลขที่ห้ามพูดถึง — ราคาประเมินตามสภาพ (บรรทัด 'ราคาประเมินเบื้องต้นอยู่ที่ประมาณ') และยอดที่แปลงเป็นบาทแล้ว เป็นตัวเลขสำเร็จที่ระบบคำนวณมาให้ ใช้ตรงๆ เท่านั้น ตำหนิที่ไม่มีบรรทัดราคาประเมินให้ ห้ามประมาณตัวเลขเอง ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
     "2. ทุกยอดเป็นการประเมินก่อนตรวจเครื่องจริง — ถ้าพูดถึงยอดต้องกำกับว่ายอดสุดท้ายยืนยันหลังตรวจสภาพเครื่อง ห้ามใช้คำว่ารับประกัน การันตี หรือคำที่ฟังเป็นยอดที่ตกลงแล้ว",
     "3. เรื่องแนวโน้มราคาในอนาคต พูดได้เฉพาะจากบรรทัด 'แนวโน้มราคาที่ทีมงานประเมินไว้' — ไม่มีบรรทัดนั้นห้ามคาดการณ์เอง และเมื่อมี: ห้ามทำช่วงให้แคบลงหรือเปลี่ยนเป็นเลขเดี่ยว ห้ามแปลงเปอร์เซ็นต์เป็นบาทเอง (บรรทัด 'คิดเป็นเงินประมาณ' คือค่าที่ระบบแปลงให้แล้ว) ห้ามตัดคำกำกับความไม่แน่นอนออก — ส่วนบรรทัด 'ความเคลื่อนไหวราคาที่ผ่านมา' คือประวัติจริง ห้ามใช้มันพยากรณ์อนาคต",
     "4. รุ่นที่ระบุว่ายังไม่มีในระบบรับซื้อ ให้บอกตรงๆ ว่ายังไม่มีข้อมูลรุ่นนั้น ห้ามเดาราคา ห้ามบอกว่าเราไม่รับซื้อ และตัวเลขทุกตัวที่เอ่ยต้องระบุชัดว่าเป็นของรุ่นไหน — รุ่นที่ระบุว่างดรับซื้อ ให้บอกตามนั้น ห้ามเสนอราคาให้",
     "5. ข้อมูลไม่พอจะตอบส่วนไหน ให้บอกตรงๆ ในประโยคแรกแล้วชี้ว่าหน้าไหนในเว็บน่าจะมี — ห้ามเดา ห้ามเขียนย่อหน้าที่ฟังเหมือนคำตอบโดยไม่มีข้อมูลรองรับ และห้ามถามคำถามกลับไม่ว่ากรณีใด (กล่องนี้ตอบครั้งเดียวจบ การซักถามเป็นหน้าที่ของแชทและฟอร์มประเมิน)",
-    "6. ห้ามเอ่ยถึงข้อมูลภายในระบบ (id, ชื่อฟิลด์, ชื่อเครื่องมือ, กลไกการทำงาน) ห้ามเขียนลิงก์หรือ URL ห้ามใช้อีโมจิ",
+    "6. ห้ามเอ่ยถึงข้อมูลภายในระบบ (id, ชื่อฟิลด์, ชื่อเครื่องมือ, กลไกการทำงาน) ห้ามเขียนลิงก์หรือ URL ห้ามใช้อีโมจิ — และเกณฑ์การหักราคาตามสภาพเป็นความลับทางการค้าของร้าน: เมื่อลูกค้าระบุตำหนิ บอกได้เฉพาะราคาประเมินที่เขาจะได้รับ ห้ามแจกแจงว่าราคาเต็มเท่าไหร่ หักรายการละเท่าไหร่ หรือคิดเป็นกี่เปอร์เซ็นต์ ไม่ว่าจะคำนวณเองหรืออนุมานจากตัวเลขใดๆ",
     "7. ห้ามใช้ความรู้นอกเหนือจากข้อมูลจากระบบ — ไม่มีราคาตลาด ราคาร้านอื่น สเปก ปีที่วางขาย หรือข่าวใดๆ จากความจำของคุณ ราคาที่บอกคือราคารับซื้อของเรา ไม่ใช่ราคาขายต่อ ห้ามเอาไปเทียบกับราคาที่ลูกค้าขายเองได้",
     "",
     "ชั้นที่ 2 — ความฉลาด (มาตรฐานของคำตอบ):",
@@ -755,10 +755,15 @@ function hasAnythingToWrite(ingredients, extraction, now = Date.now()) {
   );
 }
 
-function priceSection(chosen, capacity) {
-  if (!chosen.length) return "";
+function priceSection(chosen, capacity, excludeIds = new Set()) {
+  // Models whose condition-adjusted estimate is in the context lose their
+  // base-price line ON PURPOSE: with both endpoints on the page the model
+  // (or a competitor) just narrates the subtraction, and the deduction table
+  // is exactly the secret this split protects.
+  const listed = chosen.filter((m) => !excludeIds.has(m.id));
+  if (!listed.length) return "";
   const lines = ["ราคารับซื้อของเรา (ตัวเลขทั้งหมดนี้คือข้อมูลจริงจากระบบ):"];
-  for (const m of chosen) {
+  for (const m of listed) {
     const p = modelPrice(m, capacity);
     if (p.paused) {
       lines.push(`- ${m.name}: ตอนนี้งดรับซื้อชั่วคราว${m.pausedMessage ? ` (${m.pausedMessage})` : ""}`);
@@ -788,9 +793,29 @@ function priceSection(chosen, capacity) {
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
+/**
+ * NET ONLY — the deduction arithmetic is a trade secret.
+ *
+ * The first cut of this section printed the full worksheet ("จอแตก หักประมาณ
+ * 6,000 - 6,400 → เหลือ..."), which /sell has never done: the site's own
+ * quoting flow shows a customer ONLY what they would receive, because a
+ * public per-defect deduction table is a price list for competitors to
+ * undercut line by line. So this section now speaks the way /sell does — the
+ * condition named (the customer's own words) and the resulting estimate,
+ * never the delta and never the pre-deduction figure.
+ *
+ * The deductions are still COMPUTED exactly as before; they are just not
+ * written into the context. That absence is itself a wall: the excision gate
+ * cuts any sentence whose numbers the context cannot vouch for, so a model
+ * that derives the delta on its own cannot get it past the door.
+ *
+ * Returns { text, coveredIds } — the caller hides the covered models' base
+ * price lines too, or the model narrates the subtraction in words.
+ */
 function deductionSection(chosen, ingredients, extraction) {
-  if (!extraction.conditions.length) return "";
+  if (!extraction.conditions.length) return { text: "", coveredIds: new Set() };
   const lines = [];
+  const coveredIds = new Set();
   for (const m of chosen) {
     if (m.paused || !m.conditionSetId) continue;
     const set = ingredients.conditionSets[m.conditionSetId];
@@ -812,40 +837,30 @@ function deductionSection(chosen, ingredients, extraction) {
       const dLow = resolveOptionDeduction(opt, baseMin, m.liquidityFactor);
       const dHigh = resolveOptionDeduction(opt, baseMax, m.liquidityFactor);
       if (!(Math.max(dLow, dHigh) > 0)) continue;
-      rows.push({
-        label: `${g.title ? `${g.title} — ` : ""}${opt.label}`,
-        min: Math.min(dLow, dHigh),
-        max: Math.max(dLow, dHigh),
-      });
+      rows.push({ label: opt.label, min: Math.min(dLow, dHigh), max: Math.max(dLow, dHigh) });
     }
     if (!rows.length) continue;
 
     const totalMin = rows.reduce((s, r) => s + r.min, 0);
     const totalMax = rows.reduce((s, r) => s + r.max, 0);
     const name = p.capacity ? `${m.name} ความจุ ${p.capacity}` : m.name;
-    if (rows.length === 1) {
-      lines.push(
-        `- ${name}: ${rows[0].label} หักประมาณ ${span(rows[0].min, rows[0].max)} → เหลือประมาณ ${span(
-          resolveFinalPrice(baseMin, totalMax),
-          resolveFinalPrice(baseMax, totalMin)
-        )}`
-      );
-    } else {
-      for (const r of rows) lines.push(`- ${name}: ${r.label} หักประมาณ ${span(r.min, r.max)}`);
-      lines.push(
-        `- ${name}: รวมหักประมาณ ${span(totalMin, totalMax)} → เหลือประมาณ ${span(
-          resolveFinalPrice(baseMin, totalMax),
-          resolveFinalPrice(baseMax, totalMin)
-        )}`
-      );
-    }
+    coveredIds.add(m.id);
+    lines.push(
+      `- ${name} (สภาพที่ระบุ: ${rows.map((r) => r.label).join(", ")}): ราคาประเมินเบื้องต้นอยู่ที่ประมาณ ${span(
+        resolveFinalPrice(baseMin, totalMax),
+        resolveFinalPrice(baseMax, totalMin)
+      )}`
+    );
   }
-  if (!lines.length) return "";
-  return [
-    "เงื่อนไขสภาพที่ลูกค้าระบุ (ยอดหักคำนวณจากเกณฑ์ประเมินจริงของแต่ละรุ่น):",
-    ...lines,
-    "ยอดหักและยอดเหลือทั้งหมดเป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง",
-  ].join("\n");
+  if (!lines.length) return { text: "", coveredIds: new Set() };
+  return {
+    text: [
+      "ราคาประเมินตามสภาพที่ลูกค้าระบุ (คำนวณจากเกณฑ์ประเมินจริงของรุ่นนั้น — ตัวเลขนี้คือยอดที่ลูกค้าจะได้รับ):",
+      ...lines,
+      "เป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง",
+    ].join("\n"),
+    coveredIds,
+  };
 }
 
 /**
@@ -1013,12 +1028,14 @@ function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
   const facts = applicableMarketFacts(ingredients, extraction);
   const deductions = deductionSection(chosen, ingredients, extraction);
   const ordered = [
-    { name: "prices", text: priceSection(chosen, extraction.capacity) },
+    // A model with a condition-adjusted estimate below has NO base-price line
+    // — see priceSection's exclude note.
+    { name: "prices", text: priceSection(chosen, extraction.capacity, deductions.coveredIds) },
     ...(serviceFirst ? [{ name: "service_facts", text: String(serviceFacts || "").trim() }] : []),
-    { name: "deductions", text: deductions },
+    { name: "deductions", text: deductions.text },
     // The generic acknowledgement stands in ONLY when no real figure could —
     // a vague line under a computed one is noise.
-    { name: "condition_note", text: deductions ? "" : conditionNoteSection(ingredients, extraction) },
+    { name: "condition_note", text: deductions.text ? "" : conditionNoteSection(ingredients, extraction) },
     { name: "market_facts", text: marketFactSection(facts, chosen, extraction.capacity) },
     { name: "series", text: seriesSection(ingredients, chosen) },
     { name: "family", text: familySection(ingredients, extraction) },
