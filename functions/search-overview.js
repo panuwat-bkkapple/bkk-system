@@ -40,6 +40,7 @@ const {
   parseExtraction,
   hasAnythingToWrite,
   buildV2Context,
+  buildV2SystemPrompt,
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
 } = require("./search-overview-v2");
@@ -1143,11 +1144,15 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           answerTopics = extraction.topics;
         }
         // ── Stage 3 (v2) / the only stage (v1): the writer ──
+        // V2 writes under the three-layer prompt (truth / intelligence /
+        // verdict); v1 keeps its 13-rule prompt untouched for the whole
+        // parallel run — the A/B comparison is only honest if the old side
+        // stays exactly what production serves today.
         startedAt = Date.now();
         const text = await callAnthropicText({
           apiKey,
           model: overviewModel,
-          system: buildOverviewSystemPrompt(assistantName),
+          system: isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName),
           user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
           maxTokens: MAX_OUTPUT_TOKENS,
           timeoutMs: OVERVIEW_TIMEOUT_MS,
