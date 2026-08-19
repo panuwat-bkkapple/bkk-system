@@ -63,8 +63,11 @@ const ING = sanitizeIngredients({
         { title: "โครงเครื่อง", options: [{ label: "ปกติ" }, { label: "ตัวเครื่องงอ/บิด", deduct: 3000 }] },
       ],
     },
+    // The per-model split CLONES a set per model, so equivalent options carry
+    // identical labels across sets — the fixture mirrors that reality, and
+    // the cross-set resolution below depends on it.
     set15: {
-      groups: [{ title: "สภาพหน้าจอ", options: [{ label: "ปกติ" }, { label: "จอแตก", pct: 20 }] }],
+      groups: [{ title: "สภาพหน้าจอ", options: [{ label: "ปกติ" }, { label: "จอแตก มองเห็นชัด", pct: 20 }] }],
     },
   },
   marketFacts: [
@@ -357,6 +360,90 @@ const ex = (over = {}) => ({
     "ACC13: prompt pushes back on shorthand before unknown",
     v2.buildExtractSystemPrompt().includes("ก่อนใส่ต้องเช็คลิสต์")
   );
+}
+
+// ── ACC14 (พบบน preview): ชุดประเมินรายรุ่น — cid คือแนวคิดสภาพ ไม่ใช่แถว ──
+// "iphone 16 pro max จอแตก ขายได้เท่าไหร่" เคยได้คำตอบไร้ตัวเลข: stage 1
+// เลือก "จอแตก" จากชุดของรุ่นอื่น (per-model split = ชุดใครชุดมัน) แล้ว
+// equality check เดิม (setId === conditionSetId) หาไม่เจอเงียบๆ. กติกาใหม่:
+// รุ่นที่ถูกเลือกไปหา option ป้ายเดียวกันในชุดของตัวเอง
+{
+  const { conditionChoices, deductionSection } = v2.__test;
+
+  // The stage-1 menu carries ONE row per concept — the three-clones-of-จอแตก
+  // menu is exactly the pick a small model gets wrong.
+  const choices = conditionChoices(ING);
+  const cracked = choices.filter((c) => c.label === "จอแตก มองเห็นชัด");
+  check("ACC14: duplicate per-model clones collapse to one menu row", cracked.length === 1);
+  check(
+    "ACC14: the surviving rows all come from the first set seen",
+    choices.every((c) => c.cid.startsWith("set16:"))
+  );
+
+  // The cid from ip15pm's set prices ip16pm from ip16pm's OWN set:
+  // 20% of 30,000-42,000 → net 21,600 - 36,000.
+  const extraction = ex({ models: ["ip16pm"], conditions: ["set15:0:1"], intent: "deduction" });
+  const { context } = buildV2Context({
+    query: "iphone 16 pro max จอแตก ขายได้เท่าไหร่",
+    ingredients: ING,
+    extraction,
+    serviceFacts: "",
+  });
+  check(
+    "ACC14: cross-set cid still yields the NET estimate",
+    context.includes("จอแตก มองเห็นชัด") && context.includes("ราคาประเมินเบื้องต้นอยู่ที่ประมาณ 21,600 - 36,000 บาท")
+  );
+  check(
+    "ACC14: net only — no worksheet, no base price, no vague fallback note",
+    !context.includes("หักประมาณ") && !context.includes("30,000 - 42,000") && !context.includes("ยังไม่ระบุรุ่น")
+  );
+
+  // Both clones picked at once = one concept, priced once — never stacked.
+  const both = ex({ models: ["ip16pm"], conditions: ["set16:0:1", "set15:0:1"], intent: "deduction" });
+  const twice = buildV2Context({
+    query: "iphone 16 pro max จอแตก",
+    ingredients: ING,
+    extraction: both,
+    serviceFacts: "",
+  });
+  check(
+    "ACC14: the same concept picked twice deducts once",
+    twice.context.includes("21,600 - 36,000") && !twice.context.includes("13,200")
+  );
+
+  // A set that genuinely lacks the concept still prices nothing — cross-set
+  // resolution widens the address, never invents an option.
+  const ip15pm = ING.models.find((m) => m.id === "ip15pm");
+  const lacks = deductionSection([ip15pm], ING, ex({ conditions: ["set16:1:1"], intent: "deduction" }));
+  check(
+    "ACC14: a set without the option prices nothing for that model",
+    lacks.text === "" && lacks.coveredIds.size === 0
+  );
+
+  // The loose fallback: an admin renames a GROUP in one clone but keeps the
+  // option label — same label under a different title still resolves, but
+  // only while it is unambiguous. Two same-label homes = refuse, never guess.
+  const { resolveConditionForSet } = v2.__test;
+  const renamedIng = sanitizeIngredients({
+    models: [{ id: "m1", name: "M1", min: 1000, max: 2000, conditionSetId: "setB" }],
+    conditionSets: {
+      setA: { groups: [{ title: "สภาพหน้าจอ", options: [{ label: "ปกติ" }, { label: "จอแตก", pct: 20 }] }] },
+      setB: { groups: [{ title: "หน้าจอ", options: [{ label: "ปกติ" }, { label: "จอแตก", pct: 25 }] }] },
+      setC: {
+        groups: [
+          { title: "จอด้านหน้า", options: [{ label: "จอแตก", pct: 10 }] },
+          { title: "จอด้านหลัง", options: [{ label: "จอแตก", pct: 15 }] },
+        ],
+      },
+    },
+  });
+  const renamed = resolveConditionForSet("setA:0:1", renamedIng, renamedIng.conditionSets.setB);
+  check(
+    "ACC14: renamed group, same label — the loose fallback still resolves",
+    renamed !== null && renamed.option.pct === 25
+  );
+  const ambiguous = resolveConditionForSet("setA:0:1", renamedIng, renamedIng.conditionSets.setC);
+  check("ACC14: two same-label homes in one set — refuse rather than guess", ambiguous === null);
 }
 
 // ── done ───────────────────────────────────────────────────────────────────

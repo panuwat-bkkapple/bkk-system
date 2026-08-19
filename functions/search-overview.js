@@ -1142,6 +1142,16 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               `[${tag}] v2 extract dropped out-of-list ids: models=${d.models} conditions=${d.conditions} topics=${d.topics} for "${query}"`
             );
           }
+          // One line per miss saying what stage 1 actually decided — ids and
+          // counts only. Without it, "the answer had no figure" cannot be told
+          // apart from "stage 1 picked nothing" in production (the exact
+          // ambiguity the first preview pass ran into).
+          console.log(
+            `[${tag}] v2 extract: models=${extraction.models.join("|") || "-"} ` +
+              `conditions=${extraction.conditions.length} topics=${extraction.topics.join("|") || "-"} ` +
+              `intent=${extraction.intent} family=${extraction.family || "-"} ` +
+              `unknowns=${extraction.unknownModels.length} confidence=${extraction.confidence}`
+          );
           if (!hasAnythingToWrite(ingredients, extraction)) {
             archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
               ref.update(buildArchiveSkipRow("nothing_to_write", Date.now()))

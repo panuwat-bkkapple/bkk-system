@@ -320,20 +320,70 @@ const V2_TOPIC_DESCRIPTIONS = {
   process: "ขั้นตอนการขาย การตรวจสภาพ",
 };
 
+const normLabel = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+
 /** Every condition option the payload's sets offer, as pickable ids.
  *  cid = `${setId}:${groupIndex}:${optionIndex}` — an address into data the
- *  website already sent, so resolving one back needs no lookup at all. */
+ *  website already sent, so resolving one back needs no lookup at all.
+ *
+ *  DEDUPED by (group, label): the catalog runs one condition set PER MODEL
+ *  (per-model split), so a three-model match ships three near-identical
+ *  "จอแตก" rows — three ids for one concept is exactly the choice a small
+ *  model gets wrong, and the resolver below treats any of them as the
+ *  concept anyway. One row per concept, first address wins. */
 function conditionChoices(ingredients) {
   const out = [];
+  const seen = new Set();
   const sets = (ingredients && ingredients.conditionSets) || {};
   for (const setId of Object.keys(sets)) {
     (sets[setId].groups || []).forEach((g, gi) => {
       (g.options || []).forEach((o, oi) => {
+        const dedupe = `${normLabel(g.title)}|${normLabel(o.label)}`;
+        if (seen.has(dedupe)) return;
+        seen.add(dedupe);
         out.push({ cid: `${setId}:${gi}:${oi}`, group: g.title || "", label: o.label });
       });
     });
   }
   return out;
+}
+
+/**
+ * A picked cid names a CONDITION CONCEPT, not a row in one model's table.
+ *
+ * Live finding (preview, "iphone 16 pro max จอแตก"): the catalog runs one
+ * condition set per model, so stage 1's list held a "จอแตก" from each matched
+ * model's set — it picked one, the chosen model owned a different set, the
+ * old `setId === conditionSetId` equality found nothing, and a customer who
+ * named both the device and the defect got the vague no-figure note instead
+ * of a price. So the cid resolves to its (group title, option label) and each
+ * chosen model looks that concept up IN ITS OWN SET — exact normalized label
+ * equality on admin-authored data, never a substring match on customer text
+ * (the per-model split clones sets, so equivalent options carry equal labels;
+ * a set that genuinely lacks the option still prices nothing, correctly).
+ */
+function resolveConditionForSet(cid, ingredients, set) {
+  const [srcSetId, giRaw, oiRaw] = String(cid || "").split(":");
+  const src = ingredients.conditionSets[srcSetId];
+  const srcGroup = src && src.groups[Number(giRaw)];
+  const srcOpt = srcGroup && srcGroup.options[Number(oiRaw)];
+  if (!srcOpt) return null;
+  if (!set) return null;
+  for (const g of set.groups || []) {
+    if (normLabel(g.title) !== normLabel(srcGroup.title)) continue;
+    for (const o of g.options || []) {
+      if (normLabel(o.label) === normLabel(srcOpt.label)) return { group: g, option: o };
+    }
+  }
+  // Same label under a differently-titled group still names the concept —
+  // accept it only when it is unambiguous within the set.
+  const loose = [];
+  for (const g of set.groups || []) {
+    for (const o of g.options || []) {
+      if (normLabel(o.label) === normLabel(srcOpt.label)) loose.push({ group: g, option: o });
+    }
+  }
+  return loose.length === 1 ? loose[0] : null;
 }
 
 function buildExtractSystemPrompt() {
@@ -826,12 +876,16 @@ function deductionSection(chosen, ingredients, extraction) {
     const baseMax = p.max;
 
     const rows = [];
+    const seenLabels = new Set();
     for (const cid of extraction.conditions) {
-      const [setId, giRaw, oiRaw] = cid.split(":");
-      if (setId !== m.conditionSetId) continue;
-      const g = set.groups[Number(giRaw)];
-      const opt = g && g.options[Number(oiRaw)];
-      if (!opt) continue;
+      // Cross-set resolution — the cid names a concept, this model prices it
+      // from its OWN set. See resolveConditionForSet.
+      const hit = resolveConditionForSet(cid, ingredients, set);
+      if (!hit) continue;
+      const opt = hit.option;
+      const labelKey = normLabel(opt.label);
+      if (seenLabels.has(labelKey)) continue;
+      seenLabels.add(labelKey);
       // Resolves to 0 = the admin has not priced this option, not "we deduct
       // nothing" — the line must not exist rather than promise a free pass.
       const dLow = resolveOptionDeduction(opt, baseMin, m.liquidityFactor);
@@ -1079,6 +1133,7 @@ module.exports = {
     normalizeCapacity,
     stableStringify,
     conditionChoices,
+    resolveConditionForSet,
     resolveOptionDeduction,
     resolveFinalPrice,
     modelPrice,
