@@ -343,7 +343,7 @@ function buildExtractSystemPrompt() {
     "",
     "กฎเหล็ก:",
     "1. id ทุกตัวที่ตอบ ต้องคัดลอกมาจากลิสต์ที่ให้ไว้เป๊ะๆ เท่านั้น ห้ามแต่ง id เอง",
-    "2. รุ่นที่ลูกค้าเอ่ยถึงแต่ไม่มีในลิสต์รุ่น ให้ใส่ชื่อตามที่ลูกค้าเรียกลงใน unknown_models ห้ามจับคู่กับรุ่นอื่นที่ใกล้เคียง",
+    "2. รุ่นที่ลูกค้าเอ่ยถึงแต่ไม่มีในลิสต์รุ่น ให้ใส่ชื่อตามที่ลูกค้าเรียกลงใน unknown_models ห้ามจับคู่กับรุ่นอื่นที่ใกล้เคียง — แต่ก่อนใส่ต้องเช็คลิสต์ให้ถี่ถ้วน: ลูกค้ามักพิมพ์ตัวย่อหรือสะกดต่าง (เช่น 16pm / ip16 promax = iPhone 16 Pro Max, ไอโฟน = iPhone) ถ้าชื่อที่เอ่ยคือรุ่นเดียวกับที่มีในลิสต์ ให้เลือก id นั้นลง models ห้ามใส่ unknown_models",
     "3. conditions ใส่เฉพาะเมื่อลูกค้าพูดถึงสภาพเครื่องจริงๆ และมี id ที่ตรงความหมาย — ประโยคอย่าง 'ราคาจะลงอีกไหม' ไม่ใช่สภาพเครื่อง ต้องได้ conditions ว่าง",
     "4. เลขในคำค้นที่เป็นความจุ (เช่น 256, 512GB, 1TB) ใส่ใน capacity พร้อมหน่วยเสมอ ไม่ใช่ชื่อรุ่น",
     "5. intent เลือกค่าเดียวที่ตรงที่สุด: price=ถามราคารุ่น, deduction=ถามยอดหักตามสภาพ, forecast=ถามแนวโน้ม/จังหวะขาย, service=ถามบริการหรือขั้นตอน, store=ถามข้อมูลร้าน, compare=เทียบรุ่นหรือทางเลือก, family_overview=พิมพ์ชื่อตระกูลกว้างๆ, other=นอกเหนือจากนี้",
@@ -430,10 +430,29 @@ function parseExtraction(raw, ingredients) {
     if (!topics.includes(s) && topics.length < TOPIC_PICK_LIMIT) topics.push(s);
   }
 
+  // A name the CATALOG KNOWS can never be "unknown", whatever the extractor
+  // says. Live finding (preview hands-on): stage 1 filed "iPhone 16 Pro Max"
+  // under unknown_models while the catalog holds it priced — and the answer
+  // told a customer "ยังไม่มีข้อมูล" about a device the card below was
+  // selling. The prompt now pushes back too, but a false absence is a lie to
+  // a customer, so the guard is structural: normalized name/alias match
+  // against the list drops the entry (drop, never promote — auto-promoting
+  // to the matched id would be the repair-a-phantom door this parser refuses).
+  const knownNames = new Set();
+  const normName = (s) => String(s || "").toLowerCase().replace(/[\s\-_/|]+/g, "");
+  for (const m of ingredients.models) {
+    knownNames.add(normName(m.name));
+    if (m.alias) for (const a of m.alias.split("/")) knownNames.add(normName(a));
+  }
   const unknownModels = [];
   for (const nameRaw of Array.isArray(obj.unknown_models) ? obj.unknown_models : []) {
     const s = str(nameRaw, 60).trim();
-    if (s && !unknownModels.includes(s) && unknownModels.length < UNKNOWN_MODEL_LIMIT) {
+    if (!s) continue;
+    if (knownNames.has(normName(s))) {
+      dropped.knownAsUnknown = (dropped.knownAsUnknown || 0) + 1;
+      continue;
+    }
+    if (!unknownModels.includes(s) && unknownModels.length < UNKNOWN_MODEL_LIMIT) {
       unknownModels.push(s);
     }
   }

@@ -336,6 +336,25 @@ const ex = (over = {}) => ({
   );
 }
 
+// ── ACC13 (พบบน preview): ชื่อที่ catalog รู้จัก ห้ามกลายเป็น "ยังไม่มีข้อมูล" ─
+// stage 1 เคยใส่ iPhone 16 Pro Max ลง unknown_models ทั้งที่การ์ดข้างล่าง
+// ขายอยู่ที่ 30,000 — การ์ด guard ต้องดักที่ parser ไม่ใช่หวังพึ่ง prompt
+{
+  const both = parseExtraction(
+    '{"models": ["ip16"], "unknown_models": ["iPhone 16 Pro Max", "ไอโฟน 16 โปรแม็กซ์", "iphone16promax", "iPhone 20 Ultra"], "intent": "price"}',
+    ING
+  );
+  check(
+    "ACC13: catalog-known names dropped from unknown_models (name, Thai alias, squashed spelling)",
+    both.unknownModels.length === 1 && both.unknownModels[0] === "iPhone 20 Ultra"
+  );
+  check("ACC13: the drops are counted for the log", both.dropped.knownAsUnknown === 3);
+  check(
+    "ACC13: prompt pushes back on shorthand before unknown",
+    v2.buildExtractSystemPrompt().includes("ก่อนใส่ต้องเช็คลิสต์")
+  );
+}
+
 // ── done ───────────────────────────────────────────────────────────────────
 
 if (failures) {
