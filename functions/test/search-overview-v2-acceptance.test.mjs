@@ -301,45 +301,83 @@ const ex = (over = {}) => ({
   check("ACC11: the worksheet stays secret here too", !context.includes("หักประมาณ"));
 }
 
-// ── ACC12 (feedback เทสมือ: ไฮไลท์ใจความ): key_point เป็น "ตัวชี้" ไม่ใช่ ──
-// ช่องส่งข้อความใหม่ — โมเดลชี้ประโยคในข้อความของตัวเอง โค้ดตรวจ verbatim
-// กับ summary ที่จะเสิร์ฟจริงเท่านั้น
+// ── ACC12 (feedback เทสมือ: ไฮไลท์ใจความ + CTA ชี้รุ่นผิด): ใจความตัดสิน ──
+// ก่อนเขียน — key_points เป็น "ตัวชี้" 1-3 วลี ไม่ใช่ช่องส่งข้อความใหม่ และ
+// primary_model_id เป็นรหัสจากลิสต์เท่านั้น (drop, never promote)
 {
-  const { parseOverviewV2, exciseUnverifiedNumbers, admittedKeyPoint } = v2;
+  const { parseOverviewV2, exciseUnverifiedNumbers, admittedKeyPoints, primaryModelLegend } = v2;
   const clean = parseOverviewV2(
-    '{"summary": "ตอนนี้เป็นจังหวะขายที่ดีครับ ราคา 30,000 บาทครับ", "detail": "", "key_point": "ตอนนี้เป็นจังหวะขายที่ดีครับ"}'
+    '{"key_points": ["ตอนนี้เป็นจังหวะขายที่ดีครับ", "iPhone 16 Pro Max อยู่ที่ 30,000 บาท"], "primary_model_id": "ip16pm", "summary": "ตอนนี้เป็นจังหวะขายที่ดีครับ ราคา 30,000 บาทครับ", "detail": "iPhone 16 Pro Max อยู่ที่ 30,000 บาท"}',
+    ING
   );
-  check("ACC12: parser reads key_point", clean.keyPoint === "ตอนนี้เป็นจังหวะขายที่ดีครับ");
+  check("ACC12: parser reads key_points as an array", clean.keyPoints.length === 2);
+  check("ACC12: in-list primary_model_id survives", clean.primaryModelId === "ip16pm");
   check(
-    "ACC12: verbatim key point is admitted",
-    admittedKeyPoint(clean.keyPoint, clean.summary) === "ตอนนี้เป็นจังหวะขายที่ดีครับ"
+    "ACC12: out-of-list primary_model_id drops to null, never repaired",
+    parseOverviewV2('{"key_points": [], "primary_model_id": "ip99", "summary": "ก"}', ING).primaryModelId === null
   );
   check(
-    "ACC12: a reworded key point is dropped — no text enters through the side door",
-    admittedKeyPoint("จังหวะขายดีมาก", clean.summary) === ""
+    "ACC12: more than 3 key points = first 3 kept",
+    parseOverviewV2('{"key_points": ["ก", "ข", "ค", "ง"], "summary": "กขคง"}', ING).keyPoints.join("") === "กขค"
+  );
+  check(
+    "ACC12: empty key_points is a valid answer with no highlight",
+    parseOverviewV2('{"key_points": [], "summary": "ไปที่หน้าประเมินได้เลยครับ"}', ING).keyPoints.length === 0
+  );
+  check(
+    "ACC12: legacy single key_point folds in (prompt-drift tolerance)",
+    parseOverviewV2('{"summary": "จังหวะดีครับ", "key_point": "จังหวะดีครับ"}', ING).keyPoints[0] === "จังหวะดีครับ"
+  );
+
+  const admitted = admittedKeyPoints(clean.keyPoints, { summary: clean.summary, detail: clean.detail });
+  check("ACC12: a phrase verbatim in summary is admitted", admitted.includes("ตอนนี้เป็นจังหวะขายที่ดีครับ"));
+  check("ACC12: a phrase verbatim in detail is admitted too", admitted.includes("iPhone 16 Pro Max อยู่ที่ 30,000 บาท"));
+  check(
+    "ACC12: a reworded phrase is dropped — no text enters through the side door",
+    admittedKeyPoints(["จังหวะขายดีมาก"], { summary: clean.summary, detail: clean.detail }).length === 0
   );
 
   // Excision interaction: a key point aimed at the sentence the number gate
   // cut must die with it — a highlight would resurrect the cut sentence.
   const parsed = parseOverviewV2(
-    '{"summary": "ราคารับซื้อ 30,000 บาทครับ เหลือประมาณ 21,120 บาทครับ", "key_point": "เหลือประมาณ 21,120 บาทครับ"}'
+    '{"key_points": ["เหลือประมาณ 21,120 บาทครับ", "ราคารับซื้อ 30,000 บาทครับ"], "summary": "ราคารับซื้อ 30,000 บาทครับ เหลือประมาณ 21,120 บาทครับ"}',
+    ING
   );
   const served = exciseUnverifiedNumbers(parsed, "ราคารับซื้อ 30,000 บาท");
   check("ACC12: excise cut the bad sentence", !served.summary.includes("21,120"));
+  const afterExcise = admittedKeyPoints(parsed.keyPoints, served);
   check(
-    "ACC12: key point aimed at an excised sentence dies with it",
-    admittedKeyPoint(parsed.keyPoint, served.summary) === ""
+    "ACC12: key point aimed at an excised sentence dies with it, siblings survive",
+    !afterExcise.includes("เหลือประมาณ 21,120 บาทครับ") && afterExcise.includes("ราคารับซื้อ 30,000 บาทครับ")
   );
 
+  // key_points is FIRST in the demanded field order, so a reply truncated
+  // mid-detail still carries it whole through the salvage path.
   const salvage = parseOverviewV2(
-    '{"summary": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "key_point": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "detail": "ยาวมากแล้วโดนตั'
+    '{"key_points": ["ขายก่อนเปิดตัวคุ้มกว่าครับ"], "primary_model_id": "ip16pm", "summary": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "detail": "ยาวมากแล้วโดนตั',
+    ING
   );
-  check("ACC12: salvage path carries key_point too", salvage.keyPoint === "ขายก่อนเปิดตัวคุ้มกว่าครับ");
+  check(
+    "ACC12: salvage carries key_points and primary_model_id",
+    salvage.salvaged === true && salvage.keyPoints[0] === "ขายก่อนเปิดตัวคุ้มกว่าครับ" && salvage.primaryModelId === "ip16pm"
+  );
+
+  // The id legend: chosen models only, and never for an empty pick — the CTA
+  // may point at what the answer is about, not at a sibling.
+  const legend = primaryModelLegend(ING, ex({ models: ["ip16pm"] }));
+  check(
+    "ACC12: legend lists exactly the chosen models",
+    legend.includes("iPhone 16 Pro Max = ip16pm") && !legend.includes("ip15pm")
+  );
+  check("ACC12: no chosen model = no legend", primaryModelLegend(ING, ex()) === "");
 
   const P = v2.buildV2SystemPrompt("มาติน");
   check(
-    "ACC12: prompt demands a verbatim copy, one sentence",
-    P.includes('"key_point"') && P.includes("คัดลอกมาจาก summary แบบคำต่อคำ")
+    "ACC12: prompt demands the decide-first field order and verbatim phrases",
+    P.includes('"key_points"') &&
+      P.includes("แล้วจึงเรียบเรียง summary/detail") &&
+      P.includes("แบบคำต่อคำทุกตัวอักษร") &&
+      P.includes("ใส่ key_points เป็น [] ได้")
   );
 }
 

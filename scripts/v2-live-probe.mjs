@@ -112,6 +112,16 @@ const FIXTURE = {
   ],
 };
 
+// The key-points round (งวด "ใจความตัดสินก่อนเขียน"): four main cases, run
+// with --suite-key --live and judged by one question — did the model pick
+// the key phrases a human would pick?
+const KEY_SUITE = [
+  "iphone",
+  "ip16 pm 256",
+  "ขาย 16 PM เดือนหน้าดีไหม",
+  "เครื่องงอ ขายได้ไหม",
+];
+
 // The spec's own acceptance sentences (ACCEPTANCE — ความถูก + ความฉลาด).
 const SUITE = [
   "ถ้าจะขาย iPhone 16 Pro Max 256GB เดือนหน้า หลังจาก iPhone 18 รุ่นใหม่ เปิดตัว ราคาจะลงอีกไหม",
@@ -180,15 +190,19 @@ async function probe(query, ingredients) {
   console.log(`stage 2: ${context.length} chars${droppedSections.length ? ` (dropped: ${droppedSections})` : ""}`);
   console.log(context.split("\n").map((l) => `  | ${l}`).join("\n"));
   const t1 = Date.now();
+  // The legend rides in the user message, never in the context — same
+  // composition as the deployed handler (the excise gate below still sees
+  // the pure context).
+  const legend = v2.primaryModelLegend(ingredients, extraction);
   const ansText = await callAnthropic({
     model: overviewModel,
     system: v2.buildV2SystemPrompt("มาติน"),
-    user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
+    user: `ข้อมูลจากระบบ:\n${context}${legend ? `\n\n${legend}` : ""}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
     maxTokens: v2.V2_MAX_OUTPUT_TOKENS,
   });
   // Same parse + same number gate the deployed handler runs — the probe must
   // measure the path customers get, not a private approximation of it.
-  const parsed = v2.parseOverviewV2(ansText);
+  const parsed = v2.parseOverviewV2(ansText, ingredients);
   if (!parsed) return console.log(`stage 3 (${Date.now() - t1}ms): unparseable:\n${ansText}`);
   if (parsed.salvaged) console.log("  NOTE:    reply salvaged (fence/truncation) — summary recovered whole");
   const verified = v2.exciseUnverifiedNumbers(parsed, context);
@@ -197,9 +211,11 @@ async function probe(query, ingredients) {
   }
   if (verified.excised > 0) console.log(`  NOTE:    excised ${verified.excised} sentence(s) with out-of-context numbers`);
   console.log(`stage 3 (${Date.now() - t1}ms):`);
-  const keyPoint = v2.admittedKeyPoint(parsed.keyPoint, verified.summary);
-  if (keyPoint) console.log(`  KEY:     ${keyPoint}`);
-  else if (parsed.keyPoint) console.log(`  NOTE:    key_point dropped (not verbatim in served summary)`);
+  const keyPoints = v2.admittedKeyPoints(parsed.keyPoints, verified);
+  for (const k of keyPoints) console.log(`  KEY:     ${k}`);
+  const droppedKeys = (parsed.keyPoints || []).filter((k) => !keyPoints.includes(k));
+  for (const k of droppedKeys) console.log(`  NOTE:    key point dropped (not verbatim in served text): ${k}`);
+  if (parsed.primaryModelId) console.log(`  PRIMARY: ${parsed.primaryModelId}`);
   console.log(`  SUMMARY: ${verified.summary}`);
   if (verified.detail) console.log(`  DETAIL:  ${verified.detail}`);
   for (const n of quickChecks({ summary: verified.summary, detail: verified.detail }, context)) {
@@ -222,9 +238,11 @@ if (flag("live") && !apiKey) {
 }
 
 const single = opt("query");
-const queries = single ? [single] : flag("suite") ? SUITE : [];
+const queries = single ? [single] : flag("suite-key") ? KEY_SUITE : flag("suite") ? SUITE : [];
 if (!queries.length) {
-  console.log("ใช้: node scripts/v2-live-probe.mjs --query \"...\" [--live] | --suite [--live] [--ingredients path.json]");
+  console.log(
+    'ใช้: node scripts/v2-live-probe.mjs --query "..." [--live] | --suite [--live] | --suite-key [--live] [--ingredients path.json]'
+  );
   process.exit(0);
 }
 for (const q of queries) {

@@ -547,10 +547,36 @@ function parseExtraction(raw, ingredients) {
  * v1 keeps parseOverview untouched — its model, budget and failure rate are
  * the production baseline the A/B measures against.
  */
-function parseOverviewV2(raw) {
+/** At most this many highlighted phrases per answer. The whole point of the
+ *  field is focus — a fourth highlight is the first three losing theirs. */
+const MAX_KEY_POINTS = 3;
+
+function parseOverviewV2(raw, ingredients) {
   const text = String(raw || "").trim().replace(/```(?:json)?/gi, "");
   const start = text.indexOf("{");
   if (start === -1) return null;
+
+  const modelIds = new Set((((ingredients && ingredients.models) || [])).map((m) => m.id));
+  // Out-of-list id = dropped to null, never repaired — the same "drop, never
+  // promote" rule as stage 1's extraction (a wrong CTA points a customer at
+  // the wrong device, which is worse than no pointer at all).
+  const cleanPrimary = (id) => {
+    const s = String(id || "").trim();
+    return s && modelIds.has(s) ? s : null;
+  };
+  // 1-3 standalone phrases, capped hard: extras beyond MAX_KEY_POINTS are cut
+  // silently. A legacy single key_point folds in for prompt-drift tolerance.
+  const cleanKeyPoints = (list, single) => {
+    const src = Array.isArray(list) ? list : single ? [single] : [];
+    const out = [];
+    for (const k of src) {
+      const s = String(k || "").trim();
+      if (s) out.push(s);
+      if (out.length >= MAX_KEY_POINTS) break;
+    }
+    return out;
+  };
+
   const end = text.lastIndexOf("}");
   if (end > start) {
     try {
@@ -560,7 +586,8 @@ function parseOverviewV2(raw) {
         return {
           summary,
           detail: String(obj.detail || "").trim(),
-          keyPoint: String(obj.key_point || "").trim(),
+          keyPoints: cleanKeyPoints(obj.key_points, obj.key_point),
+          primaryModelId: cleanPrimary(obj.primary_model_id),
           salvaged: false,
         };
       }
@@ -577,25 +604,85 @@ function parseOverviewV2(raw) {
       return "";
     }
   };
+  // key_points sits FIRST in the demanded field order (decide before writing),
+  // so on a truncated reply it is the field most likely to be complete. Same
+  // strictness as grab: an unparseable array is [], never a guess.
+  const grabArray = (key) => {
+    const m = text.match(new RegExp(`"${key}"\\s*:\\s*(\\[[^\\]]*\\])`));
+    if (!m) return [];
+    try {
+      const a = JSON.parse(m[1]);
+      return Array.isArray(a) ? a : [];
+    } catch {
+      return [];
+    }
+  };
   const summary = grab("summary");
   if (!summary) return null;
-  return { summary, detail: grab("detail"), keyPoint: grab("key_point"), salvaged: true };
+  return {
+    summary,
+    detail: grab("detail"),
+    keyPoints: cleanKeyPoints(grabArray("key_points"), grab("key_point")),
+    primaryModelId: cleanPrimary(grab("primary_model_id")),
+    salvaged: true,
+  };
 }
 
 /**
- * The key point, ADMITTED ONLY VERBATIM. The model does not write markup and
- * does not get to introduce text through a side door either: key_point is a
- * POINTER into the summary the customer will actually read, so it counts
+ * Key points, ADMITTED ONLY VERBATIM. The model does not write markup and
+ * does not get to introduce text through a side door either: each key point
+ * is a POINTER into the text the customer will actually read, so it counts
  * only when it appears there character-for-character — checked against the
- * SERVED summary (post-excision), because a highlight pointing at a sentence
- * the number gate just cut would resurrect it. Anything else — reworded,
- * abbreviated, hallucinated, or orphaned by excision — is dropped silently:
- * a missing highlight is a shrug, a wrong one is a lie about what matters.
+ * SERVED summary/detail (post-excision), because a highlight pointing at a
+ * sentence the number gate just cut would resurrect it. Anything else —
+ * reworded, abbreviated, hallucinated, or orphaned by excision — is dropped
+ * silently: a missing highlight is a shrug, a wrong one is a lie about what
+ * matters.
+ *
+ * This same check IS the number gate for key points: a verbatim substring of
+ * the post-excision text can only carry digit runs that already passed
+ * allowedNumberRuns. Summary and detail are checked separately, never as one
+ * concatenated string — a phrase spanning the artificial join would match
+ * text no reader ever sees.
  */
-function admittedKeyPoint(keyPoint, servedSummary) {
-  const k = String(keyPoint || "").trim();
-  if (!k) return "";
-  return String(servedSummary || "").includes(k) ? k : "";
+function admittedKeyPoints(keyPoints, served) {
+  const summary = String((served && served.summary) || "");
+  const detail = String((served && served.detail) || "");
+  const out = [];
+  for (const k of Array.isArray(keyPoints) ? keyPoints : []) {
+    const s = String(k || "").trim();
+    if (!s) continue;
+    if (!summary.includes(s) && !detail.includes(s)) continue;
+    if (out.includes(s)) continue;
+    out.push(s);
+    if (out.length >= MAX_KEY_POINTS) break;
+  }
+  return out;
+}
+
+/**
+ * The id legend for primary_model_id — ONLY the chosen models, name = id.
+ *
+ * Two deliberate boundaries: (1) it is appended to the USER MESSAGE by the
+ * handler, never folded into the context string, because the excise gate
+ * whitelists every digit run in the context and catalog ids can contain
+ * digits — an id in the context would hand the model price-shaped numbers
+ * the gate then cannot cut. (2) only chosen models are listed: the CTA may
+ * point at a model the answer is actually about, never at a sibling the
+ * writer wandered to (the live bug this chunk fixes was the button offering
+ * iPhone 12 under an iPhone 17 Pro Max answer).
+ */
+function primaryModelLegend(ingredients, extraction) {
+  const rows = [];
+  for (const id of extraction.models) {
+    const m = ingredients.models.find((x) => x.id === id);
+    if (m) rows.push(`- ${m.name} = ${m.id}`);
+  }
+  if (!rows.length) return "";
+  return [
+    "รหัสรุ่นสำหรับ field primary_model_id เท่านั้น (ห้ามให้รหัสเหล่านี้ปรากฏใน summary หรือ detail):",
+    ...rows,
+  ].join("\n");
 }
 
 /**
@@ -702,9 +789,14 @@ function buildV2SystemPrompt(assistantName) {
     "16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ภาษาไทยธรรมชาติ มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ",
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
-    '{"summary": "...", "detail": "...", "key_point": "..."}',
+    '{"key_points": ["..."], "primary_model_id": "...", "summary": "...", "detail": "..."}',
+    "- เรียง field ตามลำดับนี้เสมอ: ตัดสินก่อนว่าใจความสำคัญของคำตอบคืออะไร (key_points) และคำตอบชูรุ่นไหน (primary_model_id) แล้วจึงเรียบเรียง summary/detail จากการตัดสินนั้น",
+    "- key_points = วลีใจความสำคัญของทั้งคำตอบ สูงสุด 3 วลี — น้อยแต่คมดีกว่าครบแต่ลาย แต่ละวลีต้องยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่เลขลอยๆ",
+    "- ลำดับความสำคัญของ key_points: คำตอบตรงคำถามของคำค้นนี้ มาก่อน ข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ) — นอกเหนือจากนั้นไม่ต้องใส่",
+    "- ทุกวลีใน key_points ต้องปรากฏใน summary หรือ detail แบบคำต่อคำทุกตัวอักษร (เขียนวลีเดียวกันซ้ำตอนเรียบเรียง) — วลีที่ไม่ตรงตัวจะถูกระบบทิ้ง",
+    "- คำตอบสั้นหรือเป็นการชี้ทางที่ไม่มีใจความต้องเน้น: ใส่ key_points เป็น [] ได้",
+    "- primary_model_id = รหัสจากรายการ 'รหัสรุ่นสำหรับ field primary_model_id' ท้ายข้อมูล ของรุ่นที่คำตอบชูเป็นหลัก — คำตอบไม่ได้ชูรุ่นใดรุ่นหนึ่ง หรือไม่มีรายการรหัส: ใส่ null",
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง และคำฟันธงถ้าข้อมูลชี้ชัด",
-    "- key_point = ประโยคใจความสำคัญที่สุดหนึ่งประโยค คัดลอกมาจาก summary แบบคำต่อคำทุกตัวอักษร ห้ามเขียนใหม่ ห้ามย่อ — ประโยคที่ถ้าลูกค้าอ่านได้บรรทัดเดียวต้องเป็นบรรทัดนี้ (ปกติคือคำฟันธงหรือคำตอบตรงของคำถาม)",
     "- detail = ส่วนขยาย (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) — กระชับ: ไม่เกินราว 6 ประโยค เลือกเฉพาะที่ช่วยตัดสินใจจริง ห้ามทวนซ้ำสิ่งที่อยู่ใน summary แล้ว ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
     // Same two closing bans as v1, verbatim in spirit: the website renders the
     // real button, and an invitation written in text is the same instruction
@@ -1127,7 +1219,9 @@ module.exports = {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
-  admittedKeyPoint,
+  admittedKeyPoints,
+  primaryModelLegend,
+  MAX_KEY_POINTS,
   V2_MAX_OUTPUT_TOKENS,
   __test: {
     normalizeCapacity,

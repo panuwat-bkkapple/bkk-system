@@ -43,7 +43,8 @@ const {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
-  admittedKeyPoint,
+  admittedKeyPoints,
+  primaryModelLegend,
   V2_MAX_OUTPUT_TOKENS,
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
@@ -655,14 +656,20 @@ function parseOverview(raw) {
  * touched it (verified across all three repos before removing). It was the
  * one place customer words lived outside the system that owns them.
  */
-function buildCacheRow({ summary, detail, keyPoint, now }) {
+function buildCacheRow({ summary, detail, keyPoints, primaryModelId, now }) {
+  const points = (Array.isArray(keyPoints) ? keyPoints : []).map((k) => String(k)).filter(Boolean);
   return {
     summary: String(summary || ""),
     detail: String(detail || ""),
-    // The v2 key-point pointer, already verified verbatim against `summary`
-    // before it gets here — cached so a hit highlights the same sentence the
-    // original answer did. Empty on v1 rows and on answers without one.
-    ...(keyPoint ? { key_point: String(keyPoint) } : {}),
+    // The v2 key-point pointers, already verified verbatim against the served
+    // summary/detail before they get here — cached so a hit highlights the
+    // same phrases the original answer did. Absent on v1 rows and on answers
+    // without any. (Older rows may still carry the single `key_point` field —
+    // the hit path passes it through untouched and the new frontend simply
+    // ignores it: no highlight, no error.)
+    ...(points.length ? { key_points: points } : {}),
+    // The CTA pointer, already validated against the ingredient model ids.
+    ...(primaryModelId ? { primary_model_id: String(primaryModelId) } : {}),
     created_at: Number(now) || 0,
     expires_at: (Number(now) || 0) + OVERVIEW_CACHE_TTL_SECONDS * 1000,
   };
@@ -1052,7 +1059,14 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           res.json({
             summary: hit.summary,
             detail: hit.detail || "",
+            // Legacy single-pointer rows pass through as-is until they expire
+            // (TTL 1h) — the new frontend ignores key_point: no highlight, no
+            // error. New rows carry key_points/primary_model_id instead.
             ...(hit.key_point ? { key_point: String(hit.key_point) } : {}),
+            ...(Array.isArray(hit.key_points) && hit.key_points.length
+              ? { key_points: hit.key_points.map((k) => String(k)) }
+              : {}),
+            ...(hit.primary_model_id ? { primary_model_id: String(hit.primary_model_id) } : {}),
             cached: true,
             cacheKey: key,
           });
@@ -1106,6 +1120,11 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       const extractModel = process.env.OVERVIEW_EXTRACT_MODEL || DEFAULT_OVERVIEW_MODEL;
       let extractMs = 0;
       let answerTopics = topics;
+      // v2 only: the primary_model_id legend rides in the USER MESSAGE, never
+      // inside `context` — the excise gate whitelists every digit run in the
+      // context, and catalog ids can contain digits. Empty on v1, so the v1
+      // user message stays byte-identical.
+      let v2Legend = "";
       // Measured around each Anthropic call alone. Wrapping the cache read and
       // the facts load into it would report a number nobody can act on: those
       // are our own database, and the question the archive answers is whether
@@ -1171,6 +1190,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           }
           context = built.context;
           answerTopics = extraction.topics;
+          v2Legend = primaryModelLegend(ingredients, extraction);
         }
         // ── Stage 3 (v2) / the only stage (v1): the writer ──
         // V2 writes under the three-layer prompt (truth / intelligence /
@@ -1182,7 +1202,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           apiKey,
           model: overviewModel,
           system: isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName),
-          user: `ข้อมูลจากระบบ:\n${context}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
+          user: `ข้อมูลจากระบบ:\n${context}${v2Legend ? `\n\n${v2Legend}` : ""}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
           // V2 answers carry a verdict and its reasons and are simply longer —
           // probe round 1 lost 3/10 replies to the 700 cap mid-`detail`.
           maxTokens: isV2 ? V2_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
@@ -1190,7 +1210,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         });
         // V2 parses tolerantly (fences, a truncated detail with a complete
         // summary); v1 keeps its strict parser — it is the baseline.
-        let parsed = isV2 ? parseOverviewV2(text) : parseOverview(text);
+        let parsed = isV2 ? parseOverviewV2(text, ingredients) : parseOverview(text);
         if (!parsed) {
           console.warn(`[${tag}] unparseable reply for "${query}"`);
           archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
@@ -1202,7 +1222,8 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         const salvaged = isV2 && parsed.salvaged === true;
         if (salvaged) console.warn(`[${tag}] v2 reply salvaged (truncated/fenced) for "${query}"`);
         let excised = 0;
-        let keyPoint = "";
+        let keyPoints = [];
+        let primaryModelId = null;
         if (isV2) {
           // The last gate: a sentence quoting a number the context cannot
           // vouch for is cut before the answer is served, cached or archived.
@@ -1222,9 +1243,11 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           if (excised > 0) {
             console.warn(`[${tag}] v2 excised ${excised} sentence(s) with out-of-context numbers for "${query}"`);
           }
-          // The key point survives only verbatim, and only against the text
-          // actually being served — see admittedKeyPoint.
-          keyPoint = admittedKeyPoint(parsed.keyPoint, verified.summary);
+          // Key points survive only verbatim, and only against the text
+          // actually being served — see admittedKeyPoints. primary_model_id
+          // was already validated against the ingredient ids at parse time.
+          keyPoints = admittedKeyPoints(parsed.keyPoints, verified);
+          primaryModelId = parsed.primaryModelId;
           parsed = { summary: verified.summary, detail: verified.detail };
         }
         // Best-effort, and after the answer is in hand: a failed write costs
@@ -1232,7 +1255,15 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         // answer. Only good answers are stored — an unparseable reply above
         // returned already, so a bad turn is never cached into the window.
         cacheRef
-          .set(buildCacheRow({ summary: parsed.summary, detail: parsed.detail, keyPoint, now: Date.now() }))
+          .set(
+            buildCacheRow({
+              summary: parsed.summary,
+              detail: parsed.detail,
+              keyPoints,
+              primaryModelId,
+              now: Date.now(),
+            })
+          )
           .catch((e) => console.warn(`[${tag}] cache write failed:`, e));
         archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
           ref.update(
@@ -1248,7 +1279,12 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             })
           )
         );
-        res.json({ ...parsed, ...(keyPoint ? { key_point: keyPoint } : {}), cacheKey: key });
+        res.json({
+          ...parsed,
+          ...(keyPoints.length ? { key_points: keyPoints } : {}),
+          ...(primaryModelId ? { primary_model_id: primaryModelId } : {}),
+          cacheKey: key,
+        });
       } catch (err) {
         console.error(`[${tag}] failed for "${query}":`, err);
         // Credit gone or key revoked: take the whole assistant down, exactly

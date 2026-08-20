@@ -84,8 +84,17 @@ check("layer3: tone — no urgency, no selling", P.includes("ไม่เร่�
 // The closing bans, kept verbatim in spirit from v1 — these are the lines the
 // positive layers must never override, and the original reason the whole
 // rulebook is negative.
-check("format: JSON only", P.includes('{"summary": "...", "detail": "...", "key_point": "..."}'));
-check("format: key_point demanded verbatim from summary", P.includes("คัดลอกมาจาก summary แบบคำต่อคำ"));
+check(
+  "format: JSON only, key_points first — the field order IS the think-first mechanism",
+  P.includes('{"key_points": ["..."], "primary_model_id": "...", "summary": "...", "detail": "..."}')
+);
+check("format: key phrases demanded verbatim in summary/detail", P.includes("แบบคำต่อคำทุกตัวอักษร"));
+check("format: at most three, standalone, priority-ordered", P.includes("สูงสุด 3 วลี") && P.includes("ยืนเองได้"));
+check("format: empty key_points allowed for short/guidance answers", P.includes("ใส่ key_points เป็น [] ได้"));
+check(
+  "format: primary_model_id comes from the legend or is null",
+  P.includes("รหัสรุ่นสำหรับ field primary_model_id") && P.includes("ใส่ null")
+);
 check("format: no closing call-to-action", P.includes("ห้ามเขียนชวนให้กดประเมินราคาหรือกดปุ่มใดๆ"));
 check("format: no links, no button names", P.includes("ห้ามใส่ลิงก์ URL"));
 
@@ -123,6 +132,19 @@ const handlerSrc = readFileSync(
 check(
   "wiring: stage 3 picks the prompt by pipeline",
   handlerSrc.includes("isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName)")
+);
+// The id legend must ride OUTSIDE the excise context: the gate whitelists
+// every digit run in `context`, and catalog ids can contain digits — a legend
+// folded into the context would hand the model price-shaped numbers the gate
+// then cannot cut. So: legend appended in the user message only, and the
+// excise call still sees the pure context.
+check(
+  "wiring: primary-model legend is appended to the user message, not the context",
+  handlerSrc.includes("${context}${v2Legend ? `\\n\\n${v2Legend}` : \"\"}")
+);
+check(
+  "wiring: the excise gate still runs on the pure context",
+  handlerSrc.includes("exciseUnverifiedNumbers(parsed, context)")
 );
 
 // ── done ───────────────────────────────────────────────────────────────────
