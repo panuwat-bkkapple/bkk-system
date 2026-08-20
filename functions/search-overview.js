@@ -25,6 +25,9 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { isPermanentAiFailure, suspendAssistant } = require("./chat-ai");
+// The daily ledger's by_origin dimension — one writer for both spenders, so
+// the search/chat split can never drift between two hand-rolled copies.
+const { recordAiUsage } = require("./ops-dashboard");
 const {
   searchFaq,
   loadBranches,
@@ -698,6 +701,11 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
     detail: String(detail || ""),
     topics: Array.isArray(topics) ? topics.map(String) : [],
     ts: Number(ts) || 0,
+    // The channel dimension, stamped at every write point from the day the
+    // dashboard shipped — it must exist BEFORE the second channel opens, so
+    // day one of split traffic is already split. This archive only ever holds
+    // search answers today; the constant is the honest value, not a guess.
+    origin: "search",
   };
   // The v2 pipeline's extra half: which model read the query and how long it
   // took, so the archive can split extraction cost from writing cost. Absent
@@ -723,7 +731,7 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
  * copy this file exists to avoid.
  */
 function buildArchiveSkipRow(reason, ts) {
-  return { skipped: String(reason || "unknown"), ts: Number(ts) || 0 };
+  return { skipped: String(reason || "unknown"), ts: Number(ts) || 0, origin: "search" };
 }
 
 /**
@@ -747,7 +755,7 @@ function buildArchiveHitRow(current, ts) {
   // yesterday (the cache holds an hour, so this is the midnight case). Seed a
   // row that says what it is — reuse, no answer text — rather than skipping
   // the hit. Backfilling the missing answer is not worth a read on this path.
-  if (!current) return { hits: 1, lastHitTs: at, ts: at };
+  if (!current) return { hits: 1, lastHitTs: at, ts: at, origin: "search" };
   // A row exists: bump it and leave everything else exactly as the answer
   // wrote it. `ts` is the moment the ANSWER was written and must survive
   // every later hit — overwriting it would make a popular answer look freshly
@@ -896,11 +904,17 @@ async function callAnthropicText({ apiKey, model, system, user, maxTokens, timeo
       throw err;
     }
     const data = await apiRes.json();
-    return (data.content || [])
-      .filter((b) => b && b.type === "text")
-      .map((b) => b.text)
-      .join("")
-      .trim();
+    return {
+      text: (data.content || [])
+        .filter((b) => b && b.type === "text")
+        .map((b) => b.text)
+        .join("")
+        .trim(),
+      // The response's own token count, passed up so the caller can mirror it
+      // into the daily ledger's by_origin dimension (recordAiUsage) — cost
+      // per channel from REAL tokens, not an estimate.
+      usage: data.usage || {},
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -1134,7 +1148,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         if (isV2) {
           // ── Stage 1: the model reads the raw query against the id lists ──
           const exStart = Date.now();
-          const exText = await callAnthropicText({
+          const ex = await callAnthropicText({
             apiKey,
             model: extractModel,
             system: buildExtractSystemPrompt(),
@@ -1142,8 +1156,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             maxTokens: EXTRACT_MAX_TOKENS,
             timeoutMs: EXTRACT_TIMEOUT_MS,
           });
+          recordAiUsage(db, { origin: "search", model: extractModel, usage: ex.usage });
           extractMs = Date.now() - exStart;
-          const extraction = parseExtraction(exText, ingredients);
+          const extraction = parseExtraction(ex.text, ingredients);
           if (!extraction) {
             console.warn(`[${tag}] v2 extract unparseable for "${query}"`);
             archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
@@ -1198,7 +1213,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         // parallel run — the A/B comparison is only honest if the old side
         // stays exactly what production serves today.
         startedAt = Date.now();
-        const text = await callAnthropicText({
+        const gen = await callAnthropicText({
           apiKey,
           model: overviewModel,
           system: isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName),
@@ -1208,6 +1223,8 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           maxTokens: isV2 ? V2_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
           timeoutMs: OVERVIEW_TIMEOUT_MS,
         });
+        recordAiUsage(db, { origin: "search", model: overviewModel, usage: gen.usage });
+        const text = gen.text;
         // V2 parses tolerantly (fences, a truncated detail with a complete
         // summary); v1 keeps its strict parser — it is the baseline.
         let parsed = isV2 ? parseOverviewV2(text, ingredients) : parseOverview(text);

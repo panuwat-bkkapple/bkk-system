@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
-  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail,
+  Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail, Gauge,
   CalendarClock
 } from 'lucide-react';
 
@@ -62,6 +62,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     items: [
       { path: '/notification-settings', label: 'การแจ้งเตือน', description: 'ช่องทาง (Push/Telegram) เหตุการณ์ที่แจ้ง เกณฑ์เวลา และสถานะเครื่อง', icon: <Bell size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/system-health', label: 'System Health', description: 'สถานะ API และ config สำคัญ (Maps, SickW, อีเมล, สาขา/โซนค่าส่ง) ตรวจอัตโนมัติทุกชั่วโมง', icon: <Activity size={18} />, roles: ['CEO', 'MANAGER'] },
+      { path: '/ops', label: 'Ops Dashboard', description: 'งบ AI วันนี้ (search/chat) สุขภาพคำตอบ cache/latency และ flag ที่เปิดอยู่ — หน้าเฝ้าระบบตอนเปิด v2', icon: <Gauge size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/global-settings', label: 'ตั้งค่าระบบส่วนกลาง', description: 'ค่าส่งลูกค้า เรทค่าตอบแทนไรเดอร์ Sickw IMEI', icon: <Settings size={18} />, roles: ['CEO'] },
       { path: '/chat-settings', label: 'Chat Widget (AI)', description: 'ชื่อผู้ช่วย ป๊อปอัพชวนแชท เวลาทำการแชท', icon: <MessageSquareQuote size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/ai-profile', label: 'โปรไฟล์ AI (Persona)', description: 'โทนการตอบ ความยาวคำตอบ ของ AI แชท', icon: <Bot size={18} />, roles: ['CEO', 'MANAGER'] },
