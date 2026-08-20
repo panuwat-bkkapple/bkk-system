@@ -120,10 +120,13 @@ function fakeDb() {
   });
 
   check(
-    "answer row has exactly the generator-only fields",
+    "answer row has exactly the generator-only fields (+ the origin dimension)",
     JSON.stringify(Object.keys(row).sort()) ===
-      JSON.stringify(["detail", "inputChars", "latencyMs", "model", "summary", "topics", "ts"])
+      JSON.stringify(["detail", "inputChars", "latencyMs", "model", "origin", "summary", "topics", "ts"])
   );
+  // The channel dimension, stamped before the second channel opens (Ops
+  // Dashboard chunk) — this archive only ever holds search answers today.
+  check("answer row is stamped origin=search", row.origin === "search");
   check("answer row keeps the model", row.model === "claude-haiku-4-5");
   check("answer row keeps latency and prompt size", row.latencyMs === 1234 && row.inputChars === 4096);
   check("answer row keeps OUR text (the half worth reviewing)", row.summary.includes("34,000"));
@@ -151,10 +154,11 @@ function fakeDb() {
   for (const r of reasons) {
     const row = buildArchiveSkipRow(r, TS);
     if (row.skipped !== r || row.ts !== TS) ok = false;
-    if (Object.keys(row).length !== 2) ok = false;
+    if (Object.keys(row).length !== 3) ok = false;
+    if (row.origin !== "search") ok = false;
     if (leaksQuery(row)) ok = false;
   }
-  check(`refusal rows carry reason + ts only, for all ${reasons.length} reasons`, ok);
+  check(`refusal rows carry reason + ts + origin only, for all ${reasons.length} reasons`, ok);
   check("an unknown reason still produces a row", buildArchiveSkipRow(undefined, TS).skipped === "unknown");
 }
 
@@ -178,8 +182,8 @@ function fakeDb() {
   // archive existed (or yesterday, across midnight) has no row to bump.
   const orphan = buildArchiveHitRow(null, TS);
   check(
-    "an orphan hit seeds hits/lastHitTs/ts and nothing else",
-    JSON.stringify(Object.keys(orphan).sort()) === JSON.stringify(["hits", "lastHitTs", "ts"])
+    "an orphan hit seeds hits/lastHitTs/ts/origin and nothing else",
+    JSON.stringify(Object.keys(orphan).sort()) === JSON.stringify(["hits", "lastHitTs", "origin", "ts"])
   );
   check("an orphan hit carries no answer", !("summary" in orphan) && !("detail" in orphan));
   check("an orphan hit starts at 1", orphan.hits === 1);

@@ -43,6 +43,11 @@ const {
 const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { getMessaging } = require("firebase-admin/messaging");
 const { resolveCustomer } = require("./crm");
+// The daily ledger's by_origin dimension (search|chat) — shared writer in
+// ops-dashboard.js so the split can never drift between two copies. The
+// pre-existing top-level ledger fields keep their exact meaning; by_origin
+// is a mirror beside them, stamped at every spend site.
+const { recordAiUsage } = require("./ops-dashboard");
 // Store facts (branches, FAQ, KB, campaigns, the zone table) live in one
 // module because a second surface — the /search AI overview — needs the same
 // answers. What is NOT there is deliberate: every price formula stays in this
@@ -4348,6 +4353,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
             cache_read_tokens: ServerValue.increment(u.cache_read_tokens),
             cache_write_tokens: ServerValue.increment(u.cache_write_tokens),
           }).catch(() => {});
+          recordAiUsage(db, { origin: "chat", model: mk, usage: u, calls: u.calls });
         }
         console.log(
           `[${tag}] ${convoId} tokens in=${totalIn} out=${totalOut} cache_read=${totalCacheRead} cache_write=${totalCacheWrite} models=${Object.keys(usageByModel).join(",")}`
@@ -4804,6 +4810,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
               cache_read_tokens: ServerValue.increment(verdict.usage.cache_read_input_tokens || 0),
               cache_write_tokens: ServerValue.increment(verdict.usage.cache_creation_input_tokens || 0),
             }).catch(() => {});
+            recordAiUsage(db, { origin: "chat", model: vk, usage: verdict.usage });
           }
           if (verdict.ok === false) {
             console.warn(`[${tag}] ${convoId} verifier blocked: ${verdict.issue}`);
@@ -4999,6 +5006,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
           cache_read_tokens: ServerValue.increment(u.cache_read_input_tokens || 0),
           cache_write_tokens: ServerValue.increment(u.cache_creation_input_tokens || 0),
         }).catch(() => {});
+        recordAiUsage(db, { origin: "chat", model: STRONG_MODEL, usage: u });
       } catch { /* accounting is best-effort */ }
       const txt = (resp.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
       const m = txt.match(/\{[\s\S]*\}/);

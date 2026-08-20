@@ -6647,6 +6647,14 @@ Object.assign(exports, require("./email-templates-admin").registerEmailTemplateA
 Object.assign(exports, require("./search-analytics").registerSearchAnalytics());
 
 // =============================================================================
+// Ops Dashboard (/ops) — หลอดงบวัน + สุขภาพคำตอบ + cache/latency + สถานะ flag
+// ในหน้าเดียว (CEO/MANAGER). อ่านจาก chat_ai_usage + search_overview_archive
+// + settings ที่มีอยู่แล้วเท่านั้น — logic อยู่ ops-dashboard.js ซึ่งเป็น
+// เจ้าของมิติ by_origin (search|chat) ในสมุดบัญชีรายวันด้วย
+// =============================================================================
+Object.assign(exports, require("./ops-dashboard").registerOpsDashboard());
+
+// =============================================================================
 // หนังสือรับรองการหักภาษี ณ ที่จ่าย (50 ทวิ) ของไรเดอร์ — ออกอัตโนมัติเมื่อ
 // รายการถอนที่หักภาษีไว้ถูกบันทึก (logic อยู่ rider-wht-issue.js)
 // =============================================================================
