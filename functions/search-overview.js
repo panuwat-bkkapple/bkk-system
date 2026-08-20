@@ -27,7 +27,7 @@ const { getDatabase, ServerValue } = require("firebase-admin/database");
 const { isPermanentAiFailure, suspendAssistant } = require("./chat-ai");
 // The daily ledger's by_origin dimension — one writer for both spenders, so
 // the search/chat split can never drift between two hand-rolled copies.
-const { recordAiUsage } = require("./ops-dashboard");
+const { recordAiUsage, opsBangkokYmd: bangkokYmd } = require("./ops-dashboard");
 const {
   searchFaq,
   loadBranches,
@@ -517,17 +517,6 @@ function sanitizeTopics(raw) {
     if (out.length >= MAX_TOPICS) break;
   }
   return out;
-}
-
-function bangkokYmd() {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const get = (t) => parts.find((p) => p.type === t)?.value || "00";
-  return `${get("year")}${get("month")}${get("day")}`;
 }
 
 /**

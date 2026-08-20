@@ -207,7 +207,50 @@ check("flags: model fallback notice passes through", Boolean(S.flags.last_model_
 }
 
 // ── 7. the Bangkok day key matches the spenders' bucketing ─────────────────
-check("ymd is the Bangkok calendar day", opsBangkokYmd(0) === "1970-01-01" && opsBangkokYmd(17 * 3600 * 1000) === "1970-01-02");
+//
+// This section used to assert "1970-01-01" — the format THIS HELPER happened
+// to return, not the one the ledger is addressed by. It passed while the
+// dashboard read an empty node and reported a busy day as all zeros. So the
+// expectations below are derived from the writers' own format instead:
+// `chat_ai_usage/{ymd}` and `search_overview_archive/{ymd}` are written under
+// a separator-free YYYYMMDD produced from the Asia/Bangkok calendar day, and
+// `ledgerYmd` here is an INDEPENDENT implementation of exactly that (Intl,
+// the way chat-ai.js and search-overview.js have always computed it) so a
+// drift in either direction shows up as a failure rather than as a screen of
+// zeros nobody can explain.
+const ledgerYmd = (ms) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(ms));
+  const get = (t) => parts.find((x) => x.type === t)?.value || "00";
+  return `${get("year")}${get("month")}${get("day")}`;
+};
+
+check("ymd carries no separators — it is a path segment, not a display date", /^\d{8}$/.test(opsBangkokYmd(Date.UTC(2026, 7, 20, 11, 0, 0))));
+
+check("ymd is the Bangkok calendar day", opsBangkokYmd(0) === "19700101" && opsBangkokYmd(17 * 3600 * 1000) === "19700102");
+
+// The real failure was a whole day of traffic landing in one node while the
+// page read another, so the day this happened is pinned by name.
+check("ymd of the day the split was found reads 20260820", opsBangkokYmd(Date.UTC(2026, 7, 20, 11, 16, 0)) === "20260820");
+
+// Instants either side of a UTC midnight, where a +7 offset and a naive UTC
+// date disagree — this is the case that proves it is Bangkok's day, not the
+// server's.
+for (const ms of [
+  Date.UTC(2026, 7, 20, 16, 59, 0), // 23:59 Bangkok, same UTC day
+  Date.UTC(2026, 7, 20, 17, 30, 0), // 00:30 Bangkok, NEXT day
+  Date.UTC(2026, 0, 1, 0, 0, 0),
+  Date.UTC(2026, 11, 31, 20, 0, 0),
+]) {
+  check(
+    `ymd agrees with the writers' own Intl computation at ${new Date(ms).toISOString()}`,
+    opsBangkokYmd(ms) === ledgerYmd(ms)
+  );
+}
 
 // ── done ───────────────────────────────────────────────────────────────────
 if (failures) {

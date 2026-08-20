@@ -133,11 +133,30 @@ function buildUsageIncrements(origin, model, usage, calls = 1) {
   return out;
 }
 
-/** Bangkok calendar day — mirrors bangkokYmd in search-overview.js (kept
- *  local so this module imports nothing from either spender; both import
- *  from HERE, and a cycle would be the alternative). */
+/**
+ * Bangkok calendar day, in THE LEDGER'S OWN KEY FORMAT: `YYYYMMDD`, no
+ * separators.
+ *
+ * This is the canonical copy and it lives here because this module is the
+ * leaf both spenders already require — search-overview.js and chat-ai.js
+ * import it rather than rolling their own, and a cycle would be the
+ * alternative if it lived in either of them.
+ *
+ * The format is not cosmetic, it is the address. `chat_ai_usage/{ymd}` and
+ * `search_overview_archive/{ymd}` have been written under `20260820` since
+ * long before this dashboard existed; a helper that returns `2026-08-20`
+ * does not read the same day's data, it reads a DIFFERENT NODE that happens
+ * to be empty. That is exactly what shipped on 20 Aug 2026: the dashboard
+ * showed 0 calls, 0 answers and no latency for a day with real traffic,
+ * while the cost line was non-zero because `recordAiUsage` wrote its
+ * by_origin counters under the same wrong key and the page was reading back
+ * its own writes. The daily cap never broke — that reads the real node — so
+ * the failure was silent everywhere except a screen full of zeros.
+ */
 function opsBangkokYmd(now = Date.now()) {
-  return new Date(now + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  // Bangkok is a fixed UTC+7 with no DST, so shifting the instant and taking
+  // the UTC date is the same calendar day Intl would name.
+  return new Date(now + 7 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
 }
 
 /**
