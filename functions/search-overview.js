@@ -543,7 +543,16 @@ function buildOverviewSystemPrompt(assistantName) {
     // rows are a SAMPLE, and a range computed from a sample is stated as if
     // it covered everything. The website sends the true span of every match
     // as its own line precisely so this can be forbidden.
-    "8. ถ้าจะพูดถึง 'ช่วงราคารวม' ของหลายรุ่น ให้ใช้ตัวเลขจากบรรทัด 'ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้' เท่านั้น ห้ามคำนวณช่วงรวมเองจากรายการรุ่นด้านล่าง เพราะรายการนั้นอาจแสดงไม่ครบทุกรุ่น",
+    "8. ถ้าจะพูดถึง 'ช่วงราคารวม' ของหลายรุ่น ให้ใช้ตัวเลขจากบรรทัดที่ขึ้นต้นว่า 'ช่วงราคารับซื้อรวมของ ... รุ่น' เท่านั้น ห้ามคำนวณช่วงรวมเองจากรายการรุ่นด้านล่าง เพราะรายการนั้นอาจแสดงไม่ครบทุกรุ่น",
+    // The label bug, ส.ค. 2569. Rule 8 protects the DIGITS of the combined
+    // range and says nothing about whose range it is, so the model kept the
+    // numbers and swapped the subject: asked about "iPhone 14 Pro 128GB" it
+    // wrote "ช่วงราคาทั่วไปสำหรับ iPhone 14 Pro 128GB: ... - 16,000" with the
+    // Pro MAX's 16,000 inside. Every digit verifies, which is exactly why
+    // exciseUnverifiedNumbers lets it through — nothing checks labels. The
+    // website now names the models on that line (OverviewGroupRange.names);
+    // this rule is the second lock, not the first.
+    "8.1 ช่วงราคารวมเป็นของหลายรุ่นรวมกัน ห้ามเขียนว่าเป็นราคาของรุ่นใดรุ่นหนึ่ง หรือของรุ่นที่ลูกค้าพิมพ์มา แม้ลูกค้าจะระบุมารุ่นเดียว — ถ้าบรรทัดนั้นบอกว่าเป็นของหลายรุ่น ต้องเขียนให้ชัดว่าเป็นช่วงของหลายรุ่นรวมกัน ราคาของรุ่นที่ลูกค้าถามให้ใช้บรรทัดของรุ่นนั้นเท่านั้น",
     // The failure this rule is written against: asked "มีสาขาที่ไหนบ้าง" with
     // only catalog rows in hand, the model wrote a fluent paragraph about the
     // service. It read like an answer and contained none. When the facts do

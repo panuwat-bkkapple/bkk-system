@@ -341,9 +341,37 @@ check(
   // Family span across ALL priced iphone models: min 14000, max 42000, 3 models.
   check(
     "family overview: span computed across every priced member",
-    context.includes("ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้ (3 รุ่น): 14,000 - 42,000 บาท")
+    context.includes("ช่วงราคารับซื้อรวมของทุกรุ่นในตระกูล iPhone (3 รุ่น): 14,000 - 42,000 บาท")
   );
   check("family overview: forbids recomputing from the sample", context.includes("ห้ามคำนวณช่วงรวมเองจากรายการนี้"));
+  // The label lock. A span across three models must not be readable as one
+  // model's price — the production bug attached exactly this kind of number
+  // to the name the customer typed.
+  check(
+    "family overview: says the span belongs to several models",
+    context.includes("ห้ามเขียนว่าเป็นราคาของรุ่นใดรุ่นหนึ่ง")
+  );
+}
+
+{
+  // The unknown-model door into the same section. "iPhone 20 Ultra" is not in
+  // the catalog, so the family span matched NOTHING the customer typed — the
+  // one place where the old "ทุกรุ่นที่ตรงกับคำค้นนี้" wording was not just
+  // vague but false.
+  const { context } = buildV2Context({
+    query: "iPhone 20 Ultra ราคาเท่าไหร่",
+    ingredients: ING,
+    extraction: extraction({ intent: "price", family: "iphone", unknownModels: ["iPhone 20 Ultra"] }),
+    serviceFacts: "",
+  });
+  check(
+    "unknown model: family span is labelled as the family, not the query",
+    context.includes("ช่วงราคารับซื้อรวมของทุกรุ่นในตระกูล iPhone")
+  );
+  check(
+    "unknown model: forbids attaching the span to the model that does not exist",
+    context.includes("ห้ามผูกกับรุ่นที่ลูกค้าพิมพ์มา")
+  );
 }
 
 {
