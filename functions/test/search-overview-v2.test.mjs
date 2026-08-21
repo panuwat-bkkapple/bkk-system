@@ -327,8 +327,24 @@ check(
   check("context: unknown model stated as absence", context.includes("iPhone 18") && context.includes("ยังไม่มีในระบบรับซื้อของเรา"));
   check("context: series line present with sign", context.includes("30 วันที่ผ่านมาเปลี่ยนแปลงจริง -8%"));
   check("context: series labeled as history, not forecast", context.includes("ไม่ใช่คำพยากรณ์"));
-  check("context: siblings for a forecast question", context.includes("รุ่นข้างเคียงในตระกูลเดียวกัน"));
+  // Was: "siblings for a forecast question". The owner read a production
+  // answer that ended "ถ้าเทียบทางเลือกอื่น iPhone 17 Air อยู่ที่ 20,000 -
+  // 22,000 บาท ขณะ iPhone 16 Pro อยู่ที่ 21,000 - 24,000 บาท" under a query
+  // that named one model and one capacity, and asked the only question that
+  // matters: เปรียบเทียบทำไม. Someone who names their device is holding it.
+  check("context: no siblings when the customer named their model", !context.includes("รุ่นข้างเคียงในตระกูลเดียวกัน"));
   check("context: paused sibling never offered", !context.includes("MacBook Air M2"));
+}
+
+{
+  // ...and comparison still gets compared, because that one was asked for.
+  const { context } = buildV2Context({
+    query: "iphone 16 pro max กับ iphone 16 อันไหนได้ราคาดีกว่า",
+    ingredients: ING,
+    extraction: extraction({ models: ["ip16pm"], intent: "compare", family: "iphone" }),
+    serviceFacts: "",
+  });
+  check("context: siblings survive for an explicit comparison", context.includes("รุ่นข้างเคียงในตระกูลเดียวกัน"));
 }
 
 {

@@ -25,9 +25,15 @@
 // ---------------------------------------------------------------------------
 
 import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 const require = createRequire(import.meta.url);
 const v2 = require("../search-overview-v2.js");
-const { marketFactSection, familySection, buildV2SystemPrompt } = { ...v2.__test, ...v2 };
+const { marketFactSection, familySection, buildV2SystemPrompt, dropOffLimitsAdvice } = {
+  ...v2.__test,
+  ...v2,
+};
 
 let failures = 0;
 const check = (label, cond) => {
@@ -106,6 +112,63 @@ const QUOTE = { model_name: "iPhone 14 Pro", variant: "128GB", net_price: 11900 
   check("prompt: the baht line's base may not be swapped", P.includes("ต้องอ้างฐานตามที่บรรทัดนั้นบอกเท่านั้น"));
   check("prompt: no channels we have no facts about", P.includes("เทิร์นเครื่องกับศูนย์"));
   check("prompt: no invented reason for a model we do not carry", P.includes("ยังไม่วางจำหน่าย"));
+}
+
+// ── Advice about channels we do not run: cut, not asked nicely about ───────
+//
+// Rule 7 was extended to forbid this and production produced it anyway, that
+// same evening, on a query never asked before. Both sentences below are real,
+// copied out of the archive:
+{
+  const REAL_1 =
+    "ถ้าหากตั้งใจจะเปลี่ยนเครื่องแทนการขายเงินสด ก็อาจพิจารณา trade-in กับศูนย์เป็นส่วนลดเครื่องใหม่เช่นกัน ครับ";
+  const REAL_2 =
+    "หากคิดจะซื้อเครื่องใหม่ในเวลาเดียวกัน ลองเทียบระหว่าง trade-in กับศูนย์ (ได้ส่วนลดเครื่องใหม่ สะดวก) กับการขายเงินสด ครับ";
+
+  const out = dropOffLimitsAdvice({
+    summary: "iPhone 15 128GB รับซื้อสูงสุด 13,000 บาทครับ",
+    detail: `ราคาในตลาดมือสองอาจได้รับแรงกดดันเพิ่มเติมครับ ${REAL_1}`,
+    excised: 0,
+  });
+  check("off-limits: the trade-in sentence never reaches the customer", !out.detail.includes("trade-in"));
+  check("off-limits: the rest of the answer survives", out.detail.includes("แรงกดดันเพิ่มเติม"));
+  check("off-limits: the summary is untouched", out.summary.includes("13,000"));
+  check("off-limits: counted through the same gate counter", out.excised === 1 && out.offLimitsCut === 1);
+
+  check(
+    "off-limits: the other real phrasing goes too",
+    !dropOffLimitsAdvice({ summary: "ok ครับ", detail: REAL_2 }).detail.includes("trade-in")
+  );
+
+  // The two neighbours that must NOT be caught. "ศูนย์" is a real condition
+  // option (ประกันศูนย์ / เครื่องศูนย์ไทย) and marketplace is one of our own
+  // curated market facts — the model quotes it because we handed it over.
+  const keep = dropOffLimitsAdvice({
+    summary: "เครื่องศูนย์ไทย ประกันศูนย์เหลือ ราคาดีกว่าครับ",
+    detail: "ราคาเครื่องมือหนึ่งบน marketplace กดดันราคาตลาดมือสองครับ",
+  });
+  check("off-limits: ศูนย์ on its own is left alone", keep.summary.includes("ศูนย์"));
+  check("off-limits: our own marketplace fact is left alone", keep.detail.includes("marketplace"));
+
+  // Same rule as the number gate: an empty summary is worse than the fallback.
+  check(
+    "off-limits: nothing left of the summary means no answer at all",
+    dropOffLimitsAdvice({ summary: REAL_1, detail: "" }) === null
+  );
+  check("off-limits: a null in is a null out (number gate refused first)", dropOffLimitsAdvice(null) === null);
+}
+
+// The wiring. A gate the handler never calls is a gate that does nothing —
+// same guard the prompt suite keeps on exciseUnverifiedNumbers.
+{
+  const handlerSrc = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "search-overview.js"),
+    "utf-8"
+  );
+  check(
+    "wiring: the handler runs the off-limits gate over the verified answer",
+    handlerSrc.includes("dropOffLimitsAdvice(exciseUnverifiedNumbers(parsed, context))")
+  );
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll attribution checks passed");

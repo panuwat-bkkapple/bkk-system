@@ -46,6 +46,7 @@ const {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  dropOffLimitsAdvice,
   admittedKeyPoints,
   primaryModelLegend,
   V2_MAX_OUTPUT_TOKENS,
@@ -1271,7 +1272,12 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // Probe round 1 caught a correct-but-forbidden subtraction (21,120)
           // — the prompt now bans arithmetic harder, and this makes the ban
           // structural rather than behavioural.
-          const verified = exciseUnverifiedNumbers(parsed, context);
+          // Two gates, one after the other, both structural: numbers the
+          // context cannot vouch for, then advice about channels we do not
+          // run. Rule 7 forbids the second in words and production produced
+          // it anyway the same evening — a prompt makes a behaviour rarer,
+          // never impossible.
+          const verified = dropOffLimitsAdvice(exciseUnverifiedNumbers(parsed, context));
           if (!verified) {
             console.warn(`[${tag}] v2 reply fully excised (unverified numbers) for "${query}"`);
             archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
