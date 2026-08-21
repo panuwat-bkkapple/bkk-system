@@ -958,6 +958,40 @@ function pickBatteryOptionId(options, pct) {
   return null;
 }
 
+/**
+ * MIRROR of `refusalClassOf` in
+ * bkk-frontend-next/app/utils/conditionGrade.ts — which is where the rule
+ * lives, because /sell's own summary card decides the customer's verdict with
+ * it.
+ *
+ * A `failBehavior: 'reject'` answer means the device FAILED SCREENING, not
+ * that the shop walks away:
+ *
+ *   no_buy — will not power on, or iCloud/MDM locked. Nothing to offer.
+ *   as_is  — everything else: a dead camera, a third-party screen, an
+ *            out-of-centre repair. THE SHOP STILL BUYS THESE, as-is at
+ *            roughly 10-20% of base with an admin confirming. Measured on the
+ *            live sets (ส.ค. 2569): ~790 of ~966 reject options.
+ *
+ * The first cut of this file refused all 966 the same way, with copy that
+ * said we only buy fully working devices. For the 790 that is not true, it
+ * contradicts /sell and the /corporate page, and it fails in the direction no
+ * metric shows: the customer closes the tab instead of seeing the offer they
+ * would have been made.
+ *
+ * `scripts/quote-policy-parity.mjs` over there compares the two regex sources
+ * character for character.
+ */
+const REJECT_NO_BUY_RE = /เปิดไม่ติด|ไม่สามารถเปิดเครื่อง|icloud|mdm/i;
+const REJECT_NO_BUY_GROUP_RE = /เปิดเครื่อง/;
+
+function refusalClassOf(groupTitle, optionLabel) {
+  return REJECT_NO_BUY_RE.test(String(optionLabel || "")) ||
+    REJECT_NO_BUY_GROUP_RE.test(String(groupTitle || ""))
+    ? "no_buy"
+    : "as_is";
+}
+
 /** MIRROR of quotePolicy.findBatteryGroup. */
 function findBatteryGroup(groups) {
   for (const g of groups || []) {
@@ -1224,14 +1258,19 @@ function resolveModelConditions(model, ingredients, extraction) {
   // the arithmetic comes out at the healthy price — and the customer would
   // arrive at the door quoting it. So here it is a refusal, exactly as it is
   // in the chat (chat-ai.js: declined_defect).
-  let refused = resolved.declined;
+  let refused = resolved.declined
+    ? { ...resolved.declined, refusalClass: "no_buy" }
+    : null;
   if (!refused) {
     for (const row of resolved.resolved) {
       if (!row.assumed && row.option.failBehavior === "reject") {
+        const groupTitle = row.groupTitle;
+        const optionLabel = policyLabelOf(row.option);
         refused = {
           groupId: row.groupId,
-          groupTitle: row.groupTitle,
-          optionLabel: policyLabelOf(row.option),
+          groupTitle,
+          optionLabel,
+          refusalClass: refusalClassOf(groupTitle, optionLabel),
         };
         break;
       }
@@ -1271,7 +1310,11 @@ function deductionSection(chosen, ingredients, extraction) {
     return { text: "", coveredIds: new Set() };
   }
   const lines = [];
-  const refusals = [];
+  /** Will not power on / locked — nothing to offer. */
+  const noBuy = [];
+  /** Failed screening but STILL BOUGHT as-is, with a person confirming the
+   *  offer. The large majority of reject answers land here. */
+  const asIs = [];
   const coveredIds = new Set();
   for (const m of chosen) {
     if (m.paused || !m.conditionSetId) continue;
@@ -1280,13 +1323,12 @@ function deductionSection(chosen, ingredients, extraction) {
     const name = r.price.capacity ? `${m.name} ความจุ ${r.price.capacity}` : m.name;
 
     if (r.refused) {
-      // No figure, and the base price line goes too: a price printed beside a
-      // refusal is the refusal being ignored.
+      // No figure either way, and the base price line goes too: a price
+      // printed beside a refusal is the refusal being ignored.
       coveredIds.add(m.id);
-      refusals.push(
-        `- ${name}: สภาพที่ลูกค้าบอก (${r.refused.groupTitle}: ${r.refused.optionLabel}) ` +
-          `อยู่นอกเกณฑ์ที่เรารับซื้อตอนนี้`
-      );
+      const said = `${r.refused.groupTitle}: ${r.refused.optionLabel}`;
+      if (r.refused.refusalClass === "no_buy") noBuy.push(`- ${name}: สภาพที่ลูกค้าบอก (${said})`);
+      else asIs.push(`- ${name}: สภาพที่ลูกค้าบอก (${said})`);
       continue;
     }
 
@@ -1350,12 +1392,26 @@ function deductionSection(chosen, ingredients, extraction) {
       ].join("\n")
     );
   }
-  if (refusals.length) {
+  if (asIs.length) {
+    // NOT a closed door. The shop buys these as-is at roughly 10-20% of base
+    // with an admin confirming — /sell says so and /corporate promises it in
+    // writing. What this page cannot do is put a figure on it: it knows one
+    // sentence the customer typed, and the range /sell shows comes only after
+    // every question has been answered.
+    blocks.push(
+      [
+        "เครื่องที่มีอาการแบบนี้ ยังรับซื้อ แต่ประเมินราคาจากหน้านี้ไม่ได้ (ห้ามบอกตัวเลขราคาของเครื่องเหล่านี้เด็ดขาด ไม่ว่ารูปแบบใด):",
+        ...asIs,
+        "บอกลูกค้าตามนี้: อาการนี้ทำให้ราคาต่างจากเครื่องปกติมาก ประเมินจากหน้านี้ไม่ได้ — แต่เรายังรับซื้อตามสภาพ ให้กดประเมินแล้วเลือกสภาพจริง ทีมงานจะเสนอราคาให้ ห้ามบอกว่าไม่รับซื้อ ห้ามเดาช่วงราคา และห้ามเขียนลิงก์เอง",
+      ].join("\n")
+    );
+  }
+  if (noBuy.length) {
     blocks.push(
       [
         "เครื่องที่อยู่นอกเกณฑ์รับซื้อ (ห้ามบอกราคาของเครื่องเหล่านี้เด็ดขาด ไม่ว่ารูปแบบใด):",
-        ...refusals,
-        "บอกลูกค้าอย่างสุภาพว่าตอนนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติ และเสนอให้ประเมินเครื่องอื่นแทนได้",
+        ...noBuy,
+        "บอกลูกค้าอย่างสุภาพว่าเครื่องที่เปิดไม่ติดหรือติดล็อก iCloud/MDM ยังรับซื้อไม่ได้ และเสนอให้ประเมินเครื่องอื่นแทนได้",
       ].join("\n")
     );
   }

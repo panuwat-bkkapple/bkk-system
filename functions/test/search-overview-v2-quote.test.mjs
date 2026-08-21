@@ -38,8 +38,17 @@ const SCREEN = {
   options: [
     { label: "ไม่มีรอย", deduct: 0 },
     { label: "มีรอยขีดข่วน", deduct: 800 },
-    { label: "จอเสีย/ไม่แสดงผล", failBehavior: "reject" },
+    // as-is class: the shop still buys this one (live label, 83 sets).
+    { label: "จอเสีย / ทัชมีปัญหา", failBehavior: "reject" },
     { label: "เปิดไม่ติด", defect: true },
+  ],
+};
+/** The live power group — the one class that really is a closed door. */
+const POWER = {
+  title: "เปิดเครื่อง / ใช้งานทั่วไป",
+  options: [
+    { label: "ปกติ", deduct: 0 },
+    { label: "เปิดไม่ติด / ค้าง / ดับเอง", failBehavior: "reject" },
   ],
 };
 const BATTERY = {
@@ -93,7 +102,7 @@ const raw = (over = {}) => ({
     },
   ],
   conditionSets: {
-    set16: { groups: [SCREEN, BATTERY, WARRANTY] },
+    set16: { groups: [SCREEN, BATTERY, WARRANTY, POWER] },
     setMBA: { groups: [SCREEN, WARRANTY] },
   },
   marketFacts: [],
@@ -235,13 +244,14 @@ const quoteOf = (over, ingOver) => quoteGate(ing(ingOver), extract(over));
   check("gate: names the sellable row", ok.quote && ok.quote.variant === "256GB");
   check(
     "gate: says what it assumed",
-    ok.quote && ok.quote.assumed_groups.length === 1 && ok.quote.assumed_groups[0] === "ประกันศูนย์"
+    ok.quote &&
+      ok.quote.assumed_groups.join("|") === "ประกันศูนย์|เปิดเครื่อง / ใช้งานทั่วไป"
   );
   check(
     "gate: every condition row is reported, assumed ones flagged",
     ok.quote &&
-      ok.quote.conditions.length === 3 &&
-      ok.quote.conditions.filter((c) => c.assumed).length === 1
+      ok.quote.conditions.length === 4 &&
+      ok.quote.conditions.filter((c) => c.assumed).length === 2
   );
 
   check(
@@ -298,6 +308,51 @@ const quoteOf = (over, ingOver) => quoteGate(ing(ingOver), extract(over));
   );
 }
 
+// ── reject is TWO classes, and the copy has to know which ──────────────────
+
+{
+  // as-is: a dead screen. /sell buys this at roughly 10-20% of base with an
+  // admin confirming, and /corporate promises it in writing — so the page may
+  // refuse to QUOTE it, never to buy it.
+  const asIs = buildV2Context({
+    query: "iphone 16 pro max 256 จอเสีย",
+    ingredients: ing(),
+    extraction: extract({ conditions: [cid("set16", 0, 2)] }),
+    serviceFacts: "",
+  });
+  check("as-is: no figure", !asIs.quote);
+  check("as-is: says we still buy it", asIs.context.includes("แต่เรายังรับซื้อตามสภาพ"));
+  check(
+    "as-is: forbids the writer from saying we do not",
+    asIs.context.includes("ห้ามบอกว่าไม่รับซื้อ")
+  );
+  check(
+    "as-is: does NOT use the closed-door sentence",
+    !asIs.context.includes("อยู่นอกเกณฑ์รับซื้อ")
+  );
+  check("as-is: still no baht anywhere", !/\d{1,3},\d{3}\s*บาท/.test(asIs.context));
+
+  // no-buy: will not power on. This one really is a closed door.
+  const noBuy = buildV2Context({
+    query: "iphone 16 pro max 256 เปิดไม่ติด",
+    ingredients: ing(),
+    extraction: extract({ conditions: [cid("set16", 3, 1)] }),
+    serviceFacts: "",
+  });
+  check("no-buy: no figure", !noBuy.quote);
+  check("no-buy: uses the closed-door sentence", noBuy.context.includes("อยู่นอกเกณฑ์รับซื้อ"));
+  check(
+    "no-buy: names the reason in the customer's own terms",
+    noBuy.context.includes("iCloud/MDM") || noBuy.context.includes("เปิดไม่ติด")
+  );
+  check(
+    "no-buy: never invites them to sell it anyway",
+    // "ยังรับซื้อไม่ได้" contains "ยังรับซื้อ" — match the invitation itself.
+    !noBuy.context.includes("แต่เรายังรับซื้อตามสภาพ")
+  );
+  check("no-buy: no baht anywhere", !/\d{1,3},\d{3}\s*บาท/.test(noBuy.context));
+}
+
 // ── the context: the figure is IN it, and a refusal carries none ────────────
 
 {
@@ -324,7 +379,9 @@ const quoteOf = (over, ingOver) => quoteGate(ing(ingOver), extract(over));
     serviceFacts: "",
   });
   check("context: a refused device produces no quote object", !refused.quote);
-  check("context: and says so in words", refused.context.includes("นอกเกณฑ์รับซื้อ"));
+  // set16:0:2 is the AS-IS class (a dead screen), so the wording is the
+  // still-buying one — the closed door has its own block above.
+  check("context: and says so in words", refused.context.includes("ยังรับซื้อ"));
   check(
     "context: a refused device carries NO baht figure anywhere",
     !/\d{1,3},\d{3}\s*บาท/.test(refused.context)
