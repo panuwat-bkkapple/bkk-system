@@ -790,6 +790,55 @@ function exciseUnverifiedNumbers(parsed, context) {
   return { summary, detail: clean(parsed.detail || ""), excised };
 }
 
+/**
+ * CHANNELS WE HAVE NO FACTS ABOUT — cut, not asked nicely about.
+ *
+ * Rule 7 was extended to forbid recommending a route we do not run, after
+ * production answers closed with "ลองเทียบดูทั้งการ trade-in กับศูนย์ และการ
+ * ขายเงินสด". The rule shipped; the sentence came back the same evening on a
+ * query that had never been asked before ("iPhone 15 128GB", 21 ส.ค. 2569).
+ * A prompt makes a behaviour rarer, never impossible — the same lesson the
+ * number gate above was built on, and the same answer: make it structural.
+ *
+ * The list is deliberately SHORT. Two things nearby must keep working:
+ *   - "ศูนย์" alone is everywhere legitimately — ประกันศูนย์, เครื่องศูนย์ไทย
+ *     is a real condition option and appears in real answers.
+ *   - "marketplace" is one of OUR OWN curated market facts; the model quotes
+ *     it because we handed it over.
+ * So only the act of pointing the customer at a trade-in is matched.
+ */
+const OFF_LIMITS_RE = /trade[\s-]?in|เทิร์นเครื่อง|เทรด[\s-]?อิน/i;
+
+/**
+ * Drop advice about channels we do not run. Runs after the number gate, on
+ * the same sentence split, and reports through the same counter — one number
+ * for "sentences the gate cut", which is what the dashboard tile means.
+ *
+ * Returns null when nothing is left of the summary, exactly like the number
+ * gate: an empty answer is worse than the fallback below it.
+ */
+function dropOffLimitsAdvice(parsed) {
+  if (!parsed) return null;
+  let cut = 0;
+  const clean = (text) => {
+    const kept = [];
+    for (const sentence of splitSentences(text)) {
+      if (OFF_LIMITS_RE.test(sentence)) cut++;
+      else kept.push(sentence);
+    }
+    return kept.join(" ");
+  };
+  const summary = clean(parsed.summary);
+  if (!summary) return null;
+  return {
+    ...parsed,
+    summary,
+    detail: clean(parsed.detail || ""),
+    excised: (Number(parsed.excised) || 0) + cut,
+    offLimitsCut: cut,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Stage 3 — the three-layer prompt
 // ---------------------------------------------------------------------------
@@ -1592,7 +1641,21 @@ function familySection(ingredients, extraction) {
 
 function siblingSection(ingredients, extraction, chosen) {
   if (!chosen.length || chosen.length >= MODEL_PICK_LIMIT) return "";
-  if (extraction.intent !== "compare" && extraction.intent !== "price" && extraction.intent !== "forecast") return "";
+  // ONLY WHEN THE CUSTOMER ASKED TO COMPARE.
+  //
+  // This used to fire on `price` and `forecast` too, which is how "iPhone 17
+  // 256GB ราคา" ended with "ถ้าเทียบทางเลือกอื่น iPhone 17 Air อยู่ที่ 20,000 -
+  // 22,000 บาท ขณะ iPhone 16 Pro อยู่ที่ 21,000 - 24,000 บาท" (production,
+  // 21 ส.ค. 2569). The owner's reading, and it is the right one: someone who
+  // names a model and a capacity is holding that device. Prices of two other
+  // phones answer a question nobody asked, and they are the loudest numbers
+  // in the paragraph — on the iPhone 17 card, 24,000 sits above the 21,000
+  // the customer actually gets.
+  //
+  // Nothing is lost where it helped: `compare` is still served, and an anchor
+  // we cannot price already returns "" below, so the "we do not buy yours,
+  // here are ones we do" case never depended on this section.
+  if (extraction.intent !== "compare") return "";
   const anchor = chosen[0];
   const fam = familyOf(anchor);
   if (!fam || !(anchor.max > 0)) return "";
@@ -1815,6 +1878,8 @@ module.exports = {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  dropOffLimitsAdvice,
+  OFF_LIMITS_RE,
   admittedKeyPoints,
   primaryModelLegend,
   MAX_KEY_POINTS,

@@ -213,7 +213,7 @@ export default function OpsDashboard() {
             <Stat label="ตอบสำเร็จ" value={h.answered} />
             <Stat label="ปฏิเสธ (ทุกเหตุผล)" value={h.skipped_total} />
             <Stat label="กู้จาก reply ขาด (salvaged)" value={h.salvaged} alert={h.salvaged > 0} />
-            <Stat label="ตัดประโยคเลขเถื่อน (excised)" value={h.excised_answers} alert={h.excised_answers > 0} />
+            <Stat label="ตัดประโยคที่ผิดกฎ (excised)" value={h.excised_answers} alert={h.excised_answers > 0} />
             <Stat label="parse ไม่ได้เลย" value={h.unparseable} alert={h.unparseable > 0} />
           </div>
           {(h.skipped_total > 0 || Object.keys(h.gate).length > 0) && (
