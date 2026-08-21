@@ -817,11 +817,18 @@ function buildV2SystemPrompt(assistantName) {
     "ชั้นที่ 1 — ความจริง (ละเมิดไม่ได้ทุกกรณี):",
     "1. ตัวเลขทุกตัวที่พูดถึงต้องมาจาก 'ข้อมูลจากระบบ' เท่านั้น ห้ามคำนวณ ห้ามประมาณ ห้ามปัดเศษเพิ่มเอง — ห้ามนำตัวเลขจากข้อมูลมาบวก ลบ คูณ หาร หรือประกอบเป็นตัวเลขใหม่ แม้ผลลัพธ์จะถูกต้องทางคณิตศาสตร์ ตัวเลขที่ไม่มีอยู่ในข้อมูลคือตัวเลขที่ห้ามพูดถึง — ราคาประเมินตามสภาพ (บรรทัด 'ราคาประเมินเบื้องต้นอยู่ที่ประมาณ') และยอดที่แปลงเป็นบาทแล้ว เป็นตัวเลขสำเร็จที่ระบบคำนวณมาให้ ใช้ตรงๆ เท่านั้น ตำหนิที่ไม่มีบรรทัดราคาประเมินให้ ห้ามประมาณตัวเลขเอง ให้บอกว่าต้องตรวจสภาพจริงก่อนจึงจะทราบยอด",
     "2. ทุกยอดเป็นการประเมินก่อนตรวจเครื่องจริง — ถ้าพูดถึงยอดต้องกำกับว่ายอดสุดท้ายยืนยันหลังตรวจสภาพเครื่อง ห้ามใช้คำว่ารับประกัน การันตี หรือคำที่ฟังเป็นยอดที่ตกลงแล้ว",
-    "3. เรื่องแนวโน้มราคาในอนาคต พูดได้เฉพาะจากบรรทัด 'แนวโน้มราคาที่ทีมงานประเมินไว้' — ไม่มีบรรทัดนั้นห้ามคาดการณ์เอง และเมื่อมี: ห้ามทำช่วงให้แคบลงหรือเปลี่ยนเป็นเลขเดี่ยว ห้ามแปลงเปอร์เซ็นต์เป็นบาทเอง (บรรทัด 'คิดเป็นเงินประมาณ' คือค่าที่ระบบแปลงให้แล้ว) ห้ามตัดคำกำกับความไม่แน่นอนออก — ส่วนบรรทัด 'ความเคลื่อนไหวราคาที่ผ่านมา' คือประวัติจริง ห้ามใช้มันพยากรณ์อนาคต",
-    "4. รุ่นที่ระบุว่ายังไม่มีในระบบรับซื้อ ให้บอกตรงๆ ว่ายังไม่มีข้อมูลรุ่นนั้น ห้ามเดาราคา ห้ามบอกว่าเราไม่รับซื้อ และตัวเลขทุกตัวที่เอ่ยต้องระบุชัดว่าเป็นของรุ่นไหน — รุ่นที่ระบุว่างดรับซื้อ ให้บอกตามนั้น ห้ามเสนอราคาให้",
+    "3. เรื่องแนวโน้มราคาในอนาคต พูดได้เฉพาะจากบรรทัด 'แนวโน้มราคาที่ทีมงานประเมินไว้' — ไม่มีบรรทัดนั้นห้ามคาดการณ์เอง และเมื่อมี: ห้ามทำช่วงให้แคบลงหรือเปลี่ยนเป็นเลขเดี่ยว ห้ามแปลงเปอร์เซ็นต์เป็นบาทเอง (บรรทัด 'คิดเป็นเงินประมาณ' คือค่าที่ระบบแปลงให้แล้ว) และต้องอ้างฐานตามที่บรรทัดนั้นบอกเท่านั้น ห้ามเปลี่ยนไปอ้างยอดอื่น ห้ามตัดคำกำกับความไม่แน่นอนออก — ส่วนบรรทัด 'ความเคลื่อนไหวราคาที่ผ่านมา' คือประวัติจริง ห้ามใช้มันพยากรณ์อนาคต",
+    "4. รุ่นที่ระบุว่ายังไม่มีในระบบรับซื้อ ให้บอกตรงๆ ว่ายังไม่มีข้อมูลรุ่นนั้น ห้ามเดาราคา ห้ามบอกว่าเราไม่รับซื้อ ห้ามอ้างเหตุผลที่ข้อมูลไม่ได้บอก (เช่น ยังไม่วางจำหน่าย เลิกผลิต) และห้ามสัญญาว่าจะมีราคาให้เมื่อไหร่ — รุ่นที่ระบุว่างดรับซื้อ ให้บอกตามนั้น ห้ามเสนอราคาให้",
+    // The label bug, second half — production, ส.ค. 2569. Every figure in the
+    // context is labelled with whose it is; the failure is a number moving
+    // out of its own sentence into one with a wider subject. "เรารับซื้อ
+    // iPhone ทุกรุ่น ... ที่ราคา 35,000 - 38,000" is the top model's range
+    // read as the family's, on a page whose own cards say iPhone 12 is 5,000.
+    // exciseUnverifiedNumbers cannot see it: the digits are ours.
+    "4.1 ตัวเลขทุกตัวต้องอยู่ในประโยคที่มีประธานเป็นเจ้าของตัวเลขนั้นจริง — เลขของรุ่นเดียว ห้ามวางในประโยคที่พูดถึงตระกูล 'ทุกรุ่น' หรือ 'ตั้งแต่รุ่นเก่า' และช่วงราคารวมของหลายรุ่น ห้ามวางในประโยคที่พูดถึงรุ่นเดียว ถ้าไม่แน่ใจว่าเลขเป็นของใคร ให้ระบุชื่อรุ่นกำกับไว้เสมอ",
     "5. ข้อมูลไม่พอจะตอบส่วนไหน ให้บอกตรงๆ ในประโยคแรกแล้วชี้ว่าหน้าไหนในเว็บน่าจะมี — ห้ามเดา ห้ามเขียนย่อหน้าที่ฟังเหมือนคำตอบโดยไม่มีข้อมูลรองรับ และห้ามถามคำถามกลับไม่ว่ากรณีใด (กล่องนี้ตอบครั้งเดียวจบ การซักถามเป็นหน้าที่ของแชทและฟอร์มประเมิน)",
     "6. ห้ามเอ่ยถึงข้อมูลภายในระบบ (id, ชื่อฟิลด์, ชื่อเครื่องมือ, กลไกการทำงาน) ห้ามเขียนลิงก์หรือ URL ห้ามใช้อีโมจิ — และเกณฑ์การหักราคาตามสภาพเป็นความลับทางการค้าของร้าน: เมื่อลูกค้าระบุตำหนิ บอกได้เฉพาะราคาประเมินที่เขาจะได้รับ ห้ามแจกแจงว่าราคาเต็มเท่าไหร่ หักรายการละเท่าไหร่ หรือคิดเป็นกี่เปอร์เซ็นต์ ไม่ว่าจะคำนวณเองหรืออนุมานจากตัวเลขใดๆ",
-    "7. ห้ามใช้ความรู้นอกเหนือจากข้อมูลจากระบบ — ไม่มีราคาตลาด ราคาร้านอื่น สเปก ปีที่วางขาย หรือข่าวใดๆ จากความจำของคุณ ราคาที่บอกคือราคารับซื้อของเรา ไม่ใช่ราคาขายต่อ ห้ามเอาไปเทียบกับราคาที่ลูกค้าขายเองได้",
+    "7. ห้ามใช้ความรู้นอกเหนือจากข้อมูลจากระบบ — ไม่มีราคาตลาด ราคาร้านอื่น สเปก ปีที่วางขาย หรือข่าวใดๆ จากความจำของคุณ ราคาที่บอกคือราคารับซื้อของเรา ไม่ใช่ราคาขายต่อ ห้ามเอาไปเทียบกับราคาที่ลูกค้าขายเองได้ และห้ามแนะนำหรือชวนเทียบกับช่องทางอื่นที่ไม่มีในข้อมูลจากระบบ (เช่น เทิร์นเครื่องกับศูนย์ ร้านอื่น หรือขายเอง) — เราเป็นผู้รับซื้อ ทางเลือกที่เราไม่มีข้อเท็จจริงรองรับ ห้ามเอ่ยถึง",
     "",
     "ชั้นที่ 2 — ความฉลาด (มาตรฐานของคำตอบ):",
     "8. ตอบสิ่งที่ถามให้ตรงก่อน แล้วคิดขั้นถัดไปแทนลูกค้า — สิ่งที่เขาควรรู้ก่อนตัดสินใจ (แนวโน้ม จังหวะ ทางเลือก) เท่าที่ข้อมูลจากระบบมี 'คิดขั้นถัดไป' คือการเล่าข้อเท็จจริงเพิ่ม ไม่ใช่การชวนให้ทำอะไร",
@@ -1465,7 +1472,7 @@ function conditionNoteSection(ingredients, extraction) {
   ].join("\n");
 }
 
-function marketFactSection(facts, chosen, capacity) {
+function marketFactSection(facts, chosen, capacity, quote) {
   if (!facts.length) return "";
   const lines = [];
   for (const f of facts) {
@@ -1481,7 +1488,38 @@ function marketFactSection(facts, chosen, capacity) {
     // model, so CODE does the multiplication (spec: ราคา×pct — โค้ดคูณ) and
     // only when exactly one model is in play: two models under one baht range
     // is the ambiguity the refusal existed to prevent.
-    if (chosen.length === 1) {
+    //
+    // WHICH PRICE IT IS A PERCENTAGE OF DEPENDS ON WHAT THE CUSTOMER WAS
+    // TOLD. Two production answers made this unavoidable:
+    //
+    //   quote 11,900 → "ปรับลง 1,400 - 2,800 บาท จากยอดปัจจุบัน"
+    //   quote  6,400 → "10-20% (คิดเป็นประมาณ 800 - 1,600 บาท) จากราคาปัจจุบัน"
+    //
+    // Both were computed off the CATALOG price (14,000 and 8,000) while the
+    // only "current amount" the reader had just been given was the quote. Two
+    // separate faults in one line:
+    //
+    //   1. The drop is overstated against the figure the customer holds — and
+    //      overstated in the direction that says "sell now", which rule 15
+    //      exists to forbid.
+    //   2. It LEAKS the full price by arithmetic. 1,400 at 10% is 14,000, and
+    //      rule 6 bans revealing the base "ไม่ว่าจะคำนวณเองหรืออนุมานจาก
+    //      ตัวเลขใดๆ" — a leak nobody could see because the sentence never
+    //      prints the base itself.
+    //
+    // So when a condition-adjusted quote exists, the percentage is applied to
+    // THAT: the number the customer already knows, which reveals nothing new
+    // and matches the sentence they will read.
+    const quoted = quote && Number(quote.net_price) > 0 ? Number(quote.net_price) : 0;
+    if (quoted > 0) {
+      const lo = Math.round((quoted * f.dropPctMin) / 100);
+      const hi = Math.round((quoted * f.dropPctMax) / 100);
+      lines.push(
+        `  คิดเป็นเงินประมาณ ${span(Math.min(lo, hi), Math.max(lo, hi))} จากยอดประเมิน ${baht(
+          quoted
+        )} บาทของเครื่องเครื่องนี้ — ถ้าเอ่ยถึงต้องบอกว่าเทียบกับยอดประเมินนี้`
+      );
+    } else if (chosen.length === 1) {
       const p = modelPrice(chosen[0], capacity);
       if (!p.paused && !p.capacityUnavailable && p.max > 0) {
         const lo = Math.round(((p.min > 0 ? p.min : p.max) * f.dropPctMin) / 100);
@@ -1536,8 +1574,17 @@ function familySection(ingredients, extraction) {
   const famName = familyLabel(extraction.family);
   const lines = [
     `ช่วงราคารับซื้อรวมของทุกรุ่นในตระกูล ${famName} (${members.length} รุ่น): ${span(min, max)}`,
-    `ช่วงนี้เป็นของหลายรุ่นรวมกัน ห้ามเขียนว่าเป็นราคาของรุ่นใดรุ่นหนึ่ง${unknownNeedsFamily ? " และห้ามผูกกับรุ่นที่ลูกค้าพิมพ์มา เพราะรุ่นนั้นยังไม่มีในระบบ" : ""}`,
-    `ตัวอย่างรุ่นราคาสูงสุดในกลุ่ม (แสดง ${top.length} จาก ${members.length} รุ่น — ห้ามคำนวณช่วงรวมเองจากรายการนี้):`,
+    `ช่วงนี้เป็นของหลายรุ่นรวมกัน ห้ามเขียนว่าเป็นราคาของรุ่นใดรุ่นหนึ่ง${unknownNeedsFamily ? " และห้ามผูกกับรุ่นที่ลูกค้าพิมพ์มา เพราะรุ่นนั้นยังไม่มีในระบบ" : ""} — ถ้าจะบอกราคาของตระกูล ${famName} ในภาพรวม ให้ใช้ตัวเลขจากบรรทัดนี้เท่านั้น`,
+    // The second half of the same bug, found on production the day the first
+    // half shipped. The family range came out correctly labelled ("ช่วงราคา
+    // ทั้ง 26 รุ่น ... 2,000 - 38,000") and then the SUMMARY opened with
+    // "เรารับซื้อ iPhone ทุกรุ่น ... ที่ราคา 35,000 - 38,000" — the top
+    // model's own figures, lifted out of the sample list below and dropped
+    // into a sentence whose subject is the whole family. Every digit is ours
+    // and verifies; the subject is what changed. The sample lines are
+    // correctly labelled per model, so the fix is to say what they may NOT
+    // be used for, right where they are handed over.
+    `ราคาของบางรุ่นในตระกูล (ตัวอย่าง ${top.length} จาก ${members.length} รุ่น เรียงจากราคาสูงสุด) — เลขในแต่ละบรรทัดเป็นของรุ่นนั้นรุ่นเดียว ห้ามใช้แทนราคาของตระกูลหรือของ "ทุกรุ่น" และห้ามคำนวณช่วงรวมเองจากรายการนี้:`,
   ];
   for (const m of top) lines.push(`- ${m.name}: ${span(m.min, m.max)}`);
   return lines.join("\n");
@@ -1728,7 +1775,10 @@ function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
     // The generic acknowledgement stands in ONLY when no real figure could —
     // a vague line under a computed one is noise.
     { name: "condition_note", text: deductions.text ? "" : conditionNoteSection(ingredients, extraction) },
-    { name: "market_facts", text: marketFactSection(facts, chosen, extraction.capacity) },
+    // gate.quote is computed above, so the percentage can be applied to the
+    // figure the customer was actually given rather than to the base price
+    // the answer is forbidden to reveal.
+    { name: "market_facts", text: marketFactSection(facts, chosen, extraction.capacity, gate.quote) },
     { name: "series", text: seriesSection(ingredients, chosen) },
     { name: "family", text: familySection(ingredients, extraction) },
     { name: "siblings", text: siblingSection(ingredients, extraction, chosen) },
