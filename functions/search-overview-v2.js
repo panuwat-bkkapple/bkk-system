@@ -263,6 +263,15 @@ function sanitizeIngredients(raw) {
 
   const out = {
     models,
+    // The local matcher's own picks, ids only, rank order preserved. Bounded
+    // by the same cap as the catalog: a caller cannot make this list longer
+    // than the list it points into.
+    matchedIds: Array.isArray(raw.matchedIds)
+      ? raw.matchedIds
+          .slice(0, MAX_INGREDIENT_MODELS)
+          .map((id) => str(id, 64).trim())
+          .filter((id) => id && models.some((m) => m.id === id))
+      : [],
     conditionSets: sanitizeConditionSets(raw.conditionSets),
     // `settings/store/accept_defective_devices`, as the website read it.
     // FAIL CLOSED: anything that is not exactly true means the shop is not
@@ -1172,6 +1181,50 @@ function applicableMarketFacts(ingredients, extraction, now = Date.now()) {
  *  turns false into {skipped:"nothing_to_write"} without paying for stage 3.
  *  A picked condition counts even with no model: "จอแตกรับซื้อไหม" has a real
  *  answer (yes, and here is what moves the price) before a model is named. */
+/**
+ * WHEN STAGE 1 MISSES A DEVICE THE PAGE IS ALREADY SHOWING.
+ *
+ * Stage 1 reading the raw query against the whole catalog is what lets it
+ * name a model the local matcher missed — the design goal. It fails the other
+ * way too, and that failure is the loud one. Production, 22 ส.ค. 2569:
+ *
+ *   q = "MacBook Air M4 256GB"
+ *   stage 1 -> models: [], unknownModels: ["MacBook Air M4"]
+ *   the page -> cards for MacBook Air 15" (ชิป M4, 2025) ฿33,000
+ *                     and MacBook Air 13" (ชิป M4, 2025) ฿29,000
+ *
+ * and the answer opened with "ยังไม่มีข้อมูลรุ่น MacBook Air M4 ในระบบรับซื้อ
+ * ของเรา" printed above them. A sentence that contradicts the cards under it
+ * does not merely look wrong: it turns a customer away from a device the shop
+ * is buying today.
+ *
+ * The recovery is narrow on purpose, and every condition earns its place:
+ *
+ *   stage 1 named NO model      — one it did name is a real answer, and an
+ *                                 absence line beside it ("iPhone 20 Ultra
+ *                                 กับ iPhone 15 อันไหนดี") is true and useful.
+ *   it DID claim an absence     — nothing to correct otherwise.
+ *   the matcher has priced hits — the contradiction is only a contradiction
+ *                                 when the page can actually show a price.
+ *                                 "iPhone 20 Ultra" alone matched no priced
+ *                                 model, so it keeps its absence line.
+ *
+ * What comes back is a corrected extraction, applied ONCE at the top so the
+ * context, the answerability gate and the primary-model legend all read the
+ * same thing. Recovery drops the unknown names: the words the customer typed
+ * describe a device we do sell, and no part of the answer should say
+ * otherwise.
+ */
+function recoverMatchedModels(ingredients, extraction) {
+  if (!extraction || extraction.models.length || !extraction.unknownModels.length) return extraction;
+  const priced = (ingredients.matchedIds || [])
+    .map((id) => ingredients.models.find((m) => m.id === id))
+    .filter((m) => m && !m.paused && m.max > 0)
+    .slice(0, MODEL_PICK_LIMIT);
+  if (!priced.length) return extraction;
+  return { ...extraction, models: priced.map((m) => m.id), unknownModels: [], recovered: true };
+}
+
 function hasAnythingToWrite(ingredients, extraction, now = Date.now()) {
   return (
     extraction.models.length > 0 ||
@@ -1872,6 +1925,7 @@ module.exports = {
   buildExtractSystemPrompt,
   buildExtractUser,
   parseExtraction,
+  recoverMatchedModels,
   applicableMarketFacts,
   hasAnythingToWrite,
   buildV2Context,
