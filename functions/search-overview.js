@@ -701,7 +701,7 @@ const ARCHIVE_ROOT = "search_overview_archive";
  * the text would also mean storing the customer's query inside it, because
  * the context is built around the question.
  */
-function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, salvaged, excised }) {
+function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, salvaged, excised, keyPoints, keyPointsDropped }) {
   const row = {
     model: String(model || ""),
     latencyMs: Number(latencyMs) || 0,
@@ -731,6 +731,26 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
     // probe's round-1 findings turned into measurable fields.
     if (salvaged === true) row.salvaged = true;
     if (Number(excised) > 0) row.excised = Number(excised);
+    // WHICH PHRASES THE ANSWER PUT IN BOLD, and how many it proposed that did
+    // not survive.
+    //
+    // Without this pair, an answer with no highlight is unreadable from here:
+    // "the writer chose not to mark anything" (allowed, and correct for a
+    // short or guidance answer) and "it marked three phrases and wrote all
+    // three differently in the prose, so every one was dropped" look
+    // identical. The first is the system working; the second is the model
+    // failing the same way over and over where nobody can see it.
+    //
+    // SAFE BY CONSTRUCTION, not by promise: admittedKeyPoints only returns
+    // phrases that appear verbatim in the served summary or detail, both of
+    // which are already on this row. Storing them adds ZERO new text to a
+    // node whose one rule is that the customer's words never reach it — it
+    // records which slices of our own sentences were chosen. The rejected
+    // phrases are the opposite (by definition they match nothing stored, and
+    // a drifting writer could have echoed the question into one), so only
+    // their COUNT is kept.
+    if (Array.isArray(keyPoints) && keyPoints.length) row.key_points = keyPoints.map(String);
+    if (Number(keyPointsDropped) > 0) row.key_points_dropped = Number(keyPointsDropped);
   }
   return row;
 }
@@ -872,6 +892,50 @@ async function runCacheGc(db, tag) {
  * that only ever grows — and because a second scheduler for two dozen small
  * deletes is more moving parts than the job deserves.
  */
+/**
+ * How long an answer row lives.
+ *
+ * 90 days, matching the search analytics table in Firestore that owns the
+ * other half of the same record. The two halves are joined by `cacheKey`, and
+ * a join whose halves expire on different clocks is a record that quietly
+ * becomes half-readable: the question redacted and gone, our answer to it
+ * still here, referenced by an id that now points at nothing. Whatever the
+ * privacy page promises about one of them has to be true of both.
+ */
+const ARCHIVE_RETENTION_DAYS = 90;
+
+/**
+ * How far past the cutoff each sweep reaches. The job runs daily, so one day
+ * would normally do; 30 means a month of the scheduler being off (or of this
+ * function failing) still heals itself on the next successful run.
+ */
+const ARCHIVE_GC_WINDOW_DAYS = 30;
+
+/**
+ * Delete day nodes older than the retention — WITHOUT READING ANYTHING.
+ *
+ * The archive is keyed by Bangkok day, so the paths to remove can be computed
+ * from the clock instead of listed. That matters here specifically: RTDB
+ * bills by bytes downloaded, and the obvious implementation (read the root,
+ * look at the keys) would pull every archived answer down every night just to
+ * learn their names — the archive would cost more to tidy than to keep.
+ * A multi-path update of nulls removes what exists and no-ops on the rest.
+ *
+ * Left deliberately outside the window: nothing sweeps days older than
+ * retention + window. If this job is ever off for longer than that, those
+ * days need one manual pass — the alternative is a listing read, which is the
+ * cost this design exists to avoid.
+ */
+async function runArchiveGc(db, now = Date.now()) {
+  const updates = {};
+  for (let age = ARCHIVE_RETENTION_DAYS; age < ARCHIVE_RETENTION_DAYS + ARCHIVE_GC_WINDOW_DAYS; age++) {
+    updates[bangkokYmd(now - age * 86400000)] = null;
+  }
+  const days = Object.keys(updates).sort();
+  await db.ref(ARCHIVE_ROOT).update(updates);
+  return { oldest: days[0], newest: days[days.length - 1], days: days.length };
+}
+
 async function runRateBucketGc(db) {
   const keepFrom = bangkokHourBucket(Date.now() - 48 * 3600000);
   const snap = await db.ref("overview_rate").once("value");
@@ -1265,6 +1329,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         if (salvaged) console.warn(`[${tag}] v2 reply salvaged (truncated/fenced) for "${query}"`);
         let excised = 0;
         let keyPoints = [];
+        let keyPointsDropped = 0;
         let primaryModelId = null;
         if (isV2) {
           // The last gate: a sentence quoting a number the context cannot
@@ -1293,7 +1358,13 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // Key points survive only verbatim, and only against the text
           // actually being served — see admittedKeyPoints. primary_model_id
           // was already validated against the ingredient ids at parse time.
+          const proposedKeyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints.length : 0;
           keyPoints = admittedKeyPoints(parsed.keyPoints, verified);
+          // Everything the writer proposed and did not get: phrases it wrote
+          // differently in the prose, duplicates, and anything past the cap.
+          // One number, because the rejected TEXT is the one thing on this
+          // path that is not already stored (see buildArchiveAnswerRow).
+          keyPointsDropped = Math.max(0, proposedKeyPoints - keyPoints.length);
           primaryModelId = parsed.primaryModelId;
           parsed = { summary: verified.summary, detail: verified.detail };
         }
@@ -1323,7 +1394,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               detail: parsed.detail,
               topics: answerTopics,
               ts: Date.now(),
-              ...(isV2 ? { v2: true, extractModel, extractMs, salvaged, excised } : {}),
+              ...(isV2
+                ? { v2: true, extractModel, extractMs, salvaged, excised, keyPoints, keyPointsDropped }
+                : {}),
             })
           )
         );
@@ -1371,9 +1444,15 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       try {
         const cache = await runCacheGc(db, tag);
         const rate = await runRateBucketGc(db);
+        // Folded into the sweep that already runs rather than given its own
+        // schedule: another scheduled function is another Cloud Run service
+        // to deploy, watch and pay for, for one multi-path delete a day.
+        const archive = await runArchiveGc(db);
         console.log(
           `[${tag}] cache scanned=${cache.scanned} deleted=${cache.deleted} ` +
-            `(batch ${cache.batch}) · rate buckets deleted=${rate.deleted}`
+            `(batch ${cache.batch}) · rate buckets deleted=${rate.deleted} · ` +
+            `archive swept ${archive.days} day(s) ${archive.oldest}-${archive.newest} ` +
+            `(retention ${ARCHIVE_RETENTION_DAYS}d)`
         );
       } catch (e) {
         // A failed sweep is tomorrow's slightly larger sweep, never an
@@ -1409,6 +1488,9 @@ module.exports = {
     clientOverBudget,
     runCacheGc,
     runRateBucketGc,
+    runArchiveGc,
+    ARCHIVE_RETENTION_DAYS,
+    ARCHIVE_GC_WINDOW_DAYS,
     CACHE_GC_BATCH,
     DEFAULT_CLIENT_HOURLY_LIMIT,
     v2FactsVersion,
