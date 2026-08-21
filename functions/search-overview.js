@@ -648,7 +648,7 @@ function parseOverview(raw) {
  * touched it (verified across all three repos before removing). It was the
  * one place customer words lived outside the system that owns them.
  */
-function buildCacheRow({ summary, detail, keyPoints, primaryModelId, now }) {
+function buildCacheRow({ summary, detail, keyPoints, primaryModelId, quote, now }) {
   const points = (Array.isArray(keyPoints) ? keyPoints : []).map((k) => String(k)).filter(Boolean);
   return {
     summary: String(summary || ""),
@@ -662,6 +662,13 @@ function buildCacheRow({ summary, detail, keyPoints, primaryModelId, now }) {
     ...(points.length ? { key_points: points } : {}),
     // The CTA pointer, already validated against the ingredient model ids.
     ...(primaryModelId ? { primary_model_id: String(primaryModelId) } : {}),
+    // The single figure, when the gate allowed one. Cached WITH the answer
+    // because the cache key is a hash of the ingredients, so a price edit, a
+    // condition-set edit or a paused model already moves the key — a quote
+    // stored here can never outlive the facts it was computed from. Serving a
+    // hit without it would show the paragraph's number and no card, which
+    // reads as the page disagreeing with itself.
+    ...(quote ? { quote } : {}),
     created_at: Number(now) || 0,
     expires_at: (Number(now) || 0) + OVERVIEW_CACHE_TTL_SECONDS * 1000,
   };
@@ -1070,6 +1077,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               ? { key_points: hit.key_points.map((k) => String(k)) }
               : {}),
             ...(hit.primary_model_id ? { primary_model_id: String(hit.primary_model_id) } : {}),
+            // Absent on v1 rows and on any answer the gate refused — the
+            // frontend renders the range exactly as it does today.
+            ...(hit.quote ? { quote: hit.quote } : {}),
             cached: true,
             cacheKey: key,
           });
@@ -1128,6 +1138,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // context, and catalog ids can contain digits. Empty on v1, so the v1
       // user message stays byte-identical.
       let v2Legend = "";
+      /** The single figure stage 2 computed, when its gate allowed one. Null
+       *  on v1, and on every v2 answer that has to stay a range. */
+      let quote = null;
       // Measured around each Anthropic call alone. Wrapping the cache read and
       // the facts load into it would report a number nobody can act on: those
       // are our own database, and the question the archive answers is whether
@@ -1194,7 +1207,14 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           }
           context = built.context;
           answerTopics = extraction.topics;
+          quote = built.quote || null;
           v2Legend = primaryModelLegend(ingredients, extraction);
+          if (quote) {
+            console.log(
+              `[${tag}] v2 quote: ${quote.model_name} ${quote.variant} net=${quote.net_price} ` +
+                `assumed=${quote.assumed_groups.length} for "${query}"`
+            );
+          }
         }
         // ── Stage 3 (v2) / the only stage (v1): the writer ──
         // V2 writes under the three-layer prompt (truth / intelligence /
@@ -1267,6 +1287,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               detail: parsed.detail,
               keyPoints,
               primaryModelId,
+              quote,
               now: Date.now(),
             })
           )
@@ -1289,6 +1310,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           ...parsed,
           ...(keyPoints.length ? { key_points: keyPoints } : {}),
           ...(primaryModelId ? { primary_model_id: primaryModelId } : {}),
+          // Computed by code in stage 2, never by the writer — the paragraph
+          // and the card are two renderings of ONE arithmetic.
+          ...(quote ? { quote } : {}),
           cacheKey: key,
         });
       } catch (err) {

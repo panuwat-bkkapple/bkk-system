@@ -150,10 +150,25 @@ function sanitizeModel(raw) {
     for (const c of raw.capacities.slice(0, 12)) {
       const rung = normalizeCapacity(c && c.name);
       if (!rung) continue;
-      rungs.push({ name: rung, min: Math.max(0, num(c.min)), max: Math.max(0, num(c.max)) });
+      const row = { name: rung, min: Math.max(0, num(c.min)), max: Math.max(0, num(c.max)) };
+      // How many sellable rows this capacity covers, and the row's own name
+      // when it covers exactly one. NOT defaulted: an older website deploy
+      // sends neither, and guessing 1 would claim a MacBook's "256GB" names a
+      // single machine when it spans two prices. Absent means unknown, and
+      // unknown never passes the quote gate.
+      const rows = Math.round(num(c.rows));
+      if (rows > 0) row.rows = rows;
+      const variant = str(c.variant, 120).trim();
+      if (rows === 1 && variant) row.variant = variant;
+      rungs.push(row);
     }
     if (rungs.length) out.capacities = rungs;
   }
+  // The same fact at model level, for a model whose whole catalogue row is one
+  // variant — it has no capacity ladder at all (a ladder needs two rungs), so
+  // without this it could never be quoted as one device.
+  const soleVariant = str(raw.soleVariant, 120).trim();
+  if (soleVariant) out.soleVariant = soleVariant;
   return out;
 }
 
@@ -174,6 +189,11 @@ function sanitizeConditionSets(raw) {
         for (const k of ["deduct", "pct", "t1", "t2", "t3"]) {
           if (o[k] != null && Number.isFinite(Number(o[k]))) opt[k] = Number(o[k]);
         }
+        // The two answers that mean "the shop does not buy this device". They
+        // carry no deduction (a reject option is worth 0 baht), so without
+        // them a refused device is priced like a healthy one.
+        if (o.failBehavior === "reject") opt.failBehavior = "reject";
+        if (o.defect === true) opt.defect = true;
         options.push(opt);
       }
       groups.push({ title: str(g.title, 80).trim(), options });
@@ -234,6 +254,11 @@ function sanitizeIngredients(raw) {
   const out = {
     models,
     conditionSets: sanitizeConditionSets(raw.conditionSets),
+    // `settings/store/accept_defective_devices`, as the website read it.
+    // FAIL CLOSED: anything that is not exactly true means the shop is not
+    // buying defective devices, which is what the website and quotePolicy
+    // both do when the key is missing.
+    acceptDefective: raw.acceptDefective === true,
     marketFacts: sanitizeMarketFacts(raw.marketFacts),
     series: [],
     pages: [],
@@ -399,10 +424,15 @@ function buildExtractSystemPrompt() {
     "5. intent เลือกค่าเดียวที่ตรงที่สุด: price=ถามราคารุ่น, deduction=ถามยอดหักตามสภาพ, forecast=ถามแนวโน้ม/จังหวะขาย, service=ถามบริการหรือขั้นตอน, store=ถามข้อมูลร้าน, compare=เทียบรุ่นหรือทางเลือก, family_overview=พิมพ์ชื่อตระกูลกว้างๆ, other=นอกเหนือจากนี้",
     "6. family ใส่เมื่อคำค้นพูดถึงตระกูลสินค้า (iphone/ipad/mac/apple-watch) แม้ไม่ระบุรุ่น มิฉะนั้นเป็น null",
     "7. confidence=low เมื่อไม่แน่ใจว่าอ่านคำค้นถูก",
-    "8. ตอบเป็น JSON ล้วนๆ ห้ามมีข้อความอื่นนอก JSON",
+    // The number, not the bucket. A model asked to pick the battery OPTION
+    // kept rounding upward into a better bracket (79% -> \"81-85%\"), which
+    // inflates the quote every time; asked only to copy the digits it cannot.
+    // The bucket is chosen by code afterwards (resolveConditions).
+    "8. battery_pct ใส่เฉพาะเมื่อลูกค้าบอกเปอร์เซ็นต์สุขภาพแบตเตอรี่เป็นตัวเลข (เช่น 'แบต 85', 'battery 79%') ให้ใส่ตัวเลขล้วน 1-100 ห้ามปัดเลข ห้ามเดา ไม่มีตัวเลข = null",
+    "9. ตอบเป็น JSON ล้วนๆ ห้ามมีข้อความอื่นนอก JSON",
     "",
     "รูปแบบคำตอบ:",
-    '{"models": ["id"], "capacity": "256GB หรือ null", "conditions": ["id"], "topics": ["id"], "intent": "price", "family": "iphone หรือ null", "unknown_models": ["ชื่อที่ลูกค้าเรียก"], "confidence": "high"}',
+    '{"models": ["id"], "capacity": "256GB หรือ null", "conditions": ["id"], "battery_pct": 85, "topics": ["id"], "intent": "price", "family": "iphone หรือ null", "unknown_models": ["ชื่อที่ลูกค้าเรียก"], "confidence": "high"}',
   ].join("\n");
 }
 
@@ -512,10 +542,18 @@ function parseExtraction(raw, ingredients) {
     ? String(obj.family).toLowerCase()
     : null;
 
+  // A stated battery percentage, or null. Bounded to 1-100 because anything
+  // outside it is a misread rather than a number worth acting on, and rounded
+  // because the buckets are whole percents.
+  const battRaw = Number(obj.battery_pct);
+  const batteryPct =
+    Number.isFinite(battRaw) && battRaw >= 1 && battRaw <= 100 ? Math.round(battRaw) : null;
+
   return {
     models,
     capacity: normalizeCapacity(obj.capacity),
     conditions,
+    batteryPct,
     topics,
     intent,
     family,
@@ -840,6 +878,155 @@ function resolveFinalPrice(basePrice, totalDeduction) {
   return Math.max(0, (Number(basePrice) || 0) - (Number(totalDeduction) || 0));
 }
 
+// ---------------------------------------------------------------------------
+// quotePolicy — MIRROR of bkk-frontend-next/functions/src/quotePolicy.ts
+//
+// The source of truth is that file: it is what `priceCart` runs, so it is what
+// the customer is actually paid. This copy exists because the two live in
+// different repositories and different languages; `scripts/quote-policy-parity.mjs`
+// over there runs BOTH against one set of fixtures and diffs the result, which
+// is the only reason a hand-kept mirror is allowed here at all (same
+// arrangement as buildPublicTrack / PUBLIC_TRACK_FIELDS_MIRROR).
+//
+// CHANGE ONE, CHANGE BOTH, THEN RUN THE HARNESS. A drift here does not throw:
+// it quotes a number on the search page that the cart will not honour, which
+// is the single failure this whole feature exists to avoid.
+//
+// The one adaptation: this payload's groups and options carry no ids (the
+// website strips them — see toConditionSet), so ids are POSITIONAL, "0", "1",
+// "2" by index. The algorithm is otherwise line-for-line the original.
+// ---------------------------------------------------------------------------
+
+const policyOptionsOf = (group) =>
+  (Array.isArray(group && group.options) ? group.options : []).filter((o) => o && o.id != null);
+
+const policyTitleOf = (group) => String((group && (group.title || group.name || group.id)) || "");
+
+const policyLabelOf = (opt) => String((opt && (opt.label || opt.name)) || "");
+
+/** Give every group and option a positional id, so the mirror can run the
+ *  id-based algorithm on an id-less payload. */
+function withPositionalIds(groups) {
+  return (Array.isArray(groups) ? groups : []).map((g, gi) => ({
+    ...g,
+    id: String(gi),
+    options: (Array.isArray(g && g.options) ? g.options : []).map((o, oi) => ({
+      ...o,
+      id: String(oi),
+    })),
+  }));
+}
+
+/** MIRROR of quotePolicy.deductionOf — itself a mirror of calculateDeductAmount.
+ *  Used only to RANK options when choosing the best case, so a drift here
+ *  cannot change a price, only which option gets assumed. */
+function policyDeductionOf(opt, basePrice, liquidityFactor) {
+  return resolveOptionDeduction(opt, basePrice, liquidityFactor);
+}
+
+/** MIRROR of quotePolicy.batteryOptionRange. */
+function batteryOptionRange(label) {
+  const str_ = String(label || "");
+  const nums = (str_.match(/\d+/g) || []).map(Number);
+  if (nums.length === 0) return null;
+  if (/ขึ้นไป|มากกว่า|>=|ขึ้น/.test(str_)) return { min: nums[0], max: Infinity };
+  if (/ต่ำกว่า|น้อยกว่า|below|under|</i.test(str_)) return { min: 0, max: nums[0] - 1 };
+  if (nums.length >= 2) return { min: Math.min(nums[0], nums[1]), max: Math.max(nums[0], nums[1]) };
+  return { min: nums[0], max: nums[0] };
+}
+
+/** MIRROR of quotePolicy.pickBatteryOptionId. */
+function pickBatteryOptionId(options, pct) {
+  // `Number(null)` is 0, and 0 is finite — so a caller passing null for "the
+  // customer said nothing" used to land inside the "below 80%" bucket and
+  // deduct for a worn battery nobody mentioned. Found by a test on the search
+  // path, where the extraction reports an absent percentage as exactly null.
+  if (pct == null || pct === "") return null;
+  const p = Number(pct);
+  if (!Number.isFinite(p) || p <= 0) return null;
+  for (const o of options || []) {
+    if (!o || o.id == null) continue;
+    const r = batteryOptionRange(o.label || o.name);
+    if (r && p >= r.min && p <= r.max) return String(o.id);
+  }
+  if (p < 80) {
+    for (const o of options || []) {
+      if (!o || o.id == null) continue;
+      if (/เสื่อม|เปลี่ยนแบต|แบตต่ำ|แบตแย่|service/i.test(policyLabelOf(o))) return String(o.id);
+    }
+  }
+  return null;
+}
+
+/** MIRROR of quotePolicy.findBatteryGroup. */
+function findBatteryGroup(groups) {
+  for (const g of groups || []) {
+    if (/แบต|battery/i.test(policyTitleOf(g))) return g;
+  }
+  return null;
+}
+
+/** MIRROR of quotePolicy.resolveConditions. */
+function resolveConditions(input) {
+  const groups = (Array.isArray(input.groups) ? input.groups : []).filter(
+    (g) => g && g.id != null
+  );
+  const basePrice = Number(input.basePrice) || 0;
+  const lf = input.liquidityFactor;
+  const acceptDefective = input.acceptDefective === true;
+
+  const answers = { ...(input.answers || {}) };
+
+  const batteryGroup = findBatteryGroup(groups);
+  if (batteryGroup) {
+    const picked = pickBatteryOptionId(policyOptionsOf(batteryGroup), input.batteryPct);
+    if (picked != null) answers[String(batteryGroup.id)] = picked;
+  }
+
+  const resolved = [];
+  const assumedGroups = [];
+  let declined = null;
+
+  for (const group of groups) {
+    const groupId = String(group.id);
+    const options = policyOptionsOf(group);
+    if (options.length === 0) continue;
+
+    const answeredId = answers[groupId];
+    let option =
+      answeredId != null ? options.find((o) => String(o.id) === String(answeredId)) : undefined;
+    let assumed = false;
+
+    if (!option) {
+      const pickable = options.filter((o) => o.failBehavior !== "reject" && o.defect !== true);
+      const pool = pickable.length > 0 ? pickable : options;
+      option = pool.reduce((best, o) =>
+        policyDeductionOf(o, basePrice, lf) < policyDeductionOf(best, basePrice, lf) ? o : best
+      );
+      assumed = true;
+      assumedGroups.push(policyTitleOf(group));
+      answers[groupId] = String(option.id);
+    }
+
+    if (!assumed && option.defect === true && !acceptDefective && !declined) {
+      declined = {
+        groupId,
+        groupTitle: policyTitleOf(group),
+        optionLabel: policyLabelOf(option),
+      };
+    }
+
+    resolved.push({
+      groupId,
+      groupTitle: policyTitleOf(group),
+      option,
+      assumed,
+    });
+  }
+
+  return { answers, resolved, assumedGroups, declined };
+}
+
 const span = (min, max) => (max > min ? `${baht(min)} - ${baht(max)} บาท` : `${baht(max)} บาท`);
 
 /** The price range one chosen model answers with, honouring a named
@@ -935,6 +1122,22 @@ function priceSection(chosen, capacity, excludeIds = new Set()) {
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
+/** Would another answer in this group have cost the customer more? That is
+ *  what makes an assumption worth stating out loud. */
+function assumptionCouldCostMore(row, resolvedForModel, liquidityFactor) {
+  // Read off the SET, not off the resolver's row: `resolveConditions` is a
+  // mirror of quotePolicy and its return shape has to stay identical to the
+  // original's, or the parity harness is comparing two different contracts.
+  const group = (resolvedForModel.groups || []).find((g) => String(g.id) === row.groupId);
+  if (!group) return false;
+  const base = resolvedForModel.baseMax;
+  const chosen = resolveOptionDeduction(row.option, base, liquidityFactor);
+  for (const opt of group.options || []) {
+    if (resolveOptionDeduction(opt, base, liquidityFactor) > chosen) return true;
+  }
+  return false;
+}
+
 /**
  * NET ONLY — the deduction arithmetic is a trade secret.
  *
@@ -954,59 +1157,210 @@ function priceSection(chosen, capacity, excludeIds = new Set()) {
  * Returns { text, coveredIds } — the caller hides the covered models' base
  * price lines too, or the model narrates the subtraction in words.
  */
+/**
+ * The answers, resolved against ONE model's own condition set.
+ *
+ * Everything the price depends on is decided here rather than by the writer:
+ * which option each group sits at (including the groups nobody mentioned),
+ * which battery bucket a stated percentage falls in, and whether the answers
+ * add up to a device the shop does not buy. Returns null when this model
+ * cannot be quoted at all.
+ */
+function resolveModelConditions(model, ingredients, extraction) {
+  const set = ingredients.conditionSets[model.conditionSetId];
+  if (!set || !Array.isArray(set.groups) || !set.groups.length) return null;
+  const p = modelPrice(model, extraction.capacity);
+  if (p.paused || p.capacityUnavailable || !(p.max > 0)) return null;
+
+  const groups = withPositionalIds(set.groups);
+  const answers = {};
+  const stated = new Set();
+  for (const cid of extraction.conditions) {
+    // Cross-set resolution — the cid names a concept, this model prices it
+    // from its OWN set. See resolveConditionForSet.
+    const hit = resolveConditionForSet(cid, ingredients, { groups });
+    if (!hit) continue;
+    const gid = String(hit.group.id);
+    if (answers[gid] != null) continue; // first pick per group wins
+    answers[gid] = String(hit.option.id);
+    stated.add(gid);
+  }
+
+  const baseMin = p.min > 0 ? p.min : p.max;
+  const baseMax = p.max;
+  // Resolved ONCE, at the top of the span. Percentage options rank differently
+  // at different prices, and resolving separately at each end could assume a
+  // different option at the floor than at the ceiling — one device with two
+  // stories. The chosen options are then priced at BOTH ends below, which is
+  // where the span comes from.
+  const resolved = resolveConditions({
+    groups,
+    answers,
+    basePrice: baseMax,
+    liquidityFactor: model.liquidityFactor,
+    acceptDefective: ingredients.acceptDefective === true,
+    batteryPct: extraction.batteryPct,
+  });
+  // A battery bucket chosen from a stated percentage is the customer's own
+  // answer, not an assumption — resolveConditions writes it into `answers`
+  // before the fill pass, so it already reads as stated; this records it for
+  // the caller's own accounting.
+  if (extraction.batteryPct != null) {
+    for (const row of resolved.resolved) {
+      if (!row.assumed && answers[row.groupId] == null) stated.add(row.groupId);
+    }
+  }
+  // What the OVERVIEW must refuse to price.
+  //
+  // `declined` is quotePolicy's own verdict and means exactly one thing —
+  // a defect answer while the shop is not accepting defective devices — and
+  // it stays that way, because the mirror has to keep mirroring.
+  //
+  // A `failBehavior: 'reject'` answer is the second case, and it is where the
+  // two channels legitimately differ: the assessment pipeline treats it as
+  // SALVAGE (priced at 0, tagged for an admin to call back), because a human
+  // is about to look at the device. A search page has no such human. It would
+  // print a number for a dead screen — the reject option deducts 0 baht, so
+  // the arithmetic comes out at the healthy price — and the customer would
+  // arrive at the door quoting it. So here it is a refusal, exactly as it is
+  // in the chat (chat-ai.js: declined_defect).
+  let refused = resolved.declined;
+  if (!refused) {
+    for (const row of resolved.resolved) {
+      if (!row.assumed && row.option.failBehavior === "reject") {
+        refused = {
+          groupId: row.groupId,
+          groupTitle: row.groupTitle,
+          optionLabel: policyLabelOf(row.option),
+        };
+        break;
+      }
+    }
+  }
+  return { ...resolved, refused, stated, groups, baseMin, baseMax, price: p };
+}
+
+/**
+ * NET ONLY — the deduction arithmetic is a trade secret.
+ *
+ * The first cut of this section printed the full worksheet ("จอแตก หักประมาณ
+ * 6,000 - 6,400 → เหลือ..."), which /sell has never done: the site's own
+ * quoting flow shows a customer ONLY what they would receive, because a
+ * public per-defect deduction table is a price list for competitors to
+ * undercut line by line. So this section speaks the way /sell does — the
+ * condition named (the customer's own words) and the resulting estimate,
+ * never the delta and never the pre-deduction figure.
+ *
+ * TWO THINGS CHANGED WHEN THE ESTIMATE BECAME A REAL QUOTE:
+ *
+ *   - groups nobody answered are no longer skipped. Skipping them prices the
+ *     device as if their best case were free, and on a set whose cheapest
+ *     option still deducts (a warranty group, typically) that is a figure
+ *     above what the shop will pay. They are filled with the best case and
+ *     SAID OUT LOUD, because an assumption the customer cannot see is one
+ *     they will argue with at the door.
+ *   - an answer that means "we do not buy this" produces a refusal and NO
+ *     number at all. A reject option deducts 0 baht, so before this the
+ *     section happily quoted the healthy price for a dead screen.
+ *
+ * Returns { text, coveredIds } — the caller hides the covered models' base
+ * price lines too, or the model narrates the subtraction in words.
+ */
 function deductionSection(chosen, ingredients, extraction) {
-  if (!extraction.conditions.length) return { text: "", coveredIds: new Set() };
+  if (!extraction.conditions.length && extraction.batteryPct == null) {
+    return { text: "", coveredIds: new Set() };
+  }
   const lines = [];
+  const refusals = [];
   const coveredIds = new Set();
   for (const m of chosen) {
     if (m.paused || !m.conditionSetId) continue;
-    const set = ingredients.conditionSets[m.conditionSetId];
-    if (!set) continue;
-    const p = modelPrice(m, extraction.capacity);
-    if (p.paused || p.capacityUnavailable || !(p.max > 0)) continue;
-    const baseMin = p.min > 0 ? p.min : p.max;
-    const baseMax = p.max;
+    const r = resolveModelConditions(m, ingredients, extraction);
+    if (!r) continue;
+    const name = r.price.capacity ? `${m.name} ความจุ ${r.price.capacity}` : m.name;
 
-    const rows = [];
-    const seenLabels = new Set();
-    for (const cid of extraction.conditions) {
-      // Cross-set resolution — the cid names a concept, this model prices it
-      // from its OWN set. See resolveConditionForSet.
-      const hit = resolveConditionForSet(cid, ingredients, set);
-      if (!hit) continue;
-      const opt = hit.option;
-      const labelKey = normLabel(opt.label);
-      if (seenLabels.has(labelKey)) continue;
-      seenLabels.add(labelKey);
-      // Resolves to 0 = the admin has not priced this option, not "we deduct
-      // nothing" — the line must not exist rather than promise a free pass.
-      const dLow = resolveOptionDeduction(opt, baseMin, m.liquidityFactor);
-      const dHigh = resolveOptionDeduction(opt, baseMax, m.liquidityFactor);
-      if (!(Math.max(dLow, dHigh) > 0)) continue;
-      rows.push({ label: opt.label, min: Math.min(dLow, dHigh), max: Math.max(dLow, dHigh) });
+    if (r.refused) {
+      // No figure, and the base price line goes too: a price printed beside a
+      // refusal is the refusal being ignored.
+      coveredIds.add(m.id);
+      refusals.push(
+        `- ${name}: สภาพที่ลูกค้าบอก (${r.refused.groupTitle}: ${r.refused.optionLabel}) ` +
+          `อยู่นอกเกณฑ์ที่เรารับซื้อตอนนี้`
+      );
+      continue;
     }
-    if (!rows.length) continue;
 
-    const totalMin = rows.reduce((s, r) => s + r.min, 0);
-    const totalMax = rows.reduce((s, r) => s + r.max, 0);
-    const name = p.capacity ? `${m.name} ความจุ ${p.capacity}` : m.name;
+    // NOTHING the customer said applies to THIS model's set — cross-set
+    // resolution widened the address, it did not invent an option. Quoting an
+    // estimate here would price the device as if the defect they told us
+    // about had never been mentioned, which is the systematically-too-high
+    // answer this whole section exists to avoid. It keeps its ordinary price
+    // line instead (it is not in coveredIds).
+    if (r.stated.size === 0) continue;
+
+    const statedLabels = [];
+    const assumedLabels = [];
+    let totalMin = 0;
+    let totalMax = 0;
+    for (const row of r.resolved) {
+      const dLow = resolveOptionDeduction(row.option, r.baseMin, m.liquidityFactor);
+      const dHigh = resolveOptionDeduction(row.option, r.baseMax, m.liquidityFactor);
+      totalMin += Math.min(dLow, dHigh);
+      totalMax += Math.max(dLow, dHigh);
+      const label = policyLabelOf(row.option);
+      if (!label) continue;
+      if (row.assumed) {
+        // Named when a DIFFERENT answer in that group would have cost the
+        // customer more — not when the assumed option itself deducts. The
+        // best case is usually 0 baht, and it is precisely those groups where
+        // being wrong is expensive: "we assumed your warranty is intact" is
+        // worth saying exactly because the other answer is -1,200.
+        if (assumptionCouldCostMore(row, r, m.liquidityFactor)) {
+          assumedLabels.push(`${row.groupTitle}: ${label}`);
+        }
+      } else if (r.stated.has(row.groupId)) {
+        statedLabels.push(label);
+      }
+    }
+    if (!statedLabels.length && !assumedLabels.length && totalMax === 0) continue;
+
     coveredIds.add(m.id);
+    const said = statedLabels.length ? ` (สภาพที่ระบุ: ${statedLabels.join(", ")})` : "";
     lines.push(
-      `- ${name} (สภาพที่ระบุ: ${rows.map((r) => r.label).join(", ")}): ราคาประเมินเบื้องต้นอยู่ที่ประมาณ ${span(
-        resolveFinalPrice(baseMin, totalMax),
-        resolveFinalPrice(baseMax, totalMin)
+      `- ${name}${said}: ราคาประเมินเบื้องต้นอยู่ที่ประมาณ ${span(
+        resolveFinalPrice(r.baseMin, totalMax),
+        resolveFinalPrice(r.baseMax, totalMin)
       )}`
     );
+    if (assumedLabels.length) {
+      lines.push(
+        `  ส่วนที่ลูกค้ายังไม่ได้บอก ระบบประเมินตามสภาพปกติไว้แล้ว: ${assumedLabels.join(", ")} ` +
+          `— ต้องบอกลูกค้าตรงๆ ว่าสมมติแบบนี้ไว้ ถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง`
+      );
+    }
   }
-  if (!lines.length) return { text: "", coveredIds: new Set() };
-  return {
-    text: [
-      "ราคาประเมินตามสภาพที่ลูกค้าระบุ (คำนวณจากเกณฑ์ประเมินจริงของรุ่นนั้น — ตัวเลขนี้คือยอดที่ลูกค้าจะได้รับ):",
-      ...lines,
-      "เป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง",
-    ].join("\n"),
-    coveredIds,
-  };
+
+  const blocks = [];
+  if (lines.length) {
+    blocks.push(
+      [
+        "ราคาประเมินตามสภาพที่ลูกค้าระบุ (คำนวณจากเกณฑ์ประเมินจริงของรุ่นนั้น — ตัวเลขนี้คือยอดที่ลูกค้าจะได้รับ):",
+        ...lines,
+        "เป็นการประเมินเบื้องต้น ยอดสุดท้ายยืนยันหลังตรวจสภาพเครื่องจริง",
+      ].join("\n")
+    );
+  }
+  if (refusals.length) {
+    blocks.push(
+      [
+        "เครื่องที่อยู่นอกเกณฑ์รับซื้อ (ห้ามบอกราคาของเครื่องเหล่านี้เด็ดขาด ไม่ว่ารูปแบบใด):",
+        ...refusals,
+        "บอกลูกค้าอย่างสุภาพว่าตอนนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติ และเสนอให้ประเมินเครื่องอื่นแทนได้",
+      ].join("\n")
+    );
+  }
+  if (!blocks.length) return { text: "", coveredIds: new Set() };
+  return { text: blocks.join("\n\n"), coveredIds };
 }
 
 /**
@@ -1151,6 +1505,111 @@ function pagesSection(ingredients) {
  * a rule that bounds coverage and says nothing about what it dropped reads,
  * later, as if it had covered everything.
  */
+/**
+ * The core groups — the two facts a number cannot honestly be quoted without.
+ *
+ * Matched on the GROUP TITLE, which is what the Engine authors, and required
+ * only when the model's own set actually has one: a Mac mini has no battery
+ * group and a Watch band has no screen group, and demanding an answer that
+ * does not exist would mean those models could never be quoted.
+ */
+const CORE_GROUP_PATTERNS = [/จอ|หน้าจอ|screen|display/i, /แบต|battery/i];
+
+/**
+ * G1-G6 — may this answer carry ONE figure, or must it stay a range?
+ *
+ * Every gate is a way of being wrong that has already cost money somewhere:
+ *
+ *   G1  one model, and nothing the catalogue could not name. Two models is
+ *       two prices; an unknown_models entry means the customer is talking
+ *       about something we did not match at all.
+ *   G2  stage 1 said `high`. It reports its own doubt and the field was going
+ *       unread.
+ *   G3  the model is bought, and the price for the capacity in play is real.
+ *   G4  the capacity names exactly ONE sellable row. iPhone "256GB" is a
+ *       variant; MacBook "256GB" is the tail of two rows priced 12,000 and
+ *       14,000, and quoting either as "the" price is wrong by 2,000 baht in a
+ *       way nobody can see. A single-variant model passes through
+ *       `soleVariant` instead — it has no ladder at all.
+ *   G5  every core group the set HAS is answered. Below that the figure is
+ *       mostly assumption wearing a number's clothes.
+ *   G6  no refusal. A device we do not buy has no price, full stop.
+ *
+ * Returns { quote } or { reason } — the reason is logged, never shown: the
+ * page simply behaves exactly as it does today (range + chips).
+ */
+function quoteGate(ingredients, extraction) {
+  if (extraction.models.length !== 1) return { reason: "not_one_model" };
+  if (extraction.unknownModels.length) return { reason: "unknown_model_named" };
+  if (extraction.confidence !== "high") return { reason: "low_confidence" };
+
+  const model = ingredients.models.find((m) => m.id === extraction.models[0]);
+  if (!model) return { reason: "model_missing" };
+  if (model.paused) return { reason: "paused" };
+
+  const p = modelPrice(model, extraction.capacity);
+  if (p.paused || p.capacityUnavailable || !(p.max > 0)) return { reason: "no_price" };
+
+  // G4 — one sellable row, named.
+  let variant = null;
+  let capacity = null;
+  if (extraction.capacity) {
+    const rung = (model.capacities || []).find((c) => c.name === extraction.capacity);
+    if (rung && rung.rows === 1 && rung.variant) {
+      variant = rung.variant;
+      capacity = rung.name;
+    }
+  }
+  if (!variant && model.soleVariant && !extraction.capacity) {
+    variant = model.soleVariant;
+  }
+  if (!variant) return { reason: "variant_ambiguous" };
+  if (!(p.min === p.max)) return { reason: "price_not_a_point" };
+
+  const r = resolveModelConditions(model, ingredients, extraction);
+  if (!r) return { reason: "no_condition_set" };
+  if (r.refused) return { reason: "declined" };
+  // Nothing the customer said reached THIS model's set. Every row would be an
+  // assumption, and a figure made entirely of assumptions is a range wearing
+  // a number's clothes — worse than the range, because it looks decided.
+  if (r.stated.size === 0) return { reason: "no_stated_condition" };
+
+  // G5 — the core groups this set has must be answered, not assumed.
+  for (const re of CORE_GROUP_PATTERNS) {
+    const row = r.resolved.find((x) => re.test(x.groupTitle));
+    if (!row) continue;               // the set does not ask this: fine
+    if (row.assumed) return { reason: "core_group_unanswered" };
+  }
+
+  const base = p.max;
+  let deductTotal = 0;
+  const conditions = [];
+  for (const row of r.resolved) {
+    const deduct = resolveOptionDeduction(row.option, base, model.liquidityFactor);
+    deductTotal += deduct;
+    conditions.push({
+      group: row.groupTitle,
+      label: policyLabelOf(row.option),
+      deduct,
+      assumed: row.assumed === true,
+    });
+  }
+
+  return {
+    quote: {
+      model_id: model.id,
+      model_name: model.name,
+      variant,
+      ...(capacity ? { capacity } : {}),
+      base_price: base,
+      deduct_total: deductTotal,
+      net_price: resolveFinalPrice(base, deductTotal),
+      conditions,
+      assumed_groups: r.assumedGroups,
+    },
+  };
+}
+
 function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
   const chosen = extraction.models
     .map((id) => ingredients.models.find((m) => m.id === id))
@@ -1173,12 +1632,28 @@ function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
   const serviceFirst = extraction.intent === "service" || extraction.intent === "store";
   const facts = applicableMarketFacts(ingredients, extraction);
   const deductions = deductionSection(chosen, ingredients, extraction);
+  // The single figure, when everything needed for one is on the table. It is
+  // computed here rather than by the writer and rides out in the response so
+  // the card can show the same number the paragraph does — one arithmetic,
+  // two renderings.
+  const gate = quoteGate(ingredients, extraction);
   const ordered = [
     // A model with a condition-adjusted estimate below has NO base-price line
     // — see priceSection's exclude note.
     { name: "prices", text: priceSection(chosen, extraction.capacity, deductions.coveredIds) },
     ...(serviceFirst ? [{ name: "service_facts", text: String(serviceFacts || "").trim() }] : []),
     { name: "deductions", text: deductions.text },
+    // The exact figure, once, in its own line. It must be IN the context or
+    // the excision gate would cut the sentence quoting it — the whitelist is
+    // built from this text (allowedNumberRuns).
+    {
+      name: "quote",
+      text: gate.quote
+        ? `ยอดประเมินของเครื่องเครื่องนี้โดยเฉพาะ: ${gate.quote.model_name} ${gate.quote.variant} = ${baht(
+            gate.quote.net_price
+          )} บาท — เป็นยอดที่ลูกค้าจะได้รับถ้าสภาพจริงตรงกับที่บอกมา พูดตัวเลขนี้ได้ตรงๆ ห้ามคำนวณต่อและห้ามปัดเลข`
+        : "",
+    },
     // The generic acknowledgement stands in ONLY when no real figure could —
     // a vague line under a computed one is noise.
     { name: "condition_note", text: deductions.text ? "" : conditionNoteSection(ingredients, extraction) },
@@ -1199,7 +1674,7 @@ function buildV2Context({ query, ingredients, extraction, serviceFacts }) {
     }
     out = `${out}\n\n${s.text}`;
   }
-  return { context: out, droppedSections };
+  return { context: out, droppedSections, ...(gate.quote ? { quote: gate.quote } : {}) };
 }
 
 module.exports = {
@@ -1232,6 +1707,13 @@ module.exports = {
     resolveFinalPrice,
     modelPrice,
     familyOfCategory,
+    resolveConditions,
+    batteryOptionRange,
+    pickBatteryOptionId,
+    findBatteryGroup,
+    withPositionalIds,
+    resolveModelConditions,
+    quoteGate,
     priceSection,
     deductionSection,
     conditionNoteSection,
