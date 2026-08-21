@@ -28,6 +28,9 @@ const {
   archiveWrite,
   archiveGateSkip,
   ARCHIVE_ROOT,
+  runArchiveGc,
+  ARCHIVE_RETENTION_DAYS,
+  ARCHIVE_GC_WINDOW_DAYS,
 } = __test;
 
 let failures = 0;
@@ -142,6 +145,95 @@ function fakeDb() {
     model: "m", latencyMs: 1, inputChars: 10, summary: "s", detail: "d", topics: [], ts: TS,
   });
   check("answer row has no context field at all", !("context" in withContext) && !("query" in withContext));
+}
+
+// ─── 1b. which phrases the answer highlighted ───────────────────────────────
+//
+// Added because "no highlight on the card" was unreadable from the archive:
+// a writer that chose to mark nothing (allowed) and a writer that marked
+// three phrases and then wrote all three differently in the prose (a silent,
+// repeating failure) produced the same row.
+{
+  const SUMMARY = "iPhone 15 Pro Max รับซื้อสูงสุด 34,000 บาทครับ";
+  const DETAIL = "ราคาลดลง 8% ในเดือนที่ผ่านมาครับ";
+  const row = buildArchiveAnswerRow({
+    model: "claude-haiku-4-5", latencyMs: 1, inputChars: 10,
+    summary: SUMMARY, detail: DETAIL, topics: [], ts: TS,
+    v2: true, extractModel: "claude-haiku-4-5", extractMs: 200,
+    keyPoints: ["iPhone 15 Pro Max รับซื้อสูงสุด 34,000 บาท", "ราคาลดลง 8%"],
+    keyPointsDropped: 1,
+  });
+
+  // Defensively shaped: if the field stops being written, this must read as a
+  // named failure, not a TypeError that takes the whole file down with it.
+  check("v2 row records the phrases that were highlighted", Array.isArray(row.key_points) && row.key_points.length === 2);
+  check("v2 row records how many were proposed and lost", row.key_points_dropped === 1);
+
+  // THE PROPERTY THAT MAKES THIS SAFE, asserted rather than promised: an
+  // admitted key point is a verbatim slice of text this row already carries,
+  // so it cannot introduce anything new to a node whose one rule is that the
+  // customer's words never reach it.
+  const stored = `${row.summary}\n${row.detail}`;
+  check(
+    "every stored phrase is a slice of text already on the row",
+    Array.isArray(row.key_points) && row.key_points.every((k) => stored.includes(k))
+  );
+  check("the rejected phrases themselves are NOT stored, only counted", !("key_points_rejected" in row));
+  check("still no question-shaped field", forbiddenKeysIn(row).length === 0);
+  check("still no leak", !leaksQuery(row));
+
+  // Absent rather than empty: a row that marked nothing says so by having
+  // neither field, which is also how a v1 row looks.
+  const none = buildArchiveAnswerRow({
+    model: "m", latencyMs: 1, inputChars: 1, summary: "s", detail: "", topics: [], ts: TS,
+    v2: true, extractModel: "m", extractMs: 1, keyPoints: [], keyPointsDropped: 0,
+  });
+  check("nothing highlighted leaves both fields off", !("key_points" in none) && !("key_points_dropped" in none));
+
+  // v1 has no key points at all, and its row shape is pinned above.
+  const v1 = buildArchiveAnswerRow({
+    model: "m", latencyMs: 1, inputChars: 1, summary: "s", detail: "", topics: [], ts: TS,
+    keyPoints: ["s"], keyPointsDropped: 2,
+  });
+  check("a v1 row never grows the v2 fields", !("key_points" in v1) && !("key_points_dropped" in v1));
+}
+
+// ─── 1c. the sweep: old days go, and nothing is read to find them ───────────
+{
+  const NOW = Date.parse("2026-08-21T12:00:00Z");
+  const reads = [];
+  const writes = [];
+  const db = {
+    ref(path) {
+      reads.push(path);
+      return {
+        once: () => { throw new Error("the sweep must not read the archive"); },
+        update: (v) => { writes.push({ path, value: v }); return Promise.resolve(); },
+      };
+    },
+  };
+
+  const out = await runArchiveGc(db, NOW);
+  const [{ path, value }] = writes;
+  const keys = Object.keys(value);
+
+  check("sweeps at the archive root, in one multi-path update", writes.length === 1 && path === ARCHIVE_ROOT);
+  check("every path is a delete", Object.values(value).every((v) => v === null));
+  check("covers exactly the window", keys.length === ARCHIVE_GC_WINDOW_DAYS && out.days === keys.length);
+
+  // The two edges that decide whether a customer's answer outlives the
+  // question it belongs to: yesterday must survive, retention+1 must not.
+  const ymd = (ms) => new Date(ms + 7 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
+  check("today and yesterday are untouched", !keys.includes(ymd(NOW)) && !keys.includes(ymd(NOW - 86400000)));
+  check(
+    "the day just inside retention is untouched",
+    !keys.includes(ymd(NOW - (ARCHIVE_RETENTION_DAYS - 1) * 86400000))
+  );
+  check(
+    "the first day past retention is deleted",
+    keys.includes(ymd(NOW - ARCHIVE_RETENTION_DAYS * 86400000))
+  );
+  check("retention matches the Firestore half it is joined to", ARCHIVE_RETENTION_DAYS === 90);
 }
 
 // ─── 2. refusals: every reason, no text ─────────────────────────────────────
