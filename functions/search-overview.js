@@ -543,7 +543,13 @@ function buildOverviewSystemPrompt(assistantName) {
     // rows are a SAMPLE, and a range computed from a sample is stated as if
     // it covered everything. The website sends the true span of every match
     // as its own line precisely so this can be forbidden.
-    "8. ถ้าจะพูดถึง 'ช่วงราคารวม' ของหลายรุ่น ให้ใช้ตัวเลขจากบรรทัดที่ขึ้นต้นว่า 'ช่วงราคารับซื้อรวมของ ... รุ่น' เท่านั้น ห้ามคำนวณช่วงรวมเองจากรายการรุ่นด้านล่าง เพราะรายการนั้นอาจแสดงไม่ครบทุกรุ่น",
+    // Both wordings on purpose. The website and this function deploy on
+    // separate pipelines, so for one window the box is served by a new
+    // function reading an old context line, or the reverse. A rule that names
+    // only one of them points at nothing for that window — and "no line to
+    // use" is precisely the state in which the model computes a combined
+    // range from the sample, which is the bug rule 8 exists to stop.
+    "8. ถ้าจะพูดถึง 'ช่วงราคารวม' ของหลายรุ่น ให้ใช้ตัวเลขจากบรรทัดที่ขึ้นต้นว่า 'ช่วงราคารับซื้อรวมของ' (หรือรูปเดิม 'ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้') เท่านั้น ห้ามคำนวณช่วงรวมเองจากรายการรุ่นด้านล่าง เพราะรายการนั้นอาจแสดงไม่ครบทุกรุ่น",
     // The label bug, ส.ค. 2569. Rule 8 protects the DIGITS of the combined
     // range and says nothing about whose range it is, so the model kept the
     // numbers and swapped the subject: asked about "iPhone 14 Pro 128GB" it
