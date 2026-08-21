@@ -90,6 +90,16 @@ const INTENTS = new Set([
 ]);
 
 const FAMILIES = new Set(["iphone", "ipad", "mac", "apple-watch"]);
+/** How a family is named to the customer. The family sections carry a
+ *  combined range across every member, and a range whose line does not say
+ *  whose it is gets attributed to whatever name is nearest — the query's. */
+const FAMILY_LABELS = {
+  iphone: "iPhone",
+  ipad: "iPad",
+  mac: "Mac",
+  "apple-watch": "Apple Watch",
+};
+const familyLabel = (fam) => FAMILY_LABELS[fam] || String(fam || "");
 
 // MIRROR of modelFamily in bkk-frontend-next/lib/priceForecast.ts — the
 // category strings are the catalog's own. The website also sends `family`
@@ -1520,8 +1530,13 @@ function familySection(ingredients, extraction) {
     if (min === 0 || (m.min > 0 && m.min < min)) min = m.min > 0 ? m.min : min;
   }
   const top = [...members].sort((a, b) => b.max - a.max).slice(0, FAMILY_TOP_LIMIT);
+  // Named, not merely selected. "ทุกรุ่นที่ตรงกับคำค้นนี้" is at its most
+  // misleading exactly here: on the unknown-model door the query names a
+  // device we do NOT have, so nothing in this range matched it at all.
+  const famName = familyLabel(extraction.family);
   const lines = [
-    `ช่วงราคารับซื้อของทุกรุ่นที่ตรงกับคำค้นนี้ (${members.length} รุ่น): ${span(min, max)}`,
+    `ช่วงราคารับซื้อรวมของทุกรุ่นในตระกูล ${famName} (${members.length} รุ่น): ${span(min, max)}`,
+    `ช่วงนี้เป็นของหลายรุ่นรวมกัน ห้ามเขียนว่าเป็นราคาของรุ่นใดรุ่นหนึ่ง${unknownNeedsFamily ? " และห้ามผูกกับรุ่นที่ลูกค้าพิมพ์มา เพราะรุ่นนั้นยังไม่มีในระบบ" : ""}`,
     `ตัวอย่างรุ่นราคาสูงสุดในกลุ่ม (แสดง ${top.length} จาก ${members.length} รุ่น — ห้ามคำนวณช่วงรวมเองจากรายการนี้):`,
   ];
   for (const m of top) lines.push(`- ${m.name}: ${span(m.min, m.max)}`);

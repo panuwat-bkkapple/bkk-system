@@ -159,7 +159,11 @@ const ex = (over = {}) => ({
     serviceFacts: "",
   });
   check("ACC3: absence stated in the customer's own words", context.includes("iPhone 20 Ultra") && context.includes("ยังไม่มีในระบบรับซื้อ"));
-  check("ACC3: real family devices offered with real prices", context.includes("iPhone 16 Pro Max") && context.includes("ช่วงราคารับซื้อของทุกรุ่น"));
+  check("ACC3: real family devices offered with real prices", context.includes("iPhone 16 Pro Max") && context.includes("ช่วงราคารับซื้อรวมของทุกรุ่นในตระกูล iPhone"));
+  // The span covers the family, and the customer's model is not in it. Saying
+  // so is the difference between a helpful fallback and a price quoted for a
+  // device we do not have.
+  check("ACC3: the span is not pinned to the model that does not exist", context.includes("ห้ามผูกกับรุ่นที่ลูกค้าพิมพ์มา"));
   check("ACC3: the iPad never wanders into an iPhone answer", !context.includes("iPad Air 6"));
 }
 
