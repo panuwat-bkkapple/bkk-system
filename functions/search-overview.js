@@ -41,6 +41,7 @@ const {
   buildExtractSystemPrompt,
   buildExtractUser,
   parseExtraction,
+  recoverMatchedModels,
   hasAnythingToWrite,
   buildV2Context,
   buildV2SystemPrompt,
@@ -1240,7 +1241,11 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           });
           recordAiUsage(db, { origin: "search", model: extractModel, usage: ex.usage });
           extractMs = Date.now() - exStart;
-          const extraction = parseExtraction(ex.text, ingredients);
+          const parsedExtraction = parseExtraction(ex.text, ingredients);
+          // Applied here, once, so the answerability gate, the context and
+          // the primary-model legend below all read the same extraction —
+          // see recoverMatchedModels for the case it exists to catch.
+          const extraction = recoverMatchedModels(ingredients, parsedExtraction);
           if (!extraction) {
             console.warn(`[${tag}] v2 extract unparseable for "${query}"`);
             archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
@@ -1252,6 +1257,14 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // Ids outside the lists are already gone — parseExtraction dropped
           // them — but the drop is logged, because a model that keeps
           // inventing ids is a prompt problem someone needs to see.
+          // Loud on purpose: a recovery means stage 1 could not name a device
+          // the page was already showing, which is a prompt/extraction problem
+          // someone has to see even though the customer got a correct answer.
+          if (extraction.recovered) {
+            console.warn(
+              `[${tag}] v2 extract missed a matched model, recovered ${extraction.models.length} from the matcher for "${query}"`
+            );
+          }
           const d = extraction.dropped;
           if (d.models || d.conditions || d.topics) {
             console.warn(
