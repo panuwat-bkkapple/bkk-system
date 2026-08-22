@@ -154,6 +154,13 @@
 - **MIRROR 2 ที่:** หมวด/ช่องทาง/ค่า default อยู่ทั้ง `functions/notification-settings.js` (JS, ตัวที่ gate จริง) และ `src/utils/notificationSettings.ts` (TS, label ของ UI) — functions import TS ไม่ได้ **เพิ่มหมวดต้องแก้ทั้งคู่ + map `data.type` ฝั่ง server**
 - `settings/notifications` อยู่ใต้ `settings` จึงใช้ rule เดิม (read = auth, write = admin) **ไม่ต้อง deploy rules ใหม่**
 
+## รุ่นที่คนขายมากที่สุด บน /sell เว็บลูกค้า (settings/sell/popular_models)
+- **ป้าย "รุ่นที่คนขายมากที่สุด"** ใน overlay ค้นหาของ `/sell` (bkk-frontend-next) อ่านลิสต์ id จาก `settings/sell/popular_models` — ตัวเขียนคือ **`refreshPopularSellModels`** (scheduler 04:45 เวลาไทย, `functions/popular-models.js`) สรุปจากยอดขายจริงใน `/jobs` หน้าต่าง 30 วัน + callable `adminRefreshPopularModels` (CEO/MANAGER) รันทันทีได้
+- **query ตาม index `created_at` เท่านั้น** (มีใน rules แล้ว) ไม่กวาด `/jobs` ทั้ง node — และกรอง `Number(created_at)` ซ้ำฝั่งโค้ดเพราะ string เรียงหลังตัวเลขใน RTDB จึงหลุด `startAt(number)` มาได้
+- **นับต่อเครื่องไม่ใช่ต่อออเดอร์:** งานลูกค้าใช้ `devices[].model_id`, งานแอดมินมีแต่ชื่อใน `model` (อาจพ่วง variant เช่น "iPhone 15 Pro 256GB") → resolve เป็น id ด้วย longest-prefix-ที่จบตรงขอบคำ กัน "iPhone 15" เคลมงานของ "iPhone 15 Pro". ข้าม `Cancelled` + type `Accessory`/`B2B-Unpacked` (กันนับซ้ำกับงานแม่)/`Withdrawal`
+- **`settings/sell/popular_models_manual: true` = แอดมินล็อกลิสต์เอง scheduler ไม่แตะ** · ไม่มีข้อมูล = ไม่เขียนทับ · ฝั่งอ่าน (`pickPopularModels`) กรอง id ที่ paused/หลุด catalog แล้วเติม fallback รุ่นใหม่สุดต่อหมวดให้เองอยู่แล้ว จึงเขียนเผื่อ 10 id (จอโชว์ 5)
+- เทส: `functions/test/popular-models.test.mjs` (prefix ขอบคำ / type ที่ข้าม / created_at เป็น string) · `settings/sell` ใช้ rule เดิมใต้ `settings` **ไม่ต้อง deploy rules**
+
 ## ค่าวิ่งไรเดอร์ แยกตามยานพาหนะ (motorcycle / car)
 - **อัตรา** อยู่ที่ `settings/logistics_rates/by_vehicle/{motorcycle|car}` (ตั้งที่ `/global-settings` แท็บยานพาหนะ) — ฟิลด์แบนที่ root ยังเป็น fallback ทีละฟิลด์ ระบบเดิมจึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะกรอก `by_vehicle`
 - **ยานพาหนะของไรเดอร์** อยู่ที่ `riders/{id}/vehicle_type` (+ mirror ที่ `riders/{id}/vehicle/type` ซึ่งเป็นตัวที่ลูกค้าอ่านได้ตามกฎ read ของ subtree `vehicle`) — ตั้งที่หน้า `/riders`

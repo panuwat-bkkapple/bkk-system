@@ -6659,3 +6659,10 @@ Object.assign(exports, require("./ops-dashboard").registerOpsDashboard());
 // รายการถอนที่หักภาษีไว้ถูกบันทึก (logic อยู่ rider-wht-issue.js)
 // =============================================================================
 Object.assign(exports, require("./rider-wht-issue").registerRiderWhtIssue());
+
+// =============================================================================
+// "รุ่นที่คนขายมากที่สุด" บน /sell เว็บลูกค้า — สรุปยอดขายจริงจาก /jobs
+// (หน้าต่าง 30 วัน, query ตาม index created_at) เขียน settings/sell/popular_models
+// วันละครั้ง + callable ให้แอดมินรันทันที (logic อยู่ popular-models.js)
+// =============================================================================
+Object.assign(exports, require("./popular-models").registerPopularModels());
