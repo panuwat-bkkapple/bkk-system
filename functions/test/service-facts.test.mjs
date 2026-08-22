@@ -118,6 +118,59 @@ check(
   "searchFaq returns only {q,a} — no category leaks to the model",
   empty.every((r) => Object.keys(r).sort().join(",") === "a,q")
 );
+// ── การจ่ายเงิน: what we pay WITH, not just when ──────────────────────────
+//
+// Added 22 ส.ค. 2569 from a real conversation an admin had to answer by hand:
+//
+//   customer: "Hello my only bank account is wise"
+//   customer: "Is there anyway I can be paid in cash"
+//
+// Neither question had a fact behind it anywhere in the assistant's brain.
+// The only payment line said WHEN money moves ("จ่ายเงินหน้างานทันที"), which
+// a customer asking about cash reads as yes — and a rider arrives carrying a
+// phone, not cash.
+{
+  // Thai has no spaces, so retrieval is substring matching and the row has to
+  // contain the phrase a customer actually types, verbatim. Both spellings are
+  // asserted because the first draft of this row said "โอนหรือเงินสด" and the
+  // query "จ่ายเงินสด" matched nothing at all.
+  const cash = sf.searchFaq("จ่ายเงินสด");
+  const cashLong = sf.searchFaq("จ่ายเงินสดได้ไหม");
+  check("cash question retrieves a fact", cash.length > 0 && cashLong.length > 0);
+  check(
+    "and that fact says no, in words a model cannot soften",
+    cash.some((r) => r.a.includes("ไม่ได้") || r.a.includes("ไม่มีการจ่ายเป็นเงินสด"))
+  );
+
+  // The /search overview reaches the same rows through a fixed seed query —
+  // if this stops returning them, the payment topic goes quiet over there
+  // without anything failing here.
+  check("the overview's payment seed still reaches the corpus", sf.searchFaq("จ่ายเงิน โอนเงิน ได้เงินเร็วแค่ไหน ช่องทางชำระ").length > 0);
+
+  const wise = sf.searchFaq("Wise บัญชีต่างประเทศ");
+  check("a foreign-account question retrieves a fact", wise.length > 0);
+  check(
+    "naming Wise explicitly, because that is what customers type",
+    wise.some((r) => r.a.includes("Wise") && r.a.includes("ธนาคารในประเทศไทยเท่านั้น"))
+  );
+
+  // The chat does not depend on retrieval finding the row: the same rule is in
+  // the always-on block, where it cannot be missed by a search that scored
+  // badly.
+  const always = sf.OFFICIAL_FAQ_LINES.join("\n");
+  check("the always-on block carries the rule too", always.includes("ธนาคารในประเทศไทยเท่านั้น"));
+  check("including the rider, the case most likely to be assumed", always.includes("ไรเดอร์ไม่ได้ถือเงินสดไป"));
+  check("and forbids inventing a way out we do not have", always.includes("ห้ามเสนอทางออกที่ร้านไม่มี"));
+
+  // The line that made "cash" a plausible reading in the first place.
+  const chatSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "chat-ai.js"), "utf-8");
+  check(
+    'the service block no longer says the ambiguous "จ่ายเงินหน้างานทันที"',
+    !chatSrc.includes('แล้ว "จ่ายเงินหน้างานทันที" ตอนรับเครื่อง')
+  );
+  check("it says transfer, out loud", chatSrc.includes('โอนเงินเข้าบัญชีหน้างานทันที'));
+}
+
 const icloud = sf.searchFaq("iCloud");
 check("searchFaq finds a real topic", icloud.length > 0);
 check("searchFaq caps its result set at 6", sf.searchFaq("เครื่อง").length <= 6);
