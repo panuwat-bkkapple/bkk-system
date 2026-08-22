@@ -81,6 +81,31 @@ export default function GlobalSettings() {
   const [isSavingQuote, setIsSavingQuote] = useState(false);
   const [showQuoteSuccess, setShowQuoteSuccess] = useState(false);
 
+  // สวิตช์ซ่อนราคาบนหน้า /sell เว็บลูกค้า ก่อนลูกค้าทำแบบประเมิน — settings/sell/hide_prices_until_quote
+  // เขียนทันทีตอนกดสวิตช์ ไม่ผูกกับปุ่ม "บันทึกการตั้งค่าราคา" (คนละ node กับ settings/quote)
+  const [hidePreQuotePrices, setHidePreQuotePrices] = useState(false);
+  const [savingHidePrices, setSavingHidePrices] = useState(false);
+
+  useEffect(() => {
+    const r = ref(db, 'settings/sell/hide_prices_until_quote');
+    const unsubscribe = onValue(r, (snapshot) => {
+      setHidePreQuotePrices(snapshot.val() === true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleToggleHidePrices = async (next: boolean) => {
+    setSavingHidePrices(true);
+    try {
+      await update(ref(db, 'settings/sell'), { hide_prices_until_quote: next, updated_at: Date.now() });
+      toast.success(next ? 'ซ่อนราคาก่อนประเมินบนหน้า /sell แล้ว' : 'กลับมาแสดงราคาบนหน้า /sell แล้ว');
+    } catch {
+      toast.error('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    } finally {
+      setSavingHidePrices(false);
+    }
+  };
+
   useEffect(() => {
     const quoteRef = ref(db, 'settings/quote');
     const unsubscribe = onValue(quoteRef, (snapshot) => {
@@ -393,6 +418,28 @@ export default function GlobalSettings() {
             <span className="block text-[11px] font-medium text-slate-400 mt-1 leading-relaxed">
               ปิดไว้เป็นค่าเริ่มต้น — แทบไม่มีลูกค้าจำรหัสข้ามอุปกรณ์จริง และช่องกรอกที่เปิดทิ้งไว้
               คือช่องให้เดารหัสของคนอื่น แอดมินเปิดดูรหัสจากตั๋วได้อยู่แล้วโดยไม่ต้องเปิดสวิตช์นี้
+            </span>
+          </span>
+        </label>
+
+        <label className="mt-3 flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hidePreQuotePrices}
+            disabled={savingHidePrices}
+            onChange={(e) => handleToggleHidePrices(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-indigo-600 shrink-0"
+          />
+          <span>
+            <span className="text-xs font-black text-slate-700 flex items-center gap-2">
+              ซ่อนราคาบนหน้าเลือกรุ่น (/sell) จนกว่าลูกค้าจะทำแบบประเมิน
+              {savingHidePrices && <Loader2 size={12} className="animate-spin text-indigo-500" />}
+            </span>
+            <span className="block text-[11px] font-medium text-slate-400 mt-1 leading-relaxed">
+              เปิดแล้วบรรทัด "สูงสุด ฿X" บนการ์ดรุ่น/ตัวเลือกความจุของเว็บลูกค้าจะถูกซ่อน
+              ลูกค้าจะเห็นราคาครั้งแรกหลังตอบคำถามประเมินสภาพเสร็จ —
+              สวิตช์นี้บันทึกทันทีที่กด มีผลกับเว็บทันทีโดยไม่ต้อง deploy
+              (เก็บที่ <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">settings/sell/hide_prices_until_quote</code>)
             </span>
           </span>
         </label>
