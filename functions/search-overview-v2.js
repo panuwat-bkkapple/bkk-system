@@ -665,9 +665,11 @@ function parseOverviewV2(raw, ingredients) {
       return "";
     }
   };
-  // key_points sits FIRST in the demanded field order (decide before writing),
-  // so on a truncated reply it is the field most likely to be complete. Same
-  // strictness as grab: an unparseable array is [], never a guess.
+  // key_points sits LAST in the demanded field order (copy it out of prose
+  // that is already written), so on a truncated reply it is the field most
+  // likely to be MISSING — which is the right thing to lose: an answer
+  // without a highlight still reads, an answer without its detail does not.
+  // Same strictness as grab: an unparseable array is [], never a guess.
   const grabArray = (key) => {
     const m = text.match(new RegExp(`"${key}"\\s*:\\s*(\\[[^\\]]*\\])`));
     if (!m) return [];
@@ -907,12 +909,26 @@ function buildV2SystemPrompt(assistantName, lang = "th") {
     `16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ${en ? "ภาษาอังกฤษธรรมชาติ" : "ภาษาไทยธรรมชาติ"} มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ`,
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
-    '{"key_points": ["..."], "primary_model_id": "...", "summary": "...", "detail": "..."}',
-    "- เรียง field ตามลำดับนี้เสมอ: ตัดสินก่อนว่าใจความสำคัญของคำตอบคืออะไร (key_points) และคำตอบชูรุ่นไหน (primary_model_id) แล้วจึงเรียบเรียง summary/detail จากการตัดสินนั้น",
+    '{"summary": "...", "detail": "...", "primary_model_id": "...", "key_points": ["..."]}',
+    // ORDER REVERSED, AND THE DATA IS THE REASON. The first version demanded
+    // key_points FIRST — decide the point, then write the prose from it. The
+    // theory was sound and production disagreed: of 77 answers, 5 carried a
+    // highlight. 69 proposed phrases were rejected because the writer, having
+    // named a phrase from intention, then wrote the prose fresh and worded it
+    // differently; ~60% of answers skipped the field altogether.
+    //
+    // Copying a phrase out of text that is already written is a far easier
+    // task than reproducing one from memory, so the prose comes first now and
+    // key_points is a SELECTION from it. Truncation also costs the right
+    // field: last position means a cut reply loses a highlight, not the body.
+    "- เขียน summary กับ detail ให้เสร็จก่อน แล้วจึงเลือก key_points โดย **คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน** ห้ามพิมพ์ขึ้นใหม่จากความจำ วลีที่สะกดต่างจากในเนื้อหาแม้แต่ตัวอักษรเดียวจะถูกระบบทิ้ง",
     "- key_points = วลีใจความสำคัญของทั้งคำตอบ สูงสุด 3 วลี — น้อยแต่คมดีกว่าครบแต่ลาย แต่ละวลีต้องยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่เลขลอยๆ",
     "- ลำดับความสำคัญของ key_points: คำตอบตรงคำถามของคำค้นนี้ มาก่อน ข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ) — นอกเหนือจากนั้นไม่ต้องใส่",
-    "- ทุกวลีใน key_points ต้องปรากฏใน summary หรือ detail แบบคำต่อคำทุกตัวอักษร (เขียนวลีเดียวกันซ้ำตอนเรียบเรียง) — วลีที่ไม่ตรงตัวจะถูกระบบทิ้ง",
-    "- คำตอบสั้นหรือเป็นการชี้ทางที่ไม่มีใจความต้องเน้น: ใส่ key_points เป็น [] ได้",
+    "- วิธีเลือกที่ทำให้ไม่พลาด: อ่าน summary ที่เพิ่งเขียนอีกครั้ง หาช่วงข้อความที่เป็นคำตอบของคำถามนี้ที่สุด แล้ว copy ช่วงนั้นมาทั้งช่วง ตั้งแต่ตัวอักษรแรกถึงตัวอักษรสุดท้าย",
+    // The escape hatch was too wide: "a short answer may use []" reads as
+    // permission to skip, and most answers took it. The floor is now tied to
+    // what the answer CONTAINS, not to how long it is.
+    "- คำตอบที่มีตัวเลขราคา หรือมีคำฟันธง ต้องมี key_points อย่างน้อย 1 วลีเสมอ — ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ ไม่มีทั้งตัวเลขและคำฟันธง",
     "- primary_model_id = รหัสจากรายการ 'รหัสรุ่นสำหรับ field primary_model_id' ท้ายข้อมูล ของรุ่นที่คำตอบชูเป็นหลัก — คำตอบไม่ได้ชูรุ่นใดรุ่นหนึ่ง หรือไม่มีรายการรหัส: ใส่ null",
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง และคำฟันธงถ้าข้อมูลชี้ชัด",
     "- detail = ส่วนขยาย (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) — กระชับ: ไม่เกินราว 6 ประโยค เลือกเฉพาะที่ช่วยตัดสินใจจริง ห้ามทวนซ้ำสิ่งที่อยู่ใน summary แล้ว ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",

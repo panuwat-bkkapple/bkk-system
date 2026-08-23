@@ -232,7 +232,7 @@ const ex = (over = {}) => ({
   const fenced = parseOverviewV2('```json\n{"summary": "ราคา 30,000 บาทครับ", "detail": "ขยาย"}\n```');
   check("ACC8: markdown fence stripped, clean parse", !!fenced && fenced.summary === "ราคา 30,000 บาทครับ" && fenced.salvaged === false);
 
-  const truncated = parseOverviewV2('{"summary": "iPhone 16 Pro Max รับซื้อ 30,000 - 32,000 บาทครับ", "detail": "แนวโน้มหลัง iPhone 18 เปิดตัวราคาอาจปรับลง 5-12% ซึ่ง');
+  const truncated = v2.parseOverviewV2('{"summary": "iPhone 16 Pro Max รับซื้อ 30,000 - 32,000 บาทครับ", "detail": "แนวโน้มหลัง iPhone 18 เปิดตัวราคาอาจปรับลง 5-12% ซึ่ง');
   check("ACC8: truncated detail — the complete summary is salvaged whole", !!truncated && truncated.summary.includes("30,000 - 32,000") && truncated.salvaged === true);
   check("ACC8: the cut-off detail never ships half a sentence", truncated.detail === "");
 
@@ -376,12 +376,18 @@ const ex = (over = {}) => ({
   check("ACC12: no chosen model = no legend", primaryModelLegend(ING, ex()) === "");
 
   const P = v2.buildV2SystemPrompt("มาติน");
+  // This assertion used to pin the OPPOSITE order — key_points first, "decide
+  // the point, then write the prose from it". It is changed here rather than
+  // relaxed, because production measured the design and the design lost: 5 of
+  // 77 answers carried a highlight, 69 phrases were rejected for not matching
+  // the prose word for word. Deciding first is a good theory about writing
+  // and a bad instruction for a model that must then reproduce its own phrase
+  // exactly. The new contract is asserted in full at the end of this file.
   check(
-    "ACC12: prompt demands the decide-first field order and verbatim phrases",
+    "ACC12: prompt demands the answer first, then a phrase copied out of it",
     P.includes('"key_points"') &&
-      P.includes("แล้วจึงเรียบเรียง summary/detail") &&
-      P.includes("แบบคำต่อคำทุกตัวอักษร") &&
-      P.includes("ใส่ key_points เป็น [] ได้")
+      P.includes("เขียน summary กับ detail ให้เสร็จก่อน") &&
+      P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน")
   );
 }
 
@@ -486,6 +492,59 @@ const ex = (over = {}) => ({
   );
   const ambiguous = resolveConditionForSet("setA:0:1", renamedIng, renamedIng.conditionSets.setC);
   check("ACC14: two same-label homes in one set — refuse rather than guess", ambiguous === null);
+}
+
+// ── the highlight the writer could not hit ─────────────────────────────────
+//
+// Production, 23 ส.ค. 2569, 77 v2 answers: FIVE carried a highlight. 69
+// proposed phrases were rejected, and roughly 60% of answers never proposed
+// one at all. The feature worked 6.5% of the time and failed silently, since
+// an answer without a highlight still reads perfectly.
+//
+// Both halves trace to the same instruction. key_points was demanded FIRST —
+// name the point, then write the prose from it — so the writer produced the
+// phrase from intention and then worded the prose differently, and the
+// verbatim rule (which markKeyPoints needs: it does a literal startsWith on
+// the served text) threw the phrase away. The escape hatch, "a short answer
+// may use []", was wide enough that most answers took it.
+//
+// The fix is order, not tolerance: prose first, then COPY a span out of it.
+{
+  const P = v2.buildV2SystemPrompt("มาติน");
+
+  check(
+    "keypoints: the answer body is demanded before the highlight",
+    P.indexOf('{"summary"') !== -1 &&
+      P.indexOf('"key_points": ["..."]}') > P.indexOf('{"summary"')
+  );
+  check(
+    "keypoints: the writer is told to copy, not to recall",
+    P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน") && P.includes("ห้ามพิมพ์ขึ้นใหม่จากความจำ")
+  );
+  check(
+    "keypoints: and told what a mismatch costs",
+    P.includes("แม้แต่ตัวอักษรเดียวจะถูกระบบทิ้ง")
+  );
+  // The old permission ("a SHORT answer may use []") let length excuse the
+  // field. The floor is now what the answer CONTAINS.
+  check(
+    "keypoints: an answer carrying a figure or a verdict must mark something",
+    P.includes("ต้องมี key_points อย่างน้อย 1 วลีเสมอ")
+  );
+  check(
+    "keypoints: [] survives only for a pure signpost",
+    P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ") && !P.includes("คำตอบสั้นหรือเป็นการชี้ทางที่ไม่มีใจความต้องเน้น")
+  );
+
+  // Order is a live property of the parser too: a reply cut short must lose
+  // the highlight, never the answer.
+  const truncated = v2.parseOverviewV2(
+    '{"summary": "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ", "detail": "ราคานี้คิดจากสภาพปกติ", "primary_model_id": "ip16pm", "key_p',
+    { models: [{ id: "ip16pm" }] }
+  );
+  check("keypoints: a truncated reply keeps its summary", truncated && truncated.summary.includes("30,000"));
+  check("keypoints: and its detail", truncated && truncated.detail.includes("ราคานี้คิดจากสภาพ"));
+  check("keypoints: losing only the highlight", truncated && truncated.keyPoints.length === 0);
 }
 
 // ── done ───────────────────────────────────────────────────────────────────

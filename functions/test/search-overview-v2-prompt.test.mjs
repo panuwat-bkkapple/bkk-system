@@ -84,13 +84,28 @@ check("layer3: tone — no urgency, no selling", P.includes("ไม่เร่�
 // The closing bans, kept verbatim in spirit from v1 — these are the lines the
 // positive layers must never override, and the original reason the whole
 // rulebook is negative.
+// The order flipped, and production is why: with key_points demanded FIRST,
+// 5 of 77 answers came back carrying a highlight and 69 phrases were thrown
+// away for not matching the prose character for character. Naming the point
+// before writing is a good habit for a person and a bad instruction for a
+// model that must then reproduce its own wording exactly. Prose first, then
+// copy a span out of it — and last position means a truncated reply loses the
+// highlight rather than the answer.
 check(
-  "format: JSON only, key_points first — the field order IS the think-first mechanism",
-  P.includes('{"key_points": ["..."], "primary_model_id": "...", "summary": "...", "detail": "..."}')
+  "format: JSON only, key_points LAST — it is copied out of the prose, not recalled",
+  P.includes('{"summary": "...", "detail": "...", "primary_model_id": "...", "key_points": ["..."]}')
 );
-check("format: key phrases demanded verbatim in summary/detail", P.includes("แบบคำต่อคำทุกตัวอักษร"));
+check(
+  "format: the writer copies the phrase out of what it just wrote",
+  P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน") && P.includes("ห้ามพิมพ์ขึ้นใหม่จากความจำ")
+);
 check("format: at most three, standalone, priority-ordered", P.includes("สูงสุด 3 วลี") && P.includes("ยืนเองได้"));
-check("format: empty key_points allowed for short/guidance answers", P.includes("ใส่ key_points เป็น [] ได้"));
+// The old escape hatch keyed on LENGTH ("a short answer may use []") and most
+// answers took it. The floor is now what the answer contains.
+check(
+  "format: a figure or a verdict obliges a highlight",
+  P.includes("ต้องมี key_points อย่างน้อย 1 วลีเสมอ") && P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ")
+);
 check(
   "format: primary_model_id comes from the legend or is null",
   P.includes("รหัสรุ่นสำหรับ field primary_model_id") && P.includes("ใส่ null")
