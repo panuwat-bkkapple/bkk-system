@@ -1494,9 +1494,20 @@ function deductionSection(chosen, ingredients, extraction) {
       )}`
     );
     if (assumedLabels.length) {
+      // The WORD matters, not just the fact. This line is where the writer
+      // gets its vocabulary, and the first version handed it "สมมติ" — which
+      // it dutifully echoed to customers as "โดยสมมติว่าจอและตัวเครื่อง
+      // สมบูรณ์". In spoken Thai that word carries "we made this up", which
+      // is the one thing the estimate is not: every unanswered group is
+      // filled with the best-case option of a real condition set, and the
+      // figure is computed from it. Naming the condition the price was
+      // computed FROM says the same true thing without inviting the customer
+      // to discount the number as guesswork.
       lines.push(
         `  ส่วนที่ลูกค้ายังไม่ได้บอก ระบบประเมินตามสภาพปกติไว้แล้ว: ${assumedLabels.join(", ")} ` +
-          `— ต้องบอกลูกค้าตรงๆ ว่าสมมติแบบนี้ไว้ ถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง`
+          `— ต้องบอกลูกค้าตรงๆ ด้วยรูปประโยค "ราคานี้คิดจากสภาพ: ..." ` +
+          `ห้ามใช้คำว่า "สมมติ" ` +
+          `ถ้าสภาพจริงต่างจากนี้ราคาปรับตามการตรวจจริง`
       );
     }
   }
