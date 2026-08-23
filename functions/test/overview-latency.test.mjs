@@ -119,6 +119,41 @@ const ctxRows = [
 const c = summarize(ctxRows);
 check("summarize: reports the context size it reads", c.inputChars.p50 === 5000 && c.inputChars.max === 6000);
 
+// ── emitted vs displayed ──────────────────────────────────────────────────
+//
+// v2 writes its key_points AND repeats every one verbatim in the prose, so
+// the characters it types exceed the characters the customer reads. Comparing
+// pipelines on the displayed figure produced an impossible fit (a negative
+// fixed cost); this is the field that fixes it.
+
+const kp = readRow({
+  v2: true, latencyMs: 1000, extractMs: 0,
+  summary: "a".repeat(300), detail: "b".repeat(200),
+  key_points: ["c".repeat(40), "d".repeat(60)],
+});
+check("readRow: counts key_points as characters the model typed", kp.keyPointChars === 100);
+check("readRow: emitted = displayed + key_points", kp.outputChars === 600 && kp.answerChars === 500);
+
+// v1 rows have no key_points at all — emitted and displayed are the same, and
+// that must not read as missing data.
+const noKp = readRow({ latencyMs: 500, summary: "x".repeat(50), detail: "" });
+check("readRow: a row with no key_points emits exactly what it displays", noKp.outputChars === 50 && noKp.keyPointChars === 0);
+// A field written by an older deploy, or a malformed one, must not throw.
+check("readRow: survives a non-array key_points", readRow({ latencyMs: 1, summary: "s", key_points: "oops" }).keyPointChars === 0);
+
+// The row MUST carry key_points, or displayed and emitted are equal and the
+// assertion cannot tell which one the rate was computed from — the first
+// version of this check used an empty key_points array and passed happily
+// with the rate wired to the wrong column.
+const rate = summarize([
+  readRow({
+    v2: true, latencyMs: 1000, extractMs: 0,
+    summary: "a".repeat(100), detail: "", key_points: ["b".repeat(100)],
+  }),
+]);
+check("summarize: ms per emitted char, not per displayed char", rate.msPerOutputChar === 5);
+check("summarize: no divide-by-zero on an empty answer", summarize([readRow({ latencyMs: 5, summary: "", detail: "" })]).msPerOutputChar === 0);
+
 // ── the dependency the script cannot resolve by name ──────────────────────
 //
 // firebase-admin is installed ONLY in functions/node_modules. A bare

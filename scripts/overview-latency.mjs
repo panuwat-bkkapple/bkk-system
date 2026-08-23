@@ -93,6 +93,18 @@ export function readRow(row) {
   if (!row || typeof row !== "object") return null;
   if (typeof row.latencyMs !== "number") return null;
   const answerChars = String(row.summary || "").length + String(row.detail || "").length;
+  // What the model actually TYPED, which is not what the customer reads.
+  //
+  // v2 answers in JSON — key_points, primary_model_id, then the prose — and
+  // every key_points phrase is required to appear verbatim in the prose too,
+  // so the model writes those characters twice. An LLM's wall-clock scales
+  // with characters emitted, not characters displayed, so comparing v1 and v2
+  // on `answerChars` compares two different things and the arithmetic comes
+  // out impossible (a negative fixed cost, which is what it did).
+  const keyPointChars = Array.isArray(row.key_points)
+    ? row.key_points.reduce((n, k) => n + String(k || "").length, 0)
+    : 0;
+  const outputChars = answerChars + keyPointChars;
   const extractMs = typeof row.extractMs === "number" ? row.extractMs : 0;
   return {
     v2: row.v2 === true,
@@ -101,6 +113,8 @@ export function readRow(row) {
     total: extractMs + row.latencyMs,
     inputChars: typeof row.inputChars === "number" ? row.inputChars : 0,
     answerChars,
+    keyPointChars,
+    outputChars,
     model: String(row.model || ""),
     excised: typeof row.excised === "number" ? row.excised : 0,
   };
@@ -142,6 +156,17 @@ export function summarize(rows) {
     // which left the one question the correlation raises — "is 0.57 pointing
     // at a prompt that is big, or at one that merely varies?" — unanswerable
     // from the report that raised it.
+    outputChars: { p50: percentile(col("outputChars"), 50), p90: percentile(col("outputChars"), 90) },
+    keyPointChars: { p50: percentile(col("keyPointChars"), 50) },
+    // THE NUMBER THAT SEPARATES THE TWO EXPLANATIONS. If v1 and v2 land on
+    // the same ms-per-emitted-character, the wait is bought by output volume
+    // and nothing else needs explaining. If v2's is markedly higher, the
+    // extra time is being spent before the first character — on the prompt it
+    // has to read, which is twice v1's — and the lever is the prompt, not the
+    // answer.
+    msPerOutputChar: percentile(col("outputChars"), 50)
+      ? percentile(col("latencyMs"), 50) / percentile(col("outputChars"), 50)
+      : 0,
     inputChars: {
       p50: percentile(col("inputChars"), 50),
       p90: percentile(col("inputChars"), 90),
@@ -168,7 +193,9 @@ function report(label, s) {
   console.log(`  stage 3 write     p50 ${ms(s.write.p50)}   p90 ${ms(s.write.p90)}`);
   console.log(`  TOTAL             p50 ${ms(s.total.p50)}   p90 ${ms(s.total.p90)}   p95 ${ms(s.total.p95)}`);
   console.log(`  answer size       p50 ${s.answerChars.p50} chars   p90 ${s.answerChars.p90} chars`);
+  console.log(`  chars EMITTED     p50 ${s.outputChars.p50}   p90 ${s.outputChars.p90}   (of which key_points ${s.keyPointChars.p50})`);
   console.log(`  prompt context    p50 ${s.inputChars.p50} chars   p90 ${s.inputChars.p90}   max ${s.inputChars.max}`);
+  console.log(`  ms per emitted char = ${s.msPerOutputChar.toFixed(2)}`);
   console.log(`  corr(answer length, write time) = ${pct(s.lengthVsTime)}`);
   console.log(`  corr(prompt size,   write time) = ${pct(s.inputVsTime)}`);
   const share = s.total.p50 ? Math.round((s.write.p50 / s.total.p50) * 100) : 0;
