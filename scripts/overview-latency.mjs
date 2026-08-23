@@ -51,6 +51,10 @@ import { dirname, join, isAbsolute, resolve } from "path";
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// The same module the archive writer uses to name its day buckets. Reached by
+// explicit path for the reason spelled out at the firebase-admin require
+// below: nothing under functions/ resolves by bare name from scripts/.
+const { opsBangkokYmd } = require(join(root, "functions", "ops-dashboard.js"));
 
 // ── pure helpers, unit-tested in functions/test/overview-latency.test.mjs ──
 
@@ -102,14 +106,26 @@ export function readRow(row) {
   };
 }
 
-/** The Bangkok day keys the archive is bucketed by, newest first. Passed a
- *  clock rather than reading one, so the report is reproducible. */
+/**
+ * The Bangkok day keys the archive is bucketed by, newest first.
+ *
+ * THE FORMATTER IS IMPORTED, NOT REWRITTEN. The first version of this file
+ * built the key itself and produced "2026-08-23"; the writer produces
+ * "20260823" (opsBangkokYmd ends in .replace(/-/g, "")). Every read hit a
+ * path that does not exist, and the report said "0 answer rows" — which
+ * reads exactly like a quiet week. Two dozen rows were sitting one string
+ * format away.
+ *
+ * The test written for that first version asserted the dashed form, because
+ * it was written from what the key ought to look like instead of from the
+ * function that writes it. It passed, and proved nothing. Importing the
+ * writer's own formatter is what makes the two impossible to disagree.
+ *
+ * Passed a clock rather than reading one, so the report is reproducible.
+ */
 export function bangkokDays(nowMs, count) {
   const out = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date(nowMs - i * 86400000 + 7 * 3600000);
-    out.push(d.toISOString().slice(0, 10));
-  }
+  for (let i = 0; i < count; i++) out.push(opsBangkokYmd(nowMs - i * 86400000));
   return out;
 }
 

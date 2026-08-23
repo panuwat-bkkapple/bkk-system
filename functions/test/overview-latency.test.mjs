@@ -14,7 +14,10 @@
 // this file importing it IS that test.
 // ---------------------------------------------------------------------------
 
+import { createRequire } from "module";
 import { percentile, correlation, readRow, bangkokDays, summarize } from "../../scripts/overview-latency.mjs";
+
+const require = createRequire(import.meta.url);
 
 let failures = 0;
 const check = (label, cond) => {
@@ -61,12 +64,33 @@ check("readRow: a skip row (no latency) is dropped", readRow({ skipped: "cap_rea
 check("readRow: garbage is dropped", readRow(null) === null && readRow("x") === null);
 
 // ── the day keys the archive is bucketed by ────────────────────────────────
+//
+// THIS BLOCK IS WHY THE FIRST REPORT SAID "0 answer rows" ON A DATABASE WITH
+// TWO DOZEN OF THEM. The old assertion read `days[0] === "2026-08-24"` —
+// written from what a date key ought to look like, not from the function that
+// writes one. The writer's opsBangkokYmd ends in .replace(/-/g, ""), so every
+// real bucket is "20260824". The test passed, the reader read paths that do
+// not exist, and an empty result is indistinguishable from a quiet week.
+//
+// So the expectation now comes from the WRITER, not from this file's opinion.
+// If the archive ever changes how it names a day, this goes red instead of
+// the report going quietly empty.
 
-// 2026-08-23T18:00Z is already the 24th in Bangkok (UTC+7) — the off-by-one
-// that would make the report silently skip today's rows.
-const days = bangkokDays(Date.parse("2026-08-23T18:00:00Z"), 3);
-check("bangkokDays: uses Bangkok's day, not UTC's", days[0] === "2026-08-24");
-check("bangkokDays: walks backwards, newest first", days.join(",") === "2026-08-24,2026-08-23,2026-08-22");
+const { opsBangkokYmd } = require("../ops-dashboard.js");
+
+const AFTERNOON_UTC = Date.parse("2026-08-23T18:00:00Z"); // already the 24th in Bangkok
+const days = bangkokDays(AFTERNOON_UTC, 3);
+check(
+  "bangkokDays: matches the key the archive writer actually uses",
+  days[0] === opsBangkokYmd(AFTERNOON_UTC)
+);
+check(
+  "bangkokDays: every key matches the writer's, not just the first",
+  days.every((d, i) => d === opsBangkokYmd(AFTERNOON_UTC - i * 86400000))
+);
+// The two properties the format check cannot see on its own.
+check("bangkokDays: uses Bangkok's day, not UTC's", days[0] === "20260824");
+check("bangkokDays: walks backwards, newest first", days.join(",") === "20260824,20260823,20260822");
 
 // ── summarize: the shape the report prints ─────────────────────────────────
 
