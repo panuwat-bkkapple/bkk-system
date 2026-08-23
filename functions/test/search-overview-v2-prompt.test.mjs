@@ -120,6 +120,26 @@ check(
 // the answer's own length (MARK_MAX_SHARE) because production marked a whole
 // two-sentence summary under mechanism 3 and a prompt asking for restraint had
 // already failed to prevent it once.
+// THE SPAN NAMES THE DEVICE. Production, 23 ส.ค. 2569, "iPhone 11 128GB แบต
+// 78% ขายได้ไหม": the answer read "ขายได้ครับ iPhone 11 128GB แบตเตอรี่ 78%
+// ประเมินราคาที่ 2,000 บาท ..." and the marked span was "ประเมินราคาที่ 2,000
+// บาท" alone. True, and the wrong shape — the highlight is what gets read
+// first, and a figure with no device attached does not say whose 2,000 baht it
+// is. The results list under it had iPhone 11 at 2,500.
+//
+// "must stand on its own, subject and substance" was already in the prompt and
+// did not produce it, so the replacement has two endpoints instead of a
+// standard: start at the model name, end at the figure. These pin BOTH halves
+// — the rule and the counter-example — because the rule alone is what already
+// failed once.
+check(
+  "format: a priced answer must mark from the model name through to the figure",
+  P.includes("เริ่มที่ชื่อรุ่น") && P.includes("จบที่ตัวเลขราคา")
+);
+check(
+  "format: and the price-clause-only span is named as wrong, not merely discouraged",
+  P.includes("ห้ามครอบเฉพาะท่อนราคาโดยไม่มีชื่อรุ่นอยู่ในช่วง")
+);
 check(
   "format: asks for one short span and says why a long one is worthless",
   P.includes("ครอบ 1 ช่วงต่อคำตอบ") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")

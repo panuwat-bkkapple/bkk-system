@@ -1005,7 +1005,22 @@ function buildV2SystemPrompt(assistantName, lang = "th") {
     "- ใจความสำคัญ: ครอบข้อความช่วงที่สำคัญที่สุด **ในเนื้อความเลย** ด้วยเครื่องหมาย \u00ab \u00bb เช่น \u00abiPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท\u00bb — ไม่ต้องพิมพ์ซ้ำที่ไหน ไม่ต้องนับประโยค ระบบจะดึงช่วงนั้นออกมาเองแล้วลบเครื่องหมายทิ้งก่อนแสดงผล",
     "- ครอบ 1 ช่วงต่อคำตอบ (สองช่วงเฉพาะคำตอบที่ยาวจริงๆ) และต้องเป็นช่วงสั้นๆ ไม่ใช่ทั้งย่อหน้า — ย่อหน้าที่ถูกเน้นเกือบทั้งย่อหน้า เท่ากับไม่ได้เน้นอะไรเลย",
     "- ห้ามใช้เครื่องหมาย \u00ab \u00bb เพื่อจุดประสงค์อื่นเด็ดขาด ห้ามใช้เป็นอัญประกาศ",
-    "- ช่วงที่ครอบต้องยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่ตัวเลขลอยๆ — น้อยแต่คมดีกว่าครบแต่ลาย",
+    // THE SPAN MUST NAME THE DEVICE. Reported 23 ส.ค. 2569: on "iPhone 11
+    // 128GB แบต 78% ขายได้ไหม" the sentence read "ขายได้ครับ iPhone 11 128GB
+    // แบตเตอรี่ 78% ประเมินราคาที่ 2,000 บาท" and only "ประเมินราคาที่ 2,000
+    // บาท" came out marked. Every word of that is true and the highlight is
+    // still the wrong shape: the customer reads the marked span first and it
+    // does not say WHOSE 2,000 baht it is — on a page listing several nearby
+    // models (iPhone 11 at 2,500 sat directly beneath it), a figure with no
+    // device attached is the M1-range failure in miniature.
+    //
+    // "must stand on its own, subject and substance" was already here and did
+    // not produce it, so the rule stops being a standard to judge against and
+    // becomes a mechanical one: start at the model name, end at the figure.
+    // A rule with two endpoints can be followed without taste.
+    "- ถ้าคำตอบมีตัวเลขราคา: ช่วงที่ครอบต้อง**เริ่มที่ชื่อรุ่น** (พร้อมความจุถ้าคำตอบระบุไว้) และ**จบที่ตัวเลขราคา** เช่น \u00abiPhone 11 128GB ประเมินราคาที่ 2,000 บาท\u00bb",
+    "- ห้ามครอบเฉพาะท่อนราคาโดยไม่มีชื่อรุ่นอยู่ในช่วง (เช่น \u00abประเมินราคาที่ 2,000 บาท\u00bb ผิด) — คนอ่านช่วงที่ถูกเน้นก่อนอย่างอื่น ถ้าไม่มีชื่อรุ่นอยู่ในนั้น เขาจะไม่รู้ว่าเป็นราคาของเครื่องไหน",
+    "- ช่วงที่ครอบต้องยืนเองได้ มีประธานและสาระครบ ไม่ใช่ตัวเลขลอยๆ — น้อยแต่คมดีกว่าครบแต่ลาย",
     "- ลำดับความสำคัญ: ช่วงที่ตอบคำถามของคำค้นนี้ มาก่อนช่วงที่บอกข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ)",
     "- วิธีเลือก: อ่านสิ่งที่เพิ่งเขียนอีกครั้ง ช่วงไหนคือคำตอบของคำถามนี้ที่สุด ครอบช่วงนั้น",
     // The escape hatch was too wide: "a short answer may use []" reads as
