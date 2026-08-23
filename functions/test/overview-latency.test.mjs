@@ -83,5 +83,35 @@ check("summarize: median total", s.total.p50 === 2400);
 check("summarize: reports length as the driver when it is", near(s.lengthVsTime, 1));
 check("summarize: an empty set summarizes to zeros, not NaN", summarize([]).n === 0 && summarize([]).total.p50 === 0);
 
+// ── the dependency the script cannot resolve by name ──────────────────────
+//
+// firebase-admin is installed ONLY in functions/node_modules. A bare
+// require("firebase-admin") from scripts/ walks scripts/ -> repo root -> /
+// and throws MODULE_NOT_FOUND — which the first version of this script did,
+// and which no test caught because the failure lives past the argument check,
+// on a line that only runs with a real service account in hand. Every other
+// RTDB script here points at the path explicitly; this pins that.
+
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const src = readFileSync(join(here, "..", "..", "scripts", "overview-latency.mjs"), "utf8");
+check(
+  "script: does not require firebase-admin by bare name",
+  !/require\(\s*["']firebase-admin["']\s*\)/.test(src)
+);
+check(
+  "script: resolves it out of functions/node_modules like its neighbours",
+  src.includes('join(root, "functions", "node_modules", "firebase-admin")')
+);
+// A --key given relative to the shell's cwd must not be resolved relative to
+// the module — require() treats a bare relative string as a module specifier.
+check(
+  "script: resolves a relative --key against the shell's cwd",
+  src.includes("isAbsolute(keyPath) ? keyPath : resolve(process.cwd(), keyPath)")
+);
+
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

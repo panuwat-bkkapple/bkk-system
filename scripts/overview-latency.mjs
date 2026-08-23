@@ -47,8 +47,10 @@
 import { createRequire } from "module";
 import { existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { dirname, join, isAbsolute, resolve } from "path";
 
 const require = createRequire(import.meta.url);
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // ── pure helpers, unit-tested in functions/test/overview-latency.test.mjs ──
 
@@ -159,8 +161,13 @@ async function main() {
     process.exit(2);
   }
 
-  const admin = require("firebase-admin");
-  const cred = require(keyPath);
+  // firebase-admin lives ONLY in functions/node_modules — nothing installs it
+  // at the repo root. Requiring it by bare module name from scripts/ walks
+  // scripts/ -> repo root -> / and finds nothing (MODULE_NOT_FOUND), so every
+  // script here that touches RTDB points at that path explicitly:
+  // audit-payouts.cjs, strip-ledger-emails.cjs, backfill-image-cache-control.cjs.
+  const admin = require(join(root, "functions", "node_modules", "firebase-admin"));
+  const cred = require(isAbsolute(keyPath) ? keyPath : resolve(process.cwd(), keyPath));
   admin.initializeApp({
     credential: admin.credential.cert(cred),
     databaseURL: process.env.FIREBASE_DATABASE_URL || "https://bkk-apple-tradein-default-rtdb.asia-southeast1.firebasedatabase.app",
