@@ -107,6 +107,18 @@ check("summarize: median total", s.total.p50 === 2400);
 check("summarize: reports length as the driver when it is", near(s.lengthVsTime, 1));
 check("summarize: an empty set summarizes to zeros, not NaN", summarize([]).n === 0 && summarize([]).total.p50 === 0);
 
+// The context size is REPORTED, not merely correlated. Without the printed
+// number, corr(prompt size, write time) = 0.57 cannot be acted on: a strong
+// correlation over a prompt that is already small means something different
+// from the same correlation over one pinned at its 6,000-char ceiling.
+const ctxRows = [
+  readRow({ v2: true, latencyMs: 1, extractMs: 1, summary: "", detail: "", inputChars: 1000 }),
+  readRow({ v2: true, latencyMs: 1, extractMs: 1, summary: "", detail: "", inputChars: 5000 }),
+  readRow({ v2: true, latencyMs: 1, extractMs: 1, summary: "", detail: "", inputChars: 6000 }),
+];
+const c = summarize(ctxRows);
+check("summarize: reports the context size it reads", c.inputChars.p50 === 5000 && c.inputChars.max === 6000);
+
 // ── the dependency the script cannot resolve by name ──────────────────────
 //
 // firebase-admin is installed ONLY in functions/node_modules. A bare
