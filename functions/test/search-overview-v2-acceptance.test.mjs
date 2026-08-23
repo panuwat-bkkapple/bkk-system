@@ -17,6 +17,9 @@
 // ---------------------------------------------------------------------------
 
 import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 const require = createRequire(import.meta.url);
 const v2 = require("../search-overview-v2.js");
 const {
@@ -376,18 +379,18 @@ const ex = (over = {}) => ({
   check("ACC12: no chosen model = no legend", primaryModelLegend(ING, ex()) === "");
 
   const P = v2.buildV2SystemPrompt("มาติน");
-  // This assertion used to pin the OPPOSITE order — key_points first, "decide
-  // the point, then write the prose from it". It is changed here rather than
-  // relaxed, because production measured the design and the design lost: 5 of
-  // 77 answers carried a highlight, 69 phrases were rejected for not matching
-  // the prose word for word. Deciding first is a good theory about writing
-  // and a bad instruction for a model that must then reproduce its own phrase
-  // exactly. The new contract is asserted in full at the end of this file.
+  // Twice rewritten, and the history is the argument. It first pinned
+  // key_points FIRST ("decide the point, then write the prose from it") —
+  // 5 of 77 production answers carried a highlight, 69 phrases rejected for
+  // not matching the prose word for word. Then prose-first-then-copy — 0 of
+  // the 4 answers measured after. Reproducing your own phrase exactly is not
+  // something to instruct harder; it is something to stop asking for. The
+  // writer now sends a sentence NUMBER. Full contract at the end of this file.
   check(
-    "ACC12: prompt demands the answer first, then a phrase copied out of it",
-    P.includes('"key_points"') &&
+    "ACC12: prompt demands the answer first, then the NUMBER of a sentence in it",
+    P.includes('"key_point_sentences"') &&
       P.includes("เขียน summary กับ detail ให้เสร็จก่อน") &&
-      P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน")
+      P.includes("หมายเลขประโยค")
   );
 }
 
@@ -515,21 +518,29 @@ const ex = (over = {}) => ({
   check(
     "keypoints: the answer body is demanded before the highlight",
     P.indexOf('{"summary"') !== -1 &&
-      P.indexOf('"key_points": ["..."]}') > P.indexOf('{"summary"')
+      P.indexOf('"key_point_sentences": [0]}') > P.indexOf('{"summary"')
+  );
+  // Round two of this fix, and the last one that touches the writer's job at
+  // all: asking it to reproduce a phrase failed twice (5 highlights in 77
+  // answers, then 0 in the 4 measured after the reorder). It now sends a
+  // NUMBER, and a number cannot be misspelled.
+  check(
+    "keypoints: the writer sends a sentence number, never the sentence",
+    P.includes("หมายเลขประโยค") && P.includes("ห้ามพิมพ์ข้อความของประโยคซ้ำ")
   );
   check(
-    "keypoints: the writer is told to copy, not to recall",
-    P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน") && P.includes("ห้ามพิมพ์ขึ้นใหม่จากความจำ")
+    "keypoints: and is told exactly how the sentences are counted",
+    P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0")
   );
   check(
-    "keypoints: and told what a mismatch costs",
-    P.includes("แม้แต่ตัวอักษรเดียวจะถูกระบบทิ้ง")
+    "keypoints: nothing in the prompt asks for the phrase text any more",
+    !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร")
   );
   // The old permission ("a SHORT answer may use []") let length excuse the
   // field. The floor is now what the answer CONTAINS.
   check(
     "keypoints: an answer carrying a figure or a verdict must mark something",
-    P.includes("ต้องมี key_points อย่างน้อย 1 วลีเสมอ")
+    P.includes("ต้องมี key_point_sentences อย่างน้อย 1 หมายเลขเสมอ")
   );
   check(
     "keypoints: [] survives only for a pure signpost",
@@ -544,7 +555,81 @@ const ex = (over = {}) => ({
   );
   check("keypoints: a truncated reply keeps its summary", truncated && truncated.summary.includes("30,000"));
   check("keypoints: and its detail", truncated && truncated.detail.includes("ราคานี้คิดจากสภาพ"));
-  check("keypoints: losing only the highlight", truncated && truncated.keyPoints.length === 0);
+  check("keypoints: losing only the highlight", truncated && truncated.keyPointSentences.length === 0);
+}
+
+// ── resolving a highlight from a number ───────────────────────────────────
+//
+// The mechanism that replaces verbatim matching. Every case here is one the
+// phrase version could get wrong and this one cannot.
+{
+  const written = {
+    summary: "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ ตอนนี้เป็นจังหวะขายที่ดีครับ",
+    detail: "ราคานี้คิดจากสภาพปกติครับ",
+  };
+  const servedAll = { summary: written.summary, detail: written.detail };
+
+  const first = v2.keyPointsFromSentences([0], written, servedAll);
+  check("index 0 is the first sentence of the summary", first[0] === "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ");
+  const second = v2.keyPointsFromSentences([1], written, servedAll);
+  check("index 1 is the second", second[0] === "ตอนนี้เป็นจังหวะขายที่ดีครับ");
+  // The count runs on into detail, exactly as the prompt says it does.
+  const intoDetail = v2.keyPointsFromSentences([2], written, servedAll);
+  check("the count continues into detail", intoDetail[0] === "ราคานี้คิดจากสภาพปกติครับ");
+
+  // Whatever comes back IS a substring of the served text — which is the only
+  // property markKeyPoints needs, and the one the phrase version kept missing.
+  check(
+    "every resolved highlight is a real substring of what is served",
+    v2.keyPointsFromSentences([0, 1], written, servedAll).every(
+      (k) => servedAll.summary.includes(k) || servedAll.detail.includes(k)
+    )
+  );
+
+  // Excision runs between writing and serving. A sentence the number gate cut
+  // must not come back as a highlight pointing at text nobody can see.
+  const servedCut = { summary: "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ", detail: "" };
+  check("a highlight orphaned by excision is dropped", v2.keyPointsFromSentences([1], written, servedCut).length === 0);
+  check("its surviving neighbour still resolves", v2.keyPointsFromSentences([0], written, servedCut).length === 1);
+
+  // Junk in, nothing out — never a guess at what was meant.
+  check("an out-of-range number yields nothing", v2.keyPointsFromSentences([99], written, servedAll).length === 0);
+  check("no numbers means no highlight", v2.keyPointsFromSentences([], written, servedAll).length === 0);
+  // Refused: anything that would have to be GUESSED at. Accepted: a number
+  // that happens to arrive quoted — models emit "0" for 0 often enough that
+  // refusing it would throw away a perfectly unambiguous index.
+  const junk = v2.parseOverviewV2(
+    '{"summary": "s", "key_point_sentences": [-1, 1.5, null, "x", "0"]}',
+    { models: [] }
+  ).keyPointSentences;
+  check("negatives, fractions, null and words are refused, not rounded", !junk.some((n) => n !== 0));
+  check("a quoted number is still a number", junk.length === 1 && junk[0] === 0);
+  check(
+    "a duplicate number highlights once",
+    v2.keyPointsFromSentences([0, 0], written, servedAll).length === 1
+  );
+
+  // WIRING. Everything above passes with a resolver nothing calls — proved by
+  // injection: breaking the handler's branch left this whole file green. The
+  // mechanism is only real if stage 3 actually reaches for it.
+  const handlerSrc = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "search-overview.js"),
+    "utf-8"
+  );
+  check(
+    "wiring: the handler resolves highlights from sentence numbers",
+    handlerSrc.includes("keyPointsFromSentences(sentences, parsed, verified)")
+  );
+  check(
+    "wiring: and only falls back to phrases when no number came",
+    /keyPoints = sentences\.length\s*\?\s*keyPointsFromSentences/.test(handlerSrc) &&
+      handlerSrc.includes(": admittedKeyPoints(parsed.keyPoints, verified)")
+  );
+  check(
+    "wiring: resolved against the answer AS WRITTEN, before it is rebound to the served text",
+    handlerSrc.indexOf("keyPointsFromSentences(sentences, parsed, verified)") <
+      handlerSrc.indexOf("parsed = { summary: verified.summary")
+  );
 }
 
 // ── done ───────────────────────────────────────────────────────────────────
