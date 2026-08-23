@@ -371,6 +371,20 @@ const quoteOf = (over, ingOver) => quoteGate(ing(ingOver), extract(over));
     "context: the assumption is stated, not hidden",
     ctx.context.includes("ระบบประเมินตามสภาพปกติไว้แล้ว") && ctx.context.includes("ประกันศูนย์")
   );
+  // The writer echoes the vocabulary this line hands it. It shipped once
+  // saying "โดยสมมติว่าจอและตัวเครื่องสมบูรณ์" because the instruction itself
+  // said สมมติ — in spoken Thai that reads as "we made it up", which
+  // understates a figure computed from a real condition set. What the
+  // context can be held to is the phrasing it prescribes, so hold it to that.
+  check(
+    "context: prescribes the spoken-Thai phrasing for the assumption",
+    ctx.context.includes("ราคานี้คิดจากสภาพ")
+  );
+  check(
+    "context: the only สมมติ left is the one banning it",
+    ctx.context.split("สมมติ").length - 1 === 1 &&
+      ctx.context.includes('ห้ามใช้คำว่า "สมมติ"')
+  );
 
   const refused = buildV2Context({
     query: "iphone 16 pro max 256 จอเสีย",
