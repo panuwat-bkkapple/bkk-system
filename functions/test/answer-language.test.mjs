@@ -122,13 +122,50 @@ check("v1 default is Thai", v1th.includes("- ภาษาไทย สุภา�
 check("v1 English drops the Thai close", !v1en.includes("- ภาษาไทย สุภาพ กระชับ ลงท้ายด้วยครับ"));
 check("v1 English carries the same glossary as v2", v1en.includes("doorstep pickup"));
 
+// ── the page edition: only heard when the query says nothing ───────────────
+//
+// The /en visitor who types "iPhone 13 Pro 128GB" is the case this parameter
+// exists for: a bare model name carries no prose to detect, so without the
+// edition they read a Thai paragraph on an English page. That is most of what
+// anyone types into a search box.
+
+check("bare model name on /en answers in English", answerLanguage("iPhone 13 Pro 128GB", "en") === "en");
+check("bare model name on the Thai site stays Thai", answerLanguage("iPhone 13 Pro 128GB", "th") === "th");
+check("no edition given behaves exactly as before", answerLanguage("iPhone 13 Pro 128GB") === "th");
+check("an empty query on /en still answers in English", answerLanguage("", "en") === "en");
+
+// Positive evidence of what the customer is writing NOW beats the setting.
+check(
+  "Thai text on /en answers in Thai",
+  answerLanguage("ไอโฟน 13 โปร ราคาเท่าไหร่", "en") === "th"
+);
+// And the reverse: English prose on the Thai site was already handled, and
+// must not regress now that a second signal exists.
+check(
+  "English prose on the Thai site still answers in English",
+  answerLanguage("how much is iphone 13 pro", "th") === "en"
+);
+// A value we do not recognise is not a third language — it is Thai.
+check("an unknown edition value falls back to Thai", answerLanguage("iPhone 13 Pro", "de") === "th");
+
 // ── the wiring: a detector nothing calls is a detector that does nothing ────
 
 const here = dirname(fileURLToPath(import.meta.url));
 const handler = readFileSync(join(here, "..", "search-overview.js"), "utf8");
 check(
-  "the handler decides the language from the customer's own query",
-  handler.includes("const answerLang = answerLanguage(query);")
+  "the handler decides the language from the query AND the page edition",
+  handler.includes("const answerLang = answerLanguage(query, pageLang);")
+);
+check(
+  "the page edition comes from the request body, defaulting to Thai",
+  handler.includes('const pageLang = body.lang === "en" ? "en" : "th";')
+);
+// The one that would be silent: two languages sharing a cache entry serves
+// whichever arrived first to everyone for the next hour.
+check(
+  "the language is part of BOTH cache keys",
+  handler.includes("v2CacheKey(query, ingredients, await v2FactsVersion(db), answerLang)") &&
+    handler.includes("cacheKeyFor(query, context, answerLang)")
 );
 check(
   "and hands it to whichever writer runs",

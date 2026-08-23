@@ -193,6 +193,11 @@ check(
   );
   check("key: moves when factsVersion moves", v2CacheKey("iphone 16", ING, "fv2") !== a);
   check("key: moves when the query moves", v2CacheKey("iphone 17", ING, "fv1") !== a);
+  // The answer's LANGUAGE is now part of what is cached. Sharing one entry
+  // between /en and the Thai site would serve whichever arrived first to
+  // everyone for the next hour.
+  check("key: moves when the answer language moves", v2CacheKey("iphone 16", ING, "fv1", "en") !== a);
+  check("key: an omitted language means Thai", v2CacheKey("iphone 16", ING, "fv1", "th") === a);
   check("key: 32 hex chars", /^[a-f0-9]{32}$/.test(a));
 
   // The shuffle test above passes even without sorting, because the sanitizer
