@@ -309,27 +309,39 @@ const ex = (over = {}) => ({
 }
 
 // ── ACC12 (feedback เทสมือ: ไฮไลท์ใจความ + CTA ชี้รุ่นผิด): ใจความตัดสิน ──
-// ก่อนเขียน — key_points เป็น "ตัวชี้" 1-3 วลี ไม่ใช่ช่องส่งข้อความใหม่ และ
+// ก่อนเขียน — ไฮไลท์เป็น "ตัวชี้" ไม่ใช่ช่องส่งข้อความใหม่ และ
 // primary_model_id เป็นรหัสจากลิสต์เท่านั้น (drop, never promote)
+//
+// The highlight now arrives MARKED IN PLACE inside the prose. A model-supplied
+// `key_points` array is no longer an input at all: it was the channel through
+// which the writer could introduce text that is not in the answer, and three
+// production rounds showed it mostly introduced text that did not match.
 {
   const { parseOverviewV2, exciseUnverifiedNumbers, admittedKeyPoints, primaryModelLegend } = v2;
   const clean = parseOverviewV2(
-    '{"key_points": ["ตอนนี้เป็นจังหวะขายที่ดีครับ", "iPhone 16 Pro Max อยู่ที่ 30,000 บาท"], "primary_model_id": "ip16pm", "summary": "ตอนนี้เป็นจังหวะขายที่ดีครับ ราคา 30,000 บาทครับ", "detail": "iPhone 16 Pro Max อยู่ที่ 30,000 บาท"}',
+    '{"primary_model_id": "ip16pm", "summary": "\u00abตอนนี้เป็นจังหวะขายที่ดีครับ\u00bb ราคา 30,000 บาทครับ ยอดสุดท้ายยืนยันหลังตรวจเครื่อง", "detail": "\u00abiPhone 16 Pro Max อยู่ที่ 30,000 บาท\u00bb และรุ่นอื่นในตระกูลราคาต่างกันตามความจุ"}',
     ING
   );
-  check("ACC12: parser reads key_points as an array", clean.keyPoints.length === 2);
+  check("ACC12: the marked spans become the key points", clean.keyPoints.length === 2);
   check("ACC12: in-list primary_model_id survives", clean.primaryModelId === "ip16pm");
   check(
     "ACC12: out-of-list primary_model_id drops to null, never repaired",
-    parseOverviewV2('{"key_points": [], "primary_model_id": "ip99", "summary": "ก"}', ING).primaryModelId === null
+    parseOverviewV2('{"primary_model_id": "ip99", "summary": "ก"}', ING).primaryModelId === null
   );
   check(
-    "ACC12: more than 3 key points = first 3 kept",
-    parseOverviewV2('{"key_points": ["ก", "ข", "ค", "ง"], "summary": "กขคง"}', ING).keyPoints.join("") === "กขค"
+    "ACC12: more than 3 marked spans = first 3 kept",
+    parseOverviewV2(
+      '{"summary": "\u00abหนึ่ง\u00bb \u00abสอง\u00bb \u00abสาม\u00bb \u00abสี่\u00bb ปิดท้ายด้วยข้อความยาวพอที่จะไม่ชนเพดานสัดส่วน"}',
+      ING
+    ).keyPoints.join("") === "หนึ่งสองสาม"
   );
   check(
-    "ACC12: empty key_points is a valid answer with no highlight",
-    parseOverviewV2('{"key_points": [], "summary": "ไปที่หน้าประเมินได้เลยครับ"}', ING).keyPoints.length === 0
+    "ACC12: no marks is a valid answer with no highlight",
+    parseOverviewV2('{"summary": "ไปที่หน้าประเมินได้เลยครับ"}', ING).keyPoints.length === 0
+  );
+  check(
+    "ACC12: a key_points array from the model is ignored — the door is closed",
+    parseOverviewV2('{"summary": "จังหวะดีครับ", "key_points": ["ข้อความที่ไม่ได้อยู่ในคำตอบ"]}', ING).keyPoints.length === 0
   );
   check(
     "ACC12: legacy single key_point folds in (prompt-drift tolerance)",
@@ -347,7 +359,7 @@ const ex = (over = {}) => ({
   // Excision interaction: a key point aimed at the sentence the number gate
   // cut must die with it — a highlight would resurrect the cut sentence.
   const parsed = parseOverviewV2(
-    '{"key_points": ["เหลือประมาณ 21,120 บาทครับ", "ราคารับซื้อ 30,000 บาทครับ"], "summary": "ราคารับซื้อ 30,000 บาทครับ เหลือประมาณ 21,120 บาทครับ"}',
+    '{"summary": "\u00abราคารับซื้อ 30,000 บาทครับ\u00bb \u00abเหลือประมาณ 21,120 บาทครับ\u00bb"}',
     ING
   );
   const served = exciseUnverifiedNumbers(parsed, "ราคารับซื้อ 30,000 บาท");
@@ -358,16 +370,19 @@ const ex = (over = {}) => ({
     !afterExcise.includes("เหลือประมาณ 21,120 บาทครับ") && afterExcise.includes("ราคารับซื้อ 30,000 บาทครับ")
   );
 
-  // key_points is FIRST in the demanded field order, so a reply truncated
-  // mid-detail still carries it whole through the salvage path.
+  // The marks live INSIDE summary, so the salvage path — which recovers the
+  // summary field from a reply too broken to JSON.parse — recovers them with
+  // it. That is a property of putting them in the prose rather than in a
+  // sibling field that truncation could take.
   const salvage = parseOverviewV2(
-    '{"key_points": ["ขายก่อนเปิดตัวคุ้มกว่าครับ"], "primary_model_id": "ip16pm", "summary": "ขายก่อนเปิดตัวคุ้มกว่าครับ", "detail": "ยาวมากแล้วโดนตั',
+    '{"primary_model_id": "ip16pm", "summary": "\u00abขายก่อนเปิดตัวคุ้มกว่าครับ\u00bb รอไปอีกสองเดือนราคามักจะลง", "detail": "ยาวมากแล้วโดนตั',
     ING
   );
   check(
-    "ACC12: salvage carries key_points and primary_model_id",
+    "ACC12: salvage carries the marked span and primary_model_id",
     salvage.salvaged === true && salvage.keyPoints[0] === "ขายก่อนเปิดตัวคุ้มกว่าครับ" && salvage.primaryModelId === "ip16pm"
   );
+  check("ACC12: and the salvaged summary is clean", !salvage.summary.includes("\u00ab"));
 
   // The id legend: chosen models only, and never for an empty pick — the CTA
   // may point at what the answer is about, not at a sibling.
@@ -387,11 +402,56 @@ const ex = (over = {}) => ({
   // something to instruct harder; it is something to stop asking for. The
   // writer now sends a sentence NUMBER. Full contract at the end of this file.
   check(
-    "ACC12: prompt demands the answer first, then the NUMBER of a sentence in it",
-    P.includes('"key_point_sentences"') &&
-      P.includes("เขียน summary กับ detail ให้เสร็จก่อน") &&
-      P.includes("หมายเลขประโยค")
+    "ACC12: prompt asks for the highlight to be marked inside the prose",
+    P.includes("ครอบข้อความช่วงที่สำคัญที่สุด") && P.includes("\u00ab") && P.includes("\u00bb")
   );
+}
+
+// ── the highlight contract, in full ───────────────────────────────────────
+//
+// Four mechanisms, and each one's epitaph is a production number:
+//   repeat the phrase          -> 5 / 77
+//   copy it after the prose    -> 0 / 4
+//   send the sentence number   -> the whole answer, or nothing
+//   mark it in place           -> this one
+//
+// What the first three shared is that the writer had to produce something
+// that MATCHED something else. This one has nothing to match.
+{
+  const P = v2.buildV2SystemPrompt("มาติน");
+
+  check(
+    "keypoints: the marks go in the prose, and nothing is repeated anywhere",
+    P.includes("ในเนื้อความเลย") && P.includes("ไม่ต้องพิมพ์ซ้ำที่ไหน") && P.includes("ไม่ต้องนับประโยค")
+  );
+  check(
+    "keypoints: the markers are reserved — they mean one thing only",
+    P.includes("ห้ามใช้เครื่องหมาย \u00ab \u00bb เพื่อจุดประสงค์อื่นเด็ดขาด")
+  );
+  check(
+    "keypoints: one span, and never the whole paragraph",
+    P.includes("ครอบ 1 ช่วงต่อคำตอบ") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
+  );
+  check(
+    "keypoints: an answer carrying a figure or a verdict must mark something",
+    P.includes("ต้องครอบอย่างน้อย 1 ช่วงเสมอ")
+  );
+  check(
+    "keypoints: the response shape no longer carries a highlight field at all",
+    P.includes('{"summary": "...", "detail": "...", "primary_model_id": "..."}') &&
+      !P.includes("key_point_sentences")
+  );
+  check(
+    "keypoints: every trace of asking the writer to reproduce text is gone",
+    !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร") && !P.includes("หมายเลขประโยค")
+  );
+
+  const truncated = v2.parseOverviewV2(
+    '{"summary": "\u00abiPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ\u00bb ราคานี้คิดจากสภาพปกติ", "detail": "ยอดสุดท้ายยืน',
+    { models: [{ id: "ip16pm" }] }
+  );
+  check("keypoints: a truncated reply keeps its summary", truncated && truncated.summary.includes("30,000"));
+  check("keypoints: and its highlight, because the mark rides inside the summary", truncated.keyPoints.length === 1);
 }
 
 // ── ACC13 (พบบน preview): ชื่อที่ catalog รู้จัก ห้ามกลายเป็น "ยังไม่มีข้อมูล" ─
@@ -497,172 +557,88 @@ const ex = (over = {}) => ({
   check("ACC14: two same-label homes in one set — refuse rather than guess", ambiguous === null);
 }
 
-// ── the highlight the writer could not hit ─────────────────────────────────
+// ── the highlight the writer marks in place ───────────────────────────────
 //
-// Production, 23 ส.ค. 2569, 77 v2 answers: FIVE carried a highlight. 69
-// proposed phrases were rejected, and roughly 60% of answers never proposed
-// one at all. The feature worked 6.5% of the time and failed silently, since
-// an answer without a highlight still reads perfectly.
+// Mechanism four, and the reasons the first three died are the design:
 //
-// Both halves trace to the same instruction. key_points was demanded FIRST —
-// name the point, then write the prose from it — so the writer produced the
-// phrase from intention and then worded the prose differently, and the
-// verbatim rule (which markKeyPoints needs: it does a literal startsWith on
-// the served text) threw the phrase away. The escape hatch, "a short answer
-// may use []", was wide enough that most answers took it.
+//   1. repeat the phrase in key_points  -> 5 highlights in 77 answers
+//   2. same, but copied after the prose -> 0 in 4
+//   3. send the sentence NUMBER         -> marked everything, or nothing
 //
-// The fix is order, not tolerance: prose first, then COPY a span out of it.
+// Three failed because the writer had to reproduce or to count. Marking in
+// place asks it to do neither, and the span is a substring because it was
+// never separate from the text.
+//
+// Number three is worth pinning precisely, because the bug was not in the
+// writer at all: splitSentences breaks on `. ! ?` and on "ครับ", and Thai
+// separates sentences with SPACES. A Thai paragraph with no full stop is ONE
+// chunk, so index 0 meant "the whole answer" and index 1 meant nothing.
 {
-  const P = v2.buildV2SystemPrompt("มาติน");
-
+  const THAI = "iPhone 17e ความจุ 256GB ประเมินราคาเบื้องต้นอยู่ที่ 12,250 บาท ราคานี้คิดจากสภาพปกติ ครบกล่องพร้อมสาย";
   check(
-    "keypoints: the answer body is demanded before the highlight",
-    P.indexOf('{"summary"') !== -1 &&
-      P.indexOf('"key_point_sentences": [0]}') > P.indexOf('{"summary"')
-  );
-  // Round two of this fix, and the last one that touches the writer's job at
-  // all: asking it to reproduce a phrase failed twice (5 highlights in 77
-  // answers, then 0 in the 4 measured after the reorder). It now sends a
-  // NUMBER, and a number cannot be misspelled.
-  check(
-    "keypoints: the writer sends a sentence number, never the sentence",
-    P.includes("หมายเลขประโยค") && P.includes("ห้ามพิมพ์ข้อความของประโยคซ้ำ")
-  );
-  check(
-    "keypoints: and is told exactly how the sentences are counted",
-    P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0")
-  );
-  check(
-    "keypoints: asked for one by default — the cap itself is enforced in code",
-    P.includes("เลือก 1 หมายเลขเป็นหลัก") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
-  );
-  check(
-    "keypoints: nothing in the prompt asks for the phrase text any more",
-    !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร")
-  );
-  // The old permission ("a SHORT answer may use []") let length excuse the
-  // field. The floor is now what the answer CONTAINS.
-  check(
-    "keypoints: an answer carrying a figure or a verdict must mark something",
-    P.includes("ต้องมี key_point_sentences อย่างน้อย 1 หมายเลขเสมอ")
-  );
-  check(
-    "keypoints: [] survives only for a pure signpost",
-    P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ") && !P.includes("คำตอบสั้นหรือเป็นการชี้ทางที่ไม่มีใจความต้องเน้น")
+    "the Thai splitter really does see one chunk — the bug this replaces",
+    v2.__test.splitSentences(THAI).length === 1
   );
 
-  // Order is a live property of the parser too: a reply cut short must lose
-  // the highlight, never the answer.
-  const truncated = v2.parseOverviewV2(
-    '{"summary": "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ", "detail": "ราคานี้คิดจากสภาพปกติ", "primary_model_id": "ip16pm", "key_p',
+  const marked = `iPhone 17e ความจุ 256GB \u00abประเมินราคาเบื้องต้นอยู่ที่ 12,250 บาท\u00bb ราคานี้คิดจากสภาพปกติ ครบกล่องพร้อมสาย`;
+  const out = v2.extractMarkedSpans(marked);
+  check("the marked span comes out", out.spans[0] === "ประเมินราคาเบื้องต้นอยู่ที่ 12,250 บาท");
+  check("and it is a substring of the cleaned text", out.text.includes(out.spans[0]));
+  check("no marker survives into the served text", !out.text.includes("\u00ab") && !out.text.includes("\u00bb"));
+  check("the prose is otherwise untouched", out.text === THAI);
+
+  // A stray opener would reach the customer as a loose character.
+  const unbalanced = v2.extractMarkedSpans("ราคา \u00ab12,250 บาท ครบกล่อง");
+  check("an unbalanced marker yields no span", unbalanced.spans.length === 0);
+  check("and is still stripped from the text", !unbalanced.text.includes("\u00ab"));
+
+  // Wrapping the WHOLE answer is not emphasis — that is the state the
+  // sentence-number version shipped in, and the only thing this guard is for.
+  const greedy = v2.extractMarkedSpans("\u00abทั้งย่อหน้าถูกครอบไว้หมดเลยครับ\u00bb");
+  check("a span covering the entire answer is dropped as shading", greedy.spans.length === 0);
+  check("but the text still serves, without markers", greedy.text.startsWith("ทั้งย่อหน้า"));
+  // ...while one sentence of two is the emphasis we asked for, however large a
+  // share of a short answer it happens to be. An earlier 0.6 ceiling here threw
+  // this exact case away.
+  const half = v2.extractMarkedSpans(
+    "\u00abiPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ\u00bb ราคานี้คิดจากสภาพปกติ"
+  );
+  check("one sentence of two survives", half.spans.length === 1);
+
+  const two = v2.extractMarkedSpans(
+    "\u00abหนึ่ง\u00bb กลางประโยคที่ยาวพอสมควรเพื่อให้สัดส่วนไม่เกินเพดาน \u00abสอง\u00bb ปิดท้ายด้วยข้อความอีกหน่อย"
+  );
+  check("two marked spans both come out, in order", two.spans[0] === "หนึ่ง" && two.spans[1] === "สอง");
+  check("no text without markers is touched at all", v2.extractMarkedSpans("ไม่มีเครื่องหมายเลย").spans.length === 0);
+
+  // End to end through the parser: what the handler receives is already clean.
+  const parsed = v2.parseOverviewV2(
+    JSON.stringify({
+      summary: `\u00abiPhone 16 Pro Max อยู่ที่ 30,000 บาท\u00bb ราคานี้คิดจากสภาพปกติ ยอดสุดท้ายยืนยันหลังตรวจเครื่องจริง`,
+      detail: "",
+      primary_model_id: "ip16pm",
+    }),
     { models: [{ id: "ip16pm" }] }
   );
-  check("keypoints: a truncated reply keeps its summary", truncated && truncated.summary.includes("30,000"));
-  check("keypoints: and its detail", truncated && truncated.detail.includes("ราคานี้คิดจากสภาพ"));
-  check("keypoints: losing only the highlight", truncated && truncated.keyPointSentences.length === 0);
-}
+  check("parse: the span becomes a key point", parsed.keyPoints[0] === "iPhone 16 Pro Max อยู่ที่ 30,000 บาท");
+  check("parse: the summary is served clean", !parsed.summary.includes("\u00ab"));
+  check("parse: and the key point is a substring of it", parsed.summary.includes(parsed.keyPoints[0]));
 
-// ── resolving a highlight from a number ───────────────────────────────────
-//
-// The mechanism that replaces verbatim matching. Every case here is one the
-// phrase version could get wrong and this one cannot.
-{
-  const written = {
-    summary: "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ ตอนนี้เป็นจังหวะขายที่ดีครับ",
-    detail: "ราคานี้คิดจากสภาพปกติครับ",
-  };
-  const servedAll = { summary: written.summary, detail: written.detail };
-
-  const first = v2.keyPointsFromSentences([0], written, servedAll);
-  check("index 0 is the first sentence of the summary", first[0] === "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ");
-  const second = v2.keyPointsFromSentences([1], written, servedAll);
-  check("index 1 is the second", second[0] === "ตอนนี้เป็นจังหวะขายที่ดีครับ");
-  // The count runs on into detail, exactly as the prompt says it does.
-  const intoDetail = v2.keyPointsFromSentences([2], written, servedAll);
-  check("the count continues into detail", intoDetail[0] === "ราคานี้คิดจากสภาพปกติครับ");
-
-  // Whatever comes back IS a substring of the served text — which is the only
-  // property markKeyPoints needs, and the one the phrase version kept missing.
-  check(
-    "every resolved highlight is a real substring of what is served",
-    v2.keyPointsFromSentences([0, 1], written, servedAll).every(
-      (k) => servedAll.summary.includes(k) || servedAll.detail.includes(k)
-    )
-  );
-
-  // Excision runs between writing and serving. A sentence the number gate cut
-  // must not come back as a highlight pointing at text nobody can see.
-  const servedCut = { summary: "iPhone 16 Pro Max อยู่ที่ 30,000 บาทครับ", detail: "" };
-  check("a highlight orphaned by excision is dropped", v2.keyPointsFromSentences([1], written, servedCut).length === 0);
-  check("its surviving neighbour still resolves", v2.keyPointsFromSentences([0], written, servedCut).length === 1);
-
-  // Junk in, nothing out — never a guess at what was meant.
-  check("an out-of-range number yields nothing", v2.keyPointsFromSentences([99], written, servedAll).length === 0);
-  check("no numbers means no highlight", v2.keyPointsFromSentences([], written, servedAll).length === 0);
-  // Refused: anything that would have to be GUESSED at. Accepted: a number
-  // that happens to arrive quoted — models emit "0" for 0 often enough that
-  // refusing it would throw away a perfectly unambiguous index.
-  const junk = v2.parseOverviewV2(
-    '{"summary": "s", "key_point_sentences": [-1, 1.5, null, "x", "0"]}',
-    { models: [] }
-  ).keyPointSentences;
-  check("negatives, fractions, null and words are refused, not rounded", !junk.some((n) => n !== 0));
-  check("a quoted number is still a number", junk.length === 1 && junk[0] === 0);
-  check(
-    "a duplicate number highlights once",
-    v2.keyPointsFromSentences([0, 0], written, servedAll).length === 1
-  );
-
-  // HOW MANY, and why the answer's length decides it.
-  //
-  // The first production answers under this mechanism marked BOTH sentences
-  // of a two-sentence summary. The mechanism worked perfectly and highlighted
-  // everything, which is the same as highlighting nothing. The prompt already
-  // asked for restraint; this is the version that does not depend on it.
-  check(
-    "a short answer carries exactly one highlight, even when two are asked for",
-    v2.keyPointsFromSentences([0, 1], written, servedAll).length === 1
-  );
-  check(
-    "and it is the first one asked for, not an arbitrary one",
-    v2.keyPointsFromSentences([1, 0], written, servedAll)[0] === "ตอนนี้เป็นจังหวะขายที่ดีครับ"
-  );
-
-  // A genuinely long answer has room for a second mark without becoming shaded.
-  const longWritten = {
-    summary: "ประโยคหนึ่งครับ ประโยคสองครับ ประโยคสามครับ",
-    detail: "ประโยคสี่ครับ ประโยคห้าครับ ประโยคหกครับ",
-  };
-  check(
-    "a long answer may carry two",
-    v2.keyPointsFromSentences([0, 3], longWritten, longWritten).length === 2
-  );
-  check(
-    "but never more than two, whatever arrives",
-    v2.keyPointsFromSentences([0, 1, 2, 3], longWritten, longWritten).length === 2
-  );
-
-  // WIRING. Everything above passes with a resolver nothing calls — proved by
-  // injection: breaking the handler's branch left this whole file green. The
-  // mechanism is only real if stage 3 actually reaches for it.
+  // WIRING. The parser can be perfect and the handler can still drop it.
   const handlerSrc = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "..", "search-overview.js"),
     "utf-8"
   );
   check(
-    "wiring: the handler resolves highlights from sentence numbers",
-    handlerSrc.includes("keyPointsFromSentences(sentences, parsed, verified)")
+    "wiring: the handler admits the spans the parser found",
+    handlerSrc.includes("keyPoints = admittedKeyPoints(parsed.keyPoints, verified);")
   );
   check(
-    "wiring: and only falls back to phrases when no number came",
-    /keyPoints = sentences\.length\s*\?\s*keyPointsFromSentences/.test(handlerSrc) &&
-      handlerSrc.includes(": admittedKeyPoints(parsed.keyPoints, verified)")
-  );
-  check(
-    "wiring: resolved against the answer AS WRITTEN, before it is rebound to the served text",
-    handlerSrc.indexOf("keyPointsFromSentences(sentences, parsed, verified)") <
+    "wiring: checked against the SERVED text, so excision still wins",
+    handlerSrc.indexOf("admittedKeyPoints(parsed.keyPoints, verified)") <
       handlerSrc.indexOf("parsed = { summary: verified.summary")
   );
+  check("wiring: the sentence-number mechanism is gone, not merely unused", !handlerSrc.includes("keyPointsFromSentences"));
 }
 
 // ── done ───────────────────────────────────────────────────────────────────

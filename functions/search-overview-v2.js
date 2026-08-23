@@ -612,10 +612,6 @@ function parseExtraction(raw, ingredients) {
  *  field is focus — a fourth highlight is the first three losing theirs. */
 const MAX_KEY_POINTS = 3;
 
-/** At or under this many sentences, an answer may carry exactly one highlight.
- *  Two marks in a three-sentence answer is most of it, and a paragraph that is
- *  mostly marked has no emphasis left to give. */
-const SHORT_ANSWER_SENTENCES = 4;
 
 function parseOverviewV2(raw, ingredients) {
   const text = String(raw || "").trim().replace(/```(?:json)?/gi, "");
@@ -632,22 +628,11 @@ function parseOverviewV2(raw, ingredients) {
   };
   // 1-3 standalone phrases, capped hard: extras beyond MAX_KEY_POINTS are cut
   // silently. A legacy single key_point folds in for prompt-drift tolerance.
-  // Sentence NUMBERS, which is the whole point: a number cannot be misspelled.
-  // Non-integers, negatives and duplicates are dropped rather than repaired —
-  // an index we had to guess at points somewhere the writer did not mean.
-  const cleanIndices = (list) => {
-    const out = [];
-    for (const n of Array.isArray(list) ? list : []) {
-      const i = Number(n);
-      if (!Number.isInteger(i) || i < 0) continue;
-      if (out.includes(i)) continue;
-      out.push(i);
-      if (out.length >= MAX_KEY_POINTS) break;
-    }
-    return out;
-  };
   const cleanKeyPoints = (list, single) => {
-    const src = Array.isArray(list) ? list : single ? [single] : [];
+    // An EMPTY array still falls through to the legacy single field: the spans
+    // now arrive as an array that is usually empty, and treating "empty" as
+    // "the caller supplied a list" would silence the fallback entirely.
+    const src = Array.isArray(list) && list.length ? list : single ? [single] : [];
     const out = [];
     for (const k of src) {
       const s = String(k || "").trim();
@@ -661,13 +646,17 @@ function parseOverviewV2(raw, ingredients) {
   if (end > start) {
     try {
       const obj = JSON.parse(text.slice(start, end + 1));
-      const summary = String(obj.summary || "").trim();
-      if (summary) {
+      const rawSummary = String(obj.summary || "").trim();
+      if (rawSummary) {
+        // Marks come out HERE, before anything downstream sees the text: the
+        // excision gate, the archive and the customer all get cleaned prose,
+        // and the spans are substrings of it by construction.
+        const sum = extractMarkedSpans(rawSummary);
+        const det = extractMarkedSpans(String(obj.detail || "").trim());
         return {
-          summary,
-          detail: String(obj.detail || "").trim(),
-          keyPoints: cleanKeyPoints(obj.key_points, obj.key_point),
-          keyPointSentences: cleanIndices(obj.key_point_sentences),
+          summary: sum.text,
+          detail: det.text,
+          keyPoints: cleanKeyPoints([...sum.spans, ...det.spans], obj.key_point),
           primaryModelId: cleanPrimary(obj.primary_model_id),
           salvaged: false,
         };
@@ -700,13 +689,14 @@ function parseOverviewV2(raw, ingredients) {
       return [];
     }
   };
-  const summary = grab("summary");
-  if (!summary) return null;
+  const rawSummary = grab("summary");
+  if (!rawSummary) return null;
+  const sum = extractMarkedSpans(rawSummary);
+  const det = extractMarkedSpans(grab("detail"));
   return {
-    summary,
-    detail: grab("detail"),
-    keyPoints: cleanKeyPoints(grabArray("key_points"), grab("key_point")),
-    keyPointSentences: cleanIndices(grabArray("key_point_sentences")),
+    summary: sum.text,
+    detail: det.text,
+    keyPoints: cleanKeyPoints([...sum.spans, ...det.spans], grab("key_point")),
     primaryModelId: cleanPrimary(grab("primary_model_id")),
     salvaged: true,
   };
@@ -729,52 +719,73 @@ function parseOverviewV2(raw, ingredients) {
  * concatenated string — a phrase spanning the artificial join would match
  * text no reader ever sees.
  */
+/** The pair the writer wraps its key span in. Guillemets: absent from Thai and
+ *  English prose, absent from every price and model name we print, and one
+ *  character each, so a truncated reply loses the pair rather than half a word. */
+const MARK_OPEN = "\u00ab";
+const MARK_CLOSE = "\u00bb";
+const MARK_RE = /\u00ab([^\u00ab\u00bb]{1,200})\u00bb/g;
+
 /**
- * Highlights RESOLVED FROM SENTENCE NUMBERS — the mechanism that cannot miss.
+ * A span may be at most this much of the text it sits in.
  *
- * Two prompt revisions asked the writer to reproduce its own phrase verbatim
- * and production answered the same way both times: 5 highlights in 77 answers
- * before, 0 in the 4 answers measured after. Reproducing a span of your own
- * prose character-for-character is simply not a thing a language model does
- * reliably, and the verbatim rule cannot be relaxed to meet it — the website
- * marks text with a literal startsWith, so a phrase that is not a real
- * substring is not highlightable no matter what this function admits.
+ * The number this guard exists to reject is ~1.0 — the writer wrapping the
+ * entire answer, which is what the sentence-number version shipped and what a
+ * reader sees as a coloured block rather than as emphasis.
  *
- * So the writer stops writing the phrase at all. It sends the NUMBER of the
- * sentence it means, and the slice is taken here, out of its own text. There
- * is no comparison left to fail.
- *
- * Resolved against the text AS WRITTEN, then checked against the text AS
- * SERVED: excision runs between the two, and a sentence the number gate cut
- * must not be resurrected by a highlight pointing at it. That check is exact
- * by construction — it compares our own slice with itself — so it can only
- * fail for the one reason it should.
+ * It is NOT meant to reject one sentence out of two. That lands anywhere from
+ * 0.4 to 0.65 depending on how long the other sentence is, and it is exactly
+ * the emphasis we asked for — an earlier 0.6 here threw away a perfectly good
+ * highlight on a two-sentence summary. 0.85 separates "all of it" from "most
+ * of a short answer" without adjudicating taste.
  */
-function keyPointsFromSentences(indices, original, served) {
-  if (!Array.isArray(indices) || !indices.length) return [];
-  const pool = [...splitSentences(original.summary || ""), ...splitSentences(original.detail || "")];
-  // HOW MANY, decided by the answer's own length rather than by the prompt.
-  //
-  // The first production answers under this mechanism marked two sentences of
-  // a two-sentence summary: the highlight worked and highlighted everything,
-  // which is the same as highlighting nothing. The prompt already said "น้อย
-  // แต่คมดีกว่าครบแต่ลาย" and that is exactly the kind of judgement this whole
-  // thread proved cannot be left to instructions.
-  //
-  // A short answer gets ONE. Anything else is not emphasis, it is shading.
-  const cap = Math.min(MAX_KEY_POINTS, pool.length <= SHORT_ANSWER_SENTENCES ? 1 : 2);
-  const summary = String((served && served.summary) || "");
-  const detail = String((served && served.detail) || "");
-  const out = [];
-  for (const i of indices) {
-    const sentence = pool[i];
-    if (!sentence) continue;
-    if (!summary.includes(sentence) && !detail.includes(sentence)) continue;
-    if (out.includes(sentence)) continue;
-    out.push(sentence);
-    if (out.length >= cap) break;
+const MARK_MAX_SHARE = 0.85;
+
+/**
+ * HIGHLIGHTS THE WRITER MARKS IN PLACE — the version with nothing left to
+ * disagree about.
+ *
+ * Three mechanisms failed here, each for its own reason, and each fix removed
+ * one more thing the writer had to get right:
+ *
+ *   1. "repeat the phrase verbatim in key_points" — 5 highlights in 77
+ *      production answers. It had to reproduce its own wording exactly.
+ *   2. Same, but written after the prose so it could copy — 0 in 4. Copying
+ *      is still reproducing.
+ *   3. "send the NUMBER of the sentence" — marked the whole answer, or
+ *      nothing at all. It had to count sentences the way splitSentences
+ *      counts them, and that splitter cannot read Thai: Thai separates
+ *      sentences with SPACES, not full stops, so a whole Thai paragraph is
+ *      one chunk. Index 0 selected the entire answer; index 1 fell off the
+ *      end. Both failures are visible in the same pair of screenshots.
+ *
+ * What is left is writing the marks where the emphasis goes — no reproducing,
+ * no counting, no agreement with any splitter. The span is a substring of the
+ * answer because it was never anything else.
+ *
+ * Returns the cleaned text and its spans. Every marker is stripped, matched or
+ * not: an unbalanced one left in place would reach the customer as a stray
+ * character, and a span longer than MARK_MAX_SHARE is dropped as shading.
+ */
+function extractMarkedSpans(text) {
+  const src = String(text || "");
+  if (!src.includes(MARK_OPEN) && !src.includes(MARK_CLOSE)) return { text: src, spans: [] };
+  const found = [];
+  MARK_RE.lastIndex = 0;
+  let m;
+  while ((m = MARK_RE.exec(src)) !== null) {
+    const span = m[1].trim();
+    if (span) found.push(span);
   }
-  return out;
+  const clean = src.split(MARK_OPEN).join("").split(MARK_CLOSE).join("");
+  const spans = [];
+  for (const span of found) {
+    if (spans.includes(span)) continue;
+    if (span.length > clean.length * MARK_MAX_SHARE) continue;
+    spans.push(span);
+    if (spans.length >= MAX_KEY_POINTS) break;
+  }
+  return { text: clean, spans };
 }
 
 function admittedKeyPoints(keyPoints, served) {
@@ -978,28 +989,29 @@ function buildV2SystemPrompt(assistantName, lang = "th") {
     `16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ${en ? "ภาษาอังกฤษธรรมชาติ" : "ภาษาไทยธรรมชาติ"} มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ`,
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
-    '{"summary": "...", "detail": "...", "primary_model_id": "...", "key_point_sentences": [0]}',
-    // ORDER REVERSED, AND THE DATA IS THE REASON. The first version demanded
-    // key_points FIRST — decide the point, then write the prose from it. The
-    // theory was sound and production disagreed: of 77 answers, 5 carried a
-    // highlight. 69 proposed phrases were rejected because the writer, having
-    // named a phrase from intention, then wrote the prose fresh and worded it
-    // differently; ~60% of answers skipped the field altogether.
+    '{"summary": "...", "detail": "...", "primary_model_id": "..."}',
+    // NO HIGHLIGHT FIELD. Three mechanisms asked the writer to hand the span
+    // over separately and all three lost it on the way: naming the phrase
+    // before writing (5 highlights in 77 answers, 69 rejected for not matching
+    // the prose character for character), copying it out afterwards (0 in 4),
+    // and sending the sentence's NUMBER (marked the whole answer, or nothing —
+    // Thai separates sentences with spaces, so splitSentences sees one chunk).
     //
-    // Copying a phrase out of text that is already written is a far easier
-    // task than reproducing one from memory, so the prose comes first now and
-    // key_points is a SELECTION from it. Truncation also costs the right
-    // field: last position means a cut reply loses a highlight, not the body.
-    "- เขียน summary กับ detail ให้เสร็จก่อน แล้วจึงระบุ key_point_sentences เป็น **หมายเลขประโยค** ที่ต้องการเน้น ห้ามพิมพ์ข้อความของประโยคซ้ำ ระบบจะตัดประโยคนั้นออกมาเอง",
-    "- การนับประโยค: นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0 (ประโยคแรกของ summary = 0, ประโยคที่สอง = 1, ...)",
-    "- เลือก 1 หมายเลขเป็นหลัก ใส่ 2 ได้เฉพาะคำตอบที่ยาวจริงๆ — ย่อหน้าที่ถูกเน้นเกือบทั้งย่อหน้า เท่ากับไม่ได้เน้นอะไรเลย",
-    "- key_point_sentences = หมายเลขของประโยคที่เป็นใจความสำคัญของทั้งคำตอบ — น้อยแต่คมดีกว่าครบแต่ลาย เลือกประโยคที่ยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่ประโยคที่มีแต่เลขลอยๆ",
-    "- ลำดับความสำคัญ: ประโยคที่ตอบคำถามของคำค้นนี้ มาก่อนประโยคที่บอกข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ) — นอกเหนือจากนั้นไม่ต้องใส่",
-    "- วิธีเลือก: อ่านสิ่งที่เพิ่งเขียนอีกครั้ง ประโยคไหนคือคำตอบของคำถามนี้ที่สุด ใส่หมายเลขของประโยคนั้น",
+    // Marking in place removes the handover. The span is a substring of the
+    // answer because it was never lifted out of it; extractMarkedSpans pulls
+    // the marked text and strips every marker at parse time, so what reaches
+    // the website is the same wire format as before — literal substrings —
+    // and nothing downstream moves.
+    "- ใจความสำคัญ: ครอบข้อความช่วงที่สำคัญที่สุด **ในเนื้อความเลย** ด้วยเครื่องหมาย \u00ab \u00bb เช่น \u00abiPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท\u00bb — ไม่ต้องพิมพ์ซ้ำที่ไหน ไม่ต้องนับประโยค ระบบจะดึงช่วงนั้นออกมาเองแล้วลบเครื่องหมายทิ้งก่อนแสดงผล",
+    "- ครอบ 1 ช่วงต่อคำตอบ (สองช่วงเฉพาะคำตอบที่ยาวจริงๆ) และต้องเป็นช่วงสั้นๆ ไม่ใช่ทั้งย่อหน้า — ย่อหน้าที่ถูกเน้นเกือบทั้งย่อหน้า เท่ากับไม่ได้เน้นอะไรเลย",
+    "- ห้ามใช้เครื่องหมาย \u00ab \u00bb เพื่อจุดประสงค์อื่นเด็ดขาด ห้ามใช้เป็นอัญประกาศ",
+    "- ช่วงที่ครอบต้องยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่ตัวเลขลอยๆ — น้อยแต่คมดีกว่าครบแต่ลาย",
+    "- ลำดับความสำคัญ: ช่วงที่ตอบคำถามของคำค้นนี้ มาก่อนช่วงที่บอกข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ)",
+    "- วิธีเลือก: อ่านสิ่งที่เพิ่งเขียนอีกครั้ง ช่วงไหนคือคำตอบของคำถามนี้ที่สุด ครอบช่วงนั้น",
     // The escape hatch was too wide: "a short answer may use []" reads as
     // permission to skip, and most answers took it. The floor is now tied to
     // what the answer CONTAINS, not to how long it is.
-    "- คำตอบที่มีตัวเลขราคา หรือมีคำฟันธง ต้องมี key_point_sentences อย่างน้อย 1 หมายเลขเสมอ — ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ ไม่มีทั้งตัวเลขและคำฟันธง",
+    "- คำตอบที่มีตัวเลขราคา หรือมีคำฟันธง ต้องครอบอย่างน้อย 1 ช่วงเสมอ — ไม่ครอบเลยได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ ไม่มีทั้งตัวเลขและคำฟันธง",
     "- primary_model_id = รหัสจากรายการ 'รหัสรุ่นสำหรับ field primary_model_id' ท้ายข้อมูล ของรุ่นที่คำตอบชูเป็นหลัก — คำตอบไม่ได้ชูรุ่นใดรุ่นหนึ่ง หรือไม่มีรายการรหัส: ใส่ null",
     "- summary = ย่อหน้าเดียว 2-3 ประโยค ตอบคำถามให้ตรงที่สุด พร้อมตัวเลขจริง และคำฟันธงถ้าข้อมูลชี้ชัด",
     "- detail = ส่วนขยาย (รายรุ่น เหตุผลของคำฟันธง เงื่อนไขที่ทำให้ราคาต่างกัน ทางเลือกเทียบ) — กระชับ: ไม่เกินราว 6 ประโยค เลือกเฉพาะที่ช่วยตัดสินใจจริง ห้ามทวนซ้ำสิ่งที่อยู่ใน summary แล้ว ถ้าไม่มีอะไรจะขยายให้ใส่ค่าว่าง",
@@ -2040,7 +2052,7 @@ module.exports = {
   dropOffLimitsAdvice,
   OFF_LIMITS_RE,
   admittedKeyPoints,
-  keyPointsFromSentences,
+  extractMarkedSpans,
   primaryModelLegend,
   MAX_KEY_POINTS,
   V2_MAX_OUTPUT_TOKENS,

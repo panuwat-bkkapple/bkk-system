@@ -49,7 +49,6 @@ const {
   exciseUnverifiedNumbers,
   dropOffLimitsAdvice,
   admittedKeyPoints,
-  keyPointsFromSentences,
   primaryModelLegend,
   V2_MAX_OUTPUT_TOKENS,
   EXTRACT_MAX_TOKENS,
@@ -1396,23 +1395,15 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // Key points survive only verbatim, and only against the text
           // actually being served — see admittedKeyPoints. primary_model_id
           // was already validated against the ingredient ids at parse time.
-          // SENTENCE NUMBERS FIRST, phrases only as a fallback.
-          //
-          // `parsed` is still the answer AS WRITTEN here — the rebind to the
-          // served text happens three lines down — which is what lets an index
-          // be resolved against the same sentences the writer was counting.
-          //
-          // The phrase path stays for one reason: a reply that predates this
-          // prompt (a cache entry mid-rollout, or the tolerant parser reading
-          // an older shape) must keep whatever highlight it earned. It is the
-          // path that measured 5-in-77 and 0-in-4, so nothing new should be
-          // arriving on it.
-          const sentences = Array.isArray(parsed.keyPointSentences) ? parsed.keyPointSentences : [];
-          const proposedKeyPoints =
-            sentences.length || (Array.isArray(parsed.keyPoints) ? parsed.keyPoints.length : 0);
-          keyPoints = sentences.length
-            ? keyPointsFromSentences(sentences, parsed, verified)
-            : admittedKeyPoints(parsed.keyPoints, verified);
+          // parseOverviewV2 already pulled the marked spans out of the prose
+          // and stripped the markers, so parsed.keyPoints are substrings of
+          // parsed.summary/detail by construction. What is left for this line
+          // is the one check that can still legitimately fail: excision runs
+          // between parse and serve, and a span inside a sentence the number
+          // gate cut must not survive as a highlight pointing at text nobody
+          // will see.
+          const proposedKeyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints.length : 0;
+          keyPoints = admittedKeyPoints(parsed.keyPoints, verified);
           // Everything the writer proposed and did not get: phrases it wrote
           // differently in the prose, duplicates, and anything past the cap.
           // One number, because the rejected TEXT is the one thing on this

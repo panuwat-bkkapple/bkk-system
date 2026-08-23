@@ -84,42 +84,51 @@ check("layer3: tone — no urgency, no selling", P.includes("ไม่เร่�
 // The closing bans, kept verbatim in spirit from v1 — these are the lines the
 // positive layers must never override, and the original reason the whole
 // rulebook is negative.
-// THE HIGHLIGHT IS A NUMBER NOW, and two rounds of production data are the
-// argument. Demanding the phrase FIRST ("decide the point, then write from
-// it") gave 5 highlights in 77 answers with 69 phrases rejected for not
-// matching the prose character for character. Demanding it LAST, copied out
-// of prose already written, gave 0 in the 4 answers measured after. A model
-// reproducing its own span exactly is not a behaviour to instruct harder.
+// THE WRITER MARKS THE SPAN IN PLACE. Three mechanisms died here and the
+// prompt carries the scar tissue of all three, so these checks pin the one
+// that survived rather than its wording.
 //
-// So the writer sends the sentence's NUMBER and the slice is taken in code.
-// The wire format to the website is unchanged — still literal substrings —
-// so nothing downstream moves.
+//   1. name the phrase first, then write the prose  -> 5 highlights / 77
+//   2. write the prose first, then copy the phrase  -> 0 / 4
+//   3. send the sentence NUMBER, slice it in code   -> whole answer, or none
+//
+// (3) failed on Thai itself: Thai separates sentences with SPACES, so
+// splitSentences returns ONE chunk for a whole paragraph — index 0 marked
+// everything, index 1 fell off the end. Both are in the same screenshot pair.
+//
+// Marking in place asks for none of that: no reproducing, no copying, no
+// counting, no agreement with a splitter. What the model writes between the
+// marks IS the span, and the code strips the marks before anyone sees them.
 check(
-  "format: JSON only, and the highlight is a sentence number in last position",
-  P.includes('{"summary": "...", "detail": "...", "primary_model_id": "...", "key_point_sentences": [0]}')
+  "format: JSON only, and no highlight field is asked for at all",
+  P.includes('{"summary": "...", "detail": "...", "primary_model_id": "..."}') &&
+    !P.includes("key_point_sentences")
 );
 check(
-  "format: the writer sends the number, never the sentence",
-  P.includes("หมายเลขประโยค") && P.includes("ห้ามพิมพ์ข้อความของประโยคซ้ำ")
+  "format: the span is marked inside the prose, with both marks named",
+  P.includes("\u00ab") && P.includes("\u00bb") && P.includes("ในเนื้อความเลย")
 );
 check(
-  "format: and knows how the count runs",
-  P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0")
+  "format: and the three dead mechanisms are not asked for as well",
+  !P.includes("หมายเลขประโยค") && !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร")
 );
-// One by default. The hard cap is enforced in keyPointsFromSentences against
-// the answer's own length — the first answers under this mechanism marked both
-// sentences of a two-sentence summary, and a prompt asking for restraint had
-// already failed to prevent it.
 check(
-  "format: asks for one highlight by default and says why",
-  P.includes("เลือก 1 หมายเลขเป็นหลัก") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
+  "format: the marks are reserved — no quoting with them",
+  P.includes("ห้ามใช้เครื่องหมาย \u00ab \u00bb เพื่อจุดประสงค์อื่นเด็ดขาด")
 );
-check("format: the phrase-copying instructions are gone for good", !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร"));
+// One span, and short. The ceiling is enforced in extractMarkedSpans against
+// the answer's own length (MARK_MAX_SHARE) because production marked a whole
+// two-sentence summary under mechanism 3 and a prompt asking for restraint had
+// already failed to prevent it once.
+check(
+  "format: asks for one short span and says why a long one is worthless",
+  P.includes("ครอบ 1 ช่วงต่อคำตอบ") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
+);
 // The old escape hatch keyed on LENGTH ("a short answer may use []") and most
 // answers took it. The floor is what the answer contains.
 check(
-  "format: a figure or a verdict obliges a highlight",
-  P.includes("ต้องมี key_point_sentences อย่างน้อย 1 หมายเลขเสมอ") && P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ")
+  "format: a figure or a verdict obliges a span",
+  P.includes("ต้องครอบอย่างน้อย 1 ช่วงเสมอ") && P.includes("ไม่ครอบเลยได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ")
 );
 check(
   "format: primary_model_id comes from the legend or is null",
