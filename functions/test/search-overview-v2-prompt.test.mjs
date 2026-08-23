@@ -84,27 +84,34 @@ check("layer3: tone — no urgency, no selling", P.includes("ไม่เร่�
 // The closing bans, kept verbatim in spirit from v1 — these are the lines the
 // positive layers must never override, and the original reason the whole
 // rulebook is negative.
-// The order flipped, and production is why: with key_points demanded FIRST,
-// 5 of 77 answers came back carrying a highlight and 69 phrases were thrown
-// away for not matching the prose character for character. Naming the point
-// before writing is a good habit for a person and a bad instruction for a
-// model that must then reproduce its own wording exactly. Prose first, then
-// copy a span out of it — and last position means a truncated reply loses the
-// highlight rather than the answer.
+// THE HIGHLIGHT IS A NUMBER NOW, and two rounds of production data are the
+// argument. Demanding the phrase FIRST ("decide the point, then write from
+// it") gave 5 highlights in 77 answers with 69 phrases rejected for not
+// matching the prose character for character. Demanding it LAST, copied out
+// of prose already written, gave 0 in the 4 answers measured after. A model
+// reproducing its own span exactly is not a behaviour to instruct harder.
+//
+// So the writer sends the sentence's NUMBER and the slice is taken in code.
+// The wire format to the website is unchanged — still literal substrings —
+// so nothing downstream moves.
 check(
-  "format: JSON only, key_points LAST — it is copied out of the prose, not recalled",
-  P.includes('{"summary": "...", "detail": "...", "primary_model_id": "...", "key_points": ["..."]}')
+  "format: JSON only, and the highlight is a sentence number in last position",
+  P.includes('{"summary": "...", "detail": "...", "primary_model_id": "...", "key_point_sentences": [0]}')
 );
 check(
-  "format: the writer copies the phrase out of what it just wrote",
-  P.includes("คัดลอกวลีออกมาจากข้อความที่คุณเพิ่งเขียน") && P.includes("ห้ามพิมพ์ขึ้นใหม่จากความจำ")
+  "format: the writer sends the number, never the sentence",
+  P.includes("หมายเลขประโยค") && P.includes("ห้ามพิมพ์ข้อความของประโยคซ้ำ")
 );
-check("format: at most three, standalone, priority-ordered", P.includes("สูงสุด 3 วลี") && P.includes("ยืนเองได้"));
+check(
+  "format: and knows how the count runs",
+  P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0") && P.includes("สูงสุด 2 หมายเลข")
+);
+check("format: the phrase-copying instructions are gone for good", !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร"));
 // The old escape hatch keyed on LENGTH ("a short answer may use []") and most
-// answers took it. The floor is now what the answer contains.
+// answers took it. The floor is what the answer contains.
 check(
   "format: a figure or a verdict obliges a highlight",
-  P.includes("ต้องมี key_points อย่างน้อย 1 วลีเสมอ") && P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ")
+  P.includes("ต้องมี key_point_sentences อย่างน้อย 1 หมายเลขเสมอ") && P.includes("ใส่ [] ได้เฉพาะคำตอบที่เป็นการชี้ทางล้วนๆ")
 );
 check(
   "format: primary_model_id comes from the legend or is null",
