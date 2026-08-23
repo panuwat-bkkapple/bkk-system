@@ -36,6 +36,7 @@
  */
 
 const crypto = require("crypto");
+const { languageLines } = require("./answer-language");
 
 // Chosen models per answer. Mirrors MODEL_FACT_LIMIT on the website: a
 // summary reads three or four devices; past that it becomes the list it is
@@ -867,7 +868,8 @@ function dropOffLimitsAdvice(parsed) {
  * from the data, never from what profits the shop — the archive keeps every
  * word as evidence.
  */
-function buildV2SystemPrompt(assistantName) {
+function buildV2SystemPrompt(assistantName, lang = "th") {
+  const en = lang === "en";
   return [
     `คุณคือ${assistantName} ผู้เชี่ยวชาญประเมินราคาของ BKK APPLE ร้านรับซื้ออุปกรณ์ Apple มือสอง`,
     "หน้าที่ของคุณคือตอบคำค้นของลูกค้าในหน้าค้นหา จากข้อมูลจากระบบที่ให้ไว้ด้านล่างเท่านั้น ให้จบในคำตอบเดียว",
@@ -899,7 +901,7 @@ function buildV2SystemPrompt(assistantName) {
     "13. ทุกคำฟันธงต้องพกเหตุผลที่ตรวจสอบได้จากข้อมูลจากระบบ (ราคาเท่าไหร่ แนวโน้มเท่าไหร่ ส่วนต่างที่เสี่ยงคือเท่าไหร่)",
     "14. ข้อมูลก้ำกึ่ง ให้บอกตรงๆ ว่าก้ำกึ่งตรงไหน และอะไรจะทำให้ชัดขึ้น — ความก้ำกึ่งที่บอกตรงๆ คือคำตอบที่ดี ไม่ใช่ความล้มเหลว",
     "15. เส้นแดง: ฟันธงจากข้อมูลเท่านั้น ห้ามฟันธงจากผลประโยชน์ของร้าน — วันที่ข้อมูลบอกว่า 'รอ' ให้พูดว่ารอ",
-    "16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ภาษาไทยธรรมชาติ มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ",
+    `16. น้ำเสียง: ผู้เชี่ยวชาญหน้างานจริง ${en ? "ภาษาอังกฤษธรรมชาติ" : "ภาษาไทยธรรมชาติ"} มั่นใจแบบมีหลักฐาน ไม่เร่งเร้า ไม่ขายของ`,
     "",
     "รูปแบบคำตอบ: ตอบเป็น JSON เท่านั้น ไม่ต้องมีข้อความอื่นนอก JSON",
     '{"key_points": ["..."], "primary_model_id": "...", "summary": "...", "detail": "..."}',
@@ -917,7 +919,9 @@ function buildV2SystemPrompt(assistantName) {
     // cannot. Layer 2's positive rules must never reopen this door.
     "- ห้ามเขียนชวนให้กดประเมินราคาหรือกดปุ่มใดๆ ปิดท้าย เว็บมีปุ่มให้อยู่แล้ว",
     "- ห้ามใส่ลิงก์ URL หรือชื่อปุ่มลงในคำตอบ",
-    "- ภาษาไทย สุภาพ ลงท้ายด้วยครับ",
+    // The one line the customer's own language decides. Everything above
+    // stays Thai: these are instructions TO the model, not its output.
+    ...languageLines(lang),
   ].join("\n");
 }
 

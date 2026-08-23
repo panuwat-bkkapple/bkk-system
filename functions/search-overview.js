@@ -54,6 +54,7 @@ const {
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
 } = require("./search-overview-v2");
+const { answerLanguage, languageLines } = require("./answer-language");
 
 const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -528,7 +529,7 @@ function sanitizeTopics(raw) {
  * MacBook Pro M1 from the open internet will volunteer it, and a number we did
  * not set is a number we will be held to at the door.
  */
-function buildOverviewSystemPrompt(assistantName) {
+function buildOverviewSystemPrompt(assistantName, lang = "th") {
   return [
     `คุณคือ${assistantName} ผู้ช่วยของ BKK APPLE ร้านรับซื้ออุปกรณ์ Apple มือสอง`,
     "หน้าที่ของคุณคือสรุปคำตอบสั้นๆ ให้ลูกค้าที่พิมพ์คำถามเข้ามาในช่องค้นหาของเว็บ",
@@ -604,7 +605,12 @@ function buildOverviewSystemPrompt(assistantName) {
     // thing that can be pressed and once from a thing that cannot.
     "- ห้ามเขียนชวนให้กดประเมินราคาหรือกดปุ่มใดๆ ปิดท้าย เว็บมีปุ่มให้อยู่แล้ว",
     "- ห้ามใส่ลิงก์ URL หรือชื่อปุ่มลงในคำตอบ",
-    "- ภาษาไทย สุภาพ กระชับ ลงท้ายด้วยครับ",
+    // v1 gets the language switch too. The A/B note below says this prompt
+    // stays as production serves it — that is about ANSWER QUALITY, and
+    // answering an English customer in Thai is not a quality position either
+    // side is meant to hold. Both arms speak the customer's language, so the
+    // comparison stays like-for-like.
+    ...(lang === "en" ? languageLines(lang) : ["- ภาษาไทย สุภาพ กระชับ ลงท้ายด้วยครับ"]),
   ].join("\n");
 }
 
@@ -1210,6 +1216,11 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       }
 
       const assistantName = String(pub.assistant_name || "มาติน");
+      // Decided once, from the customer's own text, and used by whichever
+      // writer runs. Logged because "how many people ask us in English" is a
+      // number nobody has, and it is free to collect here.
+      const answerLang = answerLanguage(query);
+      if (answerLang !== "th") console.log(`[${tag}] answering in ${answerLang}`);
       const overviewModel = process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL;
       const extractModel = process.env.OVERVIEW_EXTRACT_MODEL || DEFAULT_OVERVIEW_MODEL;
       let extractMs = 0;
@@ -1318,7 +1329,9 @@ function registerSearchOverview({ dispatchOpsAlert }) {
         const gen = await callAnthropicText({
           apiKey,
           model: overviewModel,
-          system: isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName),
+          system: isV2
+            ? buildV2SystemPrompt(assistantName, answerLang)
+            : buildOverviewSystemPrompt(assistantName, answerLang),
           user: `ข้อมูลจากระบบ:\n${context}${v2Legend ? `\n\n${v2Legend}` : ""}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
           // V2 answers carry a verdict and its reasons and are simply longer —
           // probe round 1 lost 3/10 replies to the 700 cap mid-`detail`.

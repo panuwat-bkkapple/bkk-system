@@ -129,9 +129,19 @@ const handlerSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "search-overview.js"),
   "utf-8"
 );
+// Both halves, separately: the pipeline chooses WHICH prompt, and the
+// customer's own text chooses what language it answers in (answer-language.js).
+// Matching the old one-line form would have made this assertion a formatting
+// test — it broke on a reflow that changed neither fact.
 check(
   "wiring: stage 3 picks the prompt by pipeline",
-  handlerSrc.includes("isV2 ? buildV2SystemPrompt(assistantName) : buildOverviewSystemPrompt(assistantName)")
+  /isV2\s*\?\s*buildV2SystemPrompt\(assistantName/.test(handlerSrc) &&
+    /:\s*buildOverviewSystemPrompt\(assistantName/.test(handlerSrc)
+);
+check(
+  "wiring: and both prompts are told which language to answer in",
+  handlerSrc.includes("buildV2SystemPrompt(assistantName, answerLang)") &&
+    handlerSrc.includes("buildOverviewSystemPrompt(assistantName, answerLang)")
 );
 // The id legend must ride OUTSIDE the excise context: the gate whitelists
 // every digit run in `context`, and catalog ids can contain digits — a legend
