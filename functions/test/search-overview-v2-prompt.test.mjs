@@ -104,7 +104,15 @@ check(
 );
 check(
   "format: and knows how the count runs",
-  P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0") && P.includes("สูงสุด 2 หมายเลข")
+  P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0")
+);
+// One by default. The hard cap is enforced in keyPointsFromSentences against
+// the answer's own length — the first answers under this mechanism marked both
+// sentences of a two-sentence summary, and a prompt asking for restraint had
+// already failed to prevent it.
+check(
+  "format: asks for one highlight by default and says why",
+  P.includes("เลือก 1 หมายเลขเป็นหลัก") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
 );
 check("format: the phrase-copying instructions are gone for good", !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร"));
 // The old escape hatch keyed on LENGTH ("a short answer may use []") and most

@@ -533,6 +533,10 @@ const ex = (over = {}) => ({
     P.includes("นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0")
   );
   check(
+    "keypoints: asked for one by default — the cap itself is enforced in code",
+    P.includes("เลือก 1 หมายเลขเป็นหลัก") && P.includes("เท่ากับไม่ได้เน้นอะไรเลย")
+  );
+  check(
     "keypoints: nothing in the prompt asks for the phrase text any more",
     !P.includes("คัดลอกวลีออกมาจาก") && !P.includes("แบบคำต่อคำทุกตัวอักษร")
   );
@@ -607,6 +611,35 @@ const ex = (over = {}) => ({
   check(
     "a duplicate number highlights once",
     v2.keyPointsFromSentences([0, 0], written, servedAll).length === 1
+  );
+
+  // HOW MANY, and why the answer's length decides it.
+  //
+  // The first production answers under this mechanism marked BOTH sentences
+  // of a two-sentence summary. The mechanism worked perfectly and highlighted
+  // everything, which is the same as highlighting nothing. The prompt already
+  // asked for restraint; this is the version that does not depend on it.
+  check(
+    "a short answer carries exactly one highlight, even when two are asked for",
+    v2.keyPointsFromSentences([0, 1], written, servedAll).length === 1
+  );
+  check(
+    "and it is the first one asked for, not an arbitrary one",
+    v2.keyPointsFromSentences([1, 0], written, servedAll)[0] === "ตอนนี้เป็นจังหวะขายที่ดีครับ"
+  );
+
+  // A genuinely long answer has room for a second mark without becoming shaded.
+  const longWritten = {
+    summary: "ประโยคหนึ่งครับ ประโยคสองครับ ประโยคสามครับ",
+    detail: "ประโยคสี่ครับ ประโยคห้าครับ ประโยคหกครับ",
+  };
+  check(
+    "a long answer may carry two",
+    v2.keyPointsFromSentences([0, 3], longWritten, longWritten).length === 2
+  );
+  check(
+    "but never more than two, whatever arrives",
+    v2.keyPointsFromSentences([0, 1, 2, 3], longWritten, longWritten).length === 2
   );
 
   // WIRING. Everything above passes with a resolver nothing calls — proved by

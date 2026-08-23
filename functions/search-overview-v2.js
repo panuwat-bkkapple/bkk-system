@@ -612,6 +612,11 @@ function parseExtraction(raw, ingredients) {
  *  field is focus — a fourth highlight is the first three losing theirs. */
 const MAX_KEY_POINTS = 3;
 
+/** At or under this many sentences, an answer may carry exactly one highlight.
+ *  Two marks in a three-sentence answer is most of it, and a paragraph that is
+ *  mostly marked has no emphasis left to give. */
+const SHORT_ANSWER_SENTENCES = 4;
+
 function parseOverviewV2(raw, ingredients) {
   const text = String(raw || "").trim().replace(/```(?:json)?/gi, "");
   const start = text.indexOf("{");
@@ -748,6 +753,16 @@ function parseOverviewV2(raw, ingredients) {
 function keyPointsFromSentences(indices, original, served) {
   if (!Array.isArray(indices) || !indices.length) return [];
   const pool = [...splitSentences(original.summary || ""), ...splitSentences(original.detail || "")];
+  // HOW MANY, decided by the answer's own length rather than by the prompt.
+  //
+  // The first production answers under this mechanism marked two sentences of
+  // a two-sentence summary: the highlight worked and highlighted everything,
+  // which is the same as highlighting nothing. The prompt already said "น้อย
+  // แต่คมดีกว่าครบแต่ลาย" and that is exactly the kind of judgement this whole
+  // thread proved cannot be left to instructions.
+  //
+  // A short answer gets ONE. Anything else is not emphasis, it is shading.
+  const cap = Math.min(MAX_KEY_POINTS, pool.length <= SHORT_ANSWER_SENTENCES ? 1 : 2);
   const summary = String((served && served.summary) || "");
   const detail = String((served && served.detail) || "");
   const out = [];
@@ -757,7 +772,7 @@ function keyPointsFromSentences(indices, original, served) {
     if (!summary.includes(sentence) && !detail.includes(sentence)) continue;
     if (out.includes(sentence)) continue;
     out.push(sentence);
-    if (out.length >= MAX_KEY_POINTS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -976,7 +991,8 @@ function buildV2SystemPrompt(assistantName, lang = "th") {
     // key_points is a SELECTION from it. Truncation also costs the right
     // field: last position means a cut reply loses a highlight, not the body.
     "- เขียน summary กับ detail ให้เสร็จก่อน แล้วจึงระบุ key_point_sentences เป็น **หมายเลขประโยค** ที่ต้องการเน้น ห้ามพิมพ์ข้อความของประโยคซ้ำ ระบบจะตัดประโยคนั้นออกมาเอง",
-    "- การนับประโยค: นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0 (ประโยคแรกของ summary = 0, ประโยคที่สอง = 1, ...) เลือกได้สูงสุด 2 หมายเลข",
+    "- การนับประโยค: นับ summary ก่อนจนหมด แล้วนับ detail ต่อ เริ่มที่ 0 (ประโยคแรกของ summary = 0, ประโยคที่สอง = 1, ...)",
+    "- เลือก 1 หมายเลขเป็นหลัก ใส่ 2 ได้เฉพาะคำตอบที่ยาวจริงๆ — ย่อหน้าที่ถูกเน้นเกือบทั้งย่อหน้า เท่ากับไม่ได้เน้นอะไรเลย",
     "- key_point_sentences = หมายเลขของประโยคที่เป็นใจความสำคัญของทั้งคำตอบ — น้อยแต่คมดีกว่าครบแต่ลาย เลือกประโยคที่ยืนเองได้ มีประธานและสาระครบ (เช่น 'iPhone 17 Pro Max อยู่ที่ 35,000 - 38,000 บาท') ไม่ใช่ประโยคที่มีแต่เลขลอยๆ",
     "- ลำดับความสำคัญ: ประโยคที่ตอบคำถามของคำค้นนี้ มาก่อนประโยคที่บอกข้อเท็จจริงที่มีผลต่อการตัดสินใจตอนนี้ (แนวโน้ม จังหวะ) — นอกเหนือจากนั้นไม่ต้องใส่",
     "- วิธีเลือก: อ่านสิ่งที่เพิ่งเขียนอีกครั้ง ประโยคไหนคือคำตอบของคำถามนี้ที่สุด ใส่หมายเลขของประโยคนั้น",
