@@ -137,6 +137,16 @@ export function summarize(rows) {
     write: { p50: percentile(col("latencyMs"), 50), p90: percentile(col("latencyMs"), 90) },
     total: { p50: percentile(col("total"), 50), p90: percentile(col("total"), 90), p95: percentile(col("total"), 95) },
     answerChars: { p50: percentile(col("answerChars"), 50), p90: percentile(col("answerChars"), 90) },
+    // The context the writer READ, as production actually built it. Collected
+    // from the first version for the correlation below but never printed,
+    // which left the one question the correlation raises — "is 0.57 pointing
+    // at a prompt that is big, or at one that merely varies?" — unanswerable
+    // from the report that raised it.
+    inputChars: {
+      p50: percentile(col("inputChars"), 50),
+      p90: percentile(col("inputChars"), 90),
+      max: percentile(col("inputChars"), 100),
+    },
     // The lever test. Strong positive = the answer's LENGTH drives the wait,
     // so the lever is output size. Near zero = the wait is fixed overhead and
     // trimming the prompt or the answer will not move it.
@@ -158,6 +168,7 @@ function report(label, s) {
   console.log(`  stage 3 write     p50 ${ms(s.write.p50)}   p90 ${ms(s.write.p90)}`);
   console.log(`  TOTAL             p50 ${ms(s.total.p50)}   p90 ${ms(s.total.p90)}   p95 ${ms(s.total.p95)}`);
   console.log(`  answer size       p50 ${s.answerChars.p50} chars   p90 ${s.answerChars.p90} chars`);
+  console.log(`  prompt context    p50 ${s.inputChars.p50} chars   p90 ${s.inputChars.p90}   max ${s.inputChars.max}`);
   console.log(`  corr(answer length, write time) = ${pct(s.lengthVsTime)}`);
   console.log(`  corr(prompt size,   write time) = ${pct(s.inputVsTime)}`);
   const share = s.total.p50 ? Math.round((s.write.p50 / s.total.p50) * 100) : 0;
