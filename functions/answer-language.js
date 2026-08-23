@@ -59,21 +59,43 @@ const EN_FUNCTION_WORDS = new Set([
  */
 const EN_MIN_FUNCTION_WORDS = 2;
 
-/**
- * @param {string} query the customer's raw search text
- * @returns {"th"|"en"} the language the answer must be written in
- */
-function answerLanguage(query) {
-  const raw = String(query || "");
-  if (!raw.trim()) return "th";
-  if (THAI_RE.test(raw)) return "th";
+/** Does the text read as English prose, rather than as a name plus a word? */
+function looksLikeEnglishProse(raw) {
   const words = raw.toLowerCase().match(/[a-z]+/g) || [];
   const hits = new Set();
   for (const w of words) {
     if (EN_FUNCTION_WORDS.has(w)) hits.add(w);
-    if (hits.size >= EN_MIN_FUNCTION_WORDS) return "en";
+    if (hits.size >= EN_MIN_FUNCTION_WORDS) return true;
   }
-  return "th";
+  return false;
+}
+
+/**
+ * @param {string} query the customer's raw search text
+ * @param {"th"|"en"} [pageLang] which language edition of the site they are on
+ * @returns {"th"|"en"} the language the answer must be written in
+ *
+ * TWO SIGNALS, AND THEY DISAGREE FOR GOOD REASONS.
+ *
+ * The query says what the customer just wrote; the page says which edition
+ * they chose to be on. Neither alone is enough:
+ *
+ *   - Query alone leaves the /en visitor who types "iPhone 13 Pro 128GB" —
+ *     a bare model name, no prose to detect — reading a Thai paragraph on an
+ *     English page. That is most of what anyone types into a search box.
+ *   - Page alone would answer a Thai sentence in English because the visitor
+ *     once tapped the language switch.
+ *
+ * So: Thai characters settle it for Thai (positive evidence of what they are
+ * writing now beats a setting), English prose settles it for English, and
+ * only when the query carries no evidence either way does the page edition
+ * decide. That last line is the whole point of this parameter.
+ */
+function answerLanguage(query, pageLang = "th") {
+  const raw = String(query || "");
+  if (THAI_RE.test(raw)) return "th";
+  if (raw.trim() && looksLikeEnglishProse(raw)) return "en";
+  return pageLang === "en" ? "en" : "th";
 }
 
 /**
@@ -101,4 +123,9 @@ function languageLines(lang) {
   ];
 }
 
-module.exports = { answerLanguage, languageLines, EN_MIN_FUNCTION_WORDS, __test: { EN_FUNCTION_WORDS } };
+module.exports = {
+  answerLanguage,
+  languageLines,
+  EN_MIN_FUNCTION_WORDS,
+  __test: { EN_FUNCTION_WORDS, looksLikeEnglishProse },
+};

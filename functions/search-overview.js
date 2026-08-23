@@ -153,10 +153,10 @@ const OVERVIEW_CACHE_TTL_SECONDS = 3600;
  * so when the catalog moves the key moves with it — a price change mid-window
  * cannot leave a stale number being served under the same question.
  */
-function cacheKeyFor(query, context) {
+function cacheKeyFor(query, context, lang = "th") {
   return crypto
     .createHash("sha256")
-    .update(`${query}\n\n${context}`)
+    .update(`${query}\n\n${context}\n\nlang=${lang === "en" ? "en" : "th"}`)
     .digest("hex")
     .slice(0, 32);
 }
@@ -1074,6 +1074,11 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // the website decides which pipeline a search uses (its env flag), and
       // a v1 payload must keep working unchanged through the whole rollout.
       const isV2 = body.v2 === true;
+      // Which language EDITION of the site the visitor is on (/en vs the Thai
+      // default). Absent on an older website deployment, and that is a
+      // supported state: no value means Thai, which is the behaviour that
+      // shipped before this field existed.
+      const pageLang = body.lang === "en" ? "en" : "th";
       const ingredients = isV2 ? sanitizeIngredients(body.ingredients) : null;
       if (!query || (isV2 ? !ingredients : !catalogContext)) {
         res.status(400).json({ skipped: "empty_request" });
@@ -1133,14 +1138,25 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       // context does not exist until stage 2, and a hit must cost zero model
       // calls — plus v2FactsVersion for the store-facts half. Same property,
       // computed from the halves that exist before any money is spent.
+      // Decided once, from the customer's own text plus the edition they are
+      // on, and used by whichever writer runs.
+      //
+      // IT MUST BE IN THE KEY. The same query on /en and on the Thai site is
+      // now two different answers; sharing one cache entry would serve
+      // whichever language arrived first to everyone for the next hour — a
+      // wrong-language answer that no amount of retrying could shake off,
+      // which is worse than the bug this whole change is fixing.
+      const answerLang = answerLanguage(query, pageLang);
+      if (answerLang !== "th") console.log(`[${tag}] answering in ${answerLang}`);
+
       let context = "";
       let key;
       if (isV2) {
-        key = v2CacheKey(query, ingredients, await v2FactsVersion(db));
+        key = v2CacheKey(query, ingredients, await v2FactsVersion(db), answerLang);
       } else {
         const facts = topics.length ? await buildServiceFacts(db, topics) : "";
         context = catalogContext + facts;
-        key = cacheKeyFor(query, context);
+        key = cacheKeyFor(query, context, answerLang);
       }
 
       // CACHE BEFORE CAP, deliberately. The daily ceiling exists to bound
@@ -1216,11 +1232,6 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       }
 
       const assistantName = String(pub.assistant_name || "มาติน");
-      // Decided once, from the customer's own text, and used by whichever
-      // writer runs. Logged because "how many people ask us in English" is a
-      // number nobody has, and it is free to collect here.
-      const answerLang = answerLanguage(query);
-      if (answerLang !== "th") console.log(`[${tag}] answering in ${answerLang}`);
       const overviewModel = process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL;
       const extractModel = process.env.OVERVIEW_EXTRACT_MODEL || DEFAULT_OVERVIEW_MODEL;
       let extractMs = 0;

@@ -336,10 +336,13 @@ function canonicalIngredients(ingredients) {
  * payload. Market facts are NOT in it: they arrive in the payload and are
  * already hashed there.
  */
-function v2CacheKey(query, ingredients, factsVersion) {
+function v2CacheKey(query, ingredients, factsVersion, lang = "th") {
   return crypto
     .createHash("sha256")
-    .update(`${query}\n\n${canonicalIngredients(ingredients)}\n\n${String(factsVersion || "")}`)
+    .update(
+      `${query}\n\n${canonicalIngredients(ingredients)}\n\n${String(factsVersion || "")}` +
+        `\n\nlang=${lang === "en" ? "en" : "th"}`
+    )
     .digest("hex")
     .slice(0, 32);
 }
