@@ -105,6 +105,13 @@ export function readRow(row) {
     ? row.key_points.reduce((n, k) => n + String(k || "").length, 0)
     : 0;
   const outputChars = answerChars + keyPointChars;
+  // Proposed-but-rejected highlight phrases. Written only when non-zero, so
+  // an absent field means "none rejected" — which, paired with zero admitted,
+  // is the one combination that says the writer never marked anything at all.
+  // Without this pair the two failures are indistinguishable, which is the
+  // reason the field was archived in the first place.
+  const keyPointsDropped = typeof row.key_points_dropped === "number" ? row.key_points_dropped : 0;
+  const admittedKeyPoints = Array.isArray(row.key_points) ? row.key_points.length : 0;
   const extractMs = typeof row.extractMs === "number" ? row.extractMs : 0;
   return {
     v2: row.v2 === true,
@@ -115,6 +122,8 @@ export function readRow(row) {
     answerChars,
     keyPointChars,
     outputChars,
+    keyPointsDropped,
+    admittedKeyPoints,
     model: String(row.model || ""),
     excised: typeof row.excised === "number" ? row.excised : 0,
   };
@@ -158,6 +167,15 @@ export function summarize(rows) {
     // from the report that raised it.
     outputChars: { p50: percentile(col("outputChars"), 50), p90: percentile(col("outputChars"), 90) },
     keyPointChars: { p50: percentile(col("keyPointChars"), 50) },
+    // Two shares, because "no highlight on screen" has two causes and they
+    // need opposite fixes: a writer that marks nothing (prompt problem) and a
+    // writer that marks phrases it then paraphrases in the prose, so the
+    // verbatim rule rejects every one (rule problem).
+    highlights: {
+      rowsWithAny: rows.filter((r) => r.admittedKeyPoints > 0).length,
+      rowsWithRejected: rows.filter((r) => r.keyPointsDropped > 0).length,
+      rejectedTotal: rows.reduce((n, r) => n + r.keyPointsDropped, 0),
+    },
     // THE NUMBER THAT SEPARATES THE TWO EXPLANATIONS. If v1 and v2 land on
     // the same ms-per-emitted-character, the wait is bought by output volume
     // and nothing else needs explaining. If v2's is markedly higher, the
@@ -196,6 +214,10 @@ function report(label, s) {
   console.log(`  chars EMITTED     p50 ${s.outputChars.p50}   p90 ${s.outputChars.p90}   (of which key_points ${s.keyPointChars.p50})`);
   console.log(`  prompt context    p50 ${s.inputChars.p50} chars   p90 ${s.inputChars.p90}   max ${s.inputChars.max}`);
   console.log(`  ms per emitted char = ${s.msPerOutputChar.toFixed(2)}`);
+  console.log(
+    `  highlights        ${s.highlights.rowsWithAny}/${s.n} answers carry one   ` +
+      `${s.highlights.rowsWithRejected} had phrases rejected (${s.highlights.rejectedTotal} in total)`
+  );
   console.log(`  corr(answer length, write time) = ${pct(s.lengthVsTime)}`);
   console.log(`  corr(prompt size,   write time) = ${pct(s.inputVsTime)}`);
   const share = s.total.p50 ? Math.round((s.write.p50 / s.total.p50) * 100) : 0;

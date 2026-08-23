@@ -154,6 +154,32 @@ const rate = summarize([
 check("summarize: ms per emitted char, not per displayed char", rate.msPerOutputChar === 5);
 check("summarize: no divide-by-zero on an empty answer", summarize([readRow({ latencyMs: 5, summary: "", detail: "" })]).msPerOutputChar === 0);
 
+// ── why a highlight is missing ────────────────────────────────────────────
+//
+// The production report came back with zero admitted key points across every
+// v2 answer. That single number cannot say whether the writer marked nothing
+// or marked phrases it then paraphrased, so the verbatim rule rejected them
+// all — and the two need opposite fixes. This pair separates them.
+
+// The two counts must come out DIFFERENT, or the assertions cannot tell which
+// column each was computed from — a fixture where both are 1 passes just as
+// happily with the two predicates swapped.
+const hl = summarize([
+  // marked nothing: no admitted, none rejected
+  readRow({ v2: true, latencyMs: 1, summary: "a", detail: "" }),
+  // marked and kept
+  readRow({ v2: true, latencyMs: 1, summary: "a", detail: "", key_points: ["a"] }),
+  readRow({ v2: true, latencyMs: 1, summary: "a", detail: "", key_points: ["a"] }),
+  // marked and every one rejected — the failure that hides as "no highlight"
+  readRow({ v2: true, latencyMs: 1, summary: "a", detail: "", key_points_dropped: 3 }),
+]);
+check("summarize: counts answers that actually carry a highlight", hl.highlights.rowsWithAny === 2);
+check("summarize: counts answers whose phrases were rejected", hl.highlights.rowsWithRejected === 1);
+check("summarize: totals the rejected phrases", hl.highlights.rejectedTotal === 3);
+// An absent field is "none rejected", not missing data — it is only written
+// when non-zero.
+check("readRow: an absent key_points_dropped reads as zero", readRow({ latencyMs: 1, summary: "a" }).keyPointsDropped === 0);
+
 // ── the dependency the script cannot resolve by name ──────────────────────
 //
 // firebase-admin is installed ONLY in functions/node_modules. A bare
