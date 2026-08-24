@@ -86,7 +86,13 @@ check("English branch drops it", !enLines.includes("ลงท้ายด้ว�
 // "answer in English" reads as one more Thai rule. What is pinned is that the
 // block still says it, not which language it used to say it in.
 check("English branch says English, in full", enLines.includes("ANSWER IN ENGLISH"));
-check("English branch fixes the currency word", enLines.includes('"baht"'));
+// ONE PAGE, ONE FORM. This line said "baht" while every English surface the
+// front-end owns writes THB — the /search quote card, the track page, the chat
+// widget, every product-page FAQ. Production, 25 ส.ค. 2569, /en/search?q=iPhone
+// 16 Pro 128GB Battery 89%: the paragraph read "valued at 19,950 baht" directly
+// above a card reading "19,950 THB". Two names for one number, on one screen.
+check("English branch fixes the currency word to the house form", enLines.includes('"THB"'));
+check("English branch names baht as the form NOT to use", /never "baht"/.test(enLines));
 // CLAUDE.md's approved glossary — an answer that invents its own vocabulary
 // reads as a different company than the page it sits on.
 check("English branch carries the approved glossary", enLines.includes("quote") && enLines.includes("doorstep pickup"));

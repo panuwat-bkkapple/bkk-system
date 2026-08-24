@@ -164,7 +164,7 @@ function languageLines(lang) {
   if (lang !== "en") return ["- ภาษาไทย สุภาพ ลงท้ายด้วยครับ"];
   return [
     "- ANSWER IN ENGLISH. Professional and plain. No Thai script anywhere in the answer, and no ครับ/ค่ะ.",
-    '- Currency is written "baht". Keep the comma thousands separators exactly as the data gives them.',
+    '- Currency is written "THB" — never "baht", never "฿". Keep the comma thousands separators exactly as the data gives them.',
     '- Required terms: ประเมินราคา = "quote" or "valuation" (never "appraisal"), เครื่อง/รุ่น = "device" or "model", รับซื้อถึงบ้าน = "doorstep pickup", เกณฑ์การประเมินสภาพ = "condition guide", ตรวจสภาพเครื่อง = "device assessment" or "inspection"',
   ];
 }
