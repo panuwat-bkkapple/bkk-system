@@ -641,6 +641,98 @@ const ex = (over = {}) => ({
   check("wiring: the sentence-number mechanism is gone, not merely unused", !handlerSrc.includes("keyPointsFromSentences"));
 }
 
+// ---------------------------------------------------------------------------
+// A HALF-EXCISED SUMMARY IS A REFUSAL, NOT AN ANSWER.
+//
+// Production, 24 ส.ค. 2569, "Sell iPad Pro M1 128GB battery 80%" on /en. The
+// card's summary read, in full: "iPad Pro 11." Two sentences had been cut for
+// carrying figures the context could not vouch for, and the fragment was
+// served in the answer's position on the page.
+//
+// It only became reachable when English answers started working, and the
+// reason is splitSentences — the same function that broke the highlight
+// mechanism. It splits on `. ! ?` and on "ครับ", so a Thai paragraph is ONE
+// chunk: all of it survives or none does, and none of it is `!summary`, which
+// already refused. English prose splits properly, so the gate started cutting
+// sentence by sentence and there was nothing below it to catch a half-answer.
+// ---------------------------------------------------------------------------
+{
+  const NOTHING_VOUCHED = "ไม่มีตัวเลขใดๆ ในบริบทนี้";
+
+  // The screenshot, reproduced.
+  const fragment = v2.exciseUnverifiedNumbers(
+    {
+      summary: "iPad Pro 11. The base range is 8,000 - 10,000 baht. Your quote could reach 12,500 baht.",
+      detail: "Some detail here.",
+    },
+    NOTHING_VOUCHED
+  );
+  check("excise: a summary cut down to a fragment is refused, not served", fragment === null);
+
+  // Thai reached the same place by a different route and was always safe;
+  // that must not change.
+  const thai = v2.exciseUnverifiedNumbers(
+    { summary: "iPad Pro 11 ราคาเริ่มที่ 8,000 บาท ยอดอาจถึง 12,500 บาท", detail: "" },
+    NOTHING_VOUCHED
+  );
+  check("excise: Thai still refuses wholesale, as it always did", thai === null);
+
+  // The asymmetry itself, pinned — this is WHY the floor exists, and if
+  // splitSentences ever learns Thai this test says what changes.
+  check(
+    "excise: Thai prose is one chunk, English is many",
+    v2.__test.splitSentences("iPad Pro 11 ราคาเริ่มที่ 8,000 บาท ยอดอาจถึง 12,500 บาท").length === 1 &&
+      v2.__test.splitSentences("A. B. C. D.").length === 4
+  );
+
+  // A healthy answer must still get through — a floor that refuses everything
+  // is not a floor, it is an outage.
+  const healthy = v2.exciseUnverifiedNumbers(
+    {
+      summary: "iPad Pro 11 is quoted at 8,000 baht. The final amount is confirmed after inspection.",
+      detail: "",
+    },
+    "ราคา 8,000 บาท"
+  );
+  check("excise: a fully vouched answer is untouched", healthy && healthy.excised === 0);
+
+  // Losing ONE sentence of three is a trim, not a gutting: the answer still
+  // carries its figure and its caveat.
+  const trimmed = v2.exciseUnverifiedNumbers(
+    {
+      summary:
+        "iPad Pro 11 is quoted at 8,000 baht. The final amount is confirmed after inspection. A rival paid 99,999 baht.",
+      detail: "",
+    },
+    "ราคา 8,000 บาท"
+  );
+  check("excise: trimming one bad sentence off a sound answer still serves it", !!trimmed);
+  check("excise: and the bad figure is gone", trimmed && !trimmed.summary.includes("99,999"));
+
+  // AN ANSWER THAT NEVER CARRIED A FIGURE MUST STILL BE SERVED. The floor is
+  // gated on something having been CUT, and without that gate it would refuse
+  // every guidance answer on the site — which is why the gate is not
+  // decoration. (Injection-testing found this: dropping `sum.cut > 0` left the
+  // suite green until this case existed.)
+  const guidance = v2.exciseUnverifiedNumbers(
+    {
+      summary: "We buy this model in any condition. Bring it in and we will assess it.",
+      detail: "",
+    },
+    NOTHING_VOUCHED
+  );
+  check("excise: a figure-free answer with nothing cut is served, not refused", !!guidance);
+  check("excise: and nothing was counted against it", guidance && guidance.excised === 0);
+
+  // The detail is NOT held to the floor: it is optional, it sits behind a
+  // fold, and cutting unvouched figures out of it is the whole job.
+  const gutDetail = v2.exciseUnverifiedNumbers(
+    { summary: "iPad Pro 11 is quoted at 8,000 baht.", detail: "It could reach 12,500 baht." },
+    "ราคา 8,000 บาท"
+  );
+  check("excise: a gutted detail does not sink a sound summary", !!gutDetail && gutDetail.detail === "");
+}
+
 // ── done ───────────────────────────────────────────────────────────────────
 
 if (failures) {
