@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { createRequire } from "module";
-import { percentile, correlation, readRow, bangkokDays, summarize } from "../../scripts/overview-latency.mjs";
+import { percentile, correlation, readRow, bangkokDays, summarize, parseSince, splitAt, MIN_SAMPLE } from "../../scripts/overview-latency.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -209,6 +209,76 @@ check(
   "script: resolves a relative --key against the shell's cwd",
   src.includes("isAbsolute(keyPath) ? keyPath : resolve(process.cwd(), keyPath)")
 );
+
+// ---------------------------------------------------------------------------
+// THE CUT POINT — comparing a window against itself across a deploy.
+//
+// Without one the report can only compare whole Bangkok days, and a prompt
+// change that lands mid-afternoon has its before and after averaged into the
+// same percentiles. That is not a weak measurement, it is a measurement that
+// reports "no change" whatever happened.
+// ---------------------------------------------------------------------------
+
+check("since: absent means no cut", parseSince(null) === null && parseSince("") === null);
+check("since: epoch ms passes through", parseSince("1787505618882") === 1787505618882);
+check(
+  "since: an ISO stamp — the form a CI job prints — is read as the same instant",
+  parseSince("2026-08-23T17:23:54Z") === Date.parse("2026-08-23T17:23:54Z")
+);
+// A silent fallback would compare two windows that are not the ones asked
+// for, and print the answer with the same confidence as a correct one.
+let threw = false;
+try { parseSince("last tuesday"); } catch { threw = true; }
+check("since: unreadable input throws rather than defaulting", threw);
+
+{
+  const CUT = 1000;
+  const rows = [
+    { ts: 400, tag: "old" },
+    { ts: 999, tag: "just-before" },
+    { ts: 1000, tag: "on-the-cut" },
+    { ts: 5000, tag: "after" },
+    { ts: 0, tag: "undateable" },
+  ];
+  const { before, after } = splitAt(rows, CUT);
+  check(
+    "split: the cut instant itself counts as after",
+    after.map((r) => r.tag).join(",") === "on-the-cut,after"
+  );
+  check(
+    "split: an undateable row (ts 0) falls BEFORE, never into the window being measured",
+    before.map((r) => r.tag).join(",") === "old,just-before,undateable"
+  );
+  check("split: nothing is lost or duplicated", before.length + after.length === rows.length);
+
+  // THE ts > 0 CLAUSE, EXERCISED. With any realistic cut the arithmetic alone
+  // already puts an undateable row before it (0 >= cut is false), so the two
+  // checks above pass with or without that clause — they were written as if
+  // they proved it and did not. A cut of 0 is the input that separates them,
+  // and parseSince("0") produces exactly that, so it is reachable rather than
+  // hypothetical.
+  const atZero = splitAt(rows, 0);
+  check(
+    "split: even a cut of 0 leaves the undateable row out of the measured window",
+    !atZero.after.some((r) => r.tag === "undateable") &&
+      atZero.after.map((r) => r.tag).join(",") === "old,just-before,on-the-cut,after"
+  );
+}
+
+// ts has to survive readRow or the split has nothing to read.
+check("readRow: carries ts through", readRow({ latencyMs: 10, ts: 1787505618882 }).ts === 1787505618882);
+check("readRow: a row written before the field existed reads as ts 0", readRow({ latencyMs: 10 }).ts === 0);
+
+// THE SMALL-SAMPLE WARNING IS PART OF THE REPORT, not a thing the reader is
+// expected to know. At ~40 searches/day a few hours holds single digits, and
+// a p90 over 6 rows is the 6th-largest of 6 — it prints like a measurement.
+check("script: the report warns when either side is under MIN_SAMPLE", src.includes("MIN_SAMPLE"));
+check(
+  "script: and the warning says the numbers are indicative, not a conclusion",
+  src.includes("indicative only")
+);
+check("script: MIN_SAMPLE is a real threshold, not zero", MIN_SAMPLE >= 10);
+check("script: --since is documented in the usage header", src.includes("--since 2026-08-23T17:23:54Z"));
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
