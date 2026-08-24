@@ -57,7 +57,7 @@ import { dirname, join } from "path";
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildExtractSystemPrompt, buildExtractUser } = require(
+const { buildExtractSystemPrompt, buildExtractStable } = require(
   join(root, "functions", "search-overview-v2.js")
 );
 
@@ -130,13 +130,13 @@ async function main() {
   if (!models.length) throw new Error("catalog came back empty — refusing to report a size for it");
 
   const system = buildExtractSystemPrompt();
-  // conditionSets empty ON PURPOSE: the variable block is not part of what
-  // could be cached (see the header).
-  const QUERY = "iPhone 11 128GB แบต 78% ขายได้ไหม";
-  const user = buildExtractUser(QUERY, { models, conditionSets: {} });
-  // The same message minus the catalog, so the catalog's own share is a
+  // buildExtractStable IS the cached block — the same function production
+  // marks with cache_control. Measuring it directly beats reconstructing it,
+  // which is what this script did before the split existed.
+  const user = buildExtractStable({ models });
+  // The same block minus the catalog, so the catalog's own share is a
   // difference of two measurements rather than a second estimate.
-  const withoutModels = buildExtractUser(QUERY, { models: [], conditionSets: {} });
+  const withoutModels = buildExtractStable({ models: [] });
 
   const [tFull, tNoModels, tSystemOnly] = await Promise.all([
     countTokens({ apiKey, model, system, user }),
@@ -147,7 +147,7 @@ async function main() {
   console.log(`model                ${model}`);
   console.log(`catalog rows         ${models.length}`);
   console.log(`system prompt        ${system.length} chars`);
-  console.log(`user message         ${user.length} chars  (catalog + topics + query)`);
+  console.log(`cached block         ${user.length} chars  (catalog + topics)`);
   console.log("");
   console.log(`tokens: system only            ${tSystemOnly}`);
   console.log(`tokens: without the catalog    ${tNoModels}`);
@@ -156,13 +156,13 @@ async function main() {
   console.log("");
   const min = HAIKU_45_MIN_CACHEABLE_TOKENS;
   if (tFull >= min) {
-    console.log(`OVER the ${min}-token minimum by ${tFull - min}. Caching CAN work on ${model} —`);
-    console.log(`but only after buildExtractUser is reordered: the query is on line 1 today,`);
-    console.log(`ahead of the lists, and nothing after a per-request value is cacheable.`);
+    console.log(`OVER the ${min}-token minimum by ${tFull - min}. This block can cache on ${model}.`);
+    console.log(`Whether it DOES is a separate question the archive answers:`);
+    console.log(`  node scripts/overview-latency.mjs --key <sa.json> --days 3   -> "extract cache"`);
   } else {
     console.log(`UNDER the ${min}-token minimum by ${min - tFull}. On ${model} a cache_control`);
-    console.log(`marker here would be accepted, cost nothing, and do nothing. Reordering the`);
-    console.log(`prompt would not change that — this lever is closed, look elsewhere.`);
+    console.log(`marker here is accepted, costs nothing, and does nothing. Whatever the archive`);
+    console.log(`reports, this block cannot be the reason — take the marker back off.`);
   }
 }
 

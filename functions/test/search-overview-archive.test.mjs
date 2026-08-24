@@ -374,5 +374,98 @@ function fakeDb() {
   check(`no row of any kind has a question-shaped field${named.length ? ` (found ${named.join(", ")})` : ""}`, named.length === 0);
 }
 
+// THE FIELD NAMES THEMSELVES. Reading `input_tokens` where
+// `cache_read_input_tokens` was meant yields a plausible number, no error,
+// and a permanent report of zero hits — the same shape as caching simply not
+// working, so nobody would look at the code.
+{
+  const u = {
+    cache_read_input_tokens: 14646,
+    cache_creation_input_tokens: 0,
+    input_tokens: 812,
+    output_tokens: 40,
+  };
+  const got = __test.cacheUsageOf(u);
+  check("usage: read comes from cache_read_input_tokens", got.read === 14646);
+  check("usage: write comes from cache_creation_input_tokens", got.write === 0);
+  // The decoys have to be distinguishable, or the assertion above proves
+  // nothing about WHICH field was read.
+  check("usage: and not from input_tokens", got.read !== u.input_tokens && got.write !== u.input_tokens);
+  check(
+    "usage: a cold write reads back on the write side",
+    __test.cacheUsageOf({ cache_creation_input_tokens: 14646, input_tokens: 812 }).write === 14646
+  );
+  check("usage: a missing usage object is zeros, not a throw", (() => {
+    const z = __test.cacheUsageOf(undefined);
+    return z.read === 0 && z.write === 0;
+  })());
+}
+
+// ---------------------------------------------------------------------------
+// STAGE 1's CACHE ACCOUNTING REACHES THE ARCHIVE.
+//
+// Injection-testing the caching change found this gap: deleting the two lines
+// that write these fields left every other suite green. That is the worst
+// shape a gap can have, because the report downstream then prints
+//
+//   extract cache      no rows carry the field yet (shipped after these answers)
+//
+// which is the BENIGN message — indistinguishable from "this ran before
+// caching existed". The feature would look un-shipped rather than broken.
+//
+// The zeros matter as much as the hits: every way prompt caching fails is a
+// silent zero, so a row that omits the field when nothing cached destroys
+// exactly the reading these exist to give.
+// ---------------------------------------------------------------------------
+{
+  const base = {
+    model: "claude-haiku-4-5",
+    latencyMs: 1000,
+    inputChars: 10,
+    summary: "s",
+    detail: "",
+    topics: [],
+    ts: 1,
+  };
+  const hit = __test.buildArchiveAnswerRow({
+    ...base,
+    v2: true,
+    extractModel: "claude-haiku-4-5",
+    extractMs: 900,
+    extractCacheRead: 14646,
+    extractCacheWrite: 0,
+  });
+  check("archive: a cache hit is recorded", hit.extract_cache_read === 14646);
+  check("archive: and the write side with it", hit.extract_cache_write === 0);
+
+  const miss = __test.buildArchiveAnswerRow({
+    ...base,
+    v2: true,
+    extractModel: "claude-haiku-4-5",
+    extractMs: 2200,
+    extractCacheRead: 0,
+    extractCacheWrite: 14646,
+  });
+  // Present-and-zero, never absent: absent is what the report reads as
+  // "predates the feature".
+  check("archive: a miss writes 0, it does not omit the field", miss.extract_cache_read === 0);
+  check("archive: the write that filled the cache is recorded", miss.extract_cache_write === 14646);
+  check(
+    "archive: both keys exist on a v2 row even when nothing cached at all",
+    (() => {
+      const cold = __test.buildArchiveAnswerRow({ ...base, v2: true, extractModel: "m", extractMs: 1 });
+      return "extract_cache_read" in cold && "extract_cache_write" in cold;
+    })()
+  );
+  // v1 has no stage 1 to account for.
+  check(
+    "archive: a v1 row carries neither",
+    (() => {
+      const v1 = __test.buildArchiveAnswerRow(base);
+      return !("extract_cache_read" in v1) && !("extract_cache_write" in v1);
+    })()
+  );
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

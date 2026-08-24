@@ -459,19 +459,92 @@ function buildExtractSystemPrompt() {
   ].join("\n");
 }
 
-function buildExtractUser(query, ingredients) {
-  const lines = [`คำค้นดิบของลูกค้า: ${query}`, "", "ลิสต์รุ่นในระบบ (id | ชื่อ | ชื่อเรียกอื่น):"];
-  for (const m of ingredients.models) {
+/**
+ * STAGE 1's PROMPT, SPLIT AT WHAT CHANGES — the split is the whole point.
+ *
+ * Measured on the live catalog (202 models, scripts/extract-prompt-tokens.mjs):
+ * the lists below are 14,646 tokens, 12,883 of them the catalog, and stage 1
+ * reads all of it on EVERY search to answer with one line of JSON. It costs
+ * 2,225ms of a 10,133ms wait (p50, 62 production answers).
+ *
+ * That is the shape prompt caching is for, and caching is a PREFIX match:
+ * everything after the first byte that changes per request is uncacheable.
+ * The previous single-string version opened with the customer's query, which
+ * put the 14,646 tokens behind a value that changes every time — no marker
+ * could have helped. So the stable half is built on its own, and the caller
+ * marks it.
+ *
+ * WHAT COUNTS AS STABLE, precisely:
+ *
+ *   models  — id | name | alias. NO PRICES: an admin repricing all 202 models
+ *             does not disturb this prefix at all. It moves only when a model
+ *             is added, renamed, or realiased.
+ *   topics  — a constant in this file.
+ *
+ * Condition options are NOT here: buildOverviewIngredients ships the sets of
+ * MATCHED models only, so that block moves with the query.
+ *
+ * SORTED BY ID, and not for tidiness. The order used to be whatever order
+ * RTDB happened to return the catalog in — a property of the database, not of
+ * this code. The day that order shifts, the prefix changes and every request
+ * misses the cache with no error and no log: cache_read_input_tokens simply
+ * reads 0 forever. Plain byte comparison, never localeCompare, whose result
+ * depends on the ICU data built into the running Node.
+ */
+function buildExtractStable(ingredients) {
+  const lines = ["ลิสต์รุ่นในระบบ (id | ชื่อ | ชื่อเรียกอื่น):"];
+  const models = [...(((ingredients && ingredients.models) || []))].sort((a, b) => {
+    const x = String(a && a.id);
+    const y = String(b && b.id);
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+  for (const m of models) {
     lines.push(`${m.id} | ${m.name}${m.alias ? ` | ${m.alias}` : ""}`);
-  }
-  const choices = conditionChoices(ingredients);
-  if (choices.length) {
-    lines.push("", "ลิสต์สภาพเครื่องที่เลือกได้ (id | หมวด | ตัวเลือก):");
-    for (const c of choices) lines.push(`${c.cid} | ${c.group} | ${c.label}`);
   }
   lines.push("", "ลิสต์หัวข้อบริการที่เลือกได้ (id | ความหมาย):");
   for (const [id, desc] of Object.entries(V2_TOPIC_DESCRIPTIONS)) lines.push(`${id} | ${desc}`);
   return lines.join("\n");
+}
+
+/** Everything that moves with the request. The query goes LAST — nothing may
+ *  follow it that we would rather have cached. */
+function buildExtractVariable(query, ingredients) {
+  const lines = [];
+  const choices = conditionChoices(ingredients);
+  if (choices.length) {
+    lines.push("ลิสต์สภาพเครื่องที่เลือกได้ (id | หมวด | ตัวเลือก):");
+    for (const c of choices) lines.push(`${c.cid} | ${c.group} | ${c.label}`);
+    lines.push("");
+  }
+  lines.push(`คำค้นดิบของลูกค้า: ${query}`);
+  return lines.join("\n");
+}
+
+/**
+ * The user message as content blocks, with the breakpoint between them.
+ *
+ * ttl "1h", not the 5-minute default, and the traffic is the reason: ~26
+ * generated answers a day, clustered in waking hours, is roughly 2 an hour. A
+ * 5-minute entry would expire unread almost every time — paying the 1.25x
+ * write and reading it back zero times. The 1-hour entry costs 2x to write
+ * and needs three requests inside the window to pay for itself, which at this
+ * volume is break-even on cost; the reason to do it is the wait, and it
+ * improves on its own as traffic grows.
+ *
+ * Below claude-haiku-4-5's 4,096-token minimum a marker is accepted, costs
+ * nothing and does nothing. This prefix measures 14,646 — 3.6x over — but
+ * that is a measurement of today's catalog, not a guarantee, which is why the
+ * caller logs what actually came back.
+ */
+function buildExtractContent(query, ingredients) {
+  return [
+    {
+      type: "text",
+      text: buildExtractStable(ingredients),
+      cache_control: { type: "ephemeral", ttl: "1h" },
+    },
+    { type: "text", text: buildExtractVariable(query, ingredients) },
+  ];
 }
 
 /**
@@ -2055,7 +2128,9 @@ module.exports = {
   canonicalIngredients,
   v2CacheKey,
   buildExtractSystemPrompt,
-  buildExtractUser,
+  buildExtractStable,
+  buildExtractVariable,
+  buildExtractContent,
   parseExtraction,
   recoverMatchedModels,
   applicableMarketFacts,

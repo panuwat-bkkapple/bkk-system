@@ -39,7 +39,7 @@ const {
   sanitizeIngredients,
   v2CacheKey,
   buildExtractSystemPrompt,
-  buildExtractUser,
+  buildExtractContent,
   parseExtraction,
   recoverMatchedModels,
   hasAnythingToWrite,
@@ -708,7 +708,24 @@ const ARCHIVE_ROOT = "search_overview_archive";
  * the text would also mean storing the customer's query inside it, because
  * the context is built around the question.
  */
-function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, salvaged, excised, keyPoints, keyPointsDropped }) {
+/**
+ * The two cache numbers out of an Anthropic usage object.
+ *
+ * A function rather than two inline reads because the FIELD NAMES are the
+ * failure: `cache_read_input_tokens` misremembered as `cached_tokens`, or
+ * quietly taken from `input_tokens`, produces a plausible number, no error,
+ * and a permanent report of zero hits. Inside the handler nothing could pin
+ * them; out here they are one assertion.
+ */
+function cacheUsageOf(usage) {
+  const u = usage || {};
+  return {
+    read: Number(u.cache_read_input_tokens) || 0,
+    write: Number(u.cache_creation_input_tokens) || 0,
+  };
+}
+
+function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, extractCacheRead, extractCacheWrite, salvaged, excised, keyPoints, keyPointsDropped }) {
   const row = {
     model: String(model || ""),
     latencyMs: Number(latencyMs) || 0,
@@ -733,6 +750,12 @@ function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, 
     row.v2 = true;
     row.extract_model = String(extractModel || "");
     row.extractMs = Number(extractMs) || 0;
+    // Stage 1's cache accounting. Written ALWAYS, including the zeros: a row
+    // without the field would be indistinguishable from a row written before
+    // caching existed, and "no hits" is precisely the reading this pair has to
+    // be able to deliver — every failure mode of prompt caching is a silent 0.
+    row.extract_cache_read = Number(extractCacheRead) || 0;
+    row.extract_cache_write = Number(extractCacheWrite) || 0;
     // Repair telemetry, countable per day: how often the tolerant parser had
     // to salvage, and how many sentences the number gate cut. Both are the
     // probe's round-1 findings turned into measurable fields.
@@ -1235,6 +1258,10 @@ function registerSearchOverview({ dispatchOpsAlert }) {
       const overviewModel = process.env.OVERVIEW_MODEL || DEFAULT_OVERVIEW_MODEL;
       const extractModel = process.env.OVERVIEW_EXTRACT_MODEL || DEFAULT_OVERVIEW_MODEL;
       let extractMs = 0;
+      /** Stage 1's cache accounting, straight from the response. Both stay 0
+       *  on v1 and on any request where caching did not engage. */
+      let extractCacheRead = 0;
+      let extractCacheWrite = 0;
       let answerTopics = topics;
       // v2 only: the primary_model_id legend rides in the USER MESSAGE, never
       // inside `context` — the excise gate whitelists every digit run in the
@@ -1257,12 +1284,25 @@ function registerSearchOverview({ dispatchOpsAlert }) {
             apiKey,
             model: extractModel,
             system: buildExtractSystemPrompt(),
-            user: buildExtractUser(query, ingredients),
+            // Content blocks, not a string: the catalog half carries a
+            // cache_control breakpoint (buildExtractContent).
+            user: buildExtractContent(query, ingredients),
             maxTokens: EXTRACT_MAX_TOKENS,
             timeoutMs: EXTRACT_TIMEOUT_MS,
           });
           recordAiUsage(db, { origin: "search", model: extractModel, usage: ex.usage });
           extractMs = Date.now() - exStart;
+          // DID THE CACHE ACTUALLY WORK. Every way this feature can fail is
+          // silent: a prefix under the model's minimum, a catalog whose order
+          // shifted, a marker that never reached the request — all of them
+          // return 200 with these two fields at 0 and no warning anywhere. So
+          // the numbers are read back rather than assumed, and archived so the
+          // hit rate can be reported over time instead of eyeballed once.
+          ({ read: extractCacheRead, write: extractCacheWrite } = cacheUsageOf(ex.usage));
+          console.log(
+            `[${tag}] extract cache read=${extractCacheRead} write=${extractCacheWrite} ` +
+              `fresh=${Number(ex.usage && ex.usage.input_tokens) || 0}`
+          );
           const parsedExtraction = parseExtraction(ex.text, ingredients);
           // Applied here, once, so the answerability gate, the context and
           // the primary-model legend below all read the same extraction —
@@ -1439,7 +1479,17 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               topics: answerTopics,
               ts: Date.now(),
               ...(isV2
-                ? { v2: true, extractModel, extractMs, salvaged, excised, keyPoints, keyPointsDropped }
+                ? {
+                    v2: true,
+                    extractModel,
+                    extractMs,
+                    extractCacheRead,
+                    extractCacheWrite,
+                    salvaged,
+                    excised,
+                    keyPoints,
+                    keyPointsDropped,
+                  }
                 : {}),
             })
           )
@@ -1515,6 +1565,7 @@ module.exports = {
     parseOverview,
     buildCacheRow,
     buildArchiveAnswerRow,
+    cacheUsageOf,
     buildArchiveSkipRow,
     buildArchiveHitRow,
     archiveWrite,
