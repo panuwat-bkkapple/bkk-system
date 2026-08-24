@@ -282,6 +282,39 @@ const quoteOf = (over, ingOver) => quoteGate(ing(ingOver), extract(over));
     // Screen answered, battery NOT stated -> the battery group is assumed.
     quoteOf({ conditions: [cid("set16", 0, 1)] }).reason === "core_group_unanswered"
   );
+
+  // ── SCREEN IS NOT A CORE GROUP, 24 ส.ค. 2569 ────────────────────────────
+  //
+  // From production: "iPhone 11 128GB แบต 78% ขายได้ไหม" got a paragraph
+  // stating 2,000 บาท and NO card. The two gates over the same facts
+  // disagreed — deductionSection needs only stated.size > 0, quoteGate also
+  // demanded every core group answered — so G5 was not protecting the price
+  // (it went out anyway). It withheld the list saying which answers were the
+  // customer's and which the shop filled in, which is the one thing the card
+  // is for.
+  //
+  // These pin the behaviour and its limit, so putting screen back is a
+  // decision someone makes on purpose rather than a regression.
+  {
+    const noScreen = quoteOf({ battery_pct: 87 });
+    check("G5: a battery-only question now gets a figure", !!noScreen.quote);
+    const screenRow = noScreen.quote && noScreen.quote.conditions.find((c) => /จอ/.test(c.group));
+    check("G5: and the screen row rides along flagged as assumed", !!screenRow && screenRow.assumed === true);
+    // The card renders assumed rows as "ยังไม่ได้บอก ระบบประเมินตามสภาพปกติ",
+    // so the assumption is disclosed rather than buried in the figure.
+    check(
+      "G5: the assumed screen group is named out loud",
+      noScreen.quote && noScreen.quote.assumed_groups.some((g) => /จอ/.test(g))
+    );
+    // The best case is what an unanswered group is filled with, so the screen
+    // must deduct nothing here — a non-zero deduction would mean the resolver
+    // assumed damage nobody mentioned.
+    check("G5: an assumed screen deducts nothing", !!screenRow && screenRow.deduct === 0);
+  }
+  check(
+    "G5: battery stays core — silence there is still not an answer",
+    quoteOf({ conditions: [cid("set16", 0, 1)] }).reason === "core_group_unanswered"
+  );
   check(
     "G5: a set without a core group does not have to answer it",
     // The MacBook set has no battery group at all; 512GB names one row. The

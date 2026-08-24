@@ -1952,7 +1952,39 @@ function pagesSection(ingredients) {
  * group and a Watch band has no screen group, and demanding an answer that
  * does not exist would mean those models could never be quoted.
  */
-const CORE_GROUP_PATTERNS = [/จอ|หน้าจอ|screen|display/i, /แบต|battery/i];
+/**
+ * The groups whose answer the CARD may not assume.
+ *
+ * SCREEN CAME OUT, 24 ส.ค. 2569, and the reason is that the two gates over
+ * the same facts disagreed. On "iPhone 11 128GB แบต 78% ขายได้ไหม":
+ *
+ *   deductionSection (the paragraph)  needs only stated.size > 0
+ *     -> published "ประเมินราคาที่ 2,000 บาท"
+ *   quoteGate (the card)              also required every core group answered
+ *     -> withheld the card
+ *
+ * So G5 was not protecting the price. The figure went out either way; what it
+ * held back was the itemised list saying WHICH answers were the customer's and
+ * which the shop filled in — the one thing the card exists for:
+ *
+ *   "An assumption the customer cannot see is one they will argue with at the
+ *    door, and they will be right to"   — QuoteBreakdown, bkk-frontend-next
+ *
+ * A number with no visible assumption list is the state that comment is
+ * against, and that is exactly what withholding the card produced. Letting it
+ * through makes the page MORE honest, not less: the assumed screen row renders
+ * as "จอ — ยังไม่ได้บอก ระบบประเมินตามสภาพปกติ".
+ *
+ * BATTERY STAYS, and not out of caution about saying too much — the same
+ * argument would remove it too. It stays because the customer cannot answer it
+ * by looking: screen damage is something they already know about, so silence
+ * about it reads as "no damage", while battery health lives behind a settings
+ * screen and silence there reads as "not asked". Assuming the best bucket for
+ * a battery nobody checked is a claim about a number, not about something in
+ * plain sight. If that distinction stops convincing, this list becomes empty
+ * and G5 goes with it — one line, and the reasoning above is the whole case.
+ */
+const CORE_GROUP_PATTERNS = [/แบต|battery/i];
 
 /**
  * G1-G6 — may this answer carry ONE figure, or must it stay a range?
