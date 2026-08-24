@@ -76,15 +76,19 @@ const src = readFileSync(
   "utf-8"
 );
 check(
-  "script: builds the prompt with the REAL functions, not a copy",
-  src.includes("buildExtractSystemPrompt, buildExtractUser") &&
-    src.includes('join(root, "functions", "search-overview-v2.js")')
+  "script: measures the REAL cached block, not a reconstruction of it",
+  src.includes("buildExtractSystemPrompt, buildExtractStable") &&
+    src.includes('join(root, "functions", "search-overview-v2.js")') &&
+    src.includes("buildExtractStable({ models })")
 );
 // The variable block must stay out: it can never be cached, and counting it
 // would inflate the answer past the threshold on tokens that do not qualify.
+// buildExtractStable cannot contain them by construction now, so what is left
+// to guard is that the script does not reach for the variable half by another
+// route and quietly count tokens that can never be cached.
 check(
-  "script: measures the STABLE prefix — no condition sets",
-  src.includes("conditionSets: {} }") && !src.includes("conditionChoices(")
+  "script: never counts the variable half",
+  !src.includes("buildExtractVariable") && !src.includes("conditionChoices(")
 );
 // firebase-admin is not needed and must not creep in: /models is
 // world-readable, and a service-account requirement would put this behind a

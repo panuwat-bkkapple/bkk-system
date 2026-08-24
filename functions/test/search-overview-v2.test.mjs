@@ -22,7 +22,9 @@ const {
   sanitizeIngredients,
   canonicalIngredients,
   v2CacheKey,
-  buildExtractUser,
+  buildExtractStable,
+  buildExtractVariable,
+  buildExtractContent,
   buildExtractSystemPrompt,
   parseExtraction,
   applicableMarketFacts,
@@ -215,11 +217,58 @@ check(
 // ── stage-1 prompt inputs ───────────────────────────────────────────────────
 
 {
-  const user = buildExtractUser("ip16 pm 256 ขายได้เท่าไหร่", ING);
-  check("extract user: carries the raw query verbatim", user.includes("ip16 pm 256 ขายได้เท่าไหร่"));
+  const Q = "ip16 pm 256 ขายได้เท่าไหร่";
+  const stable = buildExtractStable(ING);
+  const variable = buildExtractVariable(Q, ING);
+  const user = stable + variable;
+  check("extract user: carries the raw query verbatim", user.includes(Q));
   check("extract user: lists model ids", user.includes("ip16pm | iPhone 16 Pro Max"));
   check("extract user: lists condition ids", user.includes("set16:0:1 | สภาพหน้าจอ | จอแตก มองเห็นชัด"));
   check("extract user: lists topics", user.includes("branches | "));
+
+  // ── THE CACHE BOUNDARY ───────────────────────────────────────────────────
+  // Caching is a prefix match, so what these pin is not tidiness: one wrong
+  // side and 14,646 measured tokens go back to being re-read on every search,
+  // with no error and no log to say so.
+  check("cache split: the query is NOT in the cached block", !stable.includes(Q));
+  check("cache split: condition ids are NOT in the cached block", !stable.includes("set16:0:1"));
+  check("cache split: the catalog IS in the cached block", stable.includes("ip16pm | iPhone 16 Pro Max"));
+  check("cache split: topics ARE in the cached block", stable.includes("branches | "));
+  // Nothing may follow the query that we would rather have cached.
+  check("cache split: the query sits last in the variable block", variable.trimEnd().endsWith(Q));
+
+  // Order used to be RTDB's to decide. A shift there would have cost every
+  // hit, silently — so it is this code's property now, by plain byte
+  // comparison (localeCompare depends on the running Node's ICU data).
+  const shuffled = { ...ING, models: [...ING.models].reverse() };
+  check(
+    "cache split: catalog order does not depend on the order it arrives in",
+    buildExtractStable(shuffled) === stable
+  );
+  const lines = stable.split("\n");
+  const ids = lines
+    .slice(1, lines.indexOf("")) // the catalog block alone; topics follow the blank line
+    .map((l) => l.split(" | ")[0]);
+  check(
+    "cache split: and that order is ascending by id",
+    ids.length > 1 ? ids.every((id, i) => i === 0 || ids[i - 1] <= id) : true
+  );
+
+  // A price edit touching all 202 models must not disturb the prefix — the
+  // strongest reason this block is worth caching at all.
+  const repriced = { ...ING, models: ING.models.map((m) => ({ ...m, min: 1, max: 2 })) };
+  check("cache split: repricing every model leaves the prefix identical", buildExtractStable(repriced) === stable);
+
+  // ── THE BLOCKS THE API ACTUALLY RECEIVES ─────────────────────────────────
+  const blocks = buildExtractContent(Q, ING);
+  check("content: two text blocks", blocks.length === 2 && blocks.every((b) => b.type === "text"));
+  check("content: the breakpoint is on the STABLE block, not the variable one",
+    !!blocks[0].cache_control && !blocks[1].cache_control);
+  // 5 minutes would expire unread at ~2 answers an hour, paying the write and
+  // reading it back zero times.
+  check("content: one-hour ttl", blocks[0].cache_control.ttl === "1h" && blocks[0].cache_control.type === "ephemeral");
+  check("content: the stable block comes first — a prefix cannot be second",
+    blocks[0].text === stable && blocks[1].text === variable);
   const sys = buildExtractSystemPrompt();
   check("extract system: forbids ids outside the lists", sys.includes("ห้ามแต่ง id เอง"));
   check(

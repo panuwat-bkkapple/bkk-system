@@ -142,6 +142,14 @@ export function readRow(row) {
     // 0 for a row written before the field existed; those fall on the BEFORE
     // side, which is where a row of unknown age belongs.
     ts: typeof row.ts === "number" ? row.ts : 0,
+    // STAGE 1's PROMPT CACHE, as the API reported it. Every failure mode of
+    // prompt caching is a silent zero — a prefix under the model's minimum, a
+    // catalog whose order shifted, a marker that never reached the request —
+    // so "did it work" can only be answered by reading these back. Absent on
+    // rows written before caching shipped, which read as 0 and are counted
+    // separately below rather than folded into a hit rate they predate.
+    cacheRead: typeof row.extract_cache_read === "number" ? row.extract_cache_read : null,
+    cacheWrite: typeof row.extract_cache_write === "number" ? row.extract_cache_write : null,
   };
 }
 
@@ -241,6 +249,27 @@ export function summarize(rows) {
     // The lever test. Strong positive = the answer's LENGTH drives the wait,
     // so the lever is output size. Near zero = the wait is fixed overhead and
     // trimming the prompt or the answer will not move it.
+    // Rows that carry the fields at all are the only ones the hit rate may be
+    // computed over: a row from before caching shipped is not a miss.
+    extractCache: (() => {
+      const known = rows.filter((r) => r.cacheRead !== null);
+      const hits = known.filter((r) => r.cacheRead > 0);
+      const writes = known.filter((r) => r.cacheWrite > 0);
+      return {
+        known: known.length,
+        hits: hits.length,
+        writes: writes.length,
+        readTokensP50: percentile(hits.map((r) => r.cacheRead), 50),
+        // The wait on a hit vs a miss, which is the number the whole change
+        // was made for. Both are p50s over their own group, so a lopsided
+        // split shows up as a small `known` rather than as a silent average.
+        hitMsP50: percentile(hits.map((r) => r.extractMs), 50),
+        missMsP50: percentile(
+          known.filter((r) => r.cacheRead === 0).map((r) => r.extractMs),
+          50
+        ),
+      };
+    })(),
     lengthVsTime: correlation(col("answerChars"), col("latencyMs")),
     inputVsTime: correlation(col("inputChars"), col("latencyMs")),
   };
@@ -266,6 +295,23 @@ function report(label, s) {
     `  highlights        ${s.highlights.rowsWithAny}/${s.n} answers carry one   ` +
       `${s.highlights.rowsWithRejected} had phrases rejected (${s.highlights.rejectedTotal} in total)`
   );
+  const c = s.extractCache;
+  if (!c.known) {
+    console.log(`  extract cache      no rows carry the field yet (shipped after these answers)`);
+  } else {
+    console.log(
+      `  extract cache      ${c.hits}/${c.known} hit   ${c.writes} wrote   ` +
+        `p50 ${c.readTokensP50} tokens read`
+    );
+    console.log(
+      `                     stage 1 p50: ${ms(c.hitMsP50)} on a hit vs ${ms(c.missMsP50)} on a miss`
+    );
+    // A marker that never engages looks exactly like a feature nobody
+    // switched on. Say so rather than printing a 0 and moving on.
+    if (!c.hits && !c.writes) {
+      console.log(`                     NOTE: zero reads AND zero writes — the marker is not engaging.`);
+    }
+  }
   console.log(`  corr(answer length, write time) = ${pct(s.lengthVsTime)}`);
   console.log(`  corr(prompt size,   write time) = ${pct(s.inputVsTime)}`);
   const share = s.total.p50 ? Math.round((s.write.p50 / s.total.p50) * 100) : 0;
