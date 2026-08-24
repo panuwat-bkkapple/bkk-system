@@ -250,6 +250,19 @@ check("since: unreadable input throws rather than defaulting", threw);
     before.map((r) => r.tag).join(",") === "old,just-before,undateable"
   );
   check("split: nothing is lost or duplicated", before.length + after.length === rows.length);
+
+  // THE ts > 0 CLAUSE, EXERCISED. With any realistic cut the arithmetic alone
+  // already puts an undateable row before it (0 >= cut is false), so the two
+  // checks above pass with or without that clause — they were written as if
+  // they proved it and did not. A cut of 0 is the input that separates them,
+  // and parseSince("0") produces exactly that, so it is reachable rather than
+  // hypothetical.
+  const atZero = splitAt(rows, 0);
+  check(
+    "split: even a cut of 0 leaves the undateable row out of the measured window",
+    !atZero.after.some((r) => r.tag === "undateable") &&
+      atZero.after.map((r) => r.tag).join(",") === "old,just-before,on-the-cut,after"
+  );
 }
 
 // ts has to survive readRow or the split has nothing to read.
