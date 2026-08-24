@@ -944,18 +944,53 @@ function splitSentences(text) {
 function exciseUnverifiedNumbers(parsed, context) {
   const allowed = allowedNumberRuns(context);
   let excised = 0;
+  // Reports its own cuts: whether the SUMMARY lost a sentence is a different
+  // question from whether anything anywhere did, and the floor below needs
+  // the first one.
   const clean = (text) => {
     const kept = [];
+    let cut = 0;
     for (const sentence of splitSentences(text)) {
       const runs = sentence.replace(/,/g, "").match(/\d{3,}/g) || [];
       if (runs.every((r) => allowed.has(r))) kept.push(sentence);
-      else excised++;
+      else cut++;
     }
-    return kept.join(" ");
+    excised += cut;
+    return { text: kept.join(" "), cut };
   };
-  const summary = clean(parsed.summary);
+  const sum = clean(parsed.summary);
+  const summary = sum.text;
   if (!summary) return null;
-  return { summary, detail: clean(parsed.detail || ""), excised };
+  // A PRICE ANSWER THAT LOST ITS PRICE IS NOT AN ANSWER.
+  //
+  // Production, 24 ส.ค. 2569, "Sell iPad Pro M1 128GB battery 80%" on /en:
+  // the card's summary read, in full, "iPad Pro 11." Two sentences had been
+  // cut for carrying figures the context could not vouch for, and the
+  // fragment was served in the answer's position on the page.
+  //
+  // It only became reachable when English answers started working, and the
+  // reason is splitSentences — the same splitter that broke the highlight
+  // mechanism. It breaks on `. ! ?` and on "ครับ", so a Thai paragraph is ONE
+  // chunk: all of it survives or none does, and none of it is `!summary`,
+  // which already refused. English prose splits properly, so the gate began
+  // cutting sentence by sentence with nothing beneath it to catch a
+  // half-answer.
+  //
+  // The test is the same thing this gate polices — a figure. If a priced
+  // sentence was cut out of the summary and no figure survives, the text
+  // cannot do the job it was generated for. A RATIO WAS THE FIRST ATTEMPT AND
+  // WAS WRONG: at half, it also refused ACC9's case, where one bad sentence is
+  // trimmed off a sound answer that still carries its 30,000 - 32,000 range.
+  // Share of text was never the question; whether a price survived is.
+  //
+  // Gated on `sum.cut` so an answer that never carried a figure — pure
+  // guidance, nothing excised — is left exactly as it was.
+  //
+  // Refusing is cheap and correct: overviewFallback drops to the template,
+  // which quotes the same catalogue with numbers that are ours by
+  // construction. A fragment is the one outcome worse than either.
+  if (sum.cut > 0 && !/\d{3,}/.test(summary.replace(/,/g, ""))) return null;
+  return { summary, detail: clean(parsed.detail || "").text, excised };
 }
 
 /**
