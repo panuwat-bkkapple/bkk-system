@@ -708,6 +708,23 @@ const ARCHIVE_ROOT = "search_overview_archive";
  * the text would also mean storing the customer's query inside it, because
  * the context is built around the question.
  */
+/**
+ * The two cache numbers out of an Anthropic usage object.
+ *
+ * A function rather than two inline reads because the FIELD NAMES are the
+ * failure: `cache_read_input_tokens` misremembered as `cached_tokens`, or
+ * quietly taken from `input_tokens`, produces a plausible number, no error,
+ * and a permanent report of zero hits. Inside the handler nothing could pin
+ * them; out here they are one assertion.
+ */
+function cacheUsageOf(usage) {
+  const u = usage || {};
+  return {
+    read: Number(u.cache_read_input_tokens) || 0,
+    write: Number(u.cache_creation_input_tokens) || 0,
+  };
+}
+
 function buildArchiveAnswerRow({ model, latencyMs, inputChars, summary, detail, topics, ts, v2, extractModel, extractMs, extractCacheRead, extractCacheWrite, salvaged, excised, keyPoints, keyPointsDropped }) {
   const row = {
     model: String(model || ""),
@@ -1281,8 +1298,7 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // return 200 with these two fields at 0 and no warning anywhere. So
           // the numbers are read back rather than assumed, and archived so the
           // hit rate can be reported over time instead of eyeballed once.
-          extractCacheRead = Number(ex.usage && ex.usage.cache_read_input_tokens) || 0;
-          extractCacheWrite = Number(ex.usage && ex.usage.cache_creation_input_tokens) || 0;
+          ({ read: extractCacheRead, write: extractCacheWrite } = cacheUsageOf(ex.usage));
           console.log(
             `[${tag}] extract cache read=${extractCacheRead} write=${extractCacheWrite} ` +
               `fresh=${Number(ex.usage && ex.usage.input_tokens) || 0}`
@@ -1549,6 +1565,7 @@ module.exports = {
     parseOverview,
     buildCacheRow,
     buildArchiveAnswerRow,
+    cacheUsageOf,
     buildArchiveSkipRow,
     buildArchiveHitRow,
     archiveWrite,
