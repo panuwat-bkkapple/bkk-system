@@ -54,7 +54,7 @@ const {
   EXTRACT_MAX_TOKENS,
   EXTRACT_TIMEOUT_MS,
 } = require("./search-overview-v2");
-const { answerLanguage, languageLines } = require("./answer-language");
+const { answerLanguage, languageLines, languageDirective, writeAnswerLine } = require("./answer-language");
 
 const REGION = "asia-southeast1";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -531,6 +531,9 @@ function sanitizeTopics(raw) {
  */
 function buildOverviewSystemPrompt(assistantName, lang = "th") {
   return [
+    // Same position and same reason as v2's — see languageDirective. Empty on
+    // Thai, so the v1 Thai prompt stays byte-for-byte what it was.
+    ...languageDirective(lang),
     `คุณคือ${assistantName} ผู้ช่วยของ BKK APPLE ร้านรับซื้ออุปกรณ์ Apple มือสอง`,
     "หน้าที่ของคุณคือสรุปคำตอบสั้นๆ ให้ลูกค้าที่พิมพ์คำถามเข้ามาในช่องค้นหาของเว็บ",
     "",
@@ -1383,7 +1386,10 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           system: isV2
             ? buildV2SystemPrompt(assistantName, answerLang)
             : buildOverviewSystemPrompt(assistantName, answerLang),
-          user: `ข้อมูลจากระบบ:\n${context}${v2Legend ? `\n\n${v2Legend}` : ""}\n\nเขียนคำตอบสำหรับคำค้น: ${query}`,
+          // THE LAST LINE BEFORE GENERATION, and until now it was Thai on
+          // every request — the strongest position in the whole payload
+          // quietly arguing against the language we had just asked for.
+          user: `ข้อมูลจากระบบ:\n${context}${v2Legend ? `\n\n${v2Legend}` : ""}\n\n${writeAnswerLine(query, answerLang)}`,
           // V2 answers carry a verdict and its reasons and are simply longer —
           // probe round 1 lost 3/10 replies to the 700 cap mid-`detail`.
           maxTokens: isV2 ? V2_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS,
