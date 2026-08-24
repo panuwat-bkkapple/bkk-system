@@ -20,7 +20,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 const require = createRequire(import.meta.url);
-const { answerLanguage, languageLines } = require("../answer-language.js");
+const { answerLanguage, languageLines, languageDirective, writeAnswerLine } = require("../answer-language.js");
 const { buildV2SystemPrompt } = require("../search-overview-v2.js");
 const { __test: v1 } = require("../search-overview.js");
 
@@ -82,12 +82,15 @@ const thLines = languageLines("th").join("\n");
 const enLines = languageLines("en").join("\n");
 check("Thai branch keeps the ครับ instruction", thLines.includes("ลงท้ายด้วยครับ"));
 check("English branch drops it", !enLines.includes("ลงท้ายด้วยครับ") || enLines.includes("ห้ามลงท้ายด้วยครับ"));
-check("English branch says English, in full", enLines.includes("เขียนคำตอบเป็นภาษาอังกฤษทั้งหมด"));
+// The wording moved to English on 24 ส.ค. 2569 — a Thai sentence saying
+// "answer in English" reads as one more Thai rule. What is pinned is that the
+// block still says it, not which language it used to say it in.
+check("English branch says English, in full", enLines.includes("ANSWER IN ENGLISH"));
 check("English branch fixes the currency word", enLines.includes('"baht"'));
 // CLAUDE.md's approved glossary — an answer that invents its own vocabulary
 // reads as a different company than the page it sits on.
 check("English branch carries the approved glossary", enLines.includes("quote") && enLines.includes("doorstep pickup"));
-check("English branch bans the forbidden term", enLines.includes("ห้าม appraisal"));
+check("English branch bans the forbidden term", enLines.includes('never "appraisal"'));
 
 // ── the prompts: language flips, TRUTH RULES DO NOT ─────────────────────────
 
@@ -110,10 +113,19 @@ const TRUTH_RULES = [
 for (const rule of TRUTH_RULES) {
   check(`v2 English keeps: ${rule.slice(0, 40)}`, v2en.includes(rule));
 }
+// The point of this one is that nothing about TRUTH moves when the language
+// does. The directive block joined the list of legitimately-different lines on
+// 24 ส.ค. 2569; everything outside it must still match line for line.
+const DIRECTIVE = languageDirective("en");
+const withoutLanguage = (prompt, lines, toneWord) =>
+  prompt
+    .split("\n")
+    .filter((l) => !lines.includes(l) && !l.includes(toneWord) && !DIRECTIVE.includes(l))
+    .join("\n");
 check(
   "the two prompts differ ONLY in their language lines",
-  v2th.split("\n").filter((l) => !thLines.includes(l) && !l.includes("ภาษาไทยธรรมชาติ")).join("\n") ===
-    v2en.split("\n").filter((l) => !enLines.includes(l) && !l.includes("ภาษาอังกฤษธรรมชาติ")).join("\n")
+  withoutLanguage(v2th, thLines, "ภาษาไทยธรรมชาติ") ===
+    withoutLanguage(v2en, enLines, "ภาษาอังกฤษธรรมชาติ")
 );
 
 const v1th = v1.buildOverviewSystemPrompt("มาติน");
@@ -171,6 +183,112 @@ check(
   "and hands it to whichever writer runs",
   handler.includes("buildV2SystemPrompt(assistantName, answerLang)") &&
     handler.includes("buildOverviewSystemPrompt(assistantName, answerLang)")
+);
+
+// ---------------------------------------------------------------------------
+// THE DIRECTIVE THAT LOST, AND WHY IT NOW SITS WHERE IT DOES.
+//
+// Production, 24 ส.ค. 2569, "iphone 15 pro 128GB" on /en. The function logged
+//
+//   [searchOverview] answering in en
+//
+// and served a Thai answer. So `body.lang` arrived, answerLanguage returned
+// "en", the cache key carried it — every link worked — and the model still
+// answered in Thai, because the instruction was ONE THAI LINE near the end of
+// a 5,542-character Thai prompt, followed by a Thai context, followed by a
+// Thai closing line.
+//
+// The old test asserted the prompt CONTAINED an English-language instruction.
+// It passed throughout. Containing it was never the property that mattered:
+// position and language were. These check those, which is as far as a test
+// can reach — whether the model complies is a production observation, not a
+// unit test, and this comment is the honest limit of what is proven here.
+// ---------------------------------------------------------------------------
+
+check("directive: Thai gets none at all", languageDirective("th").length === 0);
+check("directive: an absent language gets none", languageDirective(undefined).length === 0);
+
+{
+  const d = languageDirective("en");
+  check("directive: English gets one", d.length > 0);
+  // Written IN English. A Thai sentence saying "answer in English" reads as
+  // one more Thai rule; the same sentence in English reads as the language to
+  // produce.
+  check(
+    "directive: is written in English, with no Thai script in it",
+    !/[\u0E00-\u0E7F]/.test(d.filter((l) => !l.includes("BKK APPLE")).join(" "))
+  );
+  check("directive: says which language, unmissably", /ENTIRE answer in English/.test(d.join(" ")));
+  // The prompt around it IS Thai. Without this the model can read the Thai as
+  // the answer's register rather than as reference material.
+  check(
+    "directive: names the Thai around it as source material, not as the register",
+    /SOURCE MATERIAL/i.test(d.join(" "))
+  );
+}
+
+// ── position: first, not eighty lines down ────────────────────────────────
+{
+  const v2 = require("../search-overview-v2.js");
+  const en = v2.buildV2SystemPrompt("มาติน", "en");
+  const th = v2.buildV2SystemPrompt("มาติน", "th");
+  check(
+    "position: the English directive is the FIRST line of the prompt",
+    en.startsWith("OUTPUT LANGUAGE")
+  );
+  check(
+    "position: ahead of the persona, which used to open it",
+    en.indexOf("OUTPUT LANGUAGE") < en.indexOf("คุณคือมาติน")
+  );
+  // The Thai site must not move at all. Byte equality, not "looks the same".
+  check("position: the Thai prompt still opens with the persona", th.startsWith("คุณคือมาติน"));
+  check("position: and carries no directive block", !th.includes("OUTPUT LANGUAGE"));
+}
+
+// ── the last line before generation ───────────────────────────────────────
+{
+  // Whatever else the payload says, this is the closest instruction to the
+  // point of generation. It was Thai on every request, including English ones.
+  check(
+    "closing line: Thai is byte-for-byte the literal it replaced",
+    writeAnswerLine("iphone 15", "th") === "เขียนคำตอบสำหรับคำค้น: iphone 15"
+  );
+  check(
+    "closing line: English says the language again, and carries the query",
+    writeAnswerLine("iphone 15", "en") === "Write the answer in ENGLISH for this search: iphone 15"
+  );
+  check(
+    "closing line: no Thai script survives in the English form",
+    !/[\u0E00-\u0E7F]/.test(writeAnswerLine("iphone 15", "en"))
+  );
+  // Wired, not merely exported.
+  check(
+    "wiring: the handler builds its user message with it",
+    handler.includes("writeAnswerLine(query, answerLang)")
+  );
+  check(
+    "wiring: and the old hardcoded Thai tail is gone",
+    !handler.includes("\\n\\nเขียนคำตอบสำหรับคำค้น: ${query}`")
+  );
+}
+
+// ── the rules block ───────────────────────────────────────────────────────
+check(
+  "rules: the English block opens in English",
+  // Thai survives inside it on purpose: this line NAMES the particles it
+  // bans (ครับ/ค่ะ), and the glossary below maps from Thai terms. What has to
+  // be English is the instruction itself.
+  languageLines("en")[0].startsWith("- ANSWER IN ENGLISH.")
+);
+check(
+  "rules: Thai is untouched",
+  languageLines("th").join("") === "- ภาษาไทย สุภาพ ลงท้ายด้วยครับ"
+);
+// The glossary line keeps its Thai source terms on purpose — it MAPS Thai to
+// English, so the Thai side of each pair has to be there.
+check(
+  "rules: the glossary still maps from the Thai terms",
+  languageLines("en").some((l) => l.includes("ประเมินราคา") && l.includes("quote"))
 );
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASS");

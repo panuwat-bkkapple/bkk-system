@@ -114,18 +114,66 @@ function answerLanguage(query, pageLang = "th") {
  * and an answer that invents its own vocabulary reads as a different company
  * than the page it sits on.
  */
+/**
+ * WHY THIS IS IN ENGLISH AND WHY IT IS THREE PLACES, 24 ส.ค. 2569.
+ *
+ * The first version was one Thai line near the END of a 5,542-character Thai
+ * system prompt, followed by a wholly Thai context, followed by a Thai
+ * closing instruction. It was outnumbered and it lost: production log for
+ * "iphone 15 pro 128GB" on /en —
+ *
+ *   [searchOverview] answering in en
+ *
+ * — and the served answer was Thai. So the plumbing was right the whole time
+ * and the INSTRUCTION was the weak link. Three things changed:
+ *
+ *   1. the directive is written in the target language. "Write in English",
+ *      in English, is a signal the model reads as language-of-output;
+ *      the same sentence in Thai reads as one more Thai rule among ninety.
+ *   2. it goes FIRST, ahead of the persona, not eighty lines down.
+ *   3. the LAST line before generation says it again (writeAnswerLine) —
+ *      previously that line was Thai, which is the strongest position in the
+ *      whole request quietly arguing the other way.
+ *
+ * The Thai path is byte-for-byte unchanged: every helper here returns exactly
+ * what it returned before when lang is not "en".
+ */
+function languageDirective(lang) {
+  if (lang !== "en") return [];
+  return [
+    "OUTPUT LANGUAGE — READ THIS FIRST AND APPLY IT TO EVERYTHING BELOW:",
+    "The customer is reading the English edition of this site. Write the ENTIRE answer in English.",
+    "Every field of the JSON you return — summary and detail — must be English prose.",
+    "The rules and the shop data below are written in Thai. That is the SOURCE MATERIAL, not the language to answer in.",
+    "Never mix Thai words or Thai script into the answer. Product names and the shop name (BKK APPLE) stay as they are.",
+    "",
+  ];
+}
+
+/**
+ * The last line of the user message — the closest instruction to the point of
+ * generation, and the one that used to be Thai on every request.
+ */
+function writeAnswerLine(query, lang) {
+  return lang === "en"
+    ? `Write the answer in ENGLISH for this search: ${query}`
+    : `เขียนคำตอบสำหรับคำค้น: ${query}`;
+}
+
 function languageLines(lang) {
   if (lang !== "en") return ["- ภาษาไทย สุภาพ ลงท้ายด้วยครับ"];
   return [
-    "- ลูกค้าถามมาเป็นภาษาอังกฤษ ให้เขียนคำตอบเป็นภาษาอังกฤษทั้งหมด สุภาพแบบมืออาชีพ ห้ามปนภาษาไทย (ชื่อรุ่นและชื่อร้านคงไว้ตามเดิม) และห้ามลงท้ายด้วยครับ/ค่ะ",
-    '- สกุลเงินเขียนว่า "baht" ตัวเลขใช้เครื่องหมายจุลภาคคั่นหลักพันเหมือนเดิม',
-    '- ศัพท์ที่ต้องใช้ตามนี้: ประเมินราคา = "quote" หรือ "valuation" (ห้าม appraisal), เครื่อง/รุ่น = "device" หรือ "model", รับซื้อถึงบ้าน = "doorstep pickup", เกณฑ์การประเมินสภาพ = "condition guide", ตรวจสภาพเครื่อง = "device assessment" หรือ "inspection"',
+    "- ANSWER IN ENGLISH. Professional and plain. No Thai script anywhere in the answer, and no ครับ/ค่ะ.",
+    '- Currency is written "baht". Keep the comma thousands separators exactly as the data gives them.',
+    '- Required terms: ประเมินราคา = "quote" or "valuation" (never "appraisal"), เครื่อง/รุ่น = "device" or "model", รับซื้อถึงบ้าน = "doorstep pickup", เกณฑ์การประเมินสภาพ = "condition guide", ตรวจสภาพเครื่อง = "device assessment" or "inspection"',
   ];
 }
 
 module.exports = {
   answerLanguage,
   languageLines,
+  languageDirective,
+  writeAnswerLine,
   EN_MIN_FUNCTION_WORDS,
   __test: { EN_FUNCTION_WORDS, looksLikeEnglishProse },
 };

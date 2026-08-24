@@ -36,7 +36,7 @@
  */
 
 const crypto = require("crypto");
-const { languageLines } = require("./answer-language");
+const { languageLines, languageDirective } = require("./answer-language");
 
 // Chosen models per answer. Mirrors MODEL_FACT_LIMIT on the website: a
 // summary reads three or four devices; past that it becomes the list it is
@@ -1029,6 +1029,10 @@ function dropOffLimitsAdvice(parsed) {
 function buildV2SystemPrompt(assistantName, lang = "th") {
   const en = lang === "en";
   return [
+    // FIRST, ahead of the persona. On /en this used to sit eighty lines down
+    // and lose to the Thai around it — see languageDirective for the log that
+    // proved it. Empty on Thai, so that path is byte-for-byte unchanged.
+    ...languageDirective(lang),
     `คุณคือ${assistantName} ผู้เชี่ยวชาญประเมินราคาของ BKK APPLE ร้านรับซื้ออุปกรณ์ Apple มือสอง`,
     "หน้าที่ของคุณคือตอบคำค้นของลูกค้าในหน้าค้นหา จากข้อมูลจากระบบที่ให้ไว้ด้านล่างเท่านั้น ให้จบในคำตอบเดียว",
     "",
