@@ -4,6 +4,10 @@
 //   node scripts/overview-latency.mjs --key <service-account.json>
 //   node scripts/overview-latency.mjs --key <sa.json> --days 7
 //
+//   # before/after one deploy, out of a single pull of the archive:
+//   node scripts/overview-latency.mjs --key <sa.json> --days 3 \
+//     --since 2026-08-23T17:23:54Z
+//
 // READ-ONLY. It opens the archive and prints; it writes nothing, calls no
 // model, and bills nothing. (The dry-run-by-default rule is about scripts
 // with effects — this one has none to gate.)
@@ -57,6 +61,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { opsBangkokYmd } = require(join(root, "functions", "ops-dashboard.js"));
 
 // ── pure helpers, unit-tested in functions/test/overview-latency.test.mjs ──
+
+/** Below this, a percentile is the k-th largest of a handful and reads as a
+ *  measurement. Named so the threshold is one number, not a literal buried in
+ *  a message. */
+export const MIN_SAMPLE = 12;
 
 /** Nearest-rank percentile. Empty input is 0, not NaN — a column of NaN in a
  *  report reads as a broken script rather than as "no rows yet". */
@@ -126,6 +135,13 @@ export function readRow(row) {
     admittedKeyPoints,
     model: String(row.model || ""),
     excised: typeof row.excised === "number" ? row.excised : 0,
+    // WHEN, so a deploy can be used as a cut point (--since). Without it the
+    // report can only compare whole Bangkok days, and a prompt change that
+    // lands mid-afternoon has its before and after averaged into one row of
+    // percentiles — the exact dilution that makes a measurement say nothing.
+    // 0 for a row written before the field existed; those fall on the BEFORE
+    // side, which is where a row of unknown age belongs.
+    ts: typeof row.ts === "number" ? row.ts : 0,
   };
 }
 
@@ -150,6 +166,38 @@ export function bangkokDays(nowMs, count) {
   const out = [];
   for (let i = 0; i < count; i++) out.push(opsBangkokYmd(nowMs - i * 86400000));
   return out;
+}
+
+/**
+ * The cut point for a before/after comparison: epoch ms, an ISO timestamp, or
+ * null when the flag was not passed.
+ *
+ * Accepts both because the two sources differ: a GitHub Actions job stamp is
+ * ISO ("2026-08-23T17:23:54Z") and copying it in beats converting it by hand,
+ * while a value already in ms should not have to be dressed up. Anything
+ * unparseable throws rather than defaulting — a silent fallback here would
+ * compare two windows that are not the ones the caller asked for and report
+ * the result with the same confidence.
+ */
+export function parseSince(raw) {
+  if (raw == null || raw === "") return null;
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber) && String(raw).trim() !== "") return asNumber;
+  const t = Date.parse(String(raw));
+  if (Number.isNaN(t)) throw new Error(`--since: cannot read "${raw}" as a time`);
+  return t;
+}
+
+/**
+ * Split rows at the cut. A row with ts === 0 predates the field and cannot be
+ * placed, so it goes BEFORE: counting an undateable row as "after" would let
+ * old rows dilute the very window being measured.
+ */
+export function splitAt(rows, cutMs) {
+  const before = [];
+  const after = [];
+  for (const r of rows) (r.ts >= cutMs && r.ts > 0 ? after : before).push(r);
+  return { before, after };
 }
 
 export function summarize(rows) {
@@ -232,6 +280,16 @@ async function main() {
   };
   const keyPath = opt("key") || process.env.GOOGLE_APPLICATION_CREDENTIALS;
   const days = Number(opt("days") || 7);
+  // Bad input is a usage error, not a crash: the top-level catch prints a
+  // stack, and a stack for "you typed the date wrong" buries the one line
+  // that tells you so.
+  let since;
+  try {
+    since = parseSince(opt("since"));
+  } catch (e) {
+    console.error(e.message);
+    process.exit(2);
+  }
   if (!keyPath || !existsSync(keyPath)) {
     console.error("need a service account: --key <path.json> (or GOOGLE_APPLICATION_CREDENTIALS)");
     process.exit(2);
@@ -264,7 +322,31 @@ async function main() {
   }
 
   console.log(`search_overview_archive — last ${days} day(s), ${rows.length} answer rows`);
-  report("v2 (extract + write)", summarize(rows.filter((r) => r.v2)));
+
+  const v2Rows = rows.filter((r) => r.v2);
+  if (since !== null) {
+    // BEFORE AND AFTER THE SAME CUT, side by side. Comparing today's report
+    // against a number remembered from last week compares two windows whose
+    // traffic mix nobody controlled; splitting one pull at a deploy stamp at
+    // least holds the archive constant.
+    const { before, after } = splitAt(v2Rows, since);
+    console.log(`\ncut at ${new Date(since).toISOString()}  (before ${before.length} / after ${after.length})`);
+    report("v2 BEFORE the cut", summarize(before));
+    report("v2 AFTER the cut", summarize(after));
+    // SAY WHEN THE SAMPLE IS TOO SMALL TO READ, in the report itself. At the
+    // measured ~40 searches/day only a fraction reach the generator, so a
+    // window of hours can hold single digits — and a p90 over 6 rows is the
+    // 6th-largest of 6, which will happily print as a confident number and be
+    // read as one. This is the line that stops that.
+    if (before.length < MIN_SAMPLE || after.length < MIN_SAMPLE) {
+      console.log(
+        `\n  NOTE: fewer than ${MIN_SAMPLE} rows on one side — these percentiles are ` +
+          `indicative only. Wait for more traffic before concluding anything from the difference.`
+      );
+    }
+  } else {
+    report("v2 (extract + write)", summarize(v2Rows));
+  }
   report("v1 (write only)", summarize(rows.filter((r) => !r.v2)));
 
   const models = new Map();
