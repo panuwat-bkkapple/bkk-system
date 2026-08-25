@@ -1307,6 +1307,39 @@ function pickBatteryOptionId(options, pct) {
 const REJECT_NO_BUY_RE = /เปิดไม่ติด|ไม่สามารถเปิดเครื่อง|icloud|mdm/i;
 const REJECT_NO_BUY_GROUP_RE = /เปิดเครื่อง/;
 
+/**
+ * THE NAME PLUS THE CHIP, WHEN THE NAME CANNOT SUPPLY IT.
+ *
+ * Production, 26 ส.ค. 2569, "ipad a16 128gb". The answer named the device and
+ * quoted its price in the same sentence as denying we sell it:
+ *
+ *   "...แต่ในระบบรับซื้อของเราไม่มี iPad รุ่นไหนที่ใช้ชิป A16 เลย — รุ่นที่เรา
+ *    รับซื้อ 128GB ได้คือ iPad Generation 11 (ประเมินราคา 8,000 - 10,000 บาท)"
+ *
+ * `iPad Generation 11` IS the A16 iPad. The alias is the only thing that says
+ * so, and while stage 1 has always read it (`id | name | alias`), the writer's
+ * fact list rendered `- ${name}: ...` and nothing else. It denied having a
+ * device it was pricing on the next clause, which is the correct reading of
+ * the facts it was handed.
+ *
+ * THE CHIP DESIGNATOR ONLY, not the whole alias. Most aliases are Thai
+ * transliterations of the name ("iPhone 15 Pro Max" -> "ไอโฟน 15 โปรแม็กซ์"),
+ * and appending those to every fact line is a per-search token bill for
+ * something the writer already knows. A chip the name never states is the one
+ * thing missing, and it is exactly what went wrong.
+ */
+function factLabel(model) {
+  const name = String((model && model.name) || "");
+  const chips = [];
+  for (const part of String((model && model.alias) || "").split("/")) {
+    const m = part.trim().match(/\b([MA]\d+(?:\s+(?:Pro|Max|Ultra))?)\b/i);
+    if (m && !name.toLowerCase().includes(m[1].toLowerCase()) && !chips.includes(m[1])) {
+      chips.push(m[1]);
+    }
+  }
+  return chips.length ? `${name} (ชิป ${chips.join(" / ")})` : name;
+}
+
 function refusalClassOf(groupTitle, optionLabel) {
   return REJECT_NO_BUY_RE.test(String(optionLabel || "")) ||
     REJECT_NO_BUY_GROUP_RE.test(String(groupTitle || ""))
@@ -1495,17 +1528,17 @@ function priceSection(chosen, capacity, excludeIds = new Set()) {
   for (const m of listed) {
     const p = modelPrice(m, capacity);
     if (p.paused) {
-      lines.push(`- ${m.name}: ตอนนี้งดรับซื้อชั่วคราว${m.pausedMessage ? ` (${m.pausedMessage})` : ""}`);
+      lines.push(`- ${factLabel(m)}: ตอนนี้งดรับซื้อชั่วคราว${m.pausedMessage ? ` (${m.pausedMessage})` : ""}`);
       continue;
     }
     if (p.capacityUnavailable) {
       const have = p.available && p.available.length ? ` (ความจุที่เรารับซื้อ: ${p.available.join(", ")})` : "";
-      lines.push(`- ${m.name}: ไม่มีความจุ ${capacity} ในรายการรับซื้อของรุ่นนี้${have}`);
+      lines.push(`- ${factLabel(m)}: ไม่มีความจุ ${capacity} ในรายการรับซื้อของรุ่นนี้${have}`);
       continue;
     }
     if (!(p.max > 0)) continue;
     const spread = p.capacity ? "ปรับตามสภาพจริงตอนตรวจ" : "ต่างกันตามความจุและสภาพ";
-    const label = p.capacity ? `${m.name} ความจุ ${p.capacity}` : m.name;
+    const label = p.capacity ? `${factLabel(m)} ความจุ ${p.capacity}` : factLabel(m);
     lines.push(
       p.min > 0 && p.max > p.min
         ? `- ${label}: ${baht(p.min)} - ${baht(p.max)} บาท (${spread})`
@@ -1946,7 +1979,7 @@ function familySection(ingredients, extraction) {
     // be used for, right where they are handed over.
     `ราคาของบางรุ่นในตระกูล (ตัวอย่าง ${top.length} จาก ${members.length} รุ่น เรียงจากราคาสูงสุด) — เลขในแต่ละบรรทัดเป็นของรุ่นนั้นรุ่นเดียว ห้ามใช้แทนราคาของตระกูลหรือของ "ทุกรุ่น" และห้ามคำนวณช่วงรวมเองจากรายการนี้:`,
   ];
-  for (const m of top) lines.push(`- ${m.name}: ${span(m.min, m.max)}`);
+  for (const m of top) lines.push(`- ${factLabel(m)}: ${span(m.min, m.max)}`);
   return lines.join("\n");
 }
 
@@ -1977,7 +2010,7 @@ function siblingSection(ingredients, extraction, chosen) {
     .slice(0, SIBLING_LIMIT);
   if (!sibs.length) return "";
   const lines = ["รุ่นข้างเคียงในตระกูลเดียวกัน (ราคารับซื้อปัจจุบัน สำหรับเทียบทางเลือก):"];
-  for (const m of sibs) lines.push(`- ${m.name}: ${span(m.min, m.max)}`);
+  for (const m of sibs) lines.push(`- ${factLabel(m)}: ${span(m.min, m.max)}`);
   return lines.join("\n");
 }
 
@@ -2240,6 +2273,7 @@ module.exports = {
     resolveFinalPrice,
     modelPrice,
     familyOfCategory,
+    factLabel,
     resolveConditions,
     batteryOptionRange,
     pickBatteryOptionId,
