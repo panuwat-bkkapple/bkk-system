@@ -193,6 +193,78 @@ const extract = (over = {}) =>
   );
 }
 
+// ── stage 1: a repair is a REPAIR, not a battery reading ────────────────────
+//
+// PRODUCTION, 25 ส.ค. 2569, "iPhone 12 pro max 256 เปลี่ยนแบตไม่แท้ ขายได้
+// เท่าไหร่". One phrase, two wrong rows:
+//
+//   สุขภาพแบตเตอรี่   แบตเตอรี่เสื่อม   <- STATED, and the customer never said it
+//   ประวัติการซ่อม     ไม่เคยซ่อม        <- ASSUMED at best case, and they DID
+//
+// The second is the money one. The block is headed "what you did not tell us",
+// and it asserted the opposite of what they had just typed, at the shop's best
+// price. chat-ai.js rule 6.8 prices a genuine part at roughly 20% and an
+// unknown one at roughly 70%, so this quotes a phone that does not exist.
+//
+// These are PROMPT assertions and that is the whole fix by decision (25 ส.ค.
+// 2569, งานเจ้าของ): no code gate. What a prompt test can prove is that the
+// rule is present and that the model can ACT on it — the second assertion is
+// the one that would rot silently, because a rule telling the model to pick
+// from a group is unfollowable if the list never names the group.
+{
+  const sys = v2.buildExtractSystemPrompt();
+
+  check(
+    "stage1: replacing a part is filed under repair history, never battery",
+    sys.includes("ประวัติการซ่อม") && sys.includes("เปลี่ยนแบต") && sys.includes("ห้ามลงหัวข้อแบตเตอรี่")
+  );
+
+  check(
+    "stage1: battery health is only ever a reading of the battery ITSELF",
+    sys.includes("เปอร์เซ็นต์ หรือคำว่าเสื่อม")
+  );
+
+  check(
+    "stage1: genuine and non-genuine parts are told apart",
+    sys.includes("ไม่แท้") && sys.includes("อะไหล่แท้") && sys.includes("ศูนย์")
+  );
+
+  check(
+    "stage1: an unspecified repair leans to the heavier deduction, not the kinder one",
+    sys.includes("เลือกทางที่หักหนักกว่า")
+  );
+
+  check(
+    "stage1: one sentence may fill more than one topic",
+    sys.includes("ประโยคเดียวระบุได้หลายหัวข้อ")
+  );
+
+  // THE RULE IS ONLY FOLLOWABLE IF THE GROUP IS ON THE PAGE THE MODEL READS.
+  // conditionChoices emits `cid | group | label`; drop the middle field and
+  // every rule above becomes an instruction about something invisible.
+  const choices = v2.__test.conditionChoices({
+    conditionSets: {
+      set1: {
+        groups: [
+          { title: "ประวัติการซ่อม", options: [
+            { label: "ไม่เคยซ่อม", deduct: 0 },
+            { label: "เคยซ่อม อะไหล่แท้ศูนย์", deduct: 2000 },
+            { label: "เคยซ่อม อะไหล่ไม่แท้", deduct: 7000 },
+          ] },
+        ],
+      },
+    },
+  });
+  check(
+    "stage1: the choices list names the GROUP each option belongs to",
+    choices.length === 3 && choices.every((c) => c.group === "ประวัติการซ่อม")
+  );
+  check(
+    "stage1: and the repair options stay distinguishable by label",
+    choices.some((c) => /ไม่แท้/.test(c.label)) && choices.some((c) => /แท้ศูนย์/.test(c.label))
+  );
+}
+
 // ── the resolver (mirror of quotePolicy) ────────────────────────────────────
 
 {
