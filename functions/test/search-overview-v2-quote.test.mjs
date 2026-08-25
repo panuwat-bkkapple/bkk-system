@@ -595,3 +595,40 @@ if (failures) {
   process.exit(1);
 }
 console.log("All v2 quote checks passed");
+
+// ── the writer must not deny a device it is pricing ─────────────────────────
+//
+// PRODUCTION, 26 ส.ค. 2569, "ipad a16 128gb":
+//
+//   "...แต่ในระบบรับซื้อของเราไม่มี iPad รุ่นไหนที่ใช้ชิป A16 เลย — รุ่นที่เรา
+//    รับซื้อ 128GB ได้คือ iPad Generation 11 (ประเมินราคา 8,000 - 10,000 บาท)"
+//
+// One sentence, both halves. `iPad Generation 11` IS the A16 iPad; the alias
+// is the only thing that says so; stage 1 reads it (`id | name | alias`) and
+// the writer's fact list never did.
+{
+  const f = v2.__test.factLabel;
+
+  check(
+    "factLabel: the chip the name cannot supply rides with it",
+    f({ name: "iPad Generation 11", alias: "ไอแพด เจน 11 / iPad A16" }) ===
+      "iPad Generation 11 (ชิป A16)"
+  );
+
+  // A per-search token bill for something the writer already knows.
+  check(
+    "factLabel: a Thai transliteration is NOT appended",
+    f({ name: "iPhone 15 Pro Max", alias: "ไอโฟน 15 โปรแม็กซ์" }) === "iPhone 15 Pro Max"
+  );
+
+  check(
+    "factLabel: a name that already states its chip is left alone",
+    f({ name: 'iPad Air 11" (ชิป M4, 2026)', alias: "ไอแพดแอร์ 11 M4 2026" }) ===
+      'iPad Air 11" (ชิป M4, 2026)' &&
+      f({ name: 'MacBook Neo 13" (ชิป A18 Pro, 2026)', alias: "แมคบุ๊คนีโอ 13 A18 โปร 2026" }) ===
+        'MacBook Neo 13" (ชิป A18 Pro, 2026)'
+  );
+
+  check("factLabel: no alias, no change", f({ name: "iPad Generation 11" }) === "iPad Generation 11");
+  check("factLabel: survives a row with nothing on it", f({}) === "" && f(null) === "");
+}
