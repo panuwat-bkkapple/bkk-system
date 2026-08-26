@@ -629,20 +629,63 @@ function parseExtraction(raw, ingredients) {
   // under unknown_models while the catalog holds it priced — and the answer
   // told a customer "ยังไม่มีข้อมูล" about a device the card below was
   // selling. The prompt now pushes back too, but a false absence is a lie to
-  // a customer, so the guard is structural: normalized name/alias match
-  // against the list drops the entry (drop, never promote — auto-promoting
-  // to the matched id would be the repair-a-phantom door this parser refuses).
-  const knownNames = new Set();
+  // a customer, so the guard is structural (drop, never promote — auto-
+  // promoting to the matched id would be the repair-a-phantom door this
+  // parser refuses).
+  //
+  // IT USED TO COMPARE WHOLE NAMES and that let the same lie through again.
+  // Production, 26 ส.ค. 2569: "Ipad gen 10" — the price sheet quoted
+  // 5,000-8,000 บาท, the product card underneath said รับซื้อสูงสุด ฿8,000,
+  // and between them the overview said "ข้อมูลรุ่น iPad gen 10 ยังไม่มีใน
+  // ระบบรับซื้อของเรา". `ipadgen10` is not `ipadgeneration10`, so the guard
+  // waved it through. Customers abbreviate; that is the normal case, not the
+  // edge one.
+  //
+  // So the test is per WORD, the same rule the search matcher uses to decide
+  // a row matched at all (nameExplainsToken, lib/searchMatch.ts in
+  // bkk-frontend-next): a short word counts as a substring of the name, a
+  // number or single letter has to be a whole token of it. Every word of the
+  // filed name must be accounted for by ONE catalog entry — one entry, not
+  // the union of all of them, or "iPhone 16" would be explained away by an
+  // "iPhone 15" and a "MacBook 16"".
+  //
+  // What still survives as unknown, which is the half that must not break:
+  // a real absence keeps its number. We stock iPhone 15 and the customer
+  // asks about iPhone 16 — "16" is in no name of ours, so the entry stands
+  // and the answer says so out loud.
   const normName = (s) => String(s || "").toLowerCase().replace(/[\s\-_/|]+/g, "");
+  const knownEntries = [];
   for (const m of ingredients.models) {
-    knownNames.add(normName(m.name));
-    if (m.alias) for (const a of m.alias.split("/")) knownNames.add(normName(a));
+    knownEntries.push(String(m.name || ""));
+    if (m.alias) for (const a of m.alias.split("/")) knownEntries.push(a);
+    if (m.aka) for (const a of String(m.aka).split("/")) knownEntries.push(a);
   }
+  const nameWords = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0e00-\u0e7f]+/g, " ")
+      .replace(/([a-z\u0e00-\u0e7f])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-z\u0e00-\u0e7f])/g, "$1 $2")
+      .split(/\s+/)
+      .filter(Boolean);
+  /** One word against one catalog entry, by the matcher's rule. */
+  const entryExplainsWord = (word, entry) => {
+    const hay = String(entry || "").toLowerCase();
+    return /^\d+$/.test(word) || word.length === 1
+      ? nameWords(entry).includes(word)
+      : hay.includes(word);
+  };
+  const catalogExplains = (filed) => {
+    if (knownEntries.some((e) => normName(e) === normName(filed))) return true;
+    const words = nameWords(filed);
+    if (words.length === 0) return false;
+    return knownEntries.some((e) => words.every((w) => entryExplainsWord(w, e)));
+  };
   const unknownModels = [];
   for (const nameRaw of Array.isArray(obj.unknown_models) ? obj.unknown_models : []) {
     const s = str(nameRaw, 60).trim();
     if (!s) continue;
-    if (knownNames.has(normName(s))) {
+    if (catalogExplains(s)) {
       dropped.knownAsUnknown = (dropped.knownAsUnknown || 0) + 1;
       continue;
     }
