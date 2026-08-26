@@ -41,6 +41,7 @@ const {
   buildExtractSystemPrompt,
   buildExtractContent,
   parseExtraction,
+  preferPlainLine,
   recoverMatchedModels,
   hasAnythingToWrite,
   buildV2Context,
@@ -1311,7 +1312,15 @@ function registerSearchOverview({ dispatchOpsAlert }) {
           // Applied here, once, so the answerability gate, the context and
           // the primary-model legend below all read the same extraction —
           // see recoverMatchedModels for the case it exists to catch.
-          const extraction = recoverMatchedModels(ingredients, parsedExtraction);
+          // Then narrowed to the plain line, before anything reads it — see
+          // preferPlainLine for the production card that made this necessary
+          // and for why stage 1 needed its own copy of a rule the frontend
+          // had already fixed twice.
+          const extraction = preferPlainLine(
+            ingredients,
+            recoverMatchedModels(ingredients, parsedExtraction),
+            query
+          );
           if (!extraction) {
             console.warn(`[${tag}] v2 extract unparseable for "${query}"`);
             archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>

@@ -117,14 +117,28 @@ const ex = (o = {}) => ({
   const { fileURLToPath } = await import("url");
   const { dirname, join } = await import("path");
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "search-overview.js"), "utf-8");
+  // ASSERTED AS A PROPERTY, NOT AS A LINE OF SOURCE. This used to pin the
+  // literal `const extraction = recoverMatchedModels(ingredients,
+  // parsedExtraction)`, and it went red when preferPlainLine was added around
+  // it (26 ส.ค. 2569) — a correct change to the code, caught by an assertion
+  // that had over-specified HOW rather than WHAT. What has to hold is that
+  // recovery runs at the parse site, exactly once, and that its result is
+  // what the single `extraction` binding carries; the pipeline around it is
+  // free to grow.
   check(
     "the handler corrects the extraction at the parse site",
-    src.includes("const extraction = recoverMatchedModels(ingredients, parsedExtraction)")
+    src.includes("recoverMatchedModels(ingredients, parsedExtraction)")
+  );
+  check(
+    "and its result is what the one extraction binding carries",
+    /const extraction = (?:recoverMatchedModels|preferPlainLine)\(/.test(src) &&
+      src.split("const extraction =").length - 1 === 1
   );
   // One application, at the top: the answerability gate, the context and the
   // primary-model legend all have to read the same extraction, or the card
   // ends up with a champion the paragraph never had.
   check("and exactly once", src.split("recoverMatchedModels(").length - 1 === 1);
+  check("the plain-line gate likewise runs once", src.split("preferPlainLine(").length - 1 === 1);
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll recovery checks passed");
