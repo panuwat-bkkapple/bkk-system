@@ -632,3 +632,62 @@ console.log("All v2 quote checks passed");
   check("factLabel: no alias, no change", f({ name: "iPad Generation 11" }) === "iPad Generation 11");
   check("factLabel: survives a row with nothing on it", f({}) === "" && f(null) === "");
 }
+
+// ── the other official name reaches the writer whole ───────────────────────
+//
+// PRODUCTION, 26 ส.ค. 2569. The catalog row had just been renamed to
+// `iPad (A16)` — Apple's marketing name since 4 March 2025 — and
+// "iPad เจน 11" produced two cards that disagreed:
+//
+//   สรุปราคารับซื้อ     BKK APPLE รับซื้อ iPad (A16) ตอนนี้อยู่ที่ 8,000 - 13,000 บาท
+//   ข้อมูลภาพรวมโดย AI  คำค้น 'iPad เจน 11' ไม่ตรงกับรุ่นในระบบรับซื้อของเรา
+//
+// The nickname WAS in `alias` and the chip scan threw it away, having no chip
+// to find. `aka` is the curated second identity and comes through whole.
+{
+  const f = v2.__test.factLabel;
+
+  check(
+    "aka: the renamed row still answers to the nickname",
+    f({
+      name: "iPad (A16)",
+      aka: "iPad Gen 11 / iPad 11th Generation / ไอแพด เจน 11",
+      alias: "ไอแพด เจน 11 / iPad Gen 11",
+    }).includes("iPad Gen 11")
+  );
+
+  check(
+    "aka: and the old row still answers to the marketing name",
+    f({ name: "iPad Generation 11", aka: "iPad (A16)", alias: "ไอแพด เจน 11" }) ===
+      "iPad Generation 11 (iPad (A16))"
+  );
+
+  // Without this the same parenthesis reads "(iPad (A16) / ชิป A16)".
+  check(
+    "aka: a chip the aka already states is not repeated",
+    f({ name: "iPad Generation 11", aka: "iPad (A16)", alias: "iPad (A16)" }) ===
+      "iPad Generation 11 (iPad (A16))"
+  );
+
+  check(
+    "aka: the chip path still works when there is no aka",
+    f({ name: "iPad Generation 11", alias: "ไอแพด เจน 11 / iPad A16" }) ===
+      "iPad Generation 11 (ชิป A16)"
+  );
+
+  check(
+    "aka: a model with one name is still left alone",
+    f({ name: "iPhone 15 Pro Max", alias: "ไอโฟน 15 โปรแม็กซ์" }) === "iPhone 15 Pro Max"
+  );
+
+  check(
+    "aka: an aka that merely repeats the name is dropped",
+    f({ name: "iPad (A16)", aka: "iPad (A16)" }) === "iPad (A16)"
+  );
+
+  // sanitizeIngredients must let the field through at all.
+  const ing = v2.sanitizeIngredients({
+    models: [{ id: "x", name: "iPad (A16)", aka: "iPad Gen 11", min: 1, max: 2 }],
+  });
+  check("aka: survives ingredient sanitizing", ing.models[0].aka === "iPad Gen 11");
+}

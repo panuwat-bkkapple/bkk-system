@@ -145,6 +145,10 @@ function sanitizeModel(raw) {
   };
   const alias = str(raw.alias, 120).trim();
   if (alias) out.alias = alias;
+  // The OTHER official name, curated — see factLabel for why it cannot come
+  // through `alias`.
+  const aka = str(raw.aka, 120).trim();
+  if (aka) out.aka = aka;
   const category = str(raw.category, 40).trim();
   if (category) out.category = category;
   const family = str(raw.family, 20).trim().toLowerCase();
@@ -1349,14 +1353,42 @@ const REJECT_NO_BUY_GROUP_RE = /เปิดเครื่อง/;
  */
 function factLabel(model) {
   const name = String((model && model.name) || "");
+  const lower = name.toLowerCase();
+
+  // THE OTHER OFFICIAL NAME, VERBATIM.
+  //
+  // Production, 26 ส.ค. 2569. The catalog row had just been renamed to
+  // `iPad (A16)` — Apple's marketing name since 4 March 2025 — and
+  // "iPad เจน 11" produced two cards that disagreed: the template priced it,
+  // the answer under it said "ไม่ตรงกับรุ่นในระบบรับซื้อของเรา".
+  //
+  // The nickname was in `alias` and the chip scan below threw it away, having
+  // no chip to find. `aka` is the curated second identity and comes through
+  // whole: "iPad (A16)" and "iPad Gen 11" are two names for one tablet, and a
+  // customer typing either has named this device.
+  const aka = String((model && model.aka) || "")
+    .split("/")
+    .map((a) => a.trim())
+    .filter((a) => a && !lower.includes(a.toLowerCase()));
+
+  // The chip a name cannot state, dug out of the matching aliases. Kept
+  // separate because `alias` is mostly Thai spellings of the name already
+  // printed here, and putting those on every fact line is a per-search token
+  // bill for nothing.
+  // `aka` counts as already-said: `iPad Generation 11 (iPad (A16))` must not
+  // go on to add "ชิป A16" a second time in the same parenthesis.
+  const said = `${lower} ${aka.join(" ").toLowerCase()}`;
   const chips = [];
   for (const part of String((model && model.alias) || "").split("/")) {
     const m = part.trim().match(/\b([MA]\d+(?:\s+(?:Pro|Max|Ultra))?)\b/i);
-    if (m && !name.toLowerCase().includes(m[1].toLowerCase()) && !chips.includes(m[1])) {
+    if (m && !said.includes(m[1].toLowerCase()) && !chips.includes(m[1])) {
       chips.push(m[1]);
     }
   }
-  return chips.length ? `${name} (ชิป ${chips.join(" / ")})` : name;
+
+  const extra = [...aka];
+  if (chips.length) extra.push(`ชิป ${chips.join(" / ")}`);
+  return extra.length ? `${name} (${extra.join(" / ")})` : name;
 }
 
 function refusalClassOf(groupTitle, optionLabel) {
