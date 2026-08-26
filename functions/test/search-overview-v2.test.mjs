@@ -304,6 +304,71 @@ check(
     "parse: unknown models kept as customer's words",
     parseExtraction('{"unknown_models": ["iPhone 20 Ultra"]}', ING).unknownModels[0] === "iPhone 20 Ultra"
   );
+
+  // ── an abbreviation is not an absence ─────────────────────────────────────
+  //
+  // Production, 26 ส.ค. 2569, "Ipad gen 10". The price sheet above quoted
+  // 5,000-8,000 บาท, the product card below said รับซื้อสูงสุด ฿8,000, and
+  // between them the overview said "ข้อมูลรุ่น iPad gen 10 ยังไม่มีในระบบ
+  // รับซื้อของเรา". The guard compared whole names — `ipadgen10` is not
+  // `ipadgeneration10` — so the false absence went straight through.
+  //
+  // Both halves are pinned here, because a fix in either direction alone is
+  // a different bug: too loose and a real absence stops being said out loud.
+  const priced = (id, name, extra = {}) => ({
+    id,
+    name,
+    min: 5000,
+    max: 8000,
+    conditionSetId: "setSmall",
+    capacities: [{ name: "64GB", min: 5000, max: 6000, rows: 1, variant: "64GB" }],
+    ...extra,
+  });
+  const ingOf = (...models) =>
+    sanitizeIngredients({
+      models,
+      conditionSets: { setSmall: { groups: [] } },
+      marketFacts: [],
+      series: [],
+      pages: [],
+    });
+  const filedUnknown = (ing, name) =>
+    parseExtraction(JSON.stringify({ unknown_models: [name] }), ing).unknownModels;
+
+  const GEN10 = ingOf(priced("gen10", "iPad Generation 10"));
+  check(
+    "parse: THE ABBREVIATION THE CUSTOMER TYPED IS NOT AN UNKNOWN MODEL",
+    filedUnknown(GEN10, "iPad gen 10").length === 0
+  );
+  check("parse: lowercase spelling of it too", filedUnknown(GEN10, "ipad gen 10").length === 0);
+  check(
+    "parse: and it is counted, not silently vanished",
+    parseExtraction('{"unknown_models": ["iPad gen 10"]}', GEN10).dropped.knownAsUnknown === 1
+  );
+  check(
+    "parse: A REAL ABSENCE STILL SURVIVES — a generation we do not stock",
+    filedUnknown(GEN10, "iPad gen 11")[0] === "iPad gen 11"
+  );
+  check(
+    "parse: and a device from another family entirely",
+    filedUnknown(GEN10, "iPhone 20 Ultra")[0] === "iPhone 20 Ultra"
+  );
+
+  // ONE entry has to explain the whole name, never the union of several.
+  // Without that, an "iPhone 15" and a MacBook with a 16" screen between them
+  // would account for every word of "iPhone 16" and delete a true absence.
+  const SPLIT = ingOf(priced("ip15", "iPhone 15"), priced("mbp16", 'MacBook Pro 16" (ชิป M4, 2024)'));
+  check(
+    "parse: two rows cannot jointly explain away a model neither one is",
+    filedUnknown(SPLIT, "iPhone 16")[0] === "iPhone 16"
+  );
+
+  // The alias carries the base iPad's other official name, so the guard sees
+  // it wherever the admin has renamed the row.
+  const A16 = ingOf(priced("a16", "iPad (A16)", { aka: "iPad Gen 11 / ไอแพด เจน 11" }));
+  check("parse: the alias answers for the row it belongs to", filedUnknown(A16, "iPad gen 11").length === 0);
+  check("parse: in Thai as well", filedUnknown(A16, "ไอแพด เจน 11").length === 0);
+  check("parse: but not for the next generation along", filedUnknown(A16, "iPad gen 12")[0] === "iPad gen 12");
 }
 
 // ── applicability / emptiness ───────────────────────────────────────────────
