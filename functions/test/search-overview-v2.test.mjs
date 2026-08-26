@@ -27,6 +27,7 @@ const {
   buildExtractContent,
   buildExtractSystemPrompt,
   parseExtraction,
+  isOnlyAModelName,
   applicableMarketFacts,
   hasAnythingToWrite,
   buildV2Context,
@@ -369,6 +370,85 @@ check(
   check("parse: the alias answers for the row it belongs to", filedUnknown(A16, "iPad gen 11").length === 0);
   check("parse: in Thai as well", filedUnknown(A16, "ไอแพด เจน 11").length === 0);
   check("parse: but not for the next generation along", filedUnknown(A16, "iPad gen 12")[0] === "iPad gen 12");
+}
+
+// ── a dent is not a dead device, and a name is not an answer ────────────────
+//
+// Production, 26 ส.ค. 2569: "Macbook neo 256 มีตำหนิ รอยตกบุบ ขายได้เท่าไหร่"
+// returned a card whose whole answer was the words "MacBook Neo 13" — no
+// price, no refusal, no sentence, under a heading saying an AI wrote it.
+//
+// The writer had been handed refusal copy about a device that will not power
+// on or is iCloud/MDM locked, for a DENT. `declined` — a defect answer while
+// the shop is not buying defective devices — was filed under the class
+// written for those two named faults, so every scratch and dent was told it
+// would not power on. The model could see that was not what the customer
+// said, and wrote nothing rather than say it.
+{
+  const BODY = {
+    title: "สภาพตัวเครื่องและฝาหลัง",
+    options: [{ label: "สมบูรณ์ ไร้รอยตำหนิ", deduct: 0 }, { label: "มีรอยตกบุบ", defect: true }],
+  };
+  const POWER = {
+    title: "เปิดเครื่อง / ใช้งานทั่วไป",
+    options: [{ label: "ปกติ", deduct: 0 }, { label: "เปิดไม่ติด", failBehavior: "reject" }],
+  };
+  const NEO = 'MacBook Neo 13" (ชิป A18 Pro, 2026)';
+  const ingOf = () =>
+    sanitizeIngredients({
+      models: [{
+        id: "neo13", name: NEO, min: 12000, max: 15000, conditionSetId: "s",
+        capacities: [{ name: "256GB", min: 12000, max: 13000, rows: 1, variant: "256GB" }],
+      }],
+      conditionSets: { s: { groups: [BODY, POWER] } },
+      marketFacts: [], series: [], pages: [], acceptDefective: false,
+    });
+  const contextFor = (condition) => {
+    const ing = ingOf();
+    const ex = parseExtraction(
+      JSON.stringify({ models: ["neo13"], capacity: "256GB", conditions: [condition], topics: [] }),
+      ing
+    );
+    return buildV2Context({ query: "q", ingredients: ing, extraction: ex, serviceFacts: "" }).context;
+  };
+
+  const dent = contextFor("s:0:1");
+  check(
+    "a dent is NOT told it will not power on",
+    !dent.includes("เปิดไม่ติดหรือติดล็อก iCloud/MDM")
+  );
+  check("a dent is refused in the customer's own terms", dent.includes("มีรอยตกบุบ"));
+  check(
+    "and the writer is told not to invent a fault",
+    dent.includes("ห้ามอ้างอาการอื่นที่ลูกค้าไม่ได้บอก")
+  );
+  check(
+    "nor to promise we buy it as-is — defective buying is switched OFF",
+    dent.includes("ห้ามบอกว่ารับซื้อตามสภาพ") && !dent.includes("แต่เรายังรับซื้อตามสภาพ")
+  );
+  check("no price survives the refusal", !/12,000|15,000/.test(dent));
+
+  // The class the copy WAS written for keeps it, unchanged.
+  const dead = contextFor("s:1:1");
+  check(
+    "a device that will not power on still gets its own copy",
+    dead.includes("เปิดไม่ติดหรือติดล็อก iCloud/MDM")
+  );
+
+  // The backstop. Two unrelated causes have now produced the same shape on
+  // screen; a third will.
+  const ing = ingOf();
+  check("name only: the bare name is refused", isOnlyAModelName("MacBook Neo 13", ing));
+  check("name only: the full catalog name too", isOnlyAModelName(NEO, ing));
+  check("name only: and an empty summary", isOnlyAModelName("", ing));
+  check(
+    "name only: BUT a real answer is served",
+    !isOnlyAModelName("MacBook Neo 13 รับซื้อ 12,000 - 15,000 บาท", ing)
+  );
+  check(
+    "name only: including a refusal, which carries no price at all",
+    !isOnlyAModelName("ตอนนี้เรายังรับซื้อเครื่องที่มีรอยตกบุบไม่ได้ครับ", ing)
+  );
 }
 
 // ── applicability / emptiness ───────────────────────────────────────────────

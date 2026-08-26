@@ -1055,6 +1055,45 @@ function exciseUnverifiedNumbers(parsed, context) {
 }
 
 /**
+ * A MODEL NAME IS NOT AN ANSWER.
+ *
+ * The backstop under everything above, and it exists because the same shape
+ * arrived twice from two unrelated causes. 24 ส.ค.: "iPad Pro 11." — a
+ * summary whose sentences had been excised, caught by the figure rule above.
+ * 26 ส.ค., "Macbook neo 256 มีตำหนิ รอยตกบุบ ขายได้เท่าไหร่": a card whose
+ * entire answer was "MacBook Neo 13", with NOTHING excised — the writer had
+ * been handed refusal copy about a device that will not power on, could see
+ * the customer had said no such thing, and declined to write the sentence.
+ * The figure rule is gated on `sum.cut > 0`, so it never looked.
+ *
+ * Two different faults, one thing on screen: the device's name in the
+ * answer's position, under a heading that says an AI wrote it.
+ *
+ * The test is structural rather than a length or a keyword. Strip the
+ * separators and ask whether what remains is a piece of a name we ourselves
+ * put in the context. Any real answer — a price, a refusal, a sentence of
+ * guidance — carries a word the catalog did not supply, so nothing legitimate
+ * is inside this net. What IS inside it is every future variant of "the model
+ * repeated the label and stopped", whatever makes it happen next time.
+ *
+ * Refusing is cheap: overviewFallback drops to the price sheet, or to a
+ * sentence and a way onward. Both beat a name on its own.
+ */
+function isOnlyAModelName(summary, ingredients) {
+  const key = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9\u0e00-\u0e7f]+/g, "");
+  const said = key(summary);
+  if (!said) return true;
+  for (const m of (ingredients && ingredients.models) || []) {
+    const parts = [m.name, ...String(m.alias || "").split("/"), ...String(m.aka || "").split("/")];
+    for (const part of parts) {
+      const k = key(part);
+      if (k && (k.includes(said) || said === k)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * CHANNELS WE HAVE NO FACTS ABOUT — cut, not asked nicely about.
  *
  * Rule 7 was extended to forbid recommending a route we do not run, after
@@ -1751,8 +1790,33 @@ function resolveModelConditions(model, ingredients, extraction) {
   // the arithmetic comes out at the healthy price — and the customer would
   // arrive at the door quoting it. So here it is a refusal, exactly as it is
   // in the chat (chat-ai.js: declined_defect).
+  // A CLASS OF ITS OWN, and it used to borrow no_buy's.
+  //
+  // Production, 26 ส.ค. 2569: "Macbook neo 256 มีตำหนิ รอยตกบุบ ขายได้เท่าไหร่"
+  // returned a card whose entire answer was the words "MacBook Neo 13" — no
+  // price, no refusal, no sentence. The writer had been handed this
+  // instruction about a DENT:
+  //
+  //   "บอกลูกค้าอย่างสุภาพว่าเครื่องที่เปิดไม่ติดหรือติดล็อก iCloud/MDM
+  //    ยังรับซื้อไม่ได้"
+  //
+  // `declined` is quotePolicy's own verdict and means exactly one thing — a
+  // defect answer while the shop is not accepting defective devices — and
+  // that verdict stays as it is, because the mirror has to keep mirroring.
+  // What was wrong is what this file then DID with it: it filed every such
+  // answer under the refusal copy written for two named faults, so a scratch,
+  // a dent and a bent frame were all told they would not power on. The writer
+  // could see that was not what the customer said, and wrote nothing rather
+  // than say it — which is the better of its two options and still a blank
+  // card.
+  //
+  // Neither existing class fits, which is why this is a third one rather than
+  // a re-label. `no_buy` names faults the customer never mentioned. `as_is`
+  // promises "เรายังรับซื้อตามสภาพ ให้กดประเมิน" — and this device is declined
+  // precisely because the shop has switched defective buying OFF, so that
+  // promise is one the assessment flow would refuse at the next click.
   let refused = resolved.declined
-    ? { ...resolved.declined, refusalClass: "no_buy" }
+    ? { ...resolved.declined, refusalClass: "defect_paused" }
     : null;
   if (!refused) {
     for (const row of resolved.resolved) {
@@ -1808,6 +1872,10 @@ function deductionSection(chosen, ingredients, extraction) {
   /** Failed screening but STILL BOUGHT as-is, with a person confirming the
    *  offer. The large majority of reject answers land here. */
   const asIs = [];
+  /** Sound enough to screen, but flagged defective while the shop has
+   *  defective buying switched off. Neither of the two above is true of it:
+   *  nothing says it will not power on, and nothing offers to buy it as-is. */
+  const defectPaused = [];
   const coveredIds = new Set();
   for (const m of chosen) {
     if (m.paused || !m.conditionSetId) continue;
@@ -1820,8 +1888,10 @@ function deductionSection(chosen, ingredients, extraction) {
       // printed beside a refusal is the refusal being ignored.
       coveredIds.add(m.id);
       const said = `${r.refused.groupTitle}: ${r.refused.optionLabel}`;
-      if (r.refused.refusalClass === "no_buy") noBuy.push(`- ${name}: สภาพที่ลูกค้าบอก (${said})`);
-      else asIs.push(`- ${name}: สภาพที่ลูกค้าบอก (${said})`);
+      const line = `- ${name}: สภาพที่ลูกค้าบอก (${said})`;
+      if (r.refused.refusalClass === "no_buy") noBuy.push(line);
+      else if (r.refused.refusalClass === "defect_paused") defectPaused.push(line);
+      else asIs.push(line);
       continue;
     }
 
@@ -1916,6 +1986,18 @@ function deductionSection(chosen, ingredients, extraction) {
         "เครื่องที่อยู่นอกเกณฑ์รับซื้อ (ห้ามบอกราคาของเครื่องเหล่านี้เด็ดขาด ไม่ว่ารูปแบบใด):",
         ...noBuy,
         "บอกลูกค้าอย่างสุภาพว่าเครื่องที่เปิดไม่ติดหรือติดล็อก iCloud/MDM ยังรับซื้อไม่ได้ และเสนอให้ประเมินเครื่องอื่นแทนได้",
+      ].join("\n")
+    );
+  }
+  if (defectPaused.length) {
+    blocks.push(
+      [
+        "เครื่องที่ตอนนี้งดรับซื้อเพราะสภาพที่ลูกค้าแจ้ง (ห้ามบอกราคาของเครื่องเหล่านี้เด็ดขาด ไม่ว่ารูปแบบใด):",
+        ...defectPaused,
+        // Says only what the shop actually decided. The line above already
+        // carries the customer's own words for the fault, so the refusal has
+        // no reason to name one — and naming one is exactly what went wrong.
+        "บอกลูกค้าอย่างสุภาพว่าตอนนี้เรายังรับซื้อเครื่องที่มีอาการตามที่แจ้งไม่ได้ ให้อ้างอาการตามที่ลูกค้าบอกเท่านั้น ห้ามอ้างอาการอื่นที่ลูกค้าไม่ได้บอก (เช่น เปิดไม่ติด ติดล็อก iCloud) ห้ามบอกว่ารับซื้อตามสภาพ และเสนอให้ประเมินเครื่องอื่นแทนได้",
       ].join("\n")
     );
   }
@@ -2351,6 +2433,7 @@ module.exports = {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  isOnlyAModelName,
   dropOffLimitsAdvice,
   OFF_LIMITS_RE,
   admittedKeyPoints,
