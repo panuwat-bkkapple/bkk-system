@@ -47,6 +47,7 @@ const {
   buildV2SystemPrompt,
   parseOverviewV2,
   exciseUnverifiedNumbers,
+  isOnlyAModelName,
   dropOffLimitsAdvice,
   admittedKeyPoints,
   primaryModelLegend,
@@ -1432,6 +1433,22 @@ function registerSearchOverview({ dispatchOpsAlert }) {
               ref.update(buildArchiveSkipRow("unverified_numbers", Date.now()))
             );
             res.json({ skipped: "unverified_numbers", cacheKey: key });
+            return;
+          }
+          // Third gate, and the one that catches a shape the first two cannot
+          // see: an answer that is nothing but the device's own name. The
+          // number gate only looks when it CUT something, and on 26 ส.ค. 2569
+          // nothing had been cut — the writer simply wrote "MacBook Neo 13"
+          // and stopped, because the refusal copy it was handed described a
+          // fault the customer had not reported. That cause is fixed at the
+          // source; this is here because the same shape has now arrived twice
+          // from two unrelated causes, and it will arrive again from a third.
+          if (isOnlyAModelName(verified.summary, ingredients)) {
+            console.warn(`[${tag}] v2 reply was a bare model name for "${query}"`);
+            archiveWrite(db, tag, `${ARCHIVE_ROOT}/${ymd}/${key}`, (ref) =>
+              ref.update(buildArchiveSkipRow("name_only", Date.now()))
+            );
+            res.json({ skipped: "name_only", cacheKey: key });
             return;
           }
           excised = verified.excised;
