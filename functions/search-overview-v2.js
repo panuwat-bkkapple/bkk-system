@@ -446,6 +446,9 @@ function buildExtractSystemPrompt() {
     "กฎเหล็ก:",
     "1. id ทุกตัวที่ตอบ ต้องคัดลอกมาจากลิสต์ที่ให้ไว้เป๊ะๆ เท่านั้น ห้ามแต่ง id เอง",
     "2. รุ่นที่ลูกค้าเอ่ยถึงแต่ไม่มีในลิสต์รุ่น ให้ใส่ชื่อตามที่ลูกค้าเรียกลงใน unknown_models ห้ามจับคู่กับรุ่นอื่นที่ใกล้เคียง — แต่ก่อนใส่ต้องเช็คลิสต์ให้ถี่ถ้วน: ลูกค้ามักพิมพ์ตัวย่อหรือสะกดต่าง (เช่น 16pm / ip16 promax = iPhone 16 Pro Max, ไอโฟน = iPhone) ถ้าชื่อที่เอ่ยคือรุ่นเดียวกับที่มีในลิสต์ ให้เลือก id นั้นลง models ห้ามใส่ unknown_models",
+    // The gate below (preferPlainLine) is what MAKES this true; this line is
+    // here so the extractor does not have to be corrected in the first place.
+    "2.1 ชื่อตระกูล + ตัวเลข โดยที่ลูกค้าไม่ได้พิมพ์คำว่า air/แอร์ pro/โปร mini/มินิ = รุ่นธรรมดาของตระกูลนั้น ห้ามเลือกรุ่นย่อย: เลขนั้นคือรุ่นที่เท่าไร ไม่ใช่ขนาดจอ — \"ipad 11\" คือ iPad รุ่นที่ 11 ไม่ใช่ iPad Air 11 นิ้ว, \"iphone 13\" คือ iPhone 13 ไม่ใช่ 13 Pro. คนที่ถือ Air จะพิมพ์คำว่า Air มาเอง",
     "3. conditions ใส่เฉพาะเมื่อลูกค้าพูดถึงสภาพเครื่องจริงๆ และมี id ที่ตรงความหมาย — ประโยคอย่าง 'ราคาจะลงอีกไหม' ไม่ใช่สภาพเครื่อง ต้องได้ conditions ว่าง",
     // PRODUCTION, 25 ส.ค. 2569, "iPhone 12 pro max 256 เปลี่ยนแบตไม่แท้ ขายได้
     // เท่าไหร่". The card read: สุขภาพแบตเตอรี่ = แบตเตอรี่เสื่อม (STATED) and
@@ -1628,6 +1631,123 @@ function applicableMarketFacts(ingredients, extraction, now = Date.now()) {
  * describe a device we do sell, and no part of the answer should say
  * otherwise.
  */
+/**
+ * A BARE GENERATION NUMBER IS NOT A SCREEN SIZE — STAGE 1's COPY OF THE RULE.
+ *
+ * PRODUCTION, 26 ส.ค. 2569, bkkapple.com/search?q=ipad+11+128GB. The quote
+ * card read `iPad Air 11" (ชิป M2, 2024) ความจุ 128GB ประเมินราคาที่
+ * 9,000 - 11,000 บาท`, with a CTA to assess that Air — while the product
+ * cards UNDER it led with iPad (A16), which is the right answer and the one
+ * the owner has ruled on twice: "ipad 11" means the plain iPad, because a
+ * sub-line is something you SAY.
+ *
+ * The frontend had already been fixed for this, twice (bkk-frontend-next
+ * #896, #898). It did not help, and the reason is the thing worth writing
+ * down: STAGE 1 IS A SECOND MATCHER. It reads the whole catalog — 202 rows of
+ * `id | name | alias` — and picks the models itself, so the narrowed context
+ * the frontend computes never reaches the decision that names the card. "11"
+ * is the SCREEN SIZE in an iPad Air's name, and an extractor looking at a
+ * flat list has no reason to prefer one over the other.
+ *
+ * bkk-frontend-next/CLAUDE.md called this exact shot: "การ match ยังอยู่ repo
+ * นี้ (mirror matcher เพิ่มอีกตัวคือบั๊กที่ตั้งเวลาไว้)". The timer went off.
+ *
+ * WHY A CODE GATE AND NOT ONLY A PROMPT RULE. There is one of those too (rule
+ * 2.1), and it is worth having because an extractor that never picks the Air
+ * costs nothing to correct. But a rule the model is asked to follow is a rule
+ * it can decline to follow, and this file has watched that happen twice in
+ * one day on other prompts. The gate is what makes the answer not depend on
+ * that.
+ *
+ * MIRROR — third copy. `bareGenerationSubset` / `bareGenerationScore` /
+ * `LINE_WORDS` / `lineTextOf` in bkk-frontend-next/lib/searchMatch.ts are the
+ * original; this is them in JS, over the ingredient rows. Kept deliberately
+ * narrow so the two can be compared by eye:
+ *
+ *   - the query must name a generation (a standalone 3..20; storage sizes are
+ *     larger, which is what separates "ipad 11" from "ipad 256")
+ *   - the query must NOT name a sub-line itself ("ipad air 11" is an Air)
+ *   - the chip parenthetical comes off the row's name before it is read, or
+ *     `MacBook Pro 14" (ชิป M1 Pro, 2021)` reports its CHIP as its line
+ *   - no opinion when every candidate is a sub-line, or none is: there is
+ *     nothing to prefer and nothing to narrow
+ */
+const V2_LINE_WORDS = [
+  /\bpro\b|โปร/,
+  /\bair\b|แอร์(?!พอด)/,
+  /\bmax\b|แม็กซ|แมกซ/,
+  /\bmini\b|มินิ/,
+  /\bultra\b|อัลตร/,
+  /\bplus\b|พลัส/,
+];
+
+/** The row's identity with the chip parenthetical removed — lineTextOf. */
+function v2LineTextOf(model) {
+  return String((model && model.name) || "").replace(/\([^)]*\)/g, " ").toLowerCase();
+}
+
+/**
+ * MAC NUMBERS ARE SCREEN SIZES, AND THAT EXCLUSION IS NOT OPTIONAL.
+ *
+ * Apple has never numbered a MacBook by generation — 13, 14, 15, 16 are
+ * INCHES. Without this, "macbook 13" reads as "the 13th MacBook", every Pro
+ * and Air is a sub-line, and the gate hands the answer to whichever row
+ * happens to carry no line word in its name (in the live catalog, `MacBook
+ * Neo 13"`) — a niche row, promoted over the two machines the customer was
+ * almost certainly holding.
+ *
+ * FOUND BY PROBING THIS RULE'S ORIGINAL before copying it: bareGenerationSubset
+ * in bkk-frontend-next has exactly this hole today and narrows "macbook 13" to
+ * the Neo. It is reported for its own fix there. This copy does not reproduce
+ * it — a mirror is for keeping two answers the same, not for spreading one
+ * that is wrong, and the parity that matters is with the RULE, not with a bug
+ * that happens to be in the other file this week.
+ *
+ * Same family test the frontend already uses for the Mac-only RAM/storage
+ * pair rule (NAMES_A_MAC), for the same underlying reason: Mac is the family
+ * where a bare number describes the hardware, not which one came out first.
+ */
+const V2_NAMES_A_MAC = /macbook|imac|\bmac\b|แมคบุ|แม็คบุ/;
+
+/** Did the query write a number that reads as a generation? Same 3..20
+ *  window the frontend uses; one copy per repo, not one per call site. */
+function v2NamesAGeneration(query) {
+  const q = String(query || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0e00-\u0e7f]+/g, " ")
+    .replace(/([a-z\u0e00-\u0e7f])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z\u0e00-\u0e7f])/g, "$1 $2");
+  return q.split(/\s+/).some((t) => {
+    const n = Number(t);
+    return Number.isInteger(n) && n >= 3 && n <= 20;
+  });
+}
+
+/**
+ * Narrow stage 1's picks to the plain line, or leave them exactly as they are.
+ *
+ * Returns the extraction unchanged whenever it has no opinion, so every caller
+ * downstream keeps reading one extraction — same reason recoverMatchedModels
+ * is applied once, at one place.
+ */
+function preferPlainLine(ingredients, extraction, query) {
+  if (!extraction || !Array.isArray(extraction.models) || extraction.models.length === 0) {
+    return extraction;
+  }
+  const q = String(query || "").toLowerCase();
+  if (V2_LINE_WORDS.some((re) => re.test(q))) return extraction; // they named a sub-line
+  if (V2_NAMES_A_MAC.test(q)) return extraction; // a Mac's number is its screen
+  if (!v2NamesAGeneration(q)) return extraction;
+
+  const byId = new Map((ingredients.models || []).map((m) => [m.id, m]));
+  const plain = extraction.models.filter((id) => {
+    const line = v2LineTextOf(byId.get(id));
+    return line ? !V2_LINE_WORDS.some((re) => re.test(line)) : false;
+  });
+  if (plain.length === 0 || plain.length === extraction.models.length) return extraction;
+  return { ...extraction, models: plain, narrowedToPlainLine: true };
+}
+
 function recoverMatchedModels(ingredients, extraction) {
   if (!extraction || extraction.models.length || !extraction.unknownModels.length) return extraction;
   const priced = (ingredients.matchedIds || [])
@@ -2426,6 +2546,7 @@ module.exports = {
   buildExtractVariable,
   buildExtractContent,
   parseExtraction,
+  preferPlainLine,
   recoverMatchedModels,
   applicableMarketFacts,
   hasAnythingToWrite,
