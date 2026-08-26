@@ -223,3 +223,51 @@ if (failures) {
   process.exit(1);
 }
 console.log("\nAll v2 prompt checks passed");
+
+// ── the facts own the model's identity ─────────────────────────────────────
+//
+// PRODUCTION, 26 ส.ค. 2569, "ipad a16 256gb แบต 89% ประกันหมด". With the alias
+// finally on the fact line the answer priced the device correctly — and then:
+//
+//   "อย่างไรก็ตาม iPad Generation 11 ใช้ชิป A14 ไม่ใช่ A16
+//    หากคุณมีรุ่นอื่น ลองตรวจสอบชื่อรุ่นให้แน่ใจก่อนครับ"
+//
+// iPad Generation 11 IS the A16 iPad. The model invented A14 and used it to
+// CORRECT the facts, telling a customer holding the exact device we had just
+// quoted that they own something else. The same answer opened by denying we
+// had any A16 iPad, two clauses before pricing that very iPad.
+//
+// Rule 7 already banned outside knowledge and it was not enough — it reads as
+// a rule about prices and news, and a chip felt like something the model
+// simply knew.
+{
+  const sys = v2.buildV2SystemPrompt("มาติน");
+
+  check(
+    "identity: the system data owns which chip a model has",
+    sys.includes("7.1") && sys.includes("เจ้าของความจริงเรื่องรุ่นไหนใช้ชิปอะไร")
+  );
+
+  check(
+    "identity: a remembered chip is treated as a WRONG memory, not a correction",
+    sys.includes("ให้ถือว่าความจำผิด") && sys.includes("ห้ามแก้ให้เป็นชิปอื่นจากความจำ")
+  );
+
+  check(
+    "identity: naming a chip absent from the data is banned outright",
+    sys.includes("ห้ามเอ่ยชื่อชิปที่ไม่ปรากฏในข้อมูล")
+  );
+
+  check(
+    "identity: a priced model is IN the system — no denial before the price",
+    sys.includes("7.2") && sys.includes("ห้ามขึ้นต้นว่าไม่มีรุ่นนั้น")
+  );
+
+  check(
+    "identity: the parenthetical counts as one of the model's names",
+    sys.includes("ชื่อในวงเล็บนับเป็นชื่อของรุ่นนั้นด้วย")
+  );
+
+  // Rule 7 stays: these narrow it onto identity, they do not replace it.
+  check("identity: the general outside-knowledge ban is untouched", sys.includes("ห้ามใช้ความรู้นอกเหนือจากข้อมูลจากระบบ"));
+}
