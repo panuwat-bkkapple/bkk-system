@@ -10,6 +10,7 @@ import {
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { isAwaitingOffer } from '../../utils/offerRequest';
 import { isOfferAwaitingDecision } from '../../utils/customerOffer';
+import { isRecededStatus } from '../../types/job-statuses';
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -40,9 +41,11 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   'Paid':               { bg: 'bg-green-100',    text: 'text-green-700',   dot: 'bg-green-500' },
   'PAID':               { bg: 'bg-green-100',    text: 'text-green-700',   dot: 'bg-green-500' },
   'In Stock':           { bg: 'bg-slate-100',    text: 'text-slate-700',   dot: 'bg-slate-500' },
-  'Cancelled':          { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
-  'Closed (Lost)':      { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
-  'Returned':           { bg: 'bg-gray-100',     text: 'text-gray-500',    dot: 'bg-gray-400' },
+  // Terminal chips keep their weight on receded cards, so their text must
+  // clear WCAG AA on its own: gray-500 on gray-100 is 4.39:1 — gray-600 is 6.87:1.
+  'Cancelled':          { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
+  'Closed (Lost)':      { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
+  'Returned':           { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
 };
 
 const PHASE_FILTERS = [
@@ -228,7 +231,11 @@ export const MobileTicketsPage = () => {
 
 const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => void; onViewHistory: () => void }) => {
   const sc = STATUS_COLORS[job.status] || { bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400' };
-  const isNew = job.status === 'New Lead' || job.status === 'New B2B Lead';
+  // Receded = terminal or soft-closed: content ink goes quiet (never the
+  // status chip, never the card background) and attention markers (new-lead
+  // dot/ring, offer CTA badges) are suppressed so active work stands out.
+  const receded = isRecededStatus(job.status, job.receive_method);
+  const isNew = !receded && (job.status === 'New Lead' || job.status === 'New B2B Lead');
   const isB2B = job.type === 'B2B Trade-in' || job.status === 'New B2B Lead';
   const price = job.final_price || job.price;
 
@@ -250,18 +257,18 @@ const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => voi
               <div className="flex items-center gap-1.5">
                 {isNew && <span className="shrink-0 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
                 {isB2B && <span className="text-[9px] font-black bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full shrink-0">B2B</span>}
-                {isAwaitingOffer(job) && <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full shrink-0">ขอราคา</span>}
-                {isOfferAwaitingDecision(job) && <span className="text-[9px] font-black bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full shrink-0">เสนอราคา</span>}
-                <span className="text-sm font-black text-slate-800 truncate">{job.model || 'ไม่ระบุรุ่น'}</span>
+                {!receded && isAwaitingOffer(job) && <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full shrink-0">ขอราคา</span>}
+                {!receded && isOfferAwaitingDecision(job) && <span className="text-[9px] font-black bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full shrink-0">เสนอราคา</span>}
+                <span className={`text-sm font-black truncate ${receded ? 'text-ink-receded' : 'text-slate-800'}`}>{job.model || 'ไม่ระบุรุ่น'}</span>
               </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
+              <p className={`text-[10px] mt-0.5 ${receded ? 'text-ink-receded-muted' : 'text-slate-400'}`}>
                 {job.ref_no || `#${(job.id || '').slice(-6)}`}
               </p>
             </div>
-            {isAwaitingOffer(job) ? (
+            {!receded && isAwaitingOffer(job) ? (
               <span className="text-[11px] font-black text-blue-600 shrink-0">รอเสนอราคา</span>
             ) : price ? (
-              <span className="text-sm font-black text-emerald-600 shrink-0">
+              <span className={`text-sm font-black shrink-0 ${receded ? 'text-ink-receded' : 'text-emerald-600'}`}>
                 ฿{Number(price).toLocaleString()}
               </span>
             ) : null}
@@ -275,13 +282,13 @@ const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => voi
               className="flex items-center gap-2 text-xs text-slate-500 mb-2 -mx-1 px-1 py-0.5 rounded-md hover:bg-blue-50 active:bg-blue-100 transition-colors max-w-full"
               title="ดูประวัติลูกค้า"
             >
-              {job.cust_name && <span className="truncate text-blue-600 font-bold underline decoration-dotted underline-offset-2">{job.cust_name}</span>}
+              {job.cust_name && <span className={`truncate font-bold underline decoration-dotted underline-offset-2 ${receded ? 'text-ink-receded' : 'text-blue-600'}`}>{job.cust_name}</span>}
               {job.cust_phone && (
                 <span className="flex items-center gap-0.5 shrink-0">
                   <Phone size={10} /> {job.cust_phone}
                 </span>
               )}
-              <History size={11} className="text-blue-400 shrink-0" />
+              <History size={11} className={`shrink-0 ${receded ? 'text-ink-receded-muted' : 'text-blue-400'}`} />
             </button>
           )}
 
@@ -293,19 +300,19 @@ const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => voi
             </span>
 
             {job.receive_method && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 ${receded ? 'text-ink-receded' : 'text-slate-500'}`}>
                 {METHOD_ICONS[job.receive_method]}
                 {job.receive_method}
               </span>
             )}
 
             {job.agent_name && (
-              <span className="text-[10px] text-slate-400 truncate">
+              <span className={`text-[10px] truncate ${receded ? 'text-ink-receded-muted' : 'text-slate-400'}`}>
                 👤 {job.agent_name}
               </span>
             )}
 
-            <span className="text-[10px] text-slate-300 ml-auto shrink-0 flex items-center gap-0.5">
+            <span className={`text-[10px] ml-auto shrink-0 flex items-center gap-0.5 ${receded ? 'text-ink-receded-muted' : 'text-slate-300'}`}>
               <Clock size={10} />
               {formatTimeAgo(job.created_at)}
             </span>

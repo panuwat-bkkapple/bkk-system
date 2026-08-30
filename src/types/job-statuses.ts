@@ -173,6 +173,22 @@ export function isTerminal(status: JobStatus): boolean {
   return STATUS_TO_PHASE[status] === PHASE.TERMINAL;
 }
 
+// List presentation: a job with no admin action left should visually recede
+// in list views. That is every TERMINAL status plus the Cancelled soft-close
+// (PENDING_CLOSE) — the customer has already been told the job is off, so it
+// no longer competes for attention with active work. Accepts raw DB values
+// (legacy strings are normalized first); an unknown status returns false —
+// never fade a job we cannot classify.
+export function isRecededStatus(
+  rawStatus: string | null | undefined,
+  receiveMethod?: string | null
+): boolean {
+  const status = normalizeStatus(rawStatus, receiveMethod);
+  if (!status) return false;
+  const phase = STATUS_TO_PHASE[status];
+  return phase === PHASE.TERMINAL || phase === PHASE.PENDING_CLOSE;
+}
+
 // =============================================================================
 // Reopen window
 //
