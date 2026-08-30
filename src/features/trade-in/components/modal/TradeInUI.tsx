@@ -3,6 +3,7 @@ import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import { isOfferAwaitingDecision } from '@/utils/customerOffer';
+import { isRecededStatus } from '@/types/job-statuses';
 
 export const MethodBadge = ({ method }: { method: string }) => {
   const getStyle = () => {
@@ -56,15 +57,20 @@ export const StatusBadge = ({ status }: { status: string }) => {
     'Paid': 'bg-green-100 text-green-700 border-green-200',
     'PAID': 'bg-green-100 text-green-700 border-green-200',
     'In Stock': 'bg-slate-100 text-slate-700 border-slate-200',
-    // Closed / Cancelled
-    'Cancelled': 'bg-red-50 text-red-500 border-red-100',
+    // Closed / Cancelled — these chips sit on receded rows and keep their
+    // weight there, so the text must clear WCAG AA by itself: red-500 on
+    // red-50 was 3.44:1 (red-700 is 5.91:1), slate-500 on slate-100 was
+    // 4.34:1 (slate-600 is 6.92:1).
+    'Cancelled': 'bg-red-50 text-red-700 border-red-100',
     'Closed (Lost)': 'bg-slate-800 text-slate-300 border-slate-700',
-    'Drop-off Expired': 'bg-slate-100 text-slate-500 border-slate-200',
-    'Shipping Expired': 'bg-slate-100 text-slate-500 border-slate-200',
+    'Drop-off Expired': 'bg-slate-100 text-slate-600 border-slate-200',
+    'Shipping Expired': 'bg-slate-100 text-slate-600 border-slate-200',
     'Returned': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
     'Return Confirmed': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
   };
-  return <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${styles[status] || 'bg-slate-50 text-slate-400 border-slate-100'}`}>{status}</span>;
+  // Fallback catches statuses with no entry (Completed, Sold, Parcel Lost,
+  // Refund Completed, ...): slate-400 on slate-50 was 2.45:1 — near invisible.
+  return <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${styles[status] || 'bg-slate-50 text-slate-600 border-slate-100'}`}>{status}</span>;
 };
 
 export const TicketPipeline = ({ status }: { status: string }) => {
@@ -156,17 +162,22 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
       </thead>
       <tbody className="divide-y divide-slate-50">
         {jobs.length === 0 && (<tr><td colSpan={6} className="text-center p-10 font-bold text-slate-400">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</td></tr>)}
-        {jobs.map((job) => (
+        {jobs.map((job) => {
+          // Receded = terminal or soft-closed: content ink goes quiet (never
+          // the status chip, never the row background) and attention markers
+          // (offer CTA badges) are suppressed so active work stands out.
+          const receded = isRecededStatus(job.status, job.receive_method);
+          return (
           <tr key={job.id} className="group hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => onRowClick(job)}>
             <td className="p-6 pl-10">
               <div className="font-mono text-[11px] font-black text-blue-600 mb-1 flex items-center gap-2">
                 {job.ref_no}
                 {job.status === 'New Lead' && !job.is_read && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded text-[8px] tracking-widest animate-pulse shadow-sm">NEW</span>}
                 {job.source === 'instant-sell' && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 flex items-center gap-0.5"><Zap size={8} />INSTANT</span>}
-                {isAwaitingOffer(job) && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-blue-200">ขอราคา</span>}
-                {isOfferAwaitingDecision(job) && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 animate-pulse">เสนอราคา</span>}
+                {!receded && isAwaitingOffer(job) && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-blue-200">ขอราคา</span>}
+                {!receded && isOfferAwaitingDecision(job) && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[8px] tracking-widest border border-amber-200 animate-pulse">เสนอราคา</span>}
               </div>
-              <div className="text-[10px] font-bold text-slate-400">{formatDate(job.created_at)}</div>
+              <div className={`text-[10px] font-bold ${receded ? 'text-ink-receded-muted' : 'text-slate-400'}`}>{formatDate(job.created_at)}</div>
             </td>
             <td className="p-6">
               {onViewHistory && job.cust_phone ? (
@@ -176,43 +187,48 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
                   className="text-left group/cust -mx-1.5 px-1.5 py-1 rounded-lg hover:bg-blue-50 transition-colors"
                   title="ดูประวัติลูกค้า"
                 >
-                  <div className="font-black text-slate-800 text-sm flex items-center gap-1.5 group-hover/cust:text-blue-600">
+                  <div className={`font-black text-sm flex items-center gap-1.5 group-hover/cust:text-blue-600 ${receded ? 'text-ink-receded' : 'text-slate-800'}`}>
                     {job.cust_name || 'Anonymous'}
                     <History size={12} className="text-blue-400 opacity-0 group-hover/cust:opacity-100 transition-opacity" />
                   </div>
-                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5"><Phone size={10} /> {job.cust_phone}</div>
+                  <div className={`text-[10px] font-bold flex items-center gap-1 mt-0.5 ${receded ? 'text-ink-receded-muted' : 'text-slate-400'}`}><Phone size={10} /> {job.cust_phone}</div>
                 </button>
               ) : (
                 <>
-                  <div className="font-black text-slate-800 text-sm">{job.cust_name || 'Anonymous'}</div>
-                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5"><Phone size={10} /> {job.cust_phone || 'N/A'}</div>
+                  <div className={`font-black text-sm ${receded ? 'text-ink-receded' : 'text-slate-800'}`}>{job.cust_name || 'Anonymous'}</div>
+                  <div className={`text-[10px] font-bold flex items-center gap-1 mt-0.5 ${receded ? 'text-ink-receded-muted' : 'text-slate-400'}`}><Phone size={10} /> {job.cust_phone || 'N/A'}</div>
                 </>
               )}
             </td>
             
             {/* 🌟 1. จุดที่ถูกปรับปรุง: คอลัมน์ Device & Method 🌟 */}
             <td className="p-6">
-              <div className="font-black text-slate-700 text-xs uppercase mb-1.5">{job.model}</div>
-              
+              <div className={`font-black text-xs uppercase mb-1.5 ${receded ? 'text-ink-receded' : 'text-slate-700'}`}>{job.model}</div>
+
               <div className="flex flex-col gap-1.5">
                 {/* แถวที่ 1: ราคา & วิธีส่งมอบ */}
                 <div className="flex items-center gap-2">
-                  {isAwaitingOffer(job)
+                  {!receded && isAwaitingOffer(job)
                     ? <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">รอเสนอราคา</span>
-                    : <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{formatCurrency(job.final_price || job.price)}</span>}
+                    : receded
+                      ? <span className="text-[9px] font-black text-ink-receded px-2 py-0.5">{formatCurrency(job.final_price || job.price)}</span>
+                      : <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{formatCurrency(job.final_price || job.price)}</span>}
                   <MethodBadge method={job.receive_method} />
                 </div>
 
                 {/* แถวที่ 2: เวลานัดหมาย (โชว์เฉพาะงาน Pickup และมีการระบุเวลามาแล้ว) */}
                 {job.receive_method === 'Pickup' && job.pickup_schedule && (
                   <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest">
+                    {/* On receded rows the schedule text switches to receded
+                        ink: orange-600 on the tinted chip is 3.33:1, and a
+                        loud appointment on a closed job misleads anyway. */}
                     {job.pickup_schedule.type?.toLowerCase() === 'instant' ? (
-                      <span className="text-orange-600 bg-orange-100/50 border border-orange-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 w-fit shadow-sm">
-                        <Zap size={10} className="text-orange-500" /> รับด่วน (1-2 ชม.)
+                      <span className={`${receded ? 'text-ink-receded' : 'text-orange-600'} bg-orange-100/50 border border-orange-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 w-fit shadow-sm`}>
+                        <Zap size={10} className={receded ? 'text-ink-receded' : 'text-orange-500'} /> รับด่วน (1-2 ชม.)
                       </span>
                     ) : (
-                      <span className="text-blue-600 bg-blue-100/50 border border-blue-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 w-fit shadow-sm">
-                        <CalendarDays size={10} className="text-blue-500" />
+                      <span className={`${receded ? 'text-ink-receded' : 'text-blue-600'} bg-blue-100/50 border border-blue-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 w-fit shadow-sm`}>
+                        <CalendarDays size={10} className={receded ? 'text-ink-receded' : 'text-blue-500'} />
                         {job.pickup_schedule.date !== 'Instant' && job.pickup_schedule.date 
                           ? new Date(job.pickup_schedule.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) 
                           : ''} {job.pickup_schedule.time}
@@ -226,17 +242,18 @@ export const JobTable = ({ jobs, onRowClick, onViewHistory }: { jobs: any[], onR
             <td className="p-6">
               {job.agent_name ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-black uppercase">{job.agent_name.substring(0, 2)}</div>
-                  <span className="text-xs font-bold text-slate-700">{job.agent_name}</span>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black uppercase ${receded ? 'bg-slate-100 text-ink-receded' : 'bg-blue-100 text-blue-600'}`}>{job.agent_name.substring(0, 2)}</div>
+                  <span className={`text-xs font-bold ${receded ? 'text-ink-receded' : 'text-slate-700'}`}>{job.agent_name}</span>
                 </div>
               ) : (
-                <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-1 rounded-md uppercase border border-slate-200 border-dashed">Unassigned</span>
+                <span className={`text-[10px] font-black bg-slate-100 px-2 py-1 rounded-md uppercase border border-slate-200 border-dashed ${receded ? 'text-ink-receded' : 'text-slate-400'}`}>Unassigned</span>
               )}
             </td>
             <td className="p-6"><StatusBadge status={job.status} /></td>
             <td className="p-6 text-right pr-10"><button className="p-3 bg-slate-100 text-slate-400 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-all"><ChevronRight size={18} /></button></td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   </div>
