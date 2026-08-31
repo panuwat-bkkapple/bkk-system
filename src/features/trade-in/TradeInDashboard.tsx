@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap, History } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
 import { JOB_STATUS } from '@/types/job-statuses';
+import { jobListPhaseOf } from '@/utils/jobListPhase';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
 import { withRetry } from '@/utils/firebaseRetry';
@@ -96,29 +97,16 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
           if (filterKyc === 'Missing' && (!expectKyc || j2.kyc_verified_at)) return false;
         }
 
-        // Each bucket lists legacy AND canonical spellings side by side —
-        // the rider app and the mobile pages write canonical values
-        // ('Rider Assigned', 'Parcel In Transit', ...) that these
-        // desktop-only lists used to miss, so such jobs fell out of every
-        // phase tab here while still showing correctly on mobile.
-        const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'].includes(j.status);
-        const isLogistics = [
-          'Active Leads', 'Active Lead',
-          'Assigned', 'Rider Assigned', 'Accepted', 'Rider Accepted',
-          'Heading to Customer', 'Rider En Route', 'Arrived', 'Rider Arrived',
-          'In-Transit', 'Parcel In Transit', 'Parcel Received', 'Drop-off Received', 'Rider Returning',
-          'Pending QC', 'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation', 'Price Accepted',
-          'Payout Processing', 'Waiting for Handover', 'Waiting For Handover',
-        ].includes(j.status);
-        const isClosed = [
-          'Paid', 'PAID', 'Payment Completed',
-          'Sent to QC Lab', 'Sent To QC Lab', 'In Stock', 'Ready to Sell', 'Ready To Sell',
-          'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed',
-        ].includes(j.status);
+        // Shared with MobileTicketsPage via jobListPhaseOf — the two pages
+        // used to keep separate hand-written status arrays and this one had
+        // drifted (no canonical rider statuses, no 'Awaiting Shipping', no
+        // Mail-in/Store-in intermediates), so those jobs vanished from every
+        // named tab here while still showing on mobile.
+        const listPhase = jobListPhaseOf(j.status, j.receive_method);
 
-        if (filterPhase === 'Sales' && !isSales) return false;
-        if (filterPhase === 'Logistics' && !isLogistics) return false;
-        if (filterPhase === 'Closed' && !isClosed) return false;
+        if (filterPhase === 'Sales' && listPhase !== 'sales') return false;
+        if (filterPhase === 'Logistics' && listPhase !== 'active') return false;
+        if (filterPhase === 'Closed' && listPhase !== 'closed') return false;
       } 
       // 🏢 ตัวกรองสำหรับ B2B
       else {

@@ -103,14 +103,17 @@ function registerRiderWhtIssue() {
         if (wht <= 0) return; // ไม่ได้หัก = ไม่ต้องออกเอกสาร
 
         const db = getDatabase();
-        const jobId = tx.ref_job_id;
-        if (!jobId) {
+        // ref_job_id ของ DEBIT ถอนเงิน = id ของแถวใน /withdrawals (ท่อถอนใหม่
+        // เฟส 4 — แถวถอนไม่อยู่ใน /jobs อีกแล้ว) สำเนา cert จึงเก็บบนแถวนั้น
+        // ให้ไรเดอร์เปิดดูได้ตาม read rule เจ้าของแถว
+        const withdrawalId = tx.ref_job_id;
+        if (!withdrawalId) {
           console.error("[riderWht] withdrawal transaction has no ref_job_id — cannot issue certificate");
           return;
         }
 
         // idempotent: ออกไปแล้วไม่ออกซ้ำ (retry ของ trigger เกิดได้)
-        const existing = await db.ref(`jobs/${jobId}/wht_certificate`).once("value");
+        const existing = await db.ref(`withdrawals/${withdrawalId}/wht_certificate`).once("value");
         if (existing.exists()) return;
 
         const [riderSnap, acctSnap] = await Promise.all([
@@ -141,7 +144,9 @@ function registerRiderWhtIssue() {
           net: Number(tx.net_paid) || (Number(tx.amount) || 0) - wht,
           rate_percent: Number(tx.wht_rate_percent) || 3,
           paid_at: paidAt,
-          withdrawal_job_id: jobId,
+          // ชื่อฟิลด์เดิมคงไว้ (ทะเบียน wht_certificates มีคนอ่าน/รายงานแล้ว)
+          // ค่าคือ id แถวใน /withdrawals ตามท่อถอนใหม่
+          withdrawal_job_id: withdrawalId,
           status: "issued",
         };
 
@@ -156,7 +161,7 @@ function registerRiderWhtIssue() {
           // เอกสารพร้อมแล้วค่อยลงทะเบียน — ลงทะเบียนก่อนแล้วสร้างไม่ได้จะเหลือ
           // แถวที่ชี้ไปยังไฟล์ที่ไม่มีอยู่
           await db.ref(`wht_certificates/${certId}`).set({ ...cert, storage_path: storagePath, url });
-          await db.ref(`jobs/${jobId}/wht_certificate`).set({
+          await db.ref(`withdrawals/${withdrawalId}/wht_certificate`).set({
             number, url, storage_path: storagePath, wht, net: cert.net,
             rate_percent: cert.rate_percent, issued_at: Date.now(),
           });

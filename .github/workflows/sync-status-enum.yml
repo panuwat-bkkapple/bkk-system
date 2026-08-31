@@ -8,6 +8,20 @@ name: Sync status enum across repos
 # Runs on push/PR targeting main. Fails if any copy has drifted. When you
 # update the enum here, copy this file verbatim into the other two repos in
 # the same change cycle.
+#
+# TOKEN — this job needs to READ the two peer repos, and bkk-frontend-next
+# is PRIVATE. The default GITHUB_TOKEN is scoped to this repo only, so the
+# peer fetch came back 404 (GitHub hides private repos from unauthorized
+# tokens) and the old version of this job read that as "file does not exist
+# yet" and soft-passed — meaning the frontend copy was never actually
+# checked. A gate that cannot see its target must fail, not pass, so this
+# job now distinguishes the two cases:
+#   - repo readable, file 404  → staged rollout, warn and pass (as before)
+#   - repo itself unreadable   → FAIL with instructions
+# To make it green, add a repository secret ENUM_SYNC_TOKEN: a fine-grained
+# PAT with "Contents: Read-only" on bkk-frontend-next and bkk-rider-app
+# (Settings > Secrets and variables > Actions in this repo). Falls back to
+# GITHUB_TOKEN when unset, which still reads the public rider repo.
 
 on:
   push:
@@ -29,22 +43,52 @@ jobs:
 
       - name: Fetch sibling repos at default branch
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.ENUM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          # Which credential the job is actually running with — the first
+          # thing to check when the private peer comes back 404. 'GITHUB_TOKEN
+          # (fallback)' here while the secret exists means the secret name is
+          # wrong; 'ENUM_SYNC_TOKEN' with a 404 below means the PAT itself
+          # cannot see the repo (most often: Repository access left on the
+          # default 'Public repositories' instead of 'Only select
+          # repositories' with bkk-frontend-next picked).
+          TOKEN_SOURCE: ${{ secrets.ENUM_SYNC_TOKEN != '' && 'ENUM_SYNC_TOKEN' || 'GITHUB_TOKEN (fallback)' }}
         run: |
           set -uo pipefail
           mkdir -p /tmp/peers
-          # Tolerate 404 — peer file may not exist yet during the staged
-          # rollout; the compare step will note it instead of failing.
-          curl -sSL --fail-with-body \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.raw" \
-            "https://api.github.com/repos/panuwat-bkkapple/bkk-frontend-next/contents/app/types/job-statuses.ts" \
-            -o /tmp/peers/frontend.ts || rm -f /tmp/peers/frontend.ts
-          curl -sSL --fail-with-body \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.raw" \
-            "https://api.github.com/repos/panuwat-bkkapple/bkk-rider-app/contents/src/types/job-statuses.ts" \
-            -o /tmp/peers/rider.ts || rm -f /tmp/peers/rider.ts
+
+          # A fine-grained PAT authenticates as its owner on /user; the
+          # workflow's own GITHUB_TOKEN is an app token and gets 403 there.
+          login=$(curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("login",""))' 2>/dev/null || true)
+          echo "Token source: $TOKEN_SOURCE — authenticates as: ${login:-<app token / none>}"
+
+          # Writes the file to $3 on success and records the outcome in
+          # $3.state: "ok" | "missing" (repo readable, file absent — staged
+          # rollout) | "unreadable <file-code>/<repo-code>" (token cannot see
+          # the repo at all).
+          fetch_peer() {
+            repo="$1"; path="$2"; out="$3"
+            code=$(curl -sSL -o "$out" -w '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/panuwat-bkkapple/$repo/contents/$path" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "ok" > "$out.state"
+              return
+            fi
+            rm -f "$out"
+            repo_code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/panuwat-bkkapple/$repo" || echo "000")
+            if [ "$repo_code" = "200" ]; then
+              echo "missing" > "$out.state"
+            else
+              echo "unreadable $code/$repo_code" > "$out.state"
+            fi
+          }
+
+          fetch_peer bkk-frontend-next app/types/job-statuses.ts /tmp/peers/frontend.ts
+          fetch_peer bkk-rider-app src/types/job-statuses.ts /tmp/peers/rider.ts
 
       - name: Compare hashes
         run: |
@@ -52,41 +96,41 @@ jobs:
           src_hash=$(sha256sum src/types/job-statuses.ts | awk '{print $1}')
           echo "bkk-system          $src_hash"
 
-          missing=0
           drift=0
+          blind=0
 
-          if [ -f /tmp/peers/frontend.ts ]; then
-            fe_hash=$(sha256sum /tmp/peers/frontend.ts | awk '{print $1}')
-            echo "bkk-frontend-next   $fe_hash"
-            if [ "$src_hash" != "$fe_hash" ]; then
-              echo "::error::bkk-frontend-next/app/types/job-statuses.ts is out of sync"
-              diff -u src/types/job-statuses.ts /tmp/peers/frontend.ts || true
-              drift=1
-            fi
-          else
-            echo "::warning::bkk-frontend-next does not yet have app/types/job-statuses.ts"
-            missing=1
-          fi
+          check_peer() {
+            label="$1"; file="$2"; repo="$3"
+            state=$(cat "$file.state")
+            case "$state" in
+              ok)
+                peer_hash=$(sha256sum "$file" | awk '{print $1}')
+                echo "$label $peer_hash"
+                if [ "$src_hash" != "$peer_hash" ]; then
+                  echo "::error::$repo copy of job-statuses.ts is out of sync"
+                  diff -u src/types/job-statuses.ts "$file" || true
+                  drift=1
+                fi
+                ;;
+              missing)
+                echo "::warning::$repo is readable but does not have the enum file yet (staged rollout) — passing without drift check on it."
+                ;;
+              unreadable*)
+                echo "::error::Cannot read $repo with the current token (HTTP ${state#unreadable }). This check CANNOT verify that copy — refusing to pass blind. Add repository secret ENUM_SYNC_TOKEN (fine-grained PAT, Contents: Read-only on bkk-frontend-next and bkk-rider-app) under Settings > Secrets and variables > Actions, then re-run."
+                blind=1
+                ;;
+            esac
+          }
 
-          if [ -f /tmp/peers/rider.ts ]; then
-            ri_hash=$(sha256sum /tmp/peers/rider.ts | awk '{print $1}')
-            echo "bkk-rider-app       $ri_hash"
-            if [ "$src_hash" != "$ri_hash" ]; then
-              echo "::error::bkk-rider-app/src/types/job-statuses.ts is out of sync"
-              diff -u src/types/job-statuses.ts /tmp/peers/rider.ts || true
-              drift=1
-            fi
-          else
-            echo "::warning::bkk-rider-app does not yet have src/types/job-statuses.ts"
-            missing=1
-          fi
+          check_peer "bkk-frontend-next  " /tmp/peers/frontend.ts panuwat-bkkapple/bkk-frontend-next
+          check_peer "bkk-rider-app      " /tmp/peers/rider.ts panuwat-bkkapple/bkk-rider-app
 
           if [ $drift -ne 0 ]; then
             echo "::error::Status enum has drifted between repos."
             exit 1
           fi
-          if [ $missing -ne 0 ]; then
-            echo "Some peer files are missing (staged rollout in progress) — passing without drift check on those."
-          else
-            echo "All three copies match."
+          if [ $blind -ne 0 ]; then
+            echo "::error::One or more peer repos are unreadable — the sync check is blind, see errors above."
+            exit 1
           fi
+          echo "All reachable copies match."

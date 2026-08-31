@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
+import { JOB_STATUS } from '@/types/job-statuses';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { ThaiPostTracking } from './ThaiPostTracking';
 import { CustomerTimelineModal } from '@/components/customer/CustomerTimelineModal';
@@ -35,28 +36,27 @@ export const CustomerInfoCard: React.FC<CustomerInfoCardProps> = ({
     }
     setSavingTracking(true);
     try {
-      // Mirror of the mobile guard in MobileTicketDetail.handleSaveTracking:
-      // same pre-shipping list (incl. 'awaiting shipping' / 'active lead'
-      // that this desktop copy used to miss) and the same CANONICAL status.
-      // This card used to write legacy 'In-Transit' — the overloaded string
-      // that means "rider returning with a paid device" on Pickup jobs —
-      // while mobile wrote 'Parcel In Transit' for the identical action.
       const statusLower = String(job.status || '').trim().toLowerCase();
-      const shouldTransit = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'awaiting shipping', 'active lead', 'active leads'].includes(statusLower);
+      const shouldTransit = ['new lead', 'following up', 'appointment set', 'waiting drop-off', 'awaiting shipping', 'active leads', 'active lead'].includes(statusLower);
       const payload: any = {
         tracking_number: trackingInput.trim(),
         courier_name: courierInput.trim() || '',
         updated_at: Date.now(),
       };
       if (shouldTransit) {
-        payload.status = 'Parcel In Transit';
+        // This card's tracking editor lives in the Mail-in branch — the
+        // parcel is with the courier, which is exactly what the canonical
+        // 'Parcel In Transit' says. The old write used the overloaded
+        // 'In-Transit' (which normalizeStatus reads as the rider leg for
+        // Pickup jobs).
+        payload.status = JOB_STATUS.PARCEL_IN_TRANSIT;
         payload.qc_logs = [
-          { action: 'Parcel In Transit', by: 'Admin', timestamp: Date.now(), details: `อัพเดทเลขพัสดุ: ${trackingInput.trim()} — สถานะเปลี่ยนเป็นพัสดุอยู่ระหว่างขนส่ง` },
+          { action: JOB_STATUS.PARCEL_IN_TRANSIT, by: 'Admin', timestamp: Date.now(), details: `อัพเดทเลขพัสดุ: ${trackingInput.trim()} — สถานะเปลี่ยนเป็นกำลังจัดส่ง (Parcel In Transit)` },
           ...(job.qc_logs || [])
         ];
       }
       await update(ref(db, `jobs/${job.id}`), payload);
-      toast.success(shouldTransit ? 'บันทึก Tracking และอัพเดทสถานะเป็นพัสดุอยู่ระหว่างขนส่งเรียบร้อย' : 'อัพเดท Tracking Number เรียบร้อย');
+      toast.success(shouldTransit ? 'บันทึก Tracking และอัพเดทสถานะเป็น Parcel In Transit เรียบร้อย' : 'อัพเดท Tracking Number เรียบร้อย');
       setIsEditingTracking(false);
     } catch {
       toast.error('ไม่สามารถบันทึกได้ ลองใหม่อีกครั้ง');

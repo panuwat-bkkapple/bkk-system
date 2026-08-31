@@ -27,11 +27,14 @@ import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
+import { signedAmount } from '../../utils/signedAmount';
+import type { AmountDirection } from '../../utils/signedAmount';
+import { SignedAmountInput } from '../../components/SignedAmountInput';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -51,10 +54,15 @@ const STATUS_COLORS: Record<string, string> = {
   'Following Up':      'bg-amber-100 text-amber-700',
   'Appointment Set':   'bg-cyan-100 text-cyan-700',
   'Active Leads':      'bg-orange-100 text-orange-700',
+  'Active Lead':       'bg-orange-100 text-orange-700',
   'Assigned':          'bg-violet-100 text-violet-700',
+  'Rider Assigned':    'bg-violet-100 text-violet-700',
   'Accepted':          'bg-blue-100 text-blue-700',
+  'Rider Accepted':    'bg-blue-100 text-blue-700',
   'Heading to Customer': 'bg-sky-100 text-sky-700',
+  'Rider En Route':    'bg-sky-100 text-sky-700',
   'Arrived':           'bg-teal-100 text-teal-700',
+  'Rider Arrived':     'bg-teal-100 text-teal-700',
   'In-Transit':        'bg-yellow-100 text-yellow-700',
   'Waiting Drop-off':  'bg-teal-100 text-teal-700',
   'Awaiting Shipping': 'bg-indigo-100 text-indigo-700',
@@ -92,7 +100,7 @@ const PIPELINE = [
   {
     label: 'รับเครื่อง',
     statuses: [
-      'Active Leads',
+      'Active Leads', 'Active Lead',
       // Rider claims through legacy or canonical
       'Assigned', 'Accepted', 'Rider Accepted',
       // Heading out (legacy "Heading to Customer" / "In-Transit", canonical "Rider En Route")
@@ -176,6 +184,8 @@ export const MobileTicketDetail = () => {
   // edit which gets rebuilt from catalog price − deductions at inspection.
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
+  // Direction is a REQUIRED explicit choice (no default) — see signedAmount.
+  const [adjDir, setAdjDir] = useState<AmountDirection | null>(null);
   const [adjBusy, setAdjBusy] = useState(false);
   // Inline coupon add/edit form (admin manual top-up / fix a wrong coupon)
   const [couponFormOpen, setCouponFormOpen] = useState(false);
@@ -366,8 +376,8 @@ export const MobileTicketDetail = () => {
   // จึงไม่หายเมื่อระบบ recompute ราคาตอนรับเครื่องเข้าตรวจสอบ.
   const handleAddAdjustment = async () => {
     const lbl = adjLabel.trim();
-    const amt = Number(adjAmount);
-    if (!lbl || !Number.isFinite(amt) || amt === 0) { toast.warning('กรุณาระบุชื่อรายการและจำนวนเงิน'); return; }
+    const amt = signedAmount(adjAmount, adjDir);
+    if (!lbl || amt === null) { toast.warning('กรุณาระบุชื่อรายการ เลือกหัก/เพิ่ม และจำนวนเงิน'); return; }
     setAdjBusy(true);
     try {
       // CEO/MANAGER apply on the spot (self-approved trail). Other roles
@@ -402,7 +412,7 @@ export const MobileTicketDetail = () => {
         ), ...(job.qc_logs || [])],
         updated_at: Date.now(),
       });
-      setAdjLabel(''); setAdjAmount('');
+      setAdjLabel(''); setAdjAmount(''); setAdjDir(null);
       toast.success(canApply ? 'เพิ่มรายการปรับราคาแล้ว' : 'ส่งคำขออนุมัติไปยัง CEO/MANAGER แล้ว');
     } catch {
       toast.error('บันทึกไม่สำเร็จ');
@@ -1166,25 +1176,19 @@ export const MobileTicketDetail = () => {
                 </div>
               ))}
               {canTouchMoney && (
-                <div className="pt-1">
+                <div className="pt-1 space-y-1.5">
+                  <input
+                    value={adjLabel}
+                    onChange={(e) => setAdjLabel(e.target.value)}
+                    placeholder="เช่น เพิ่มราคาตามตกลงในแชท"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                  />
                   <div className="flex gap-1.5">
-                    <input
-                      value={adjLabel}
-                      onChange={(e) => setAdjLabel(e.target.value)}
-                      placeholder="เช่น เพิ่มราคาตามตกลงในแชท"
-                      className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
-                    />
-                    <input
-                      value={adjAmount}
-                      onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))}
-                      inputMode="numeric"
-                      placeholder="+1000"
-                      className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right"
-                    />
-                    <button onClick={handleAddAdjustment} disabled={adjBusy} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40">{isPrivileged ? 'เพิ่ม' : 'เสนอ'}</button>
+                    <SignedAmountInput tone="light" amount={adjAmount} direction={adjDir} onChange={(a, d) => { setAdjAmount(a); setAdjDir(d); }} />
+                    <button onClick={handleAddAdjustment} disabled={adjBusy || !adjLabel.trim() || signedAmount(adjAmount, adjDir) === null} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40 shrink-0">{isPrivileged ? 'เพิ่ม' : 'เสนอ'}</button>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    บวก = เพิ่มเงิน (Offer ต่อรอง) · ติดลบ = หักเงิน · ไม่ถูกล้างตอนตรวจเครื่อง · ลูกค้าเห็นในหน้า Tracking
+                  <p className="text-[10px] text-slate-400">
+                    เลือก "- หัก" หรือ "+ เพิ่ม" แล้วใส่จำนวนเงิน · ไม่ถูกล้างตอนตรวจเครื่อง · ลูกค้าเห็นในหน้า Tracking
                     {!isPrivileged && ' · รายการของคุณจะส่งขออนุมัติจาก CEO/MANAGER ก่อนมีผล'}
                   </p>
                 </div>
@@ -2144,13 +2148,14 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
   const actions: { label: string; status: string; log: string; style: string; confirm?: string }[] = [];
   const isPickup = receiveMethod === 'Pickup';
   const isMailIn = receiveMethod === 'Mail-in';
-  // The "ส่งให้ไรเดอร์ (Active Leads)" broadcast button is available
-  // through the whole sales phase for Pickup orders so admin can
-  // dispatch as soon as the customer confirms — no need to walk
-  // through every intermediate status.
+  // The "ส่งให้ไรเดอร์" broadcast button is available through the whole
+  // sales phase for Pickup orders so admin can dispatch as soon as the
+  // customer confirms — no need to walk through every intermediate status.
+  // Writes the canonical 'Active Lead' (the rider pool query in
+  // bkk-rider-app useRiderJobs accepts both spellings).
   const dispatchAction = {
     label: 'ส่งให้ไรเดอร์ (Broadcast)',
-    status: 'Active Leads',
+    status: JOB_STATUS.ACTIVE_LEAD,
     log: 'แอดมินส่งงานให้ไรเดอร์ (broadcast pool)',
     style: 'bg-orange-500 text-white',
   };
@@ -2193,7 +2198,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: 'Active Leads',
+            status: JOB_STATUS.ACTIVE_LEAD,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
@@ -2215,7 +2220,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // instead of forcing a detour through Active Leads.
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
-        actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', status: JOB_STATUS.ACTIVE_LEAD, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       }
       break;
     // Mail-in logistics. `Parcel In Transit` is what the customer's own
@@ -2263,14 +2268,19 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       const hasRider = !!job?.rider_id;
       const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
       if (hasRider) {
-        actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+        // "ไรเดอร์กำลังเดินทาง (ไปหาลูกค้า)" — this used to write the
+        // overloaded 'In-Transit', which normalizeStatus reads as RIDER
+        // RETURNING for Pickup (the rider app's meaning) — the same value
+        // meant two different legs depending on who wrote it. The canonical
+        // en-route status says what this button actually means.
+        actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       } else {
         // No rider currently. Either nobody picked up yet, or a rider
         // dropped it. Admin can re-broadcast or fall back to Following Up.
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: 'Active Leads',
+            status: JOB_STATUS.ACTIVE_LEAD,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
@@ -2281,11 +2291,15 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     }
     case 'Assigned':
     case 'Accepted':
-      actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+    case 'Rider Assigned':
+    case 'Rider Accepted':
+      actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       break;
     case 'Heading to Customer':
     case 'In-Transit':
     case 'Arrived':
+    case 'Rider En Route':
+    case 'Rider Arrived':
       // 'In-Transit' is overloaded (see normalizeStatus in job-statuses.ts):
       // Pickup = rider on the road, Mail-in = parcel with the courier. Legacy
       // Mail-in jobs still sit on this value, so give them the parcel actions.
