@@ -74,19 +74,39 @@ interface RiderStats {
   acceptanceRate: number | null;       // acceptedFromOffers / offered
 }
 
+// Both spellings of the handover/QC-lab/ready statuses are listed on
+// purpose: the enum canonicalized to Title Case ('Waiting For Handover',
+// 'Sent To QC Lab', 'Ready To Sell') but every live writer still emits the
+// lowercase-particle forms — matching only the enum spelling made these
+// buckets silently never match (จับได้จาก survey ส.ค. 2569).
 const ACTIVE_STATUSES = new Set([
   'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
   'Accepted', 'Heading to Customer', 'Arrived', // legacy
   'Being Inspected', 'QC Review', 'Negotiation', 'Revised Offer',
-  'Price Accepted', 'Payout Processing', 'Waiting For Handover',
+  'Price Accepted', 'Payout Processing',
+  'Waiting For Handover', 'Waiting for Handover',
   'Rider Returning', 'In-Transit', // legacy returning
   'Pending QC',
 ]);
 
 const COMPLETED_STATUSES = new Set([
-  'Paid', 'Payment Completed', 'Sent To QC Lab', 'Ready To Sell',
+  'Paid', 'Payment Completed',
+  'Sent To QC Lab', 'Sent to QC Lab',
+  'Ready To Sell', 'Ready to Sell',
   'Sold', 'In Stock', 'Completed',
 ]);
+
+// A cancelled job that was the CUSTOMER's decision, not the rider's.
+// 'customer_request_cancel' is an amendment TYPE, not a CANCEL_CATEGORY —
+// the amendment apply path writes the real taxonomy value, so matching on
+// it never fired and customer cancels leaked into the rider's stats.
+// Rider self-cancels are caught earlier via cancelled_by === 'rider:{id}'.
+const isCustomerCancelled = (job: Job): boolean =>
+  job.status === 'Cancelled' && (
+    job.cancelled_by === 'customer' ||
+    ['customer_changed_mind', 'customer_no_show', 'price_disagreement']
+      .includes(job.cancel_category || '')
+  );
 
 function isWithinDateRange(ts: number | undefined, fromTs: number, toTs: number): boolean {
   if (!ts) return false;
@@ -192,7 +212,7 @@ export const RiderPerformance: React.FC = () => {
 
           if (job.status && COMPLETED_STATUSES.has(job.status)) {
             s.completed += 1;
-          } else if (job.status === 'Cancelled' && job.cancel_category === 'customer_request_cancel') {
+          } else if (isCustomerCancelled(job)) {
             s.customerCancelled += 1;
           } else if (job.status && ACTIVE_STATUSES.has(job.status)) {
             s.active += 1;

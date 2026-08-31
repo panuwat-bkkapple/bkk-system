@@ -5053,7 +5053,11 @@ const DEFAULT_FLAG_THRESHOLDS = {
 };
 
 function statusIsCompleted(s) {
-  return ["Paid", "Payment Completed", "Sent To QC Lab", "Ready To Sell", "Sold", "In Stock", "Completed"].includes(s);
+  // Both spellings of the QC-lab/ready statuses on purpose: live writers
+  // emit 'Sent to QC Lab' / 'Ready to Sell' while the canonical enum says
+  // 'Sent To QC Lab' / 'Ready To Sell' — matching only the enum spelling
+  // made these buckets silently never match.
+  return ["Paid", "Payment Completed", "Sent To QC Lab", "Sent to QC Lab", "Ready To Sell", "Ready to Sell", "Sold", "In Stock", "Completed"].includes(s);
 }
 
 exports.autoFlagRiders = onSchedule(
@@ -5110,7 +5114,15 @@ exports.autoFlagRiders = onSchedule(
         if (job.rider_id !== riderId) continue;
 
         if (statusIsCompleted(job.status)) completed += 1;
-        else if (job.status === "Cancelled" && job.cancel_category === "customer_request_cancel") customerCancelled += 1;
+        // Customer-driven cancel. 'customer_request_cancel' is an amendment
+        // TYPE — the amendment apply path writes the real CANCEL_CATEGORY
+        // value, so the old exact-match never fired and customer cancels
+        // counted against nothing (rider self-cancels are caught above via
+        // cancelled_by). Mirror of isCustomerCancelled in RiderPerformance.tsx.
+        else if (job.status === "Cancelled" && (
+          job.cancelled_by === "customer" ||
+          ["customer_changed_mind", "customer_no_show", "price_disagreement"].includes(job.cancel_category || "")
+        )) customerCancelled += 1;
       }
 
       // Walk offers for this rider

@@ -96,9 +96,25 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
           if (filterKyc === 'Missing' && (!expectKyc || j2.kyc_verified_at)) return false;
         }
 
-        const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off'].includes(j.status);
-        const isLogistics = ['Active Leads', 'Assigned', 'Arrived', 'In-Transit', 'Pending QC', 'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation', 'Payout Processing', 'Waiting for Handover'].includes(j.status);
-        const isClosed = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned'].includes(j.status);
+        // Each bucket lists legacy AND canonical spellings side by side —
+        // the rider app and the mobile pages write canonical values
+        // ('Rider Assigned', 'Parcel In Transit', ...) that these
+        // desktop-only lists used to miss, so such jobs fell out of every
+        // phase tab here while still showing correctly on mobile.
+        const isSales = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'].includes(j.status);
+        const isLogistics = [
+          'Active Leads', 'Active Lead',
+          'Assigned', 'Rider Assigned', 'Accepted', 'Rider Accepted',
+          'Heading to Customer', 'Rider En Route', 'Arrived', 'Rider Arrived',
+          'In-Transit', 'Parcel In Transit', 'Parcel Received', 'Drop-off Received', 'Rider Returning',
+          'Pending QC', 'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation', 'Price Accepted',
+          'Payout Processing', 'Waiting for Handover', 'Waiting For Handover',
+        ].includes(j.status);
+        const isClosed = [
+          'Paid', 'PAID', 'Payment Completed',
+          'Sent to QC Lab', 'Sent To QC Lab', 'In Stock', 'Ready to Sell', 'Ready To Sell',
+          'Completed', 'Sold', 'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed',
+        ].includes(j.status);
 
         if (filterPhase === 'Sales' && !isSales) return false;
         if (filterPhase === 'Logistics' && !isLogistics) return false;

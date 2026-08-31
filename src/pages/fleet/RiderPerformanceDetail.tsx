@@ -77,10 +77,18 @@ function jobOutcome(job: Job, riderId: string): { label: string; color: string; 
   if (job.cancelled_by === `rider:${riderId}`) {
     return { label: 'ไรเดอร์ปฏิเสธ/ยกเลิก', color: 'text-amber-600 bg-amber-50 border-amber-200', icon: <AlertTriangle size={14} /> };
   }
-  if (job.status === 'Cancelled' && job.cancel_category === 'customer_request_cancel') {
+  // 'customer_request_cancel' is an amendment TYPE, not a CANCEL_CATEGORY —
+  // the amendment apply path writes the real taxonomy value, so the old
+  // exact-match never fired. Mirror of isCustomerCancelled in RiderPerformance.
+  if (job.status === 'Cancelled' && (
+    job.cancelled_by === 'customer' ||
+    ['customer_changed_mind', 'customer_no_show', 'price_disagreement'].includes(job.cancel_category || '')
+  )) {
     return { label: 'ลูกค้ายกเลิก', color: 'text-rose-600 bg-rose-50 border-rose-200', icon: <XCircle size={14} /> };
   }
-  if (['Paid', 'Payment Completed', 'Sent To QC Lab', 'Ready To Sell', 'Sold', 'In Stock', 'Completed'].includes(job.status || '')) {
+  // Both spellings on purpose: writers emit the lowercase-particle forms,
+  // the enum canonicalized to Title Case — matching one alone misses jobs.
+  if (['Paid', 'Payment Completed', 'Sent To QC Lab', 'Sent to QC Lab', 'Ready To Sell', 'Ready to Sell', 'Sold', 'In Stock', 'Completed'].includes(job.status || '')) {
     return { label: 'สำเร็จ', color: 'text-emerald-600 bg-emerald-50 border-emerald-200', icon: <CheckCircle2 size={14} /> };
   }
   return { label: job.status || 'ไม่ทราบ', color: 'text-blue-600 bg-blue-50 border-blue-200', icon: <Clock size={14} /> };
