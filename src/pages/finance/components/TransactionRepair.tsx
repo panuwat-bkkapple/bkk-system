@@ -7,6 +7,7 @@ import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { sumAppliedAdjustments, sumAppliedCoupons } from '../../../utils/adjustments';
+import { buildLogisticsRevenueTx, effectiveCustomerPickupFee } from '../../../utils/logisticsRevenue';
 
 // คำนวณยอดโอนสุทธิสดจาก final_price ตลอด — ไม่ใช้ net_payout ที่เก็บใน DB เพราะอาจล้าสมัย
 // (เช่น QC รอบหลังไม่ได้ sync) และต้องครอบด้วย Math.max(0, ...) ป้องกันยอดติดลบ
@@ -61,10 +62,11 @@ export const TransactionRepair = () => {
     const isB2B = job.type === 'B2B Trade-in';
     const isWithdrawal = job.type === 'Withdrawal';
     const netPayout = isWithdrawal ? Number(job.withdraw_amount || 0) : getNetPayout(job);
-    // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
-    const riderFee = Number(job.rider_fee || 0);
+    // รายได้ค่าบริการรับเครื่อง = ค่าส่งที่เก็บจากลูกค้า (ไม่ใช่ rider_fee
+    // ซึ่งเป็นต้นทุนฝั่งไรเดอร์ — ดู src/utils/logisticsRevenue.ts)
+    const serviceFee = effectiveCustomerPickupFee(job);
 
-    if (!confirm(`ยืนยันสร้าง transaction สำหรับ ${job.ref_no || job.id}?\n\nยอดจ่าย: ฿${netPayout.toLocaleString()}\nค่าวิ่งไรเดอร์: ฿${riderFee.toLocaleString()}`)) return;
+    if (!confirm(`ยืนยันสร้าง transaction สำหรับ ${job.ref_no || job.id}?\n\nยอดจ่าย: ฿${netPayout.toLocaleString()}\nรายได้ค่าบริการรับเครื่อง: ฿${serviceFee.toLocaleString()}`)) return;
 
     setRepairing(job.id);
     try {
@@ -98,18 +100,12 @@ export const TransactionRepair = () => {
           slip_url: job.payment_slip || null
         };
 
-        // CREDIT (logistics revenue) ถ้ามีค่าวิ่งไรเดอร์
-        if (riderFee > 0) {
+        // CREDIT รายได้ค่าบริการรับเครื่อง — helper กลาง (rider_id = SYSTEM,
+        // ยอด = ค่าส่งที่เก็บจากลูกค้าจริง)
+        const revenueTx = buildLogisticsRevenueTx(job, timestamp, { repair: true });
+        if (revenueTx) {
           const creditKey = push(child(ref(db), 'transactions')).key;
-          updates[`transactions/${creditKey}`] = {
-            rider_id: job.rider_id || 'SYSTEM',
-            amount: riderFee,
-            type: 'CREDIT',
-            category: 'LOGISTICS_REVENUE',
-            description: `[ซ่อม] รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${job.ref_no || job.id}`,
-            timestamp,
-            ref_job_id: job.id
-          };
+          updates[`transactions/${creditKey}`] = revenueTx;
         }
       }
 

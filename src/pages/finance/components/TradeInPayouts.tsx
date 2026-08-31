@@ -9,6 +9,7 @@ import { ref, update, push, child, get } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { sumAppliedAdjustments, sumAppliedCoupons } from '../../../utils/adjustments';
+import { buildLogisticsRevenueTx } from '../../../utils/logisticsRevenue';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -120,10 +121,8 @@ export const TradeInPayouts = () => {
       const isB2B = selectedTx.type === 'B2B Trade-in';
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
-      // 🌟 ใช้ยอดสุทธิและค่าไรเดอร์ที่ถูกต้อง
+      // 🌟 ใช้ยอดสุทธิที่คิดสดจาก final_price
       const actualTransferAmount = getNetPayout(selectedTx);
-      // ค่าวิ่งจริงที่ Cloud Function คำนวณไว้ตอน Pending QC (ไม่ใช่ pickup_fee ที่เก็บจากลูกค้า)
-      const riderFee = Number(selectedTx.rider_fee || 0);
 
       // Status string is intentionally the legacy lowercase 'Waiting for
       // Handover' — admin readers across this app (TradeInDashboard,
@@ -167,18 +166,13 @@ export const TradeInPayouts = () => {
         slip_url: slipUrl
       };
 
-      // Transaction: CREDIT (logistics revenue)
-      if (riderFee > 0) {
+      // Transaction: CREDIT รายได้ค่าบริการรับเครื่อง — helper กลางตัวเดียว
+      // (rider_id = SYSTEM เสมอ, ยอด = ค่าส่งที่เก็บจากลูกค้าจริง ไม่ใช่
+      // ต้นทุนไรเดอร์ — ดู src/utils/logisticsRevenue.ts)
+      const revenueTx = buildLogisticsRevenueTx(selectedTx, transferredAt);
+      if (revenueTx) {
         const creditKey = push(child(ref(db), 'transactions')).key;
-        updates[`transactions/${creditKey}`] = {
-          rider_id: selectedTx.rider_id || 'SYSTEM',
-          amount: riderFee,
-          type: 'CREDIT',
-          category: 'LOGISTICS_REVENUE',
-          description: `รายได้ค่าบริการไรเดอร์รับเครื่อง - Ref: ${selectedTx.ref_no}`,
-          timestamp: transferredAt,
-          ref_job_id: selectedTx.id
-        };
+        updates[`transactions/${creditKey}`] = revenueTx;
       }
 
       await update(ref(db), updates);
