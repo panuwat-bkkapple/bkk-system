@@ -8,9 +8,11 @@
 // ./job-statuses.ts and is mirrored byte-for-byte to the other two repos.
 //
 // `JobStatus` and `ReceiveMethod` are intentionally NOT re-exported here:
-// this file already defines its own (legacy) types under those names, and
-// re-exporting would clash (TS2484). Code that needs the canonical types
-// imports them directly from `./job-statuses`.
+// this file defines its own types under those names (this file's JobStatus
+// is the canonical B2C union widened with the B2B enum), and re-exporting
+// would clash (TS2484). Code that needs the canonical types imports them
+// directly from `./job-statuses`.
+import type { JobStatus as CanonicalJobStatus } from './job-statuses';
 export {
   JOB_STATUS,
   PHASE,
@@ -27,42 +29,12 @@ export type { Phase, CancelCategory } from './job-statuses';
 // Enums
 // -----------------------------------------------------------------------------
 
-/**
- * @deprecated Use `JOB_STATUS` from `./job-statuses` instead. Kept here so
- * existing imports keep compiling; new code should import the const map.
- * Note that several values in this enum overlap or have been renamed in the
- * canonical map (e.g. `IN_TRANSIT` is split into `RIDER_RETURNING` /
- * `PARCEL_IN_TRANSIT`, `PAID_UPPER` collapses into `PAID`). Use
- * `normalizeStatus(legacyValue, receiveMethod)` when comparing values read
- * from the database.
- */
-export enum JobStatusB2C {
-  NEW_LEAD = 'New Lead',
-  FOLLOWING_UP = 'Following Up',
-  APPOINTMENT_SET = 'Appointment Set',
-  WAITING_DROP_OFF = 'Waiting Drop-off',
-  ACTIVE_LEADS = 'Active Leads',
-  ASSIGNED = 'Assigned',
-  ARRIVED = 'Arrived',
-  IN_TRANSIT = 'In-Transit',
-  BEING_INSPECTED = 'Being Inspected',
-  PENDING_QC = 'Pending QC',
-  QC_REVIEW = 'QC Review',
-  REVISED_OFFER = 'Revised Offer',
-  NEGOTIATION = 'Negotiation',
-  PAYOUT_PROCESSING = 'Payout Processing',
-  WAITING_FOR_HANDOVER = 'Waiting for Handover',
-  PAID_UPPER = 'PAID',
-  PAID = 'Paid',
-  SENT_TO_QC_LAB = 'Sent to QC Lab',
-  IN_STOCK = 'In Stock',
-  READY_TO_SELL = 'Ready to Sell',
-  CANCELLED = 'Cancelled',
-  CLOSED_LOST = 'Closed (Lost)',
-  RETURNED = 'Returned',
-  SOLD = 'Sold',
-  COMPLETED = 'Completed',
-}
+// JobStatusB2C (the legacy B2C enum) is GONE — it sat deprecated with zero
+// member usage across the repo; the canonical values live in JOB_STATUS
+// (./job-statuses) and the legacy DB spellings it used to carry
+// ('Active Leads', 'Waiting for Handover', 'Sent to QC Lab', 'PAID', ...)
+// are handled by normalizeStatus()'s LEGACY_ALIAS, which is permanent:
+// closed jobs keep those spellings in the database forever.
 
 /** สถานะงาน B2B */
 export enum JobStatusB2B {
@@ -276,8 +248,16 @@ export enum Bank {
 // Union Types
 // -----------------------------------------------------------------------------
 
-/** สถานะงานทั้งหมด (รวม B2C + B2B) */
-export type JobStatus = JobStatusB2C | JobStatusB2B;
+/**
+ * สถานะงานทั้งหมด (รวม B2C canonical + B2B)
+ *
+ * Writers must emit these values only. Readers beware: rows written before
+ * the canonical rename still carry legacy spellings in the DB (permanently),
+ * so never compare a value read from the database against this type's
+ * members directly — run it through `normalizeStatus(raw, receiveMethod)`
+ * first, which maps every legacy spelling onto the canonical one.
+ */
+export type JobStatus = CanonicalJobStatus | JobStatusB2B;
 
 // -----------------------------------------------------------------------------
 // Interfaces

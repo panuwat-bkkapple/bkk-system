@@ -82,11 +82,12 @@
 - **Notification Settings:** `/notification-settings` (ดู section สวิตช์การแจ้งเตือน)
 
 ## Job/Ticket Statuses
+- **โค้ดใหม่ห้ามเทียบ status ด้วย string literal** — เขียนด้วย `JOB_STATUS.*` และอ่านค่าจาก DB ผ่าน `normalizeStatus(raw, receiveMethod)` ก่อนเทียบเสมอ (`src/types/job-statuses.ts` — ไฟล์ mirror 3 repo). เหตุผล: DB มีแถว legacy spelling (`Active Leads`, `Waiting for Handover`, `Sent to QC Lab`, `PAID` ฯลฯ) **ถาวร** จากงานที่ปิดไปแล้ว — `LEGACY_ALIAS` จึงเป็นของถาวร ไม่ใช่ scaffolding. ตัวเทียบ literal เดิม ~245 จุดให้ย้ายเมื่อแตะไฟล์นั้นด้วยเหตุอื่น (ตัวอย่างที่ย้ายแล้ว: `jobListPhaseOf`, `isRecededStatus`). `JobStatusB2C` enum ใน `domain.ts` ถูกลบแล้ว (ส.ค. 2569 — deprecated + สมาชิกไม่มีใครใช้); `JobStatusB2B` ยังอยู่ (track แยก ยังไม่ redesign)
 - **B2C Normal:** สร้างด้วย status `"New Lead"`
-- **Instant Sell:** สร้างด้วย status `"Active Leads"` (ข้ามขั้นตอนขาย)
+- **Instant Sell:** สร้างด้วย `JOB_STATUS.ACTIVE_LEAD` = `"Active Lead"` เอกพจน์ (ข้ามขั้นตอนขาย) — เอกสารนี้เคยเขียนว่า `"Active Leads"` พหูพจน์ซึ่งเป็นค่า legacy ที่ writer เลิกเขียนแล้ว แต่ยังอยู่ใน DB เก่าและ notification triggers ต้องรับทั้งคู่
 - **B2B:** สร้างด้วย status `"New B2B Lead"`
 - **B2B Unpacked:** child items สร้างด้วย status `"Pending QC"`
-- **Notification triggers ต้องครอบคลุมทั้ง 3 status (New Lead, Active Leads, New B2B Lead)**
+- **Notification triggers ต้องครอบคลุมทั้งค่าใหม่และ legacy (New Lead, Active Lead, Active Leads, New B2B Lead)**
 
 ## Cloud Functions (Push Notification Triggers)
 - **`onNewTicketCreated`** — trigger เมื่อสร้าง job ใหม่ → ส่ง push ให้ admin ทุกคน
