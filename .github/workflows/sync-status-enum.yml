@@ -44,9 +44,23 @@ jobs:
       - name: Fetch sibling repos at default branch
         env:
           GH_TOKEN: ${{ secrets.ENUM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          # Which credential the job is actually running with — the first
+          # thing to check when the private peer comes back 404. 'GITHUB_TOKEN
+          # (fallback)' here while the secret exists means the secret name is
+          # wrong; 'ENUM_SYNC_TOKEN' with a 404 below means the PAT itself
+          # cannot see the repo (most often: Repository access left on the
+          # default 'Public repositories' instead of 'Only select
+          # repositories' with bkk-frontend-next picked).
+          TOKEN_SOURCE: ${{ secrets.ENUM_SYNC_TOKEN != '' && 'ENUM_SYNC_TOKEN' || 'GITHUB_TOKEN (fallback)' }}
         run: |
           set -uo pipefail
           mkdir -p /tmp/peers
+
+          # A fine-grained PAT authenticates as its owner on /user; the
+          # workflow's own GITHUB_TOKEN is an app token and gets 403 there.
+          login=$(curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("login",""))' 2>/dev/null || true)
+          echo "Token source: $TOKEN_SOURCE — authenticates as: ${login:-<app token / none>}"
 
           # Writes the file to $3 on success and records the outcome in
           # $3.state: "ok" | "missing" (repo readable, file absent — staged
