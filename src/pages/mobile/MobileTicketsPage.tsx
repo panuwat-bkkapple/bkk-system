@@ -12,42 +12,9 @@ import { isAwaitingOffer } from '../../utils/offerRequest';
 import { isOfferAwaitingDecision } from '../../utils/customerOffer';
 import { isRecededStatus } from '../../types/job-statuses';
 import { jobListPhaseOf } from '../../utils/jobListPhase';
-
-// ---------------------------------------------------------------------------
-// Status config
-// ---------------------------------------------------------------------------
-
-const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  'New Lead':           { bg: 'bg-blue-100',    text: 'text-blue-700',    dot: 'bg-blue-500' },
-  'New B2B Lead':       { bg: 'bg-indigo-100',  text: 'text-indigo-700',  dot: 'bg-indigo-500' },
-  'Following Up':       { bg: 'bg-amber-100',   text: 'text-amber-700',   dot: 'bg-amber-500' },
-  'Appointment Set':    { bg: 'bg-cyan-100',     text: 'text-cyan-700',    dot: 'bg-cyan-500' },
-  'Waiting Drop-off':   { bg: 'bg-teal-100',     text: 'text-teal-700',    dot: 'bg-teal-500' },
-  'Active Leads':       { bg: 'bg-orange-100',   text: 'text-orange-700',  dot: 'bg-orange-500' },
-  'Assigned':           { bg: 'bg-violet-100',   text: 'text-violet-700',  dot: 'bg-violet-500' },
-  'Accepted':           { bg: 'bg-blue-100',     text: 'text-blue-700',    dot: 'bg-blue-500' },
-  'Heading to Customer':{ bg: 'bg-sky-100',      text: 'text-sky-700',     dot: 'bg-sky-500' },
-  'Arrived':            { bg: 'bg-lime-100',     text: 'text-lime-700',    dot: 'bg-lime-500' },
-  'In-Transit':         { bg: 'bg-yellow-100',   text: 'text-yellow-700',  dot: 'bg-yellow-500' },
-  'Awaiting Shipping':  { bg: 'bg-indigo-100',   text: 'text-indigo-700',  dot: 'bg-indigo-500' },
-  'Parcel In Transit':  { bg: 'bg-yellow-100',   text: 'text-yellow-700',  dot: 'bg-yellow-500' },
-  'Parcel Received':    { bg: 'bg-orange-100',   text: 'text-orange-700',  dot: 'bg-orange-500' },
-  'Drop-off Received':  { bg: 'bg-teal-100',     text: 'text-teal-700',    dot: 'bg-teal-500' },
-  'Being Inspected':    { bg: 'bg-purple-100',   text: 'text-purple-700',  dot: 'bg-purple-500' },
-  'Pending QC':         { bg: 'bg-pink-100',     text: 'text-pink-700',    dot: 'bg-pink-500' },
-  'QC Review':          { bg: 'bg-fuchsia-100',  text: 'text-fuchsia-700', dot: 'bg-fuchsia-500' },
-  'Revised Offer':      { bg: 'bg-rose-100',     text: 'text-rose-700',    dot: 'bg-rose-500' },
-  'Negotiation':        { bg: 'bg-red-100',      text: 'text-red-700',     dot: 'bg-red-500' },
-  'Payout Processing':  { bg: 'bg-emerald-100',  text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  'Paid':               { bg: 'bg-green-100',    text: 'text-green-700',   dot: 'bg-green-500' },
-  'PAID':               { bg: 'bg-green-100',    text: 'text-green-700',   dot: 'bg-green-500' },
-  'In Stock':           { bg: 'bg-slate-100',    text: 'text-slate-700',   dot: 'bg-slate-500' },
-  // Terminal chips keep their weight on receded cards, so their text must
-  // clear WCAG AA on its own: gray-500 on gray-100 is 4.39:1 — gray-600 is 6.87:1.
-  'Cancelled':          { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
-  'Closed (Lost)':      { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
-  'Returned':           { bg: 'bg-gray-100',     text: 'text-gray-600',    dot: 'bg-gray-400' },
-};
+// Per-status chip colors live in utils/statusColors.ts, shared with the
+// desktop StatusBadge — edit them there, not here.
+import { statusChipColors } from '../../utils/statusColors';
 
 const PHASE_FILTERS = [
   { key: 'all', label: 'ทั้งหมด' },
@@ -222,7 +189,7 @@ export const MobileTicketsPage = () => {
 // ---------------------------------------------------------------------------
 
 const JobCard = ({ job, onClick, onViewHistory }: { job: any; onClick: () => void; onViewHistory: () => void }) => {
-  const sc = STATUS_COLORS[job.status] || { bg: 'bg-slate-100', text: 'text-slate-600', dot: 'bg-slate-400' };
+  const sc = statusChipColors(job.status);
   // Receded = terminal or soft-closed: content ink goes quiet (never the
   // status chip, never the card background) and attention markers (new-lead
   // dot/ring, offer CTA badges) are suppressed so active work stands out.
