@@ -27,6 +27,9 @@ import { BatteryHealthCard } from '../../components/device/BatteryHealthCard';
 import { getSickwGateStatus } from '../../utils/sickwApi';
 import { sumAppliedAdjustments, sumAppliedCoupons, listAppliedCoupons, adminTopUpCouponFields, removeCouponAtFields, couponTotalWithout, listAdjustments, canReviewAdjustments } from '../../utils/adjustments';
 import type { JobAdjustment } from '../../utils/adjustments';
+import { signedAmount } from '../../utils/signedAmount';
+import type { AmountDirection } from '../../utils/signedAmount';
+import { SignedAmountInput } from '../../components/SignedAmountInput';
 import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
@@ -176,6 +179,8 @@ export const MobileTicketDetail = () => {
   // edit which gets rebuilt from catalog price − deductions at inspection.
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
+  // Direction is a REQUIRED explicit choice (no default) — see signedAmount.
+  const [adjDir, setAdjDir] = useState<AmountDirection | null>(null);
   const [adjBusy, setAdjBusy] = useState(false);
   // Inline coupon add/edit form (admin manual top-up / fix a wrong coupon)
   const [couponFormOpen, setCouponFormOpen] = useState(false);
@@ -366,8 +371,8 @@ export const MobileTicketDetail = () => {
   // จึงไม่หายเมื่อระบบ recompute ราคาตอนรับเครื่องเข้าตรวจสอบ.
   const handleAddAdjustment = async () => {
     const lbl = adjLabel.trim();
-    const amt = Number(adjAmount);
-    if (!lbl || !Number.isFinite(amt) || amt === 0) { toast.warning('กรุณาระบุชื่อรายการและจำนวนเงิน'); return; }
+    const amt = signedAmount(adjAmount, adjDir);
+    if (!lbl || amt === null) { toast.warning('กรุณาระบุชื่อรายการ เลือกหัก/เพิ่ม และจำนวนเงิน'); return; }
     setAdjBusy(true);
     try {
       // CEO/MANAGER apply on the spot (self-approved trail). Other roles
@@ -402,7 +407,7 @@ export const MobileTicketDetail = () => {
         ), ...(job.qc_logs || [])],
         updated_at: Date.now(),
       });
-      setAdjLabel(''); setAdjAmount('');
+      setAdjLabel(''); setAdjAmount(''); setAdjDir(null);
       toast.success(canApply ? 'เพิ่มรายการปรับราคาแล้ว' : 'ส่งคำขออนุมัติไปยัง CEO/MANAGER แล้ว');
     } catch {
       toast.error('บันทึกไม่สำเร็จ');
@@ -1166,25 +1171,19 @@ export const MobileTicketDetail = () => {
                 </div>
               ))}
               {canTouchMoney && (
-                <div className="pt-1">
+                <div className="pt-1 space-y-1.5">
+                  <input
+                    value={adjLabel}
+                    onChange={(e) => setAdjLabel(e.target.value)}
+                    placeholder="เช่น เพิ่มราคาตามตกลงในแชท"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                  />
                   <div className="flex gap-1.5">
-                    <input
-                      value={adjLabel}
-                      onChange={(e) => setAdjLabel(e.target.value)}
-                      placeholder="เช่น เพิ่มราคาตามตกลงในแชท"
-                      className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
-                    />
-                    <input
-                      value={adjAmount}
-                      onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))}
-                      inputMode="numeric"
-                      placeholder="+1000"
-                      className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-right"
-                    />
-                    <button onClick={handleAddAdjustment} disabled={adjBusy} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40">{isPrivileged ? 'เพิ่ม' : 'เสนอ'}</button>
+                    <SignedAmountInput tone="light" amount={adjAmount} direction={adjDir} onChange={(a, d) => { setAdjAmount(a); setAdjDir(d); }} />
+                    <button onClick={handleAddAdjustment} disabled={adjBusy || !adjLabel.trim() || signedAmount(adjAmount, adjDir) === null} className="bg-slate-800 text-white px-3 rounded-lg text-xs font-black disabled:opacity-40 shrink-0">{isPrivileged ? 'เพิ่ม' : 'เสนอ'}</button>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    บวก = เพิ่มเงิน (Offer ต่อรอง) · ติดลบ = หักเงิน · ไม่ถูกล้างตอนตรวจเครื่อง · ลูกค้าเห็นในหน้า Tracking
+                  <p className="text-[10px] text-slate-400">
+                    เลือก "- หัก" หรือ "+ เพิ่ม" แล้วใส่จำนวนเงิน · ไม่ถูกล้างตอนตรวจเครื่อง · ลูกค้าเห็นในหน้า Tracking
                     {!isPrivileged && ' · รายการของคุณจะส่งขออนุมัติจาก CEO/MANAGER ก่อนมีผล'}
                   </p>
                 </div>

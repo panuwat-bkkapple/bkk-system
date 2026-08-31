@@ -17,6 +17,9 @@ import { CustomerOfferDecisionCard } from './CustomerOfferDecisionCard';
 import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocationPicker';
 import { canReviewAdjustments, listAppliedCoupons } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
+import { signedAmount } from '@/utils/signedAmount';
+import type { AmountDirection } from '@/utils/signedAmount';
+import { SignedAmountInput } from '@/components/SignedAmountInput';
 
 interface PricingSidebarHandlers {
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
@@ -174,6 +177,8 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const canReview = canReviewAdjustments(currentUserRole);
   const [adjLabel, setAdjLabel] = useState('');
   const [adjAmount, setAdjAmount] = useState('');
+  // Direction is a REQUIRED explicit choice (no default) — see signedAmount.
+  const [adjDir, setAdjDir] = useState<AmountDirection | null>(null);
   const [adjBusy, setAdjBusy] = useState(false);
 
   const {
@@ -194,10 +199,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   const appliedAdjustments = (adjustments || []).filter(a => a && a.status === 'applied');
   const pendingAdjustments = (adjustments || []).filter(a => a && a.status === 'pending');
   const submitAdjustment = async () => {
-    const amt = Number(adjAmount);
-    if (!adjLabel.trim() || !Number.isFinite(amt) || amt === 0) return;
+    const amt = signedAmount(adjAmount, adjDir);
+    if (!adjLabel.trim() || amt === null) return;
     setAdjBusy(true);
-    try { await handleAddAdjustment(adjLabel, amt); setAdjLabel(''); setAdjAmount(''); }
+    try { await handleAddAdjustment(adjLabel, amt); setAdjLabel(''); setAdjAmount(''); setAdjDir(null); }
     finally { setAdjBusy(false); }
   };
   // Rider-fee discount breakdown. `pickupFee` from pricing is the EFFECTIVE
@@ -515,14 +520,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               </div>
             ))}
             {!hasBeenPaid && !isCancelled && (
-              <div className="pt-1">
+              <div className="pt-1 space-y-1.5">
+                <input value={adjLabel} onChange={(e) => setAdjLabel(e.target.value)} placeholder="เช่น กล้องหลังเสีย" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-slate-500" />
                 <div className="flex gap-1.5">
-                  <input value={adjLabel} onChange={(e) => setAdjLabel(e.target.value)} placeholder="เช่น กล้องหลังเสีย" className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-slate-500" />
-                  <input value={adjAmount} onChange={(e) => setAdjAmount(e.target.value.replace(/[^0-9-]/g, ''))} inputMode="numeric" placeholder="-500" className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right placeholder:text-slate-500" />
-                  <button onClick={submitAdjustment} disabled={adjBusy} className="bg-slate-200 text-slate-900 px-3 rounded-lg text-xs font-black disabled:opacity-40">เพิ่ม</button>
+                  <SignedAmountInput tone="dark" amount={adjAmount} direction={adjDir} onChange={(a, d) => { setAdjAmount(a); setAdjDir(d); }} />
+                  <button onClick={submitAdjustment} disabled={adjBusy || !adjLabel.trim() || signedAmount(adjAmount, adjDir) === null} className="bg-slate-200 text-slate-900 px-3 rounded-lg text-xs font-black disabled:opacity-40 shrink-0">เพิ่ม</button>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  ค่าติดลบ = หักเงิน (เช่น -500) · บวก = เพิ่มเงิน (Offer ต่อรอง) · ลูกค้าเห็นรายการนี้ · ไม่ถูกล้างตอนตรวจเครื่อง
+                <p className="text-[10px] text-slate-500">
+                  เลือก "- หัก" หรือ "+ เพิ่ม" แล้วใส่จำนวนเงิน · ลูกค้าเห็นรายการนี้ · ไม่ถูกล้างตอนตรวจเครื่อง
                   {!canReview && ' · รายการของคุณจะส่งขออนุมัติจาก CEO/MANAGER ก่อนมีผล'}
                 </p>
               </div>
