@@ -232,6 +232,42 @@ async function main() {
     console.log('   *** ไม่ศูนย์ — เฟส 4 ต้องเพิ่ม migration ที่แผนปัจจุบันไม่ได้วางไว้ ***');
   }
 
+  // ── 6) ค่ารอบค้างจ่าย (เพิ่มหลังรอบรันแรกพบ JOB_PAYOUT = 0 แถว) ─────────
+  // ledger บอกว่าไม่เคยมีการอนุมัติค่ารอบเข้ากระเป๋าเลย — ต้องรู้ว่าฝั่งงาน
+  // มีค่ารอบสะสมค้างอยู่เท่าไหร่ เพราะหลังเฟส 1 เลขนี้คือส่วนต่างระหว่าง
+  // "0 ที่จอโชว์" กับ "เงินที่ไรเดอร์ควรได้จริง". query ตาม .indexOn rider_id
+  // รายคน ไม่กวาด /jobs ทั้ง node (กฎค่า RTDB)
+  console.log(`\n== 6) ค่ารอบฝั่งงาน เทียบกับ ledger ==`);
+  const ridersSnap = await db.ref('riders').once('value');
+  const riderIds = ridersSnap.exists() ? Object.keys(ridersSnap.val()) : [];
+  const riderNames = ridersSnap.exists()
+    ? Object.fromEntries(Object.entries(ridersSnap.val()).map(([id, r]) => [id, (r && r.name) || '(no name)']))
+    : {};
+  console.log(`   ไรเดอร์ใน /riders: ${riderIds.length} คน`);
+  for (const rid of riderIds) {
+    const jobsSnap = await db.ref('jobs').orderByChild('rider_id').equalTo(rid).once('value');
+    const jobs = jobsSnap.exists() ? Object.entries(jobsSnap.val()).map(([id, j]) => ({ id, ...(j || {}) })) : [];
+    const byFeeStatus = {};
+    let unpaidSum = 0;
+    let feeMissing = 0;
+    for (const j of jobs) {
+      const st = j.rider_fee_status || '(none)';
+      byFeeStatus[st] = (byFeeStatus[st] || 0) + 1;
+      const fee = Number(j.rider_fee);
+      if (st !== 'Paid') {
+        if (Number.isFinite(fee) && fee > 0) unpaidSum += fee;
+        else if (j.receive_method === 'Pickup') feeMissing += 1;
+      }
+    }
+    console.log(`\n   rider ${rid} (${riderNames[rid]}): งานที่ถือ ${jobs.length} ใบ`);
+    for (const [st, n] of Object.entries(byFeeStatus)) console.log(`     - rider_fee_status ${st}: ${n} ใบ`);
+    console.log(`     ค่ารอบค้างจ่าย (rider_fee ตั้งแล้วแต่ยังไม่ Paid): ${fmt(unpaidSum)}`);
+    if (feeMissing) console.log(`     งาน Pickup ที่ยังไม่มี rider_fee เลย: ${feeMissing} ใบ (ต้องรอ/ไล่ trigger settlement)`);
+    const ledgerPaid = (result.riderReport.find((r) => r.rider_id === rid) || { perCategory: {} }).perCategory['JOB_PAYOUT/CREDIT'];
+    console.log(`     เทียบ ledger: JOB_PAYOUT ที่เคยเข้ากระเป๋า = ${ledgerPaid ? fmt(ledgerPaid.sum) : '0'}`);
+  }
+  console.log(`\n   (หมายเหตุ: นับเฉพาะ /jobs — งานที่ถูก archive แล้วไม่อยู่ในเลขนี้)`);
+
   const jsonArg = process.argv.find((a) => a.startsWith('--json='));
   if (jsonArg) {
     const out = jsonArg.split('=')[1];
