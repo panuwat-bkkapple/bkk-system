@@ -13,7 +13,12 @@ import { computeRiderWht, readRiderWhtConfig } from '../../../utils/riderWht';
 export const RiderWithdrawals = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
-  const { data: jobs, loading } = useDatabase('jobs');
+  // คำขอถอนอยู่ node ของตัวเอง /withdrawals (เขียนโดย callable
+  // riderRequestWithdraw ฝั่ง bkk-rider-app เท่านั้น — ท่อเดิมที่อ่านจาก
+  // /jobs type='Withdrawal' ไม่มีใครเขียนแล้ว ดูแผนเฟส 4 ใน bkk-rider-app
+  // docs/reports/2026-08-31-rider-wallet-fix-plan.md). node นี้มีแต่คำขอถอน
+  // จึงเล็กมาก subscribe ทั้งก้อนได้ตามกฎค่า RTDB
+  const { data: withdrawalRows, loading } = useDatabase('withdrawals');
   // การถอน = จุดที่เงินออกจากบัญชีบริษัทจริง จึงเป็นจุดที่หน้าที่หักภาษี
   // ณ ที่จ่ายเกิดขึ้น (ไม่ใช่ตอนอนุมัติค่ารอบเข้า wallet ซึ่งเป็นแค่การตั้งหนี้)
   const { data: riders } = useDatabase('riders');
@@ -43,15 +48,15 @@ export const RiderWithdrawals = () => {
   const [isUploading, setIsUploading] = useState(false);
 
   const pendingWithdrawals = useMemo(() => {
-    const list = Array.isArray(jobs) ? jobs : [];
-    return list.filter(j => 
-        j.status === 'Withdrawal Requested' && 
-        j.type === 'Withdrawal' &&
-        (j.rider_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-         j.rider_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.bank_account?.includes(searchTerm))
+    const list = Array.isArray(withdrawalRows) ? withdrawalRows : [];
+    return list.filter(w =>
+        w.status === 'requested' &&
+        (searchTerm === '' ||
+         w.rider_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         w.rider_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         w.bank_account?.includes(searchTerm))
     ).sort((a, b) => (b.requested_at || 0) - (a.requested_at || 0));
-  }, [jobs, searchTerm]);
+  }, [withdrawalRows, searchTerm]);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -92,13 +97,16 @@ export const RiderWithdrawals = () => {
       // 1. อัปโหลดสลิป
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/withdrawals/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
-      // Atomic multi-path update: job + transaction ในครั้งเดียว
+      // Atomic multi-path update: แถวคำขอ + DEBIT + ปลด lock ในครั้งเดียว
+      // (state machine: requested → paid คือจุดเดียวที่ ledger ถูกเขียน)
       const txKey = push(child(ref(db), 'transactions')).key;
       const updates: Record<string, any> = {};
-      updates[`jobs/${selectedTx.id}/status`] = 'Completed';
-      updates[`jobs/${selectedTx.id}/paid_at`] = now;
-      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
-      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
+      updates[`withdrawals/${selectedTx.id}/status`] = 'paid';
+      updates[`withdrawals/${selectedTx.id}/paid_at`] = now;
+      updates[`withdrawals/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
+      updates[`withdrawals/${selectedTx.id}/payment_slip`] = slipUrl;
+      // ปลดจอง — ไรเดอร์ขอใบใหม่ได้ทันทีที่ใบนี้จบ
+      updates[`withdrawal_locks/${selectedTx.rider_id}`] = null;
       // `amount` = ยอดที่ตัดจาก wallet ของไรเดอร์ (ยอดขอถอนเต็ม) เพราะภาษีที่
       // หักไว้คือเงินของไรเดอร์ที่บริษัทนำส่งสรรพากรแทน ไม่ใช่เงินที่ไม่เคย
       // เป็นของเขา — wallet จึงต้องลดเต็มจำนวน ส่วน `net_paid` คือยอดที่โอนจริง
@@ -116,9 +124,9 @@ export const RiderWithdrawals = () => {
           : { net_paid: Number(selectedTx.withdraw_amount) }),
       };
       if (wht.applies) {
-        updates[`jobs/${selectedTx.id}/wht_amount`] = wht.wht;
-        updates[`jobs/${selectedTx.id}/wht_rate_percent`] = wht.ratePercent;
-        updates[`jobs/${selectedTx.id}/net_paid`] = wht.net;
+        updates[`withdrawals/${selectedTx.id}/wht_amount`] = wht.wht;
+        updates[`withdrawals/${selectedTx.id}/wht_rate_percent`] = wht.ratePercent;
+        updates[`withdrawals/${selectedTx.id}/net_paid`] = wht.net;
       }
       await update(ref(db), updates);
 
@@ -127,6 +135,21 @@ export const RiderWithdrawals = () => {
       setSlipFile(null);
     } catch (e) { toast.error('Error: ' + e); }
     finally { setIsUploading(false); }
+  };
+
+  const handleRejectRequest = async () => {
+    if (!selectedTx) return;
+    if (!confirm(`ปฏิเสธคำขอถอน ${formatCurrency(selectedTx.withdraw_amount)} ของ ${selectedTx.rider_name}?\n\nยอดจะกลับเข้ากระเป๋าไรเดอร์ทันที (ไม่มีการเขียน ledger)`)) return;
+    try {
+      const updates: Record<string, any> = {};
+      updates[`withdrawals/${selectedTx.id}/status`] = 'rejected';
+      updates[`withdrawals/${selectedTx.id}/rejected_at`] = Date.now();
+      updates[`withdrawals/${selectedTx.id}/rejected_by`] = currentUser?.name || 'Finance';
+      updates[`withdrawal_locks/${selectedTx.rider_id}`] = null;
+      await update(ref(db), updates);
+      toast.success('ปฏิเสธคำขอแล้ว — ยอดกลับเข้ากระเป๋าไรเดอร์');
+      setSelectedTx(null);
+    } catch (e) { toast.error('Error: ' + e); }
   };
 
   if (loading) return <div className="p-10 text-center font-black text-slate-300 animate-pulse uppercase">Loading Cashouts...</div>;
@@ -249,6 +272,13 @@ export const RiderWithdrawals = () => {
                  >
                     {isUploading ? <Loader2 size={24} className="animate-spin"/> : <CheckCircle2 size={24}/>} 
                     {isUploading ? 'Uploading & Saving...' : 'Confirm & Mark as Paid'}
+                 </button>
+                 <button
+                    onClick={handleRejectRequest}
+                    disabled={isUploading}
+                    className="w-full py-4 rounded-[2rem] font-black text-xs uppercase text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 active:scale-95 transition-all"
+                 >
+                    ปฏิเสธคำขอ (ยอดกลับเข้ากระเป๋าไรเดอร์)
                  </button>
               </div>
            </div>
