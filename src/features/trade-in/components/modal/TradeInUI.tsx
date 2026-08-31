@@ -4,6 +4,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import { isOfferAwaitingDecision } from '@/utils/customerOffer';
 import { isRecededStatus } from '@/types/job-statuses';
+import { statusBadgeClass } from '@/utils/statusColors';
 
 export const MethodBadge = ({ method }: { method: string }) => {
   const getStyle = () => {
@@ -20,58 +21,11 @@ export const MethodBadge = ({ method }: { method: string }) => {
   );
 };
 
-export const StatusBadge = ({ status }: { status: string }) => {
-  const styles: any = {
-    // Sales Pipeline
-    'New Lead': 'bg-pink-100 text-pink-700 border-pink-200 ring-2 ring-pink-500/20',
-    'Following Up': 'bg-blue-50 text-blue-600 border-blue-200',
-    'Appointment Set': 'bg-emerald-100 text-emerald-700 border-emerald-300 shadow-sm',
-    'Waiting Drop-off': 'bg-indigo-100 text-indigo-700 border-indigo-200 border-dashed',
-    'Awaiting Shipping': 'bg-indigo-50 text-indigo-600 border-indigo-200 border-dashed',
-    // Logistics & Inspection (legacy + canonical)
-    'Active Leads': 'bg-purple-50 text-purple-600 border-purple-200 border-dashed',
-    'Active Lead': 'bg-purple-50 text-purple-600 border-purple-200 border-dashed',
-    'Assigned': 'bg-violet-100 text-violet-700 border-violet-200',
-    'Rider Assigned': 'bg-violet-100 text-violet-700 border-violet-200',
-    'Accepted': 'bg-blue-100 text-blue-700 border-blue-200',
-    'Rider Accepted': 'bg-blue-100 text-blue-700 border-blue-200',
-    'Heading to Customer': 'bg-sky-100 text-sky-700 border-sky-200',
-    'Rider En Route': 'bg-sky-100 text-sky-700 border-sky-200',
-    'Arrived': 'bg-teal-100 text-teal-700 border-teal-200',
-    'Rider Arrived': 'bg-teal-100 text-teal-700 border-teal-200',
-    'Drop-off Received': 'bg-purple-100 text-purple-700 border-purple-200',
-    'Parcel In Transit': 'bg-blue-100 text-blue-700 border-blue-300',
-    'Parcel Received': 'bg-orange-100 text-orange-700 border-orange-200',
-    'In-Transit': 'bg-blue-100 text-blue-700 border-blue-300 shadow-sm',
-    'Rider Returning': 'bg-blue-100 text-blue-700 border-blue-300 shadow-sm',
-    'Pending QC': 'bg-amber-100 text-amber-700 border-amber-200',
-    'Being Inspected': 'bg-purple-100 text-purple-700 border-purple-200',
-    'QC Review': 'bg-amber-100 text-amber-700 border-amber-200',
-    'Discrepancy Reported': 'bg-rose-100 text-rose-700 border-rose-300 ring-2 ring-rose-500/20',
-    'Revised Offer': 'bg-purple-100 text-purple-700 border-purple-200',
-    'Negotiation': 'bg-orange-100 text-orange-700 border-orange-300 ring-2 ring-orange-500/20 shadow-md',
-    'Price Accepted': 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    // Finance & Inventory
-    'Payout Processing': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    'Waiting For Handover': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    'Paid': 'bg-green-100 text-green-700 border-green-200',
-    'PAID': 'bg-green-100 text-green-700 border-green-200',
-    'In Stock': 'bg-slate-100 text-slate-700 border-slate-200',
-    // Closed / Cancelled — these chips sit on receded rows and keep their
-    // weight there, so the text must clear WCAG AA by itself: red-500 on
-    // red-50 was 3.44:1 (red-700 is 5.91:1), slate-500 on slate-100 was
-    // 4.34:1 (slate-600 is 6.92:1).
-    'Cancelled': 'bg-red-50 text-red-700 border-red-100',
-    'Closed (Lost)': 'bg-slate-800 text-slate-300 border-slate-700',
-    'Drop-off Expired': 'bg-slate-100 text-slate-600 border-slate-200',
-    'Shipping Expired': 'bg-slate-100 text-slate-600 border-slate-200',
-    'Returned': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
-    'Return Confirmed': 'bg-slate-700 text-slate-300 border-slate-800 shadow-inner',
-  };
-  // Fallback catches statuses with no entry (Completed, Sold, Parcel Lost,
-  // Refund Completed, ...): slate-400 on slate-50 was 2.45:1 — near invisible.
-  return <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${styles[status] || 'bg-slate-50 text-slate-600 border-slate-100'}`}>{status}</span>;
-};
+// Per-status colors live in src/utils/statusColors.ts, shared with the
+// mobile JobCard chip — edit them there, not here.
+export const StatusBadge = ({ status }: { status: string }) => (
+  <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border shadow-sm transition-all ${statusBadgeClass(status)}`}>{status}</span>
+);
 
 export const TicketPipeline = ({ status }: { status: string }) => {
   // Tolerant matching: each phase array carries both the legacy DB strings
