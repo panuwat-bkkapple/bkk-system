@@ -275,6 +275,10 @@ const LEGACY_ALIAS: Record<string, JobStatus> = {
   'Payment Completed': JOB_STATUS.PAID,
   'Active Leads': JOB_STATUS.ACTIVE_LEAD, // plural → singular
   'Waiting for Handover': JOB_STATUS.WAITING_FOR_HANDOVER, // lowercase 'for' (legacy admin writer)
+  // lowercase 'to' (bkk-system writers still emit the JobStatusB2C casing
+  // from domain.ts: B2CWorkspace, PricingSidebar, B2BManager, Inventory)
+  'Sent to QC Lab': JOB_STATUS.SENT_TO_QC_LAB,
+  'Ready to Sell': JOB_STATUS.READY_TO_SELL,
 
   // Renamed statuses
   Assigned: JOB_STATUS.RIDER_ASSIGNED,
