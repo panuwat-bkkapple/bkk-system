@@ -38,7 +38,7 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       const now = Date.now();
       snap.forEach((child) => {
         const j = child.val();
-        if (j.status === 'New Lead' || j.status === 'New B2B Lead' || j.status === 'Active Leads') {
+        if (j.status === 'New Lead' || j.status === 'New B2B Lead' || j.status === 'Active Leads' || j.status === 'Active Lead') {
           count++;
           nCount++; // new ticket notification
         }
