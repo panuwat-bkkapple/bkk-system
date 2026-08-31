@@ -73,6 +73,10 @@ const STATUS_STYLES: Record<string, StatusStyle> = {
   },
   'Active Lead': {
     badge: 'bg-purple-50 text-purple-600 border-purple-200 border-dashed',
+    // Chip added with the Phase B writer flip (admin mobile now broadcasts
+    // as canonical 'Active Lead') — mirrors the legacy plural's hue so the
+    // list card does not fall back to the slate chip.
+    chip: { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
   },
   'Assigned': {
     badge: 'bg-violet-100 text-violet-700 border-violet-200',
@@ -94,6 +98,10 @@ const STATUS_STYLES: Record<string, StatusStyle> = {
   },
   'Rider En Route': {
     badge: 'bg-sky-100 text-sky-700 border-sky-200',
+    // Chip added with the Phase B writer flip (admin mobile writes the
+    // canonical en-route status instead of the overloaded 'In-Transit') —
+    // sky to match its own badge hue.
+    chip: { bg: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-500' },
   },
   'Arrived': {
     badge: 'bg-teal-100 text-teal-700 border-teal-200',

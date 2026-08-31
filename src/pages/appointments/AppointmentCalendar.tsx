@@ -99,10 +99,12 @@ interface CalendarEntry {
 const JOB_STATUS_COLORS: Record<string, { color: string; bg: string }> = {
   'New Lead': { color: 'text-blue-700', bg: 'bg-blue-100' },
   'Active Leads': { color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  'Active Lead': { color: 'text-emerald-700', bg: 'bg-emerald-100' },
   'New B2B Lead': { color: 'text-purple-700', bg: 'bg-purple-100' },
   'Following Up': { color: 'text-amber-700', bg: 'bg-amber-100' },
   'Appointment Set': { color: 'text-indigo-700', bg: 'bg-indigo-100' },
   'In-Transit': { color: 'text-orange-700', bg: 'bg-orange-100' },
+  'Rider En Route': { color: 'text-orange-700', bg: 'bg-orange-100' },
   'Pending QC': { color: 'text-yellow-700', bg: 'bg-yellow-100' },
   'Cancelled': { color: 'text-red-700', bg: 'bg-red-100' },
   'Closed (Lost)': { color: 'text-red-700', bg: 'bg-red-100' },

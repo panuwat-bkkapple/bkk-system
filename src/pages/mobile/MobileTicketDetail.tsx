@@ -34,7 +34,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -54,10 +54,15 @@ const STATUS_COLORS: Record<string, string> = {
   'Following Up':      'bg-amber-100 text-amber-700',
   'Appointment Set':   'bg-cyan-100 text-cyan-700',
   'Active Leads':      'bg-orange-100 text-orange-700',
+  'Active Lead':       'bg-orange-100 text-orange-700',
   'Assigned':          'bg-violet-100 text-violet-700',
+  'Rider Assigned':    'bg-violet-100 text-violet-700',
   'Accepted':          'bg-blue-100 text-blue-700',
+  'Rider Accepted':    'bg-blue-100 text-blue-700',
   'Heading to Customer': 'bg-sky-100 text-sky-700',
+  'Rider En Route':    'bg-sky-100 text-sky-700',
   'Arrived':           'bg-teal-100 text-teal-700',
+  'Rider Arrived':     'bg-teal-100 text-teal-700',
   'In-Transit':        'bg-yellow-100 text-yellow-700',
   'Waiting Drop-off':  'bg-teal-100 text-teal-700',
   'Awaiting Shipping': 'bg-indigo-100 text-indigo-700',
@@ -95,7 +100,7 @@ const PIPELINE = [
   {
     label: 'รับเครื่อง',
     statuses: [
-      'Active Leads',
+      'Active Leads', 'Active Lead',
       // Rider claims through legacy or canonical
       'Assigned', 'Accepted', 'Rider Accepted',
       // Heading out (legacy "Heading to Customer" / "In-Transit", canonical "Rider En Route")
@@ -2143,13 +2148,14 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
   const actions: { label: string; status: string; log: string; style: string; confirm?: string }[] = [];
   const isPickup = receiveMethod === 'Pickup';
   const isMailIn = receiveMethod === 'Mail-in';
-  // The "ส่งให้ไรเดอร์ (Active Leads)" broadcast button is available
-  // through the whole sales phase for Pickup orders so admin can
-  // dispatch as soon as the customer confirms — no need to walk
-  // through every intermediate status.
+  // The "ส่งให้ไรเดอร์" broadcast button is available through the whole
+  // sales phase for Pickup orders so admin can dispatch as soon as the
+  // customer confirms — no need to walk through every intermediate status.
+  // Writes the canonical 'Active Lead' (the rider pool query in
+  // bkk-rider-app useRiderJobs accepts both spellings).
   const dispatchAction = {
     label: 'ส่งให้ไรเดอร์ (Broadcast)',
-    status: 'Active Leads',
+    status: JOB_STATUS.ACTIVE_LEAD,
     log: 'แอดมินส่งงานให้ไรเดอร์ (broadcast pool)',
     style: 'bg-orange-500 text-white',
   };
@@ -2192,7 +2198,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: 'Active Leads',
+            status: JOB_STATUS.ACTIVE_LEAD,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
@@ -2214,7 +2220,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // instead of forcing a detour through Active Leads.
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
-        actions.push({ label: 'เริ่มดำเนินการ (Active Leads)', status: 'Active Leads', log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', status: JOB_STATUS.ACTIVE_LEAD, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       }
       break;
     // Mail-in logistics. `Parcel In Transit` is what the customer's own
@@ -2262,14 +2268,19 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       const hasRider = !!job?.rider_id;
       const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
       if (hasRider) {
-        actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+        // "ไรเดอร์กำลังเดินทาง (ไปหาลูกค้า)" — this used to write the
+        // overloaded 'In-Transit', which normalizeStatus reads as RIDER
+        // RETURNING for Pickup (the rider app's meaning) — the same value
+        // meant two different legs depending on who wrote it. The canonical
+        // en-route status says what this button actually means.
+        actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       } else {
         // No rider currently. Either nobody picked up yet, or a rider
         // dropped it. Admin can re-broadcast or fall back to Following Up.
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: 'Active Leads',
+            status: JOB_STATUS.ACTIVE_LEAD,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
@@ -2280,11 +2291,15 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     }
     case 'Assigned':
     case 'Accepted':
-      actions.push({ label: 'กำลังเดินทาง (In-Transit)', status: 'In-Transit', log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+    case 'Rider Assigned':
+    case 'Rider Accepted':
+      actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       break;
     case 'Heading to Customer':
     case 'In-Transit':
     case 'Arrived':
+    case 'Rider En Route':
+    case 'Rider Arrived':
       // 'In-Transit' is overloaded (see normalizeStatus in job-statuses.ts):
       // Pickup = rider on the road, Mail-in = parcel with the courier. Legacy
       // Mail-in jobs still sit on this value, so give them the parcel actions.

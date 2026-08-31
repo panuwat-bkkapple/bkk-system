@@ -20,12 +20,19 @@ const AREA_BOUNDS = { minLat: 13.45, maxLat: 14.10, minLng: 100.25, maxLng: 100.
 const ACTIVE_STATUSES = [
   'Assigned', 'Accepted', 'Arrived', 'Being Inspected',
   'Price Accepted', 'Revised Offer', 'Payout Processing',
-  'Waiting for Handover', 'In-Transit'
+  'Waiting for Handover', 'In-Transit',
+  // Canonical spellings (rider app writes these since Phase 2D; admin
+  // mobile writes 'Rider En Route' since the In-Transit writer flip) —
+  // without them, rider-claimed jobs vanished from the dispatcher map.
+  'Rider Assigned', 'Rider Accepted', 'Rider Arrived', 'Rider En Route', 'Rider Returning',
 ];
 
 const STATUS_COLORS: Record<string, string> = {
   'Accepted': '#3B82F6',
+  'Rider Accepted': '#3B82F6',
   'In-Transit': '#F59E0B',
+  'Rider En Route': '#F59E0B',
+  'Rider Returning': '#F59E0B',
   'default': '#94A3B8'
 };
 
@@ -73,7 +80,8 @@ export const DispatcherPage = () => {
     const list = Array.isArray(jobs) ? jobs : [];
     return {
       unassignedJobs: list.filter(j =>
-        (j.status === 'Active Leads' || (j.status === 'Assigned' && !j.rider_id)) &&
+        (j.status === 'Active Leads' || j.status === JOB_STATUS.ACTIVE_LEAD ||
+          ((j.status === 'Assigned' || j.status === JOB_STATUS.RIDER_ASSIGNED) && !j.rider_id)) &&
         j.type !== 'Withdrawal'
       ),
       activeJobs: list.filter(j =>
