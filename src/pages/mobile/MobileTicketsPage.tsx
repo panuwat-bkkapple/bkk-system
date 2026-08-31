@@ -11,6 +11,7 @@ import { CustomerTimelineModal } from '../../components/customer/CustomerTimelin
 import { isAwaitingOffer } from '../../utils/offerRequest';
 import { isOfferAwaitingDecision } from '../../utils/customerOffer';
 import { isRecededStatus } from '../../types/job-statuses';
+import { jobListPhaseOf } from '../../utils/jobListPhase';
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -55,22 +56,13 @@ const PHASE_FILTERS = [
   { key: 'closed', label: 'ปิดงาน' },
 ];
 
-const SALES_STATUSES = ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'];
-// Includes both legacy and canonical (JOB_STATUS) values so a job that
-// flips to `Rider En Route` doesn't fall out of the Logistics tab.
-const LOGISTICS_STATUSES = [
-  // Legacy
-  'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit',
-  // Canonical (from JOB_STATUS)
-  'Active Lead', 'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
-  // Mail-in / Store-in logistics — no rider, but just as much "in progress".
-  // Missing here meant a Mail-in parcel only showed under the "ทั้งหมด" tab.
-  'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
-  // Inspection / payout phases — unchanged
-  'Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation',
-  'Payout Processing', 'Waiting for Handover',
-];
-const CLOSED_STATUSES = ['Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Cancelled', 'Closed (Lost)', 'Returned', 'Completed', 'Sold'];
+// Tab classification is shared with the desktop dashboard via
+// jobListPhaseOf (utils/jobListPhase.ts) — the two pages used to keep
+// separate hand-written status arrays and drifted. 'New B2B Lead' is the
+// one B2B status this page has always shown under เปิดงาน; the B2C
+// classifier does not know B2B statuses, so it stays a special case here.
+const listPhaseOf = (job: { status?: string | null; receive_method?: string | null }) =>
+  job.status === 'New B2B Lead' ? 'sales' : jobListPhaseOf(job.status, job.receive_method);
 
 const METHOD_ICONS: Record<string, React.ReactNode> = {
   'Pickup':   <Truck size={12} />,
@@ -111,9 +103,9 @@ export const MobileTicketsPage = () => {
     let list = jobs;
 
     // Phase filter
-    if (phase === 'sales') list = list.filter((j) => SALES_STATUSES.includes(j.status));
-    else if (phase === 'logistics') list = list.filter((j) => LOGISTICS_STATUSES.includes(j.status));
-    else if (phase === 'closed') list = list.filter((j) => CLOSED_STATUSES.includes(j.status));
+    if (phase === 'sales') list = list.filter((j) => listPhaseOf(j) === 'sales');
+    else if (phase === 'logistics') list = list.filter((j) => listPhaseOf(j) === 'active');
+    else if (phase === 'closed') list = list.filter((j) => listPhaseOf(j) === 'closed');
 
     // Search
     if (search.trim()) {
@@ -132,9 +124,9 @@ export const MobileTicketsPage = () => {
   // Phase counts
   const phaseCounts = useMemo(() => ({
     all: jobs.length,
-    sales: jobs.filter((j) => SALES_STATUSES.includes(j.status)).length,
-    logistics: jobs.filter((j) => LOGISTICS_STATUSES.includes(j.status)).length,
-    closed: jobs.filter((j) => CLOSED_STATUSES.includes(j.status)).length,
+    sales: jobs.filter((j) => listPhaseOf(j) === 'sales').length,
+    logistics: jobs.filter((j) => listPhaseOf(j) === 'active').length,
+    closed: jobs.filter((j) => listPhaseOf(j) === 'closed').length,
   }), [jobs]);
 
   if (loading) {
