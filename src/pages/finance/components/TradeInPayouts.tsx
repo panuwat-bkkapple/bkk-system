@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
+import { useFinanceGate } from '../../../hooks/useFinanceGate';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2, Clock, AlertTriangle } from 'lucide-react';
@@ -21,6 +22,7 @@ const toDateTimeLocal = (ms: number) => {
 export const TradeInPayouts = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
+  const { guard } = useFinanceGate();
   const { data: jobs, loading } = useDatabase('jobs');
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -114,6 +116,10 @@ export const TradeInPayouts = () => {
     if (transferredAt > Date.now() + 60_000) { toast.warning('วันเวลาที่โอนเป็นอนาคต กรุณาตรวจสอบ'); return; }
 
     if (!confirm('ยืนยันว่าทำการโอนเงินเข้าบัญชีลูกค้าเรียบร้อยแล้ว?')) return;
+
+    // ด่านสิทธิ์จ่ายเงินออก — บันทึก audit ทั้งที่ผ่านและถูกปฏิเสธ
+    const gate = guard('payout_transfer', { refId: selectedTx.id, amount: getNetPayout(selectedTx) });
+    if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
 
     setIsUploading(true);
     try {

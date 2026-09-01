@@ -11,11 +11,13 @@ import {
 import { ref, update, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { useFinanceGate } from '../../hooks/useFinanceGate';
 
 export const SalesHistory = () => {
   const toast = useToast();
   const { data: sales, loading } = useDatabase('sales');
   const { hasAccess } = useAuth();
+  const { guard } = useFinanceGate();
   
   // States
   const [searchTerm, setSearchTerm] = useState('');
@@ -129,6 +131,11 @@ export const SalesHistory = () => {
      if (saleRecord.status === 'VOIDED') { toast.warning('บิลนี้ถูกยกเลิกไปแล้ว'); return; }
      const confirmVoid = window.confirm(`⚠️ คำเตือน: ต้องการยกเลิกบิล ${saleRecord.receipt_no} ใช่หรือไม่?\nสินค้าจะถูกคืนเข้าคลังอัตโนมัติ`);
      if (!confirmVoid) return;
+
+     // ด่านสิทธิ์: void คือการย้อนรายการเงินเข้า + คืนสต๊อก — ก่อนหน้านี้ปุ่มนี้
+     // ไม่มี gate เลย (hasAccess ถูก import ไว้แต่ไม่เคยถูกเรียก)
+     const gate = guard('sales_void', { refId: saleRecord.id, amount: Number(saleRecord.grand_total || 0) });
+     if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์ยกเลิกบิลขาย'); return; }
 
      try {
         await update(ref(db, `sales/${saleRecord.id}`), { status: 'VOIDED', voided_at: Date.now() });

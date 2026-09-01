@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useFinanceGate } from '../../hooks/useFinanceGate';
 import { useAuth } from '../../hooks/useAuth';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
@@ -25,6 +26,7 @@ const toDateTimeLocal = (ms: number) => {
 export const MobileFinancePage = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
+  const { guard } = useFinanceGate();
   const { data: jobs, loading } = useDatabase('jobs');
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -141,6 +143,11 @@ export const MobileFinancePage = () => {
   const doConfirmTransfer = async () => {
     setConfirmGate(false);
     if (!selectedTx) return;
+
+    // ด่านสิทธิ์จ่ายเงินออก — จอนี้เข้าถึงได้ทุก role (route /mobile/finance
+    // ไม่มี role guard) จึงเป็นจุดที่ต้องมีด่านมากที่สุดในสองจอที่จ่ายเงิน
+    const gate = guard('payout_transfer', { refId: selectedTx.id, amount: getNetPayout(selectedTx) });
+    if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
     const transferredAt = transferDateTime ? new Date(transferDateTime).getTime() : Date.now();
     setIsUploading(true);
     try {

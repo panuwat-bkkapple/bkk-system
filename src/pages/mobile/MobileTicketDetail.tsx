@@ -10,6 +10,7 @@ import {
   ShieldCheck, Search, Monitor, Battery, Smartphone, Cpu, Globe, Info,
   Edit3, Trash2, X as CloseIcon, History, Save
 } from 'lucide-react';
+import { useFinanceGate } from '../../hooks/useFinanceGate';
 import { ThaiPostTracking } from '../admin/components/ThaiPostTracking';
 import { CustomerTimelineModal } from '../../components/customer/CustomerTimelineModal';
 import { uploadImageToFirebase } from '../../utils/uploadImage';
@@ -139,6 +140,7 @@ export const MobileTicketDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const { guard } = useFinanceGate();
 
   const currentUser = useMemo(() => {
     const saved = sessionStorage.getItem('bkk_session');
@@ -546,6 +548,12 @@ export const MobileTicketDetail = () => {
   };
 
   const handleUpdateStatus = async (newStatus: string, details: string) => {
+    // ปุ่ม "จ่ายเงินแล้ว (Paid)" คือทางลัดที่ประกาศว่าเงินออกแล้วโดยไม่ผ่านหน้า
+    // finance และไม่สร้างแถว transactions — จึงต้องผ่านด่านเดียวกับการโอนจริง
+    if (newStatus === 'Paid' || newStatus === 'PAID') {
+      const gate = guard('job_mark_paid', { refId: job.id, amount: Number(job.net_payout || job.final_price || 0) });
+      if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
+    }
     await update(ref(db, `jobs/${job.id}`), {
       status: newStatus,
       qc_logs: [makeLog(newStatus, details), ...(job.qc_logs || [])],
