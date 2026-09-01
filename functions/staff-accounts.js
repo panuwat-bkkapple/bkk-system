@@ -109,6 +109,10 @@ async function requireCeoCaller(db, auth) {
   throw new HttpsError("permission-denied", "ไม่พบข้อมูลพนักงานของบัญชีนี้");
 }
 
+// ใช้ร่วมกับ finance-claims.js — gate เดียวกันต้องมีสำเนาเดียว ไม่งั้นวันหนึ่ง
+// สองไฟล์จะนิยาม "CEO" ไม่ตรงกัน
+exports.requireCeoCaller = requireCeoCaller;
+
 function countOtherActiveCeos(staffMap, excludeStaffId) {
   return Object.entries(staffMap).filter(([id, s]) => {
     if (!s || id === excludeStaffId) return false;
