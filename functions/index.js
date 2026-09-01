@@ -6463,6 +6463,16 @@ exports.dailySickwUsageSummary = onSchedule(
 );
 
 // =============================================================================
+// Job status transitions — the callable front door to the status engine
+// (./status-engine.js decides, ./status-apply.js writes, ./status-transition-api.js
+// authenticates). Deployed ahead of any caller on purpose: the writers move to
+// it one client at a time, and a client that ships first is a rider tapping a
+// button that calls a function which does not exist yet.
+// =============================================================================
+const statusTransitionApi = require("./status-transition-api");
+exports.transitionJob = statusTransitionApi.transitionJob;
+
+// =============================================================================
 // Staff account lifecycle — per-employee Firebase Auth accounts, CEO-gated.
 // เจ้าของการเขียน /staff + /admins เพียงผู้เดียว (rules ปิด client write แล้ว)
 // ดูรายละเอียดใน ./staff-accounts.js
