@@ -56,7 +56,9 @@ const uLower = buildApprovalUpdates({
   ...base, result: { fee: 150, distance_km: 3.2 }, feeBefore: 290, delta: lower.delta, ledger: lower.ledger,
 });
 check("จ่ายแล้ว/ลดลง: ไม่มี path ซ้อนกัน", ancestorOverlaps(uLower).length === 0);
-check("จ่ายแล้ว/ลดลง: ลงแถว DEBIT PENALTY ส่วนต่าง 140", uLower["transactions/TX1"]?.type === "DEBIT" && uLower["transactions/TX1"]?.amount === 140);
+check("จ่ายแล้ว/ลดลง: ลงแถว DEBIT ส่วนต่าง 140", uLower["transactions/TX1"]?.type === "DEBIT" && uLower["transactions/TX1"]?.amount === 140);
+// การแก้ตัวเลขที่คิดผิดไม่ใช่ค่าปรับ — PENALTY ขึ้นบนกระเป๋าไรเดอร์ว่า "รายการหัก"
+check("จ่ายแล้ว/ลดลง: หมวดเป็น ADJUSTMENT ไม่ใช่ PENALTY", uLower["transactions/TX1"]?.category === "ADJUSTMENT");
 check("delta_tx_id อยู่ในก้อน pin_dispute", uLower["jobs/J1/pin_dispute"]?.delta_tx_id === "TX1");
 check("ไม่มี path แยกของ delta_tx_id", uLower["jobs/J1/pin_dispute/delta_tx_id"] === undefined);
 check("จ่ายแล้วห้ามดึง rider_fee_status กลับเป็น Pending", uLower["jobs/J1/rider_fee_status"] === undefined);
@@ -68,7 +70,8 @@ const uHigher = buildApprovalUpdates({
   ...base, result: { fee: 290, distance_km: 38 }, feeBefore: 150, delta: higher.delta, ledger: higher.ledger,
 });
 check("จ่ายแล้ว/เพิ่มขึ้น: ไม่มี path ซ้อนกัน", ancestorOverlaps(uHigher).length === 0);
-check("จ่ายแล้ว/เพิ่มขึ้น: ลงแถว CREDIT JOB_PAYOUT", uHigher["transactions/TX1"]?.type === "CREDIT" && uHigher["transactions/TX1"]?.category === "JOB_PAYOUT");
+// ทิศบวกก็ ADJUSTMENT เหมือนกัน ไม่ใช่ JOB_PAYOUT — ไม่ได้วิ่งงานเพิ่ม แค่ยอดเดิมถูกแก้
+check("จ่ายแล้ว/เพิ่มขึ้น: ลงแถว CREDIT ADJUSTMENT", uHigher["transactions/TX1"]?.type === "CREDIT" && uHigher["transactions/TX1"]?.category === "ADJUSTMENT");
 
 // --- ยังไม่จ่าย ---
 const unsettled = settlementDelta(290, 150, false);

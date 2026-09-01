@@ -75,7 +75,7 @@ function planRevert(jobId, job, txKey, now) {
         rider_id: d.requested_by_rider_id,
         amount: Math.abs(delta),
         type: delta < 0 ? 'CREDIT' : 'DEBIT',
-        category: delta < 0 ? 'JOB_PAYOUT' : 'PENALTY',
+        category: 'ADJUSTMENT',
         description: `ย้อนการปรับค่ารอบ (หมุดลูกค้าถูกต้อง) ${job.model || 'งาน'} (${job.ref_no || job.OID || jobId})`,
         timestamp: now,
         ref_job_id: jobId,

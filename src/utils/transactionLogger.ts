@@ -8,7 +8,9 @@ interface TransactionLog {
   rider_id: string;
   amount: number;
   type: TransactionType;
-  category: 'JOB_PAYOUT' | 'WITHDRAWAL' | 'PENALTY' | 'BONUS';
+  // ADJUSTMENT = แก้ยอดที่คิดผิด (ไม่ใช่ค่าปรับ ไม่ใช่ค่ารอบใหม่)
+  // MIRROR: bkk-rider-app/src/utils/walletLedger.ts (RIDER_WALLET_CATEGORIES)
+  category: 'JOB_PAYOUT' | 'WITHDRAWAL' | 'PENALTY' | 'BONUS' | 'ADJUSTMENT';
   description: string;
   ref_job_id?: string;
 }
