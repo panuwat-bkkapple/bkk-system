@@ -624,6 +624,11 @@ async function computeRiderFee(db, job, options = {}) {
       // สาขาที่ resolve ได้ (ถ้าได้) — เก็บไว้แม้เส้นทางนี้จะยังวัดระยะไม่ได้
       // เพราะมันแยก "ไม่มีหมุดลูกค้า" ออกจาก "ไม่มีสาขา" ได้ตอนอ่านย้อนหลัง
       branch_source: (branchCoords && branchCoords.source) || null,
+      // เก็บฝั่งที่หาได้ไว้ด้วยแม้จะวัดไม่สำเร็จ — คนตรวจต้องรู้ว่าขาดข้างไหน
+      origin_lat: custCoords ? custCoords.lat : null,
+      origin_lng: custCoords ? custCoords.lng : null,
+      dest_lat: branchCoords ? branchCoords.lat : null,
+      dest_lng: branchCoords ? branchCoords.lng : null,
       rates,
       reason: !custCoords ? "missing_customer_coords" : "missing_branch_coords",
     };
@@ -636,6 +641,14 @@ async function computeRiderFee(db, job, options = {}) {
       fee_by_vehicle: byVehicle(null),
       travel_mode: rates.travel_mode,
       branch_source: branchCoords.source || null,
+      // พิกัดที่ **ใช้วัดจริง** ทั้งสองปลาย — branch_source บอกได้แค่ว่า
+      // resolveBranchCoords ตกชั้นไหน ไม่ได้บอกว่าหมุดนั้นอยู่ตรงไหน และหมุดสาขา
+      // แก้ได้ทีหลัง ส่วนหมุดลูกค้าแอดมินขยับได้ตลอด — ไม่เก็บไว้ตอนนี้ คำถาม
+      // "ตกลงเลขนี้วัดจากหมุดไหน" จะตอบไม่ได้เลยหลังจากนั้น
+      origin_lat: custCoords.lat,
+      origin_lng: custCoords.lng,
+      dest_lat: branchCoords.lat,
+      dest_lng: branchCoords.lng,
       distance_km: null,
       duration_min: null,
       rates,
@@ -685,6 +698,14 @@ async function computeRiderFee(db, job, options = {}) {
     // branches/{id} / สาขา active ตัวแรก) — สามชั้น fallback ที่ย้อนดูไม่ได้
     // ถ้าไม่บันทึกไว้
     branch_source: branchCoords.source || null,
+    // พิกัดที่ **ใช้วัดจริง** ทั้งสองปลาย — branch_source บอกได้แค่ว่า
+    // resolveBranchCoords ตกชั้นไหน ไม่ได้บอกว่าหมุดนั้นอยู่ตรงไหน และหมุดสาขา
+    // แก้ได้ทีหลัง ส่วนหมุดลูกค้าแอดมินขยับได้ตลอด — ไม่เก็บไว้ตอนนี้ คำถาม
+    // "ตกลงเลขนี้วัดจากหมุดไหน" จะตอบไม่ได้เลยหลังจากนั้น
+    origin_lat: custCoords.lat,
+    origin_lng: custCoords.lng,
+    dest_lat: branchCoords.lat,
+    dest_lng: branchCoords.lng,
     rates,
     reason: "calculated",
   };

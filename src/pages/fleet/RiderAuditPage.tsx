@@ -40,7 +40,7 @@ const CSV_HEADERS = [
   'departure_lat', 'departure_lng', 'departure_gps_status', 'departure_at',
   'customer_lat', 'customer_lng', 'geocode_status',
   'rider_distance_km', 'rider_duration_min', 'travel_mode', 'eta_travel_mode',
-  'branch_source', 'fee_reason',
+  'branch_source', 'measured_from_lat', 'measured_from_lng', 'measured_to_lat', 'measured_to_lng', 'fee_reason',
   'customer_distance_km', 'distance_basis',
   'settled_fee', 'estimate_fee', 'fee_breakdown_type',
   'pickup_fee', 'rider_fee_discount', 'effective_pickup_fee',
@@ -108,7 +108,10 @@ export const RiderAuditPage = () => {
         row.departure?.gpsStatus ?? null, row.departure?.at ?? null,
         row.customerPin?.lat ?? null, row.customerPin?.lng ?? null, row.geocodeStatus,
         row.riderDistanceKm, row.riderDurationMin, row.travelMode, row.etaTravelMode,
-        row.branchSource, row.feeReason,
+        row.branchSource,
+        row.measuredFrom?.lat ?? null, row.measuredFrom?.lng ?? null,
+        row.measuredTo?.lat ?? null, row.measuredTo?.lng ?? null,
+        row.feeReason,
         row.customerDistanceKm, row.distanceBasis,
         row.settledFee, row.estimateFee, row.feeBreakdownType,
         row.pickupFee, row.riderFeeDiscount, row.effectivePickupFee,
@@ -220,6 +223,13 @@ export const RiderAuditPage = () => {
                       <div className="text-[10px] text-slate-400">
                         {row.travelMode ?? '-'} · ฐานสาขา {row.branchSource ?? '-'}
                         {row.feeReason && row.feeReason !== 'calculated' ? ` · ${row.feeReason}` : ''}
+                      </div>
+                      {/* หมุดที่ใช้วัดจริง — งานเก่าที่คำนวณก่อนมีฟิลด์นี้จะไม่มี
+                          และต้องอ่านออกว่าไม่มี ไม่ใช่เงียบไป */}
+                      <div className="text-[10px] text-slate-400">
+                        {row.measuredFrom && row.measuredTo
+                          ? `วัดจาก ${pointText(row.measuredFrom)} ถึง ${pointText(row.measuredTo)}`
+                          : 'ไม่ได้บันทึกหมุดที่ใช้วัด'}
                       </div>
                     </td>
                     <td className="p-3">
