@@ -36,6 +36,13 @@ function finiteOrNull(value) {
  * @param {object} result ผลลัพธ์จาก computeRiderFee
  * @param {number} [now] เวลา (ms) — รับเข้ามาเพื่อให้เทสตรึงค่าได้
  */
+/** พิกัดที่ครบคู่เท่านั้น — มี lat แต่ไม่มี lng คือพิกัดที่ใช้ไม่ได้ ห้ามเก็บครึ่งใบ */
+function pointOrNull(lat, lng) {
+  const a = finiteOrNull(lat);
+  const b = finiteOrNull(lng);
+  return a === null || b === null ? null : { lat: a, lng: b };
+}
+
 function riderFeeMeta(result, now = Date.now()) {
   const r = result || {};
   return {
@@ -49,9 +56,16 @@ function riderFeeMeta(result, now = Date.now()) {
     eta_travel_mode: r.eta_travel_mode || null,
     // สาขาปลายทางที่ resolveBranchCoords เลือกได้ในรอบนั้น
     branch_source: r.branch_source || null,
+    // พิกัดที่ **ใช้วัดจริง** ทั้งสองปลาย — `branch_source` บอกได้แค่ว่า
+    // resolveBranchCoords ตกชั้นไหน (`branches/{id}`) ไม่ได้บอกว่าหมุดนั้นอยู่ตรงไหน
+    // และหมุดของสาขาแก้ได้ทีหลัง ส่วนหมุดลูกค้าแอดมินขยับได้ตลอด — พอไม่เก็บไว้
+    // คำถาม "ตกลงเลขนี้วัดจากหมุดไหน" จึงตอบไม่ได้เลยหลังจากนั้น ซึ่งเป็นคำถามแรก
+    // ที่คนตรวจใบงานถาม
+    measured_from: pointOrNull(r.origin_lat, r.origin_lng),
+    measured_to: pointOrNull(r.dest_lat, r.dest_lng),
     reason: r.reason || null,
     computed_at: now,
   };
 }
 
-module.exports = { riderFeeMeta, finiteOrNull };
+module.exports = { riderFeeMeta, finiteOrNull, pointOrNull };

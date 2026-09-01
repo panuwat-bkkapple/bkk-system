@@ -86,8 +86,13 @@ export interface RiderAuditRow {
   travelMode: string | null;
   /** โหมดที่ใช้คิด ETA — ต่างจาก travelMode ได้ เพราะ ETA อิงยานพาหนะจริง */
   etaTravelMode: string | null;
-  /** resolveBranchCoords ตกชั้นไหน — ไม่ได้เก็บพิกัดที่ใช้จริงไว้ */
+  /** resolveBranchCoords ตกชั้นไหน (`branches/{id}`) — ไม่ใช่หมุดจริง */
   branchSource: string | null;
+  /** หมุดที่ระบบ **ใช้วัดจริง** ตอนคิดค่ารอบ — ต้นทางคือหมุดลูกค้า ณ ตอนนั้น
+   *  ปลายทางคือหมุดสาขา ทั้งสองแก้ได้ทีหลัง การเก็บไว้คือสิ่งเดียวที่ทำให้
+   *  ตอบคำถาม "ตกลงเลขนี้วัดจากหมุดไหน" ได้ · null = งานที่คำนวณก่อนมีฟิลด์นี้ */
+  measuredFrom: AuditPoint | null;
+  measuredTo: AuditPoint | null;
   /** `calculated` / `missing_customer_coords` / `routes_api_*` */
   feeReason: string | null;
 
@@ -183,6 +188,8 @@ export function buildRiderAuditRow(job: any): RiderAuditRow | null {
     travelMode: str(riderMeta?.travel_mode),
     etaTravelMode: str(riderMeta?.eta_travel_mode),
     branchSource: str(riderMeta?.branch_source),
+    measuredFrom: pointOrNull(riderMeta?.measured_from?.lat, riderMeta?.measured_from?.lng),
+    measuredTo: pointOrNull(riderMeta?.measured_to?.lat, riderMeta?.measured_to?.lng),
     feeReason: str(riderMeta?.reason),
 
     customerDistanceKm: finiteOrNull(job.pickup_fee_meta?.distance_km),
@@ -258,6 +265,16 @@ export function auditFlags(row: RiderAuditRow): AuditFlag[] {
       code: 'fee_not_from_distance',
       label: `ค่ารอบไม่ได้คิดจากระยะทาง (${row.feeBreakdownType})`,
     });
+  }
+  // หมุดลูกค้าถูกขยับหลังคิดค่ารอบแล้ว = เลขที่จ่ายวัดจากที่อื่น ซึ่งเป็นเคส
+  // ที่ใบตรวจนี้มีไว้จับโดยตรง (เกณฑ์หยาบ ~100 ม. พอให้เห็นการย้ายที่มีความหมาย
+  // โดยไม่ตื่นตูมกับความคลาดเคลื่อนของ GPS)
+  if (row.measuredFrom && row.customerPin) {
+    const dLat = row.measuredFrom.lat - row.customerPin.lat;
+    const dLng = row.measuredFrom.lng - row.customerPin.lng;
+    if (Math.abs(dLat) > 0.001 || Math.abs(dLng) > 0.001) {
+      out.push({ code: 'pin_moved_after_pricing', label: 'หมุดลูกค้าถูกขยับหลังคิดค่ารอบ' });
+    }
   }
   if (row.riderId === null && row.riderIdFromCancel !== null) {
     out.push({ code: 'rider_detached', label: 'งานถูกยกเลิกและหลุดจากไรเดอร์แล้ว' });
