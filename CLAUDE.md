@@ -305,7 +305,10 @@
 ## หมวดแถวกระเป๋าไรเดอร์ (/transactions.category) — MIRROR 2 ที่
 - **allowlist เดียวที่นับเข้ากระเป๋า** อยู่ที่ `bkk-rider-app/src/utils/walletLedger.ts` (`RIDER_WALLET_CATEGORIES` + ป้ายไทย) ↔ union ใน `src/utils/transactionLogger.ts` ของ repo นี้ — **เพิ่มหมวดต้องแก้ทั้งคู่** ไม่งั้นแถวที่เขียนได้จะไม่ถูกนับใน balance บนจอไรเดอร์ (หมวดนอก allowlist ถูกข้ามโดยตั้งใจ — ดูหัวไฟล์ walletLedger)
 - **`ADJUSTMENT` = แก้ยอดที่คิดผิด ไม่ใช่ `PENALTY` และไม่ใช่ `JOB_PAYOUT`** — ใช้ทั้งสองทิศ (CREDIT/DEBIT) ที่ `functions/pin-dispute.js` (`settlementDelta`) กับ `scripts/revert-pin-dispute.cjs`. เดิมทิศลบเป็น `PENALTY` ซึ่งขึ้นบนกระเป๋าว่า **"รายการหัก"** ทั้งที่ไม่มีใครทำผิด (เคสจริง 1 ก.ย. 2569 งาน OID-MTHBWFJJ-384 — หมุดลูกค้าถูกอยู่แล้ว แต่ไรเดอร์กดสามสถานะรวดตอนขากลับ ค่ารอบเลยถูกคิดใหม่จากจุดเช็คอิน แล้วต้องย้อนคืน)
-- **แถวเก่าไม่ต้อง migrate** — `PENALTY`/`JOB_PAYOUT` ยังอยู่ใน allowlist ทั้งคู่ balance จึงไม่ขยับ. สองแถวของงานข้างบนยังอ่านเป็นป้ายเดิมตามประวัติจริง **ห้ามไปแก้ประวัติ ledger ย้อนหลัง**
+- **หมวดเก่าห้ามถอดออกจาก allowlist** — `PENALTY`/`JOB_PAYOUT` ยังอยู่ทั้งคู่ ถอดเมื่อไหร่แถวเก่าที่ยังอ้างมันหลุดจาก balance เงียบๆ
+- **แถวเก่าที่ติดป้ายผิด แก้ป้ายได้ แต่ต้องทิ้งร่องรอย** — `scripts/relabel-pin-dispute-tx.cjs <jobId>` (dry-run เป็นค่าเริ่มต้น) แก้เฉพาะ `category` ของแถวที่ `pin_dispute` ชี้ (`delta_tx_id`/`revert_tx_id`) แล้วเขียน `category_was` + `category_corrected_at` + `category_correction_reason` ไว้ด้วยเสมอ
+  - **เส้นแบ่งคือ ป้าย ≠ เงิน** — จำนวนเงิน/เวลา/คำอธิบาย/`ref_job_id` **ห้ามแตะย้อนหลังเด็ดขาด** (ผิดยอด = ลงแถวชดเชย ไม่ใช่แก้แถวเดิม — ดู `revert-pin-dispute.cjs`) ส่วนป้ายที่ติดผิดตั้งแต่ต้นคือการ**แก้ให้อ่านตรงความจริง** ซึ่งทับเงียบๆ ไม่ได้ จึงต้องเก็บป้ายเดิมไว้ให้ย้อนดูได้
+  - **ห้าม scan `/transactions` หา `PENALTY` แล้วแก้ยกชุด** — ค่าปรับจริงมีอยู่จริงและเป็นคนละเรื่อง (และกฎค่า RTDB ห้ามกวาดทั้ง node อยู่แล้ว) สคริปต์จึงเข้าถึงแถวผ่าน `pin_dispute` เท่านั้น
 
 ## Coupons / Review Reward Ledger
 - **Master campaign:** `/coupons` (จัดการที่ `/coupons` — `CouponManager.tsx`). save เขียน `is_model_restricted` คู่กับ `applicable_models` (true เมื่อระบุรุ่นเอง) — ฝั่งลูกค้า (`bkk-frontend-next`) ใช้แยก "ไม่จำกัดรุ่น" ([] + false) ออกจาก "จำกัดแต่ config ขาด" (fail closed)
