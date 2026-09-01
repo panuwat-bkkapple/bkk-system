@@ -88,6 +88,63 @@ const tests = [
     });
   }),
 
+  check("the transition is mirrored into qc_logs, newest first", async () => {
+    // qc_logs คือไทม์ไลน์ที่แอดมินเปิดดูจริง (Traceability สร้างจากมันตรงๆ)
+    // ส่วน status_history ยังไม่มีหน้าไหนใน bkk-system อ่านเลยสักหน้า —
+    // ไม่มิเรอร์ = ทุกขั้นของไรเดอร์หายจากจอที่คนใช้ตอบคำถาม "งานนี้เกิดอะไรขึ้น"
+    const db = fakeDb(job({
+      status: "Rider Accepted",
+      qc_logs: [{ action: "Rider Accepted", by: "Rider: เก่า", timestamp: 1, details: "ของเดิม" }],
+    }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_departed", actor: ACTOR.RIDER,
+      by: "rider:r1", byName: "สมชาย", reason: "ไรเดอร์กำลังเดินทางไปหาลูกค้า", now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.qc_logs.length, 2);
+    assert.deepEqual(db.stored.qc_logs[0], {
+      action: "Rider En Route",
+      by: "สมชาย",
+      timestamp: clock(),
+      details: "ไรเดอร์กำลังเดินทางไปหาลูกค้า",
+    });
+    // แถวเดิมต้องอยู่ครบ ไม่ใช่ถูกเขียนทับ
+    assert.equal(db.stored.qc_logs[1].details, "ของเดิม");
+  }),
+
+  check("qc_logs mirror works on a job that has none yet", async () => {
+    const db = fakeDb(job({ status: "Rider Accepted" }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_departed", actor: ACTOR.RIDER, by: "rider:r1", now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.qc_logs.length, 1);
+    // ไม่มี byName ให้ตกกลับไปที่ by — ไม่ใช่ undefined ซึ่ง RTDB ปฏิเสธทั้ง write
+    assert.equal(db.stored.qc_logs[0].by, "rider:r1");
+    // ไม่มี reason ให้บรรยายการเปลี่ยนเอง แถวว่างเปล่าอ่านแล้วไม่ได้อะไร
+    assert.match(db.stored.qc_logs[0].details, /Rider Accepted -> Rider En Route/);
+  }),
+
+  check("a refused event writes no qc_logs entry either", async () => {
+    const db = fakeDb(job({ status: "New Lead", qc_logs: [] }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_departed", actor: ACTOR.RIDER, by: "rider:r1", now: clock,
+    });
+    assert.equal(out.ok, false);
+    assert.equal(db.stored.qc_logs.length, 0);
+  }),
+
+  check("a caller cannot send qc_logs in the patch", async () => {
+    // ถ้ายอมให้ส่งมา แถวที่ engine เขียนจะถูกทับหรือซ้ำ แล้วแต่ลำดับ merge
+    const db = fakeDb(job({ status: "Rider Accepted" }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_departed", actor: ACTOR.RIDER,
+      patch: { qc_logs: [{ action: "ของปลอม" }] }, now: clock,
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.code, "patch_conflict");
+  }),
+
   check("an illegal event writes nothing at all", async () => {
     const db = fakeDb(job({ status: "New Lead" }));
     const out = await applyTransition({ db, jobId: "J1", event: "payment_confirmed", actor: ACTOR.FINANCE, now: clock });

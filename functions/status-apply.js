@@ -40,12 +40,34 @@ const ENGINE_OWNED = [
   "status_history",
   "paid_at",
   "refunded_at",
+  // The engine appends the trail entry itself (see qcLogsOf below). A caller
+  // that also sent qc_logs would either clobber that entry or duplicate it.
+  "qc_logs",
 ];
 
 // Keep the trail bounded. A job runs to roughly a dozen transitions, so this
 // only ever trims a row that is looping — and a loop is exactly when the
 // oldest entries stop being the interesting ones.
 const MAX_HISTORY = 60;
+
+// qc_logs is the trail the ADMIN UI actually reads — Traceability builds its
+// timeline straight out of it, and PricingSidebar / QCStation append to it. Not
+// mirroring into it was a live regression the moment the first rider writer
+// moved here: status_history is written correctly, but nothing in bkk-system
+// reads that field (it exists in domain.ts as a type and nowhere else), so
+// every rider step vanished from the screen admins open to answer "what
+// happened to this job".
+//
+// So the engine writes BOTH while the two formats overlap. status_history is
+// the structured pair (from/to/event/actor) that v2 readers will use; qc_logs
+// is the free-text line today's screens render. Drop this mirror only when the
+// admin UI reads status_history — not before.
+function qcLogsOf(job) {
+  const raw = job && job.qc_logs;
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") return Object.values(raw);
+  return [];
+}
 
 function historyOf(job) {
   const raw = job && job.status_history;
@@ -73,7 +95,7 @@ function historyOf(job) {
  * run in here rather than before the call: a check made against a row read a
  * moment earlier is a check against a job that may since have been reassigned.
  */
-async function applyTransition({ db, jobId, event, actor, by, reason, patch = {}, guard = null, now = Date.now }) {
+async function applyTransition({ db, jobId, event, actor, by, byName, reason, patch = {}, guard = null, now = Date.now }) {
   const conflicting = Object.keys(patch).filter((key) => ENGINE_OWNED.includes(key));
   if (conflicting.length > 0) {
     return {
@@ -132,6 +154,19 @@ async function applyTransition({ db, jobId, event, actor, by, reason, patch = {}
         },
       ].slice(-MAX_HISTORY),
     };
+
+    // Newest-first, matching what every existing writer of this node does —
+    // Traceability sorts by timestamp itself, but PricingSidebar renders the
+    // array order as given.
+    next.qc_logs = [
+      {
+        action: outcome.to,
+        by: byName || by || actor,
+        timestamp: at,
+        details: reason || `${outcome.from} -> ${outcome.to} (${event})`,
+      },
+      ...qcLogsOf(current),
+    ];
 
     if (outcome.custody) next.custody = outcome.custody;
     // Write-once: a second payment event must not move the timestamp the
