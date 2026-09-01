@@ -1015,7 +1015,15 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("final assertion delegates to the shared override", src.slice(assertAt, assertAt + 300).includes("await overrideWaitPromise()"));
   check("real escalations and canned finals stay exempt from the assertion", src.slice(assertAt - 900, assertAt).includes("!state.escalated && !state.cannedFinal && !quoteOk && deadPromise(finalText)"));
   check("verifier corrections lose canned status (re-checked)", /finalText = verdict\.corrected\.trim\(\);\s*\n\s*state\.cannedFinal = false;/.test(src));
-  check("verifier skips canned finals", src.includes("if (finalText && !state.escalated && !state.cannedFinal) {\n          const verdict = await verifyReply("));
+  // The INVARIANT is "the verifier call sits inside the !cannedFinal guard",
+  // not "the two lines touch". Byte adjacency broke the day the call site
+  // gained the device-naming lookup that feeds verifier rule 9, so the check
+  // now asserts containment with a window instead of a literal join.
+  {
+    const vGuard = src.indexOf("if (finalText && !state.escalated && !state.cannedFinal) {");
+    const vCall = src.indexOf("const verdict = await verifyReply(");
+    check("verifier skips canned finals", vGuard > 0 && vCall > vGuard && vCall - vGuard < 1400);
+  }
 }
 
 // --- callback promises need a number to call (IMG_5131 turn 2) ---------------
