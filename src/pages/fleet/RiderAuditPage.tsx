@@ -5,16 +5,27 @@
 // เดิมงานจบแล้วเข้าคิว RiderSettlements ทันที และคนกดอนุมัติเห็นแค่ 4 ช่อง
 // (Job Ref / Rider / Device / Fee) จึงไม่มีทางรู้ว่าค่ารอบนั้นคิดจากอะไร
 //
-// รอบนี้ **อ่านอย่างเดียว** — การย้ายปุ่มอนุมัติมาที่นี่เป็นงานแยกอีกใบ
-// เพราะมันแตะเงินของคนอื่นและต้องตัดสินเรื่องงานที่ค้างอยู่ในคิวเดิมก่อน
+// **การอนุมัติค่ารอบเกิดที่จอนี้** ไม่ใช่ที่หน้าการเงินอีกต่อไป เพราะการอนุมัติ
+// คือการรับรองว่า "งานนี้ทำจริง ระยะเท่านี้ ค่ารอบเท่านี้" ซึ่งเป็นข้อเท็จจริง
+// หน้างาน ไม่ใช่งานบัญชี — และระบบบัญชีขีดเส้นนี้ไว้อยู่แล้ว: อนุมัติค่ารอบ =
+// ตั้งหนี้ (เงินยังไม่ออกจากบัญชีบริษัท) ส่วนการถอนคือการจ่ายเงินจริงที่มีสลิป
+// และเป็นจุดที่หักภาษี ณ ที่จ่าย ซึ่งยังเป็นของฝั่งการเงินตามเดิม
+//
+// เลือกทีละแถวเท่านั้น ไม่มีปุ่มอนุมัติทั้งหมดรวด — ปุ่มนั้นทำให้จอตรวจสอบ
+// ไม่มีความหมาย เพราะไม่มีใครต้องดูอะไรก่อนกด
 //
 // ใช้ useDatabase('jobs') ซึ่งแอปนี้ subscribe อยู่แล้วทั้งแอป การเปิดหน้านี้
 // จึงไม่เพิ่มค่า download ของ RTDB เลย (กฎค่า RTDB ใน CLAUDE.md)
 import { useMemo, useState } from 'react';
+import { ref, update, push, child } from 'firebase/database';
+import { db } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
+import { useAuth } from '../../hooks/useAuth';
 import { Download, AlertTriangle, MapPin, Route, Timer, Search } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/formatters';
 import { buildRiderAuditRow, involvesRider, auditFlags } from '../../utils/riderAudit';
+import { buildRiderFeeApproval, settledRiderFee } from '../../utils/riderSettlement';
 import type { RiderAuditRow } from '../../utils/riderAudit';
 
 /** ค่าที่ระบบไม่รู้ ต้องอ่านออกว่า "ไม่รู้" ไม่ใช่ขีดกลางที่แปลว่าศูนย์ */
@@ -59,8 +70,20 @@ const csvCell = (v: unknown): string => {
 export const RiderAuditPage = () => {
   const { data: jobs, loading } = useDatabase('jobs');
   const { data: riders } = useDatabase('riders');
+  const toast = useToast();
+  const { currentUser, hasAccess } = useAuth();
+  const canApprove = hasAccess(['CEO', 'MANAGER']);
   const [q, setQ] = useState('');
   const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  const togglePick = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const riderName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -97,6 +120,60 @@ export const RiderAuditPage = () => {
   }, [rows, q, onlyFlagged, riderName]);
 
   const flaggedCount = rows.filter((r) => r.flags.length > 0).length;
+
+  /** งานที่รออนุมัติและมีค่ารอบที่ระบบประทับแล้ว — คิวที่ย้ายมาจากหน้าการเงิน */
+  const jobById = useMemo(() => {
+    const m: Record<string, any> = {};
+    (Array.isArray(jobs) ? jobs : []).forEach((j: any) => { if (j?.id) m[j.id] = j; });
+    return m;
+  }, [jobs]);
+
+  const isPayable = (row: RiderAuditRow) =>
+    row.feeStatus === 'Pending' && settledRiderFee(jobById[row.id]) !== null;
+
+  const pickedPayable = useMemo(
+    () => visible.filter(({ row }) => picked.has(row.id) && isPayable(row)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, picked, jobById],
+  );
+
+  const approvePicked = async () => {
+    if (pickedPayable.length === 0) return;
+    const total = pickedPayable.reduce((s, { row }) => s + (row.settledFee ?? 0), 0);
+    if (!confirm(`อนุมัติค่ารอบ ${pickedPayable.length} ใบงาน รวม ${formatCurrency(total)} เข้ากระเป๋าไรเดอร์?`)) return;
+    setBusy(true);
+    try {
+      const now = Date.now();
+      // multi-path atomic ชุดเดียวเหมือนเดิม — เขียน jobs กับ transactions แยกกัน
+      // เมื่อไหร่ งานจะขึ้น Paid โดยไม่มีเงินเข้ากระเป๋าได้
+      const updates: Record<string, any> = {};
+      let skipped = 0;
+      for (const { row } of pickedPayable) {
+        const txKey = push(child(ref(db), 'transactions')).key;
+        const u = buildRiderFeeApproval({
+          job: jobById[row.id],
+          txKey: txKey || '',
+          now,
+          approvedBy: currentUser?.id || currentUser?.uid || null,
+        });
+        if (!u) { skipped += 1; continue; }
+        Object.assign(updates, u);
+      }
+      if (Object.keys(updates).length === 0) {
+        toast.error('ไม่มีรายการที่อนุมัติได้');
+        return;
+      }
+      await update(ref(db), updates);
+      setPicked(new Set());
+      toast.success(
+        `อนุมัติแล้ว ${pickedPayable.length - skipped} ใบงาน${skipped ? ` (ข้าม ${skipped} ใบที่จ่ายไม่ได้)` : ''}`,
+      );
+    } catch (e) {
+      toast.error('เกิดข้อผิดพลาด: ' + e);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const exportCsv = () => {
     const lines = [CSV_HEADERS.join(',')];
@@ -164,6 +241,15 @@ export const RiderAuditPage = () => {
           >
             <Download size={14} /> CSV
           </button>
+          {canApprove && (
+            <button
+              onClick={approvePicked}
+              disabled={busy || pickedPayable.length === 0}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 text-white disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              {busy ? 'กำลังอนุมัติ...' : `อนุมัติค่ารอบ ${pickedPayable.length} ใบ`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -182,6 +268,7 @@ export const RiderAuditPage = () => {
           <table className="w-full text-xs whitespace-nowrap">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 font-black">
               <tr>
+                {canApprove && <th className="p-3 w-8" />}
                 {['ใบงาน', 'ไรเดอร์', 'จุดออกเดินทาง', 'หมุดลูกค้า', 'ระยะ (ค่ารอบ)', 'เวลา',
                   'ระยะ (ค่าบริการ)', 'ค่ารอบ', 'ลูกค้าจ่าย', 'สถานะจ่าย', 'ต้องดู'].map((h) => (
                   <th key={h} className="p-3 text-left">{h}</th>
@@ -193,6 +280,19 @@ export const RiderAuditPage = () => {
                 const who = row.riderId ?? row.riderIdFromCancel;
                 return (
                   <tr key={row.id} className={flags.length ? 'bg-amber-50/40' : ''}>
+                    {canApprove && (
+                      <td className="p-3">
+                        {/* ติ๊กได้เฉพาะใบที่รออนุมัติและมีค่ารอบจริง — ใบที่ยังไม่มี
+                            ตัวเลขต้องเลือกไม่ได้ ไม่ใช่เลือกได้แล้วเงียบตอนกด */}
+                        <input
+                          type="checkbox"
+                          disabled={!isPayable(row)}
+                          checked={picked.has(row.id)}
+                          onChange={() => togglePick(row.id)}
+                          className="w-4 h-4 accent-emerald-600 disabled:opacity-30"
+                        />
+                      </td>
+                    )}
                     <td className="p-3">
                       <div className="font-bold text-slate-800">{row.refNo ?? row.id}</div>
                       <div className="text-[10px] text-slate-400">
