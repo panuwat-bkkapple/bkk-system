@@ -20,7 +20,7 @@ import { dirname, join } from "path";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-const { riderFeeMeta, finiteOrNull } = require(join(here, "..", "rider-fee-meta.js"));
+const { riderFeeMeta, finiteOrNull, pointOrNull } = require(join(here, "..", "rider-fee-meta.js"));
 
 let failures = 0;
 const check = (label, cond) => {
@@ -89,6 +89,7 @@ check("Routes API ล้ม: ระยะทางเป็น null", routesDown
 const KEYS = [
   "distance_km", "duration_min", "fee_by_vehicle", "rates",
   "travel_mode", "eta_travel_mode", "branch_source", "reason", "computed_at",
+  "measured_from", "measured_to",
 ];
 const empty = riderFeeMeta({}, NOW);
 check(
@@ -100,6 +101,37 @@ check("ผลลัพธ์ว่าง: ทุกค่าที่ไม่�
 check("เรียกโดยไม่ส่ง result เลยก็ไม่ throw", (() => {
   try { riderFeeMeta(undefined, NOW); return true; } catch { return false; }
 })());
+
+// --- พิกัดที่ใช้วัดจริง ------------------------------------------------------
+//
+// branch_source บอกได้แค่ว่า resolveBranchCoords ตกชั้นไหน (`branches/{id}`)
+// ไม่ได้บอกว่าหมุดนั้นอยู่ตรงไหน และหมุดสาขาแก้ได้ทีหลัง ส่วนหมุดลูกค้าแอดมิน
+// ขยับได้ตลอด — ไม่เก็บไว้ตอนคำนวณ คำถาม "ตกลงเลขนี้วัดจากหมุดไหน" ตอบไม่ได้เลย
+const withCoords = riderFeeMeta({
+  origin_lat: 13.74, origin_lng: 100.53, dest_lat: 13.85, dest_lng: 100.61,
+}, NOW);
+check("เก็บพิกัดต้นทางที่ใช้วัดจริง",
+  withCoords.measured_from && withCoords.measured_from.lat === 13.74 && withCoords.measured_from.lng === 100.53);
+check("เก็บพิกัดปลายทางที่ใช้วัดจริง",
+  withCoords.measured_to && withCoords.measured_to.lat === 13.85 && withCoords.measured_to.lng === 100.61);
+
+check("ไม่มีพิกัดเลย = null ทั้งคู่ (ไม่ใช่ {lat:0,lng:0} ซึ่งเป็นพิกัดกลางมหาสมุทร)",
+  empty.measured_from === null && empty.measured_to === null);
+
+// พิกัดครึ่งใบใช้ไม่ได้ — เก็บไว้จะทำให้คนตรวจเห็นหมุดที่ไม่มีอยู่จริง
+check("มี lat ไม่มี lng = null ไม่ใช่ครึ่งพิกัด",
+  riderFeeMeta({ origin_lat: 13.74 }, NOW).measured_from === null);
+check("มี lng ไม่มี lat = null",
+  riderFeeMeta({ dest_lng: 100.61 }, NOW).measured_to === null);
+
+// 0,0 เป็นพิกัดที่ถูกต้องตามหลัก (อ่าวกินี) — ตัวกรองต้องไม่ตัดทิ้งเพราะเป็นศูนย์
+check("พิกัด 0,0 ไม่ถูกตัดทิ้ง (Number(null) === 0 คนละเรื่องกับค่าศูนย์จริง)",
+  (() => { const m = riderFeeMeta({ origin_lat: 0, origin_lng: 0 }, NOW);
+    return m.measured_from && m.measured_from.lat === 0 && m.measured_from.lng === 0; })());
+
+check("สตริงตัวเลขจาก RTDB ยังอ่านเป็นพิกัดได้",
+  (() => { const m = riderFeeMeta({ dest_lat: "13.85", dest_lng: "100.61" }, NOW);
+    return m.measured_to && m.measured_to.lat === 13.85; })());
 
 // --- finiteOrNull ------------------------------------------------------------
 check("finiteOrNull: 0 เป็นตัวเลขที่ใช้ได้", finiteOrNull(0) === 0);

@@ -160,6 +160,59 @@ describe('buildRiderAuditRow', () => {
   });
 });
 
+describe('หมุดที่ใช้วัดจริง', () => {
+  const withMeasured = {
+    ...baseJob,
+    rider_fee_meta: {
+      ...baseJob.rider_fee_meta,
+      measured_from: { lat: 13.74, lng: 100.53 },
+      measured_to: { lat: 13.85, lng: 100.61 },
+    },
+  };
+
+  it('อ่านหมุดทั้งสองปลายที่ระบบใช้คิดเงิน', () => {
+    const r = buildRiderAuditRow(withMeasured)!;
+    expect(r.measuredFrom).toEqual({ lat: 13.74, lng: 100.53 });
+    expect(r.measuredTo).toEqual({ lat: 13.85, lng: 100.61 });
+  });
+
+  it('งานเก่าที่คำนวณก่อนมีฟิลด์นี้ = null ไม่ใช่เดาจาก cust_lat', () => {
+    const r = buildRiderAuditRow(baseJob)!;
+    expect(r.measuredFrom).toBeNull();
+    expect(r.measuredTo).toBeNull();
+  });
+
+  it('หมุดครึ่งใบใน meta = null', () => {
+    const r = buildRiderAuditRow({
+      ...baseJob,
+      rider_fee_meta: { ...baseJob.rider_fee_meta, measured_from: { lat: 13.74 } },
+    })!;
+    expect(r.measuredFrom).toBeNull();
+  });
+
+  it('หมุดตรงกับหมุดลูกค้าปัจจุบัน = ไม่มีธง', () => {
+    expect(auditFlags(buildRiderAuditRow(withMeasured)!).map((f) => f.code))
+      .not.toContain('pin_moved_after_pricing');
+  });
+
+  it('หมุดลูกค้าถูกขยับหลังคิดค่ารอบ = ขึ้นธง (เคสที่ใบตรวจนี้มีไว้จับ)', () => {
+    const moved = { ...withMeasured, cust_lat: 13.9, cust_lng: 100.7 };
+    expect(auditFlags(buildRiderAuditRow(moved)!).map((f) => f.code))
+      .toContain('pin_moved_after_pricing');
+  });
+
+  it('ขยับนิดเดียวระดับความคลาดเคลื่อน GPS ไม่ขึ้นธง', () => {
+    const jitter = { ...withMeasured, cust_lat: 13.7404, cust_lng: 100.5305 };
+    expect(auditFlags(buildRiderAuditRow(jitter)!).map((f) => f.code))
+      .not.toContain('pin_moved_after_pricing');
+  });
+
+  it('ไม่มีหมุดที่ใช้วัด = เทียบไม่ได้ ต้องไม่ขึ้นธงมั่ว', () => {
+    expect(auditFlags(buildRiderAuditRow(baseJob)!).map((f) => f.code))
+      .not.toContain('pin_moved_after_pricing');
+  });
+});
+
 describe('riderIdFromCancelledBy', () => {
   it('อ่าน id กลับจากรูป rider:{id}', () => {
     expect(riderIdFromCancelledBy('rider:r9')).toBe('r9');
