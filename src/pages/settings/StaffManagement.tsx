@@ -6,10 +6,16 @@
 //   adminStaffCreate        สร้างพนักงาน + บัญชี login (หรือออกบัญชีให้ record เดิม)
 //   adminStaffUpdate        แก้โปรไฟล์ / role / อีเมล
 //   adminStaffSetStatus     พักงาน (ปิด auth + ถอนสิทธิ์ DB ทันที) / คืนสถานะ
-//   adminStaffDelete        ลบพนักงาน + บัญชี + tokens
+//   adminStaffDelete        ปิดบัญชี: ถอนสิทธิ์ + ลบบัญชี login + tokens
+//                           แต่ **ไม่ลบแถวใน /staff** (ประทับ terminated_at)
 //   adminStaffResetPassword ออกรหัสผ่านใหม่
 // database rules ปิด client write ที่ /staff และ /admins แล้ว — Admin SDK
 // ใน functions เป็นผู้เขียนคนเดียว
+//
+// แถวที่ปิดบัญชีแล้วยังโผล่ในตาราง (ท้ายรายการ) โดยตั้งใจ: id ของพนักงานถูก
+// อ้างถึงจากงานเก่าเต็มไปหมด (qc_logs, adjustments, ประวัติสถานะ) การลบทิ้งทำให้
+// ทุกอ้างอิงชี้ไปที่ว่าง ปุ่มจัดการทั้งหมดถูกซ่อนสำหรับแถวเหล่านี้เพราะ server
+// ปฏิเสธทุกตัวอยู่แล้ว
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -19,6 +25,9 @@ import {
   Users, ShieldCheck, KeyRound, Plus, Edit, Trash2, X, UserCog,
   AlertTriangle, Mail, UserX, UserCheck, Copy, RefreshCw, Wand2
 } from 'lucide-react';
+
+/** พอสำหรับคำถามเดียวที่ถูกถาม: แถวนี้ปิดบัญชีไปแล้วหรือยัง */
+type Terminatable = { terminated_at?: number | null } | null | undefined;
 
 // Role ทั้ง 4 ค่านี้คือชุดเดียวที่ route guard ทั้งระบบรู้จัก (App.tsx,
 // AdminLayout, settingsNav, canReviewAdjustments, functions/staffIdsByRoles)
@@ -82,8 +91,21 @@ export const StaffManagement = () => {
 
   const staffList = useMemo(() => {
     if (!staff) return [];
-    return Array.isArray(staff) ? staff : Object.keys(staff).map(k => ({ id: k, ...(staff as any)[k] }));
+    const rows = Array.isArray(staff)
+      ? staff
+      : Object.keys(staff).map(k => ({ id: k, ...(staff as any)[k] }));
+    // แถวของคนที่ปิดบัญชีแล้วไม่ถูกลบทิ้งอีกต่อไป (ดู adminStaffDelete) — มันคือ
+    // บันทึกทางประวัติศาสตร์ที่ id ถูกอ้างถึงจากงานเก่า จึงต้องยังเห็นได้ แต่ดัน
+    // ลงท้ายรายการเพื่อไม่ให้ปนกับคนที่ยังทำงานอยู่
+    return [...rows].sort(
+      (a: Terminatable, b: Terminatable) =>
+        Number(Boolean(a?.terminated_at)) - Number(Boolean(b?.terminated_at))
+    );
   }, [staff]);
+
+  // "ปิดบัญชีแล้ว" ต่างจาก "พักงานอยู่": พักงานคืนสถานะได้ ปิดบัญชีคืนไม่ได้
+  // เพราะบัญชี Auth ถูกลบไปแล้ว — server ปฏิเสธทุก operation บนแถวเหล่านี้
+  const isTerminated = (emp: Terminatable) => Boolean(emp?.terminated_at);
 
   const session = useMemo(() => readSession(), []);
 
@@ -170,6 +192,10 @@ export const StaffManagement = () => {
   };
 
   const handleToggleStatus = async (emp: any) => {
+    if (isTerminated(emp)) {
+      toast.warning('พนักงานคนนี้ปิดบัญชีไปแล้ว — ถ้ากลับมาทำงานให้ออกบัญชีใหม่');
+      return;
+    }
     const suspending = emp.status === 'ACTIVE';
     if (suspending && isSelf(emp)) {
       toast.warning('พักงานบัญชีตัวเองไม่ได้');
@@ -189,13 +215,22 @@ export const StaffManagement = () => {
 
   const handleDelete = async (emp: any) => {
     if (isSelf(emp)) {
-      toast.warning('ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้');
+      toast.warning('ปิดบัญชีที่กำลังใช้งานอยู่ไม่ได้');
       return;
     }
-    if (!window.confirm(`ลบพนักงาน "${emp.name}" ถาวร?\n\nบัญชี login, สิทธิ์เข้าระบบ และการแจ้งเตือนของพนักงานคนนี้จะถูกลบทั้งหมด`)) return;
-    await run('ลบพนักงาน', async () => {
+    if (isTerminated(emp)) {
+      toast.warning('พนักงานคนนี้ปิดบัญชีไปแล้ว');
+      return;
+    }
+    if (!window.confirm(
+      `ปิดบัญชีพนักงาน "${emp.name}"?\n\n` +
+      `บัญชี login, สิทธิ์เข้าระบบ และการแจ้งเตือนจะถูกลบทั้งหมด และย้อนกลับไม่ได้\n\n` +
+      `ชื่อของพนักงานคนนี้ยังอยู่ในรายการ (ท้ายตาราง) เพราะงานเก่าอ้างถึงเขาอยู่ — ` +
+      `ถ้าลบทิ้ง ประวัติบนงานเหล่านั้นจะไม่เหลือชื่อคนทำ`
+    )) return;
+    await run('ปิดบัญชีพนักงาน', async () => {
       await call('adminStaffDelete', { staffId: emp.id });
-      toast.success(`ลบ ${emp.name} แล้ว`);
+      toast.success(`ปิดบัญชี ${emp.name} แล้ว`);
     });
   };
 
@@ -307,7 +342,8 @@ export const StaffManagement = () => {
             ) : (
                staffList.map((emp) => {
                   const roleDef = ROLES.find(r => r.id === emp.role);
-                  const suspended = emp.status !== 'ACTIVE';
+                  const terminated = isTerminated(emp);
+                  const suspended = emp.status !== 'ACTIVE' && !terminated;
                   return (
                      <tr key={emp.id} className={`hover:bg-slate-50 transition-colors ${suspended ? 'opacity-60' : ''}`}>
                         <td className="p-5">
@@ -363,9 +399,22 @@ export const StaffManagement = () => {
                                     <UserX size={11}/> พักงานอยู่
                                  </span>
                               )}
+                              {terminated && (
+                                 <span className="inline-flex items-center gap-1 text-[10px] font-black text-slate-500 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg uppercase w-fit">
+                                    <UserX size={11}/> ปิดบัญชีแล้ว
+                                 </span>
+                              )}
                            </div>
                         </td>
                         <td className="p-5 text-right">
+                           {/* แถวที่ปิดบัญชีแล้วเป็นบันทึกทางประวัติศาสตร์ ไม่ใช่พนักงานที่จัดการได้ —
+                               server ปฏิเสธทุกปุ่มเหล่านี้อยู่แล้ว ปุ่มที่กดแล้วขึ้น error เสมอ
+                               คือปุ่มที่ไม่ควรมี */}
+                           {terminated ? (
+                              <span className="text-[11px] font-bold text-slate-400 italic">
+                                 ปิดบัญชีแล้ว — เก็บไว้เพื่ออ้างอิงงานเก่า
+                              </span>
+                           ) : (
                            <div className="flex justify-end gap-2">
                               <button title="แก้ไขข้อมูล" onClick={() => handleOpenModal(emp)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-blue-100 hover:text-blue-600 transition-colors"><Edit size={16}/></button>
                               {emp.uid && (
@@ -378,8 +427,9 @@ export const StaffManagement = () => {
                               >
                                  {suspended ? <UserCheck size={16}/> : <UserX size={16}/>}
                               </button>
-                              <button title="ลบถาวร" onClick={() => handleDelete(emp)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-red-100 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>
+                              <button title="ปิดบัญชี (ถอนสิทธิ์ทั้งหมด แต่เก็บชื่อไว้อ้างอิงงานเก่า)" onClick={() => handleDelete(emp)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-red-100 hover:text-red-600 transition-colors"><Trash2 size={16}/></button>
                            </div>
+                           )}
                         </td>
                      </tr>
                   );
