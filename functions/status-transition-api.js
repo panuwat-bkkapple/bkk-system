@@ -117,6 +117,9 @@ exports.transitionJob = onCall({ region: REGION }, async (request) => {
     event,
     actor,
     by: `${actor}:${who.id}`,
+    // แถวใน qc_logs ถูกแอดมินอ่านด้วยตา ชื่อคนจึงมีค่ากว่า uid — ส่วน `by`
+    // ข้างบนยังเป็นรูปที่ query ได้ ใช้คู่กันคนละหน้าที่
+    byName: who.name || who.displayName || `${actor}:${who.id}`,
     reason,
     patch: patch || {},
     guard: actor === ACTOR.RIDER ? riderOwnershipGuard(request.auth.uid, event) : null,
