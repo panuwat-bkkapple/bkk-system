@@ -6659,3 +6659,11 @@ Object.assign(exports, require("./ops-dashboard").registerOpsDashboard());
 // รายการถอนที่หักภาษีไว้ถูกบันทึก (logic อยู่ rider-wht-issue.js)
 // =============================================================================
 Object.assign(exports, require("./rider-wht-issue").registerRiderWhtIssue());
+
+// =============================================================================
+// Rider lifecycle (อนุมัติ/ปฏิเสธ/ระงับ/ปลดระงับ) — CEO/MANAGER gate ฝั่ง
+// server + ปิดบัญชี Auth จริงตอนระงับ + บันทึกประวัติการเปลี่ยนสถานะ
+// (logic อยู่ rider-accounts.js). ก่อนหน้านี้หน้า /riders เขียน RTDB ตรงและ
+// ไม่มี role gate ที่ไหนเลย — rules ของ riders แยกได้แค่ admin/ไม่ใช่ admin
+// =============================================================================
+Object.assign(exports, require("./rider-accounts").registerRiderAccounts());

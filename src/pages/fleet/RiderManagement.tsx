@@ -1,12 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, update, remove } from 'firebase/database';
-import { db } from '../../api/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { db, app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   UserCheck, XCircle, Search, Bike, CreditCard, ShieldAlert,
   FileText, CheckCircle2, Star, Map, Ban, RefreshCw, Save, AlertTriangle, Activity,
   Pencil, Trash2
 } from 'lucide-react';
+
+// การเปลี่ยนสถานะไรเดอร์ผ่าน callable ตัวเดียว (functions/rider-accounts.js)
+// ไม่ใช่ update() ตรง เพราะ rules ของ riders แยกได้แค่ admin/ไม่ใช่ admin —
+// gate CEO/MANAGER และการปิดบัญชี Auth ตอนระงับต้องอยู่ฝั่ง server เท่านั้น
+type RiderAction = 'approve' | 'reject' | 'suspend' | 'unsuspend';
+const setRiderStatus = async (riderId: string, action: RiderAction, reason?: string | null) => {
+  const fn = httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminRiderSetStatus');
+  return (await fn({ riderId, action, reason: reason ?? null })).data as {
+    ok: boolean; action: RiderAction; authAccountFound: boolean;
+  };
+};
 
 export const RiderManagement = () => {
   const toast = useToast();
@@ -141,20 +153,19 @@ export const RiderManagement = () => {
     return { label: 'Tier 3 (Warning)', color: 'text-red-600 bg-red-50 border-red-200' };
   };
 
+  // ข้อความ error มาจาก server (role ไม่ผ่าน / ไม่พบไรเดอร์ / ปิดบัญชี Auth
+  // ไม่สำเร็จ) — แสดงตรงๆ ดีกว่าข้อความกลางๆ เพราะแต่ละกรณีแก้คนละแบบ
+  const failed = (error: unknown) =>
+    toast.error('เกิดข้อผิดพลาด: ' + ((error as { message?: string })?.message || error));
+
   // 🌟 1. ฟังก์ชันอนุมัติ
   const handleApprove = async (riderId: string) => {
     if (window.confirm('ยืนยันการอนุมัติไรเดอร์ท่านนี้?')) {
       try {
-        await update(ref(db, `riders/${riderId}`), { 
-          approval_status: 'Active',
-          status: 'Active', // 🌟 เพิ่มบรรทัดนี้: อัปเดต status ให้ตรงกัน
-          score: 100,
-          zone: 'Unassigned',
-          approved_at: Date.now()
-        });
+        await setRiderStatus(riderId, 'approve');
         setSelectedRider(null);
         toast.success('อนุมัติสำเร็จ! ไรเดอร์สามารถเข้าสู่ระบบและเริ่มรับงานได้ทันที');
-      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+      } catch (error) { failed(error); }
     }
   };
 
@@ -163,14 +174,14 @@ export const RiderManagement = () => {
     const reason = window.prompt('ระบุเหตุผลที่ไม่อนุมัติ (เช่น เอกสารไม่ชัดเจน):');
     if (reason !== null) {
       try {
-        await update(ref(db, `riders/${riderId}`), { 
-          approval_status: 'Rejected', 
-          status: 'Rejected', // 🌟 เพิ่มบรรทัดนี้
-          reject_reason: reason, 
-          rejected_at: Date.now()
-        });
+        const res = await setRiderStatus(riderId, 'reject', reason);
         setSelectedRider(null);
-      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+        toast.success(
+          res.authAccountFound
+            ? 'ปฏิเสธแล้ว — ปิดบัญชีเข้าใช้งานของไรเดอร์คนนี้เรียบร้อย'
+            : 'ปฏิเสธแล้ว (ไม่พบบัญชีเข้าใช้งานของไรเดอร์คนนี้)'
+        );
+      } catch (error) { failed(error); }
     }
   };
 
@@ -179,14 +190,14 @@ export const RiderManagement = () => {
     const reason = window.prompt('ระบุเหตุผลที่ระงับการใช้งานไรเดอร์คนนี้:');
     if (reason !== null) {
       try {
-        await update(ref(db, `riders/${riderId}`), { 
-          approval_status: 'Suspended', 
-          status: 'Suspended', // 🌟 เพิ่มบรรทัดนี้
-          suspend_reason: reason, 
-          suspended_at: Date.now()
-        });
+        const res = await setRiderStatus(riderId, 'suspend', reason);
         setSelectedRider(null);
-      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+        toast.success(
+          res.authAccountFound
+            ? 'ระงับแล้ว — ไรเดอร์ถูกเตะออกจากระบบและ login ใหม่ไม่ได้'
+            : 'ระงับแล้ว (ไม่พบบัญชีเข้าใช้งานของไรเดอร์คนนี้)'
+        );
+      } catch (error) { failed(error); }
     }
   };
 
@@ -194,14 +205,10 @@ export const RiderManagement = () => {
   const handleUnsuspend = async (riderId: string) => {
     if (window.confirm('ต้องการปลดแบนให้ไรเดอร์กลับมารับงานได้ตามปกติใช่หรือไม่?')) {
       try {
-        await update(ref(db, `riders/${riderId}`), { 
-          approval_status: 'Active', 
-          status: 'Active', // 🌟 เพิ่มบรรทัดนี้: ให้กลับมาออนไลน์ได้ทันที
-          suspend_reason: null, 
-          suspended_at: null
-        });
+        await setRiderStatus(riderId, 'unsuspend');
         setSelectedRider(null);
-      } catch (error) { toast.error('เกิดข้อผิดพลาด: ' + error); }
+        toast.success('ปลดแบนแล้ว — ไรเดอร์กลับมา login และรับงานได้ตามปกติ');
+      } catch (error) { failed(error); }
     }
   };
 

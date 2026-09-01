@@ -150,7 +150,7 @@ export default function App() {
               <Route path="/stock-audit" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StockAudit /> : <Navigate to="/" replace />} />
               <Route path="/finance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <Finance /> : <Navigate to="/" replace />} />
               <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
-              <Route path="/riders" element={<RiderManagement />} />
+              <Route path="/riders" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderManagement /> : <Navigate to="/" replace />} />
               <Route path="/rider-performance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformance /> : <Navigate to="/" replace />} />
               <Route path="/rider-performance/:riderId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformanceDetail /> : <Navigate to="/" replace />} />
               <Route path="/discrepancy-reports" element={<DiscrepancyReports />} />
