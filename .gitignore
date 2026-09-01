@@ -25,6 +25,8 @@ dist-ssr
 # `.env.local`, `.env.production` และ `functions/.env` ในบรรทัดเดียว
 .env*
 !.env.example
+# `.env.test` เป็นค่า dummy สำหรับรันเทส ไม่ใช่ความลับ — ดูคำอธิบายในไฟล์นั้น
+!.env.test
 
 # Editor directories and files
 .vscode/*
