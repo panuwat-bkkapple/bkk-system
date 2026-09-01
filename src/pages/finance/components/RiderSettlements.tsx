@@ -6,6 +6,8 @@ import { CheckCircle2, FileText, Zap } from 'lucide-react';
 import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { settledRiderFee } from '../../../utils/riderSettlement';
+
 
 export const RiderSettlements = () => {
   const toast = useToast();
@@ -34,9 +36,23 @@ export const RiderSettlements = () => {
       .sort((a, b) => (b.completed_at || b.created_at || 0) - (a.completed_at || a.created_at || 0));
   }, [jobs]);
 
+  // งานที่ "อนุมัติได้จริง" = มีค่ารอบที่ระบบประทับไว้แล้วเท่านั้น
+  // ที่เหลือยังอยู่ในตารางให้เห็น แต่กดจ่ายไม่ได้ (ดู settledRiderFee)
+  const payableFees = useMemo(
+    () => pendingFees.filter((j) => settledRiderFee(j) !== null),
+    [pendingFees],
+  );
+  const unpricedCount = pendingFees.length - payableFees.length;
+
   // 💰 อนุมัติทีละรายการ
   const handleApproveFee = async (job: any) => { 
-    if(!confirm(`ยืนยันอนุมัติค่าเที่ยวงาน ${job.ref_no} จำนวน ${formatCurrency(job.rider_fee || 150)} ใช่หรือไม่?`)) return;
+    const fee = settledRiderFee(job);
+    if (fee === null) {
+      // ปุ่มถูก disable ไว้อยู่แล้ว ด่านนี้กันเส้นทางอื่นที่อาจเรียกเข้ามา
+      toast.error('งานนี้ยังไม่มีค่ารอบที่ระบบคำนวณ — จ่ายไม่ได้จนกว่าจะมีตัวเลขจริง');
+      return;
+    }
+    if(!confirm(`ยืนยันอนุมัติค่าเที่ยวงาน ${job.ref_no} จำนวน ${formatCurrency(fee)} ใช่หรือไม่?`)) return;
 
     try {
         const now = Date.now();
@@ -47,7 +63,7 @@ export const RiderSettlements = () => {
         updates[`jobs/${job.id}/settled_at`] = now;
         updates[`transactions/${txKey}`] = {
             rider_id: job.rider_id,
-            amount: Number(job.rider_fee || 150),
+            amount: fee,
             type: 'CREDIT',
             category: 'JOB_PAYOUT',
             description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'})`,
@@ -60,21 +76,30 @@ export const RiderSettlements = () => {
 
   // ⚡ อนุมัติทั้งหมดในคลิกเดียว
   const handleApproveAll = async () => {
-    if (!confirm(`ยืนยันอนุมัติจ่ายค่ารอบทั้งหมด ${pendingFees.length} รายการ?`)) return;
+    if (payableFees.length === 0) {
+      toast.error('ไม่มีรายการที่มีค่ารอบพร้อมจ่าย');
+      return;
+    }
+    // นับจาก payableFees ไม่ใช่ pendingFees — ตัวเลขในคำถามต้องเป็นจำนวนที่จะ
+    // จ่ายจริง ไม่ใช่จำนวนแถวในตาราง มิฉะนั้นคนกดยืนยันคนละอย่างกับที่เกิดขึ้น
+    const skipNote = unpricedCount > 0
+      ? `\n(ข้าม ${unpricedCount} รายการที่ยังไม่มีค่ารอบ)`
+      : '';
+    if (!confirm(`ยืนยันอนุมัติจ่ายค่ารอบทั้งหมด ${payableFees.length} รายการ?${skipNote}`)) return;
     
     try {
         const now = Date.now();
         // Atomic multi-path update: jobs + transactions ทั้งหมดในครั้งเดียว
         const updates: Record<string, any> = {};
 
-        pendingFees.forEach(job => {
+        payableFees.forEach(job => {
             updates[`jobs/${job.id}/rider_fee_status`] = 'Paid';
             updates[`jobs/${job.id}/settled_at`] = now;
 
             const txKey = push(child(ref(db), 'transactions')).key;
             updates[`transactions/${txKey}`] = {
                 rider_id: job.rider_id,
-                amount: Number(job.rider_fee || 150),
+                amount: settledRiderFee(job) as number,
                 type: 'CREDIT',
                 category: 'JOB_PAYOUT',
                 description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'}) [Batch]`,
@@ -98,10 +123,15 @@ export const RiderSettlements = () => {
         <div>
            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Zap className="text-emerald-500"/> ค่ารอบรออนุมัติ (Pending Rider Fees)</h3>
            <p className="text-xs font-bold text-slate-400 mt-1">อนุมัติเพื่อให้เงินเข้ากระเป๋า Wallet ของไรเดอร์</p>
+           {unpricedCount > 0 && (
+             <p className="text-xs font-bold text-amber-600 mt-2">
+               {unpricedCount} รายการยังไม่มีค่ารอบที่ระบบคำนวณ — จ่ายไม่ได้จนกว่าจะมีตัวเลขจริง
+             </p>
+           )}
         </div>
-        {pendingFees.length > 0 && (
+        {payableFees.length > 0 && (
           <button onClick={handleApproveAll} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-emerald-200 hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-2">
-            <CheckCircle2 size={18}/> Approve All ({pendingFees.length})
+            <CheckCircle2 size={18}/> Approve All ({payableFees.length})
           </button>
         )}
       </div>
@@ -135,15 +165,32 @@ export const RiderSettlements = () => {
                 </td>
                 <td className="p-6 font-bold text-xs text-slate-700 uppercase">{item.model || 'Unknown Device'}</td>
                 <td className="p-6 text-center">
-                   <span className="font-black text-emerald-600 text-lg bg-emerald-50 px-3 py-1 rounded-xl">+{formatCurrency(item.rider_fee || 150)}</span>
+                   {settledRiderFee(item) !== null ? (
+                     <span className="font-black text-emerald-600 text-lg bg-emerald-50 px-3 py-1 rounded-xl">+{formatCurrency(settledRiderFee(item) as number)}</span>
+                   ) : (
+                     <div className="inline-flex flex-col items-center gap-1">
+                       <span className="font-black text-slate-400 text-lg bg-slate-100 px-3 py-1 rounded-xl">—</span>
+                       <span className="text-[9px] font-black text-amber-600 uppercase tracking-wide">ยังไม่มีค่ารอบ</span>
+                     </div>
+                   )}
                 </td>
                 <td className="p-6 text-right pr-10">
-                  <button 
-                    onClick={() => handleApproveFee(item)} 
-                    className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-black active:scale-95 transition-all"
-                  >
-                    Approve
-                  </button>
+                  {settledRiderFee(item) !== null ? (
+                    <button 
+                      onClick={() => handleApproveFee(item)} 
+                      className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-black active:scale-95 transition-all"
+                    >
+                      Approve
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      title="ยังไม่มีค่ารอบที่ระบบคำนวณ (rider_fee) — ตรวจ log ของ onJobHandedOverCalcRiderFee"
+                      className="bg-slate-100 text-slate-400 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase cursor-not-allowed"
+                    >
+                      รอระบบคำนวณ
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
