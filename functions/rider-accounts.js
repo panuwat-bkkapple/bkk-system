@@ -72,10 +72,9 @@ async function setAuthDisabled(uid, disabled) {
 // แสดง / staff push id / Firebase uid) และการเดาย้อนหลังว่าฟิลด์ไหนเป็นแบบ
 // ไหนคือสิ่งที่ทำให้ข้อมูลเก่าใช้ join ไม่ได้
 //
-// โหนดนี้ไม่มี rule ของตัวเอง → ตกกฎ root `.read/.write: false` = Admin SDK
-// เขียนได้ที่นี่ที่เดียว client อ่านไม่ได้ (ตั้งใจ: ยังไม่มีใครอ่าน) วันที่จะ
-// มี UI อ่าน ให้เพิ่ม `.read` แบบ admin ตามแบบ lot_audit / security_logs ที่
-// `bkk-frontend-next/database.rules.json`
+// rule ของโหนดนี้อยู่ที่ `bkk-frontend-next/database.rules.json` แล้ว (#921):
+// admin อ่านได้ client เขียนไม่ได้ `.indexOn: ["rider_id","at"]` — Admin SDK
+// bypass rules จึงเป็นผู้เขียนคนเดียว. staff_status_events ใช้รูปเดียวกัน
 async function recordTransition(db, event) {
   try {
     await db.ref("rider_status_events").push(event);
