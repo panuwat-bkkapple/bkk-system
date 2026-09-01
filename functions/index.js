@@ -1415,26 +1415,16 @@ async function runChatMigration() {
 // Run the dry mode first to see counts before committing.
 // =============================================================================
 
-// Mirror of LEGACY_ALIAS in src/types/job-statuses.ts. Kept inline because
-// functions/ has its own rootDir and cannot import the TS enum.
-const LEGACY_STATUS_RENAME = {
-  PAID: "Paid",
-  "Payment Completed": "Paid",
-  "Active Leads": "Active Lead",
-  Assigned: "Rider Assigned",
-  Accepted: "Rider Accepted",
-  "Heading to Customer": "Rider En Route",
-  Arrived: "Rider Arrived",
-  Returned: "Return Confirmed",
-};
-
-function resolveCanonical(legacy, receiveMethod) {
-  if (!legacy) return null;
-  if (legacy === "In-Transit") {
-    return receiveMethod === "Pickup" ? "Rider Returning" : "Parcel In Transit";
-  }
-  return LEGACY_STATUS_RENAME[legacy] || null;
-}
+// Status vocabulary comes from the generated mirror of the canonical TS enum
+// (scripts/generate-status-vocab.mjs). It used to be a hand-copied alias table
+// here, and it had already fallen behind the source: 'Sent to QC Lab',
+// 'Ready to Sell' and 'Waiting for Handover' were all missing, so this
+// migration silently skipped 114 of the ~499 live jobs (92 + 1 + 21 by the
+// 1 Sep 2026 census) — the exact rows it exists to rename.
+//
+// normalizeStatus returns the input unchanged for values that are already
+// canonical, which is what the caller below relies on to decide "needs rename".
+const { normalizeStatus: resolveCanonical } = require("./status-vocab.generated");
 
 async function runStatusMigration({ dryRun = false } = {}) {
   const db = getDatabase();

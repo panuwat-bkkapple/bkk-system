@@ -64,6 +64,24 @@ jobs:
       - name: Test
         run: npm test
 
+      # functions/ is plain JS and cannot import the canonical TS enum, so its
+      # status vocabulary is GENERATED from it and committed. This step fails if
+      # the committed file no longer matches the enum.
+      #
+      # It exists because the previous arrangement — two hand-copied alias
+      # tables in functions/email.js and functions/index.js — had already
+      # drifted: both were missing the 'Sent to QC Lab' and 'Ready to Sell'
+      # aliases the TS source had gained, which made runStatusMigration skip the
+      # 93 production rows carrying exactly those spellings. The cross-repo sync
+      # check never covered them, because it only ever compared the three TS
+      # copies.
+      #
+      # Runs here rather than in the functions job because esbuild lives in the
+      # root dependencies. The functions job has its own, esbuild-free guard in
+      # functions/test/status-vocab.test.mjs.
+      - name: Status vocab mirror is in sync
+        run: npm run check:status-vocab
+
   functions:
     name: Cloud Functions (syntax + offline suites)
     runs-on: ubuntu-latest
