@@ -5856,6 +5856,21 @@ exports.lookupDeviceForQuote = onCall({ region: SICKW_REGION, timeoutSeconds: 60
 
 const SICKW_OVERRIDE_ROLES = ["CEO", "MANAGER"];
 
+// = ทุก role ของพนักงานที่ระบบออกให้ได้ ต้องตรงกับ VALID_ROLES ใน
+// staff-accounts.js ซึ่งเป็นตัวเดียวที่เขียน /staff (CASHIER/QC เป็นค่า
+// deprecated ที่ไม่มี route ไหนรู้จักอยู่แล้ว — ดู UserRole ใน
+// src/types/domain.ts — จึงไม่รับที่นี่ด้วย)
+//
+// ต้องเป็น allowlist ไม่ใช่ "มี staff record ก็พอ": lookupStaffByAuth
+// fallback ไปอ่าน riders/{uid} แล้วคืน role "RIDER" ให้ด้วย การเช็คแค่ว่า
+// staff เป็น truthy จึงยังปล่อยไรเดอร์ผ่าน และ allowlist ยัง fail closed
+// เวลามี role ใหม่ ต่างจาก denylist
+//
+// ไรเดอร์ไม่อยู่ในลิสต์เพราะไม่มี client ฝั่งไรเดอร์เรียกฟังก์ชันนี้เลย —
+// bkk-rider-app/src/utils/sickwApi.ts ไม่ได้ export มัน คอมเมนต์เดิมตรงจุด
+// เช็คที่เขียนว่า "rider sync ตอนรับเครื่อง" เป็นเจตนาที่ไม่เคยถูกต่อสาย
+const SICKW_SYNC_ROLES = ["CEO", "MANAGER", "STAFF", "FINANCE"];
+
 exports.submitSickwGateOverride = onCall({ region: SICKW_REGION }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
@@ -5950,10 +5965,23 @@ exports.syncJobFromSickw = onCall({ region: SICKW_REGION }, async (request) => {
 
   const db = getDatabase();
 
-  // ตรวจ role — staff/CEO/MANAGER/STAFF + rider ก็ใช้ได้ (rider sync ตอนรับเครื่อง)
+  // ด่านสิทธิ์ — เดิมมีแค่ `if (!request.auth)` ข้างบน ซึ่งในโปรเจกต์นี้
+  // แปลว่า "ใครก็ได้": ลูกค้าทุกคนบนเว็บได้ anonymous auth ติดตัวมาอยู่แล้ว
+  // แล้วฟังก์ชันนี้เขียนทับ model/capacity/color/country/imei/imei2/serial
+  // ของใบงานไหนก็ได้ที่รู้ jobId
+  //
+  // ผลของ lookupStaffByAuth ถูกใช้เป็นทั้งด่านและชื่อผู้ทำรายการ — ตัวแปร
+  // actorName/actorRole ข้างล่างไม่มี fallback "Unknown" อีกแล้ว เพราะเลย
+  // บรรทัดนี้ไปได้แปลว่ามี staff record จริง
   const staff = await lookupStaffByAuth(db, request.auth);
-  const actorName = staff ? (staff.name || staff.email || "Unknown") : "Unknown";
-  const actorRole = staff ? String(staff.role || "STAFF").toUpperCase() : "UNKNOWN";
+  const actorRole = String((staff && staff.role) || "").toUpperCase();
+  if (!SICKW_SYNC_ROLES.includes(actorRole)) {
+    throw new HttpsError(
+      "permission-denied",
+      `เฉพาะพนักงาน (${SICKW_SYNC_ROLES.join("/")}) เท่านั้นที่ sync ข้อมูลเครื่องจาก Sickw ได้`
+    );
+  }
+  const actorName = staff.name || staff.email || "Unknown";
 
   const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
   if (!jobSnap.exists()) throw new HttpsError("not-found", "ไม่พบใบงาน");
