@@ -620,6 +620,10 @@ async function computeRiderFee(db, job, options = {}) {
       fee_by_vehicle: byVehicle(null),
       distance_km: null,
       duration_min: null,
+      travel_mode: rates.travel_mode,
+      // สาขาที่ resolve ได้ (ถ้าได้) — เก็บไว้แม้เส้นทางนี้จะยังวัดระยะไม่ได้
+      // เพราะมันแยก "ไม่มีหมุดลูกค้า" ออกจาก "ไม่มีสาขา" ได้ตอนอ่านย้อนหลัง
+      branch_source: (branchCoords && branchCoords.source) || null,
       rates,
       reason: !custCoords ? "missing_customer_coords" : "missing_branch_coords",
     };
@@ -630,6 +634,8 @@ async function computeRiderFee(db, job, options = {}) {
     return {
       fee: rates.min_fee,
       fee_by_vehicle: byVehicle(null),
+      travel_mode: rates.travel_mode,
+      branch_source: branchCoords.source || null,
       distance_km: null,
       duration_min: null,
       rates,
@@ -675,6 +681,10 @@ async function computeRiderFee(db, job, options = {}) {
     // คนละตัวได้ และเวลาไล่บั๊กต้องแยกออกจากกัน
     vehicle: rates.vehicle,
     eta_vehicle: etaVehicle,
+    // สาขาปลายทางที่ resolveBranchCoords เลือกได้ (job.branch_details /
+    // branches/{id} / สาขา active ตัวแรก) — สามชั้น fallback ที่ย้อนดูไม่ได้
+    // ถ้าไม่บันทึกไว้
+    branch_source: branchCoords.source || null,
     rates,
     reason: "calculated",
   };
@@ -693,16 +703,11 @@ async function riderVehicleType(db, job) {
 /**
  * meta ของค่าจ้างไรเดอร์ — รูปเดียวกันทุกจุดที่เขียน rider_fee_estimate/rider_fee
  * `fee_by_vehicle` ให้แอปไรเดอร์เลือกโชว์เลขของยานพาหนะตัวเอง
+ *
+ * ตัวจริงอยู่ที่ ./rider-fee-meta.js (pure, มีเทส offline) — index.js ต้อง init
+ * firebase-functions ตอน require จึงเทสจากที่นี่ไม่ได้
  */
-function riderFeeMeta(result) {
-  return {
-    distance_km: result.distance_km,
-    fee_by_vehicle: result.fee_by_vehicle || null,
-    rates: result.rates,
-    reason: result.reason,
-    computed_at: Date.now(),
-  };
-}
+const { riderFeeMeta } = require("./rider-fee-meta");
 
 /**
  * ค่าจ้างไรเดอร์ "ตามอัตราของคนที่ถืองานอยู่จริง"
