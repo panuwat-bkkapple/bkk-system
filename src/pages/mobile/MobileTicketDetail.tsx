@@ -18,6 +18,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 import { KYCInfoCard } from '../admin/components/KYCInfoCard';
 import { LocationVerificationCard } from '../admin/components/LocationVerificationCard';
 import { CheckpointsCard } from '../admin/components/CheckpointsCard';
+import { PinDisputeCard } from '../admin/components/PinDisputeCard';
 import { AdminKYCModal } from './components/AdminKYCModal';
 import { AdminInspectionModal } from './components/AdminInspectionModal';
 import { AdminDeviceVerificationModal } from './components/AdminDeviceVerificationModal';
@@ -1416,6 +1417,7 @@ export const MobileTicketDetail = () => {
 
           {/* === Rider check-in timeline (Phase 1A) — links each stage to Maps pin === */}
           <CheckpointsCard job={job} />
+          <PinDisputeCard job={job} />
 
           {/* === Branch-intake device verification — IMEI / Battery / Find My / Warranty.
               Store-in (dropped off) and Mail-in (parcel) both land at the branch and

@@ -604,7 +604,10 @@ async function computeRiderFee(db, job, options = {}) {
     getLogisticsRates(db, "car"),
   ]);
   const rates = normalizeVehicle(vehicleType) === "car" ? carRates : motoRates;
-  const custCoords = resolveCustomerCoords(job);
+  // `originCoords` = จุดตั้งต้นที่ผู้เรียกยืนยันเอง แทนหมุดของลูกค้า — ใช้ทาง
+  // เดียวคือคำแย้งหมุดที่แอดมินอนุมัติแล้ว (pin-dispute.js) ซึ่งคิดค่าวิ่งจาก
+  // พิกัดที่ไรเดอร์เช็คอินจริง. ไม่ส่งมา = พฤติกรรมเดิมทุกประการ
+  const custCoords = options.originCoords || resolveCustomerCoords(job);
   const branchCoords = await resolveBranchCoords(db, job);
   const byVehicle = (distanceKm) => ({
     motorcycle: feeFromRates(motoRates, distanceKm),
@@ -6629,6 +6632,24 @@ Object.assign(
   require("./health-check").registerHealthCheck({
     dispatchAdminPush,
     dispatchTelegram,
+  })
+);
+
+// =============================================================================
+// แย้งหมุดลูกค้า — ไรเดอร์ขอให้คิดค่าวิ่งใหม่จากจุดที่เช็คอินจริง แล้วแอดมิน
+// (CEO/MANAGER) อนุมัติ. หมุดที่ลูกค้าปักผิดทำให้ระยะทางที่ใช้คิดเงินเป็นของ
+// ที่ที่ไม่มีใครไป — ระบบเห็นแค่ระยะห่างแต่แยกไม่ออกว่าใครผิด คนที่รู้คือ
+// ไรเดอร์หน้างาน (logic ทั้งหมดอยู่ pin-dispute.js)
+// =============================================================================
+Object.assign(
+  exports,
+  require("./pin-dispute").registerPinDispute({
+    computeRiderFee,
+    riderFeeMeta,
+    riderVehicleType,
+    pushToRider,
+    dispatchAdminPush,
+    staffIdsByRoles,
   })
 );
 
