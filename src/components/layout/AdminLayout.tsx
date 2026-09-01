@@ -193,7 +193,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/financial-report" icon={<TrendingUp size={18} />} label="รายงานการเงิน (P&L)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/vat-report" icon={<FileSpreadsheet size={18} />} label="รายงานภาษีขาย (ภ.พ.30)" />}
               {hasAccess(['CEO', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/wht-report" icon={<FileSpreadsheet size={18} />} label="ภาษีหัก ณ ที่จ่าย (ภ.ง.ด.3)" />}
-              <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />
+              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/riders" icon={<UserCheck size={18} />} label="จัดการไรเดอร์" />}
               {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
               )}
