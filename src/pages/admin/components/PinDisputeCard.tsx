@@ -12,6 +12,7 @@ import { app } from '@/api/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/ToastProvider';
 import { canReviewAdjustments } from '@/utils/adjustments';
+import { pinDisputeSignals, needsAcknowledgement } from '@/utils/pinDisputeSignals';
 
 interface PinDispute {
   status?: 'pending' | 'approved' | 'rejected';
@@ -41,6 +42,7 @@ export const PinDisputeCard = ({ job }: { job: any }) => {
   const toast = useToast();
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<null | 'approve' | 'reject'>(null);
+  const [acked, setAcked] = useState(false);
 
   if (!dispute?.status) return null;
 
@@ -55,9 +57,15 @@ export const PinDisputeCard = ({ job }: { job: any }) => {
       ? `https://www.google.com/maps/search/?api=1&query=${job.cust_lat},${job.cust_lng}`
       : null;
   const settled = job?.rider_fee_status === 'Paid';
+  const signals = pinDisputeSignals(job);
+  const mustAck = needsAcknowledgement(job);
 
   const review = async (decision: 'approve' | 'reject') => {
     if (!canReview) { toast.warning('เฉพาะ CEO/MANAGER เท่านั้นที่ตัดสินได้'); return; }
+    if (decision === 'approve' && mustAck && !acked) {
+      toast.warning('มีหลักฐานที่ค้านคำแย้งนี้ — อ่านแล้วติ๊กยืนยันก่อนอนุมัติ');
+      return;
+    }
     setBusy(decision);
     try {
       const fn = httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminReviewPinDispute');
@@ -160,6 +168,29 @@ export const PinDisputeCard = ({ job }: { job: any }) => {
               ค่ารอบงานนี้จ่ายเข้ากระเป๋าไปแล้ว — อนุมัติแล้วระบบจะลงส่วนต่างเป็นรายการใหม่ในกระเป๋าไรเดอร์ (เพิ่มหรือหักคืนตามตัวเลขที่คิดใหม่)
             </div>
           )}
+          {signals.length > 0 && (
+            <div className="bg-white/70 border border-rose-200 rounded-2xl px-4 py-3 mb-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-xs font-black text-rose-700">
+                <AlertTriangle size={14} /> หลักฐานที่ค้านคำแย้งนี้
+              </div>
+              {signals.map((sig) => (
+                <div key={sig.id} className="text-xs text-slate-700 leading-relaxed">- {sig.text}</div>
+              ))}
+              {mustAck && (
+                <label className="flex items-start gap-2 mt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={acked}
+                    onChange={(e) => setAcked(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-xs font-bold text-slate-700">
+                    อ่านแล้ว และยืนยันว่ายังต้องการคิดค่าวิ่งใหม่จากจุดเช็คอิน
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -172,7 +203,7 @@ export const PinDisputeCard = ({ job }: { job: any }) => {
             <div className="flex gap-2">
               <button
                 onClick={() => review('approve')}
-                disabled={busy !== null}
+                disabled={busy !== null || (mustAck && !acked)}
                 className="flex-1 bg-emerald-600 text-white font-bold text-sm rounded-2xl py-3 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Check size={16} /> {busy === 'approve' ? 'กำลังคิดใหม่...' : 'อนุมัติ — คิดค่าวิ่งใหม่จากจุดเช็คอิน'}
