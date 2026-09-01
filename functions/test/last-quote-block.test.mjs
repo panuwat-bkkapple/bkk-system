@@ -14,8 +14,10 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
 const {
-  buildLastQuoteBlock,
-  buildLastSearchBlock,
+  buildLastQuoteBlock: buildLastQuoteBlockRaw,
+  buildLastSearchBlock: buildLastSearchBlockRaw,
+  aiStateEntryFresh,
+  AI_STATE_TTL_MS,
   buildDeviceCheckBlock,
   shouldOverrideDeclinedReply,
   batteryOptionRange,
@@ -28,6 +30,14 @@ const {
   buildKbGraphBlock,
   buildWaitingModeBlock,
 } = __test;
+
+// Both blocks take a clock now (ai_state entries expire — see AI_STATE_TTL_MS).
+// The existing cases below are about SHAPE, not age, so they run against a
+// clock pinned to the fixtures' own `at: 1`. Age has its own section at the
+// bottom, which calls the real functions with explicit stamps.
+const NOW = 1;
+const buildLastQuoteBlock = (q, g, n = NOW) => buildLastQuoteBlockRaw(q, g, n);
+const buildLastSearchBlock = (ls, n = NOW) => buildLastSearchBlockRaw(ls, n);
 
 let failures = 0;
 const check = (label, cond) => {
@@ -43,8 +53,8 @@ check("no last_quote -> empty string", buildLastQuoteBlock(null) === "");
 check("undefined -> empty string", buildLastQuoteBlock(undefined) === "");
 // Malformed / partial records must not produce a half-block the model could
 // misread as authoritative.
-check("missing model_id -> empty", buildLastQuoteBlock({ variant_name: "256GB" }) === "");
-check("missing variant -> empty", buildLastQuoteBlock({ model_id: "m1" }) === "");
+check("missing model_id -> empty", buildLastQuoteBlock({ variant_name: "256GB", at: NOW }) === "");
+check("missing variant -> empty", buildLastQuoteBlock({ model_id: "m1", at: NOW }) === "");
 
 const block = buildLastQuoteBlock({
   model_id: "iphone_17_pro_max",
@@ -148,7 +158,7 @@ check("new-device block carries has_receipt", newBlock.includes("has_receipt: fa
 // tool results vanish across turns, so the found model's id must ride the
 // system prompt or a later quote turn can only guess or escalate.
 check("no last_search -> empty string", buildLastSearchBlock(null) === "");
-check("empty results -> empty string", buildLastSearchBlock({ results: [] }) === "");
+check("empty results -> empty string", buildLastSearchBlock({ results: [], at: NOW }) === "");
 const searchBlock = buildLastSearchBlock({
   at: 1,
   results: [
@@ -1477,6 +1487,67 @@ check("copilot: admin-facing fields stay Thai", src.includes("intent/situation/l
   check("queue entry starts untaught (fail-closed)", body.includes("taught: false"));
   const idx = readFileSync(new URL("../index.js", import.meta.url), "utf8");
   check("wired up in index.js", idx.includes("exports.onChatCsatSubmitted = chatAi.onChatCsatSubmitted;"));
+}
+
+// ---------------------------------------------------------------------------
+// Age. inbox/{uid} is keyed by the CUSTOMER, so these two rows outlive the
+// conversation that wrote them unless something stops them — and the heading
+// they sit under used to tell the model it could reuse the id without
+// searching again. That is one of the two ways an iPhone 15 model_id reached
+// a card for a customer holding an iPhone 17 Pro Max.
+// ---------------------------------------------------------------------------
+{
+  const fresh = { model_id: "m1", model_name: "iPhone 17 Pro Max", variant_name: "256GB", answers: {}, estimated_price: 38000, at: 1_000_000 };
+  const search = { at: 1_000_000, results: [{ model_id: "ip17", name: "iPhone 17", variants: [{ name: "256GB", used_price: 22000 }] }] };
+  const justInside = 1_000_000 + AI_STATE_TTL_MS;
+  const justOutside = justInside + 1;
+
+  check("quote block: fresh entry renders", buildLastQuoteBlockRaw(fresh, null, justInside).includes("iPhone 17 Pro Max"));
+  check("quote block: expired entry renders nothing", buildLastQuoteBlockRaw(fresh, null, justOutside) === "");
+  check("search block: fresh entry renders", buildLastSearchBlockRaw(search, justInside).includes("iPhone 17"));
+  check("search block: expired entry renders nothing", buildLastSearchBlockRaw(search, justOutside) === "");
+
+  // Rows written before `at` existed are older than any TTL by definition.
+  // Fail closed: no stamp is not a young stamp.
+  check("quote block: no stamp is treated as expired", buildLastQuoteBlockRaw({ ...fresh, at: undefined }, null, justInside) === "");
+  check("search block: no stamp is treated as expired", buildLastSearchBlockRaw({ ...search, at: undefined }, justInside) === "");
+
+  // The predicate itself, so a break shows up here and not only downstream.
+  check("fresh: null entry", aiStateEntryFresh(null, justInside) === false);
+  check("fresh: no stamp", aiStateEntryFresh({}, justInside) === false);
+  check("fresh: zero stamp", aiStateEntryFresh({ at: 0 }, justInside) === false);
+  check("fresh: garbage stamp", aiStateEntryFresh({ at: "เมื่อวาน" }, justInside) === false);
+  check("fresh: exactly on the boundary still counts", aiStateEntryFresh({ at: 1_000_000 }, justInside) === true);
+  check("fresh: one ms past does not", aiStateEntryFresh({ at: 1_000_000 }, justOutside) === false);
+
+  // The heading must no longer claim these rows came from this conversation,
+  // and must no longer tell the model to skip searching unconditionally.
+  const heading = buildLastSearchBlockRaw(search, justInside);
+  check("search block: heading drops the 'this chat' claim", !heading.includes("ค้นพบแล้วในแชทนี้"));
+  check("search block: heading tells the model to re-search a different model", heading.includes("ให้ search_models ใหม่"));
+}
+
+// The prompt blocks are not the only readers of these two rows, and the other
+// three are not less dangerous — the amend merge reaches PRICE (it folds an
+// old card's condition answers into a new one), the contact gate decides
+// whether a lead gets asked for a phone number at all, and the handoff summary
+// tells a HUMAN what the customer was quoted. Source-level, because they sit
+// inside async handlers that need a live Firebase to call.
+{
+  check("amend merge is age-aware", /aiStateEntryFresh\(lq, Date\.now\(\)\)/.test(src));
+  check("contact gate is age-aware", src.includes("!aiStateEntryFresh(convo.ai_state && convo.ai_state.last_quote, now)"));
+  check("staff handoff summary is age-aware", src.includes("aiStateEntryFresh(lqRaw, Date.now())"));
+}
+
+// A reopened conversation must forget the device, but NOT the two keys that
+// are permanent by design: processed/{msgId} (answer-once) and
+// contact_prompted_at (have we ever asked).
+{
+  const reopen = src.slice(src.indexOf('if (status === "resolved")'), src.indexOf('if (status === "resolved")') + 700);
+  check("reopen clears last_search", reopen.includes('"ai_state/last_search": null'));
+  check("reopen clears last_quote", reopen.includes('"ai_state/last_quote": null'));
+  check("reopen does not wipe ai_state wholesale", !/ai_state`\)\.remove\(\)/.test(reopen) && !reopen.includes('ai_state: null'));
+  check("reopen clears the in-memory copy too", reopen.includes("delete convo.ai_state.last_search"));
 }
 
 console.log(`\n${failures === 0 ? "all passed" : failures + " failed"}`);

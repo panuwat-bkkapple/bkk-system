@@ -369,6 +369,43 @@ async function geocodeThaiArea(text) {
 let modelsCache = { at: 0, list: [] };
 const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// ---------------------------------------------------------------------------
+// How long a remembered device stays true
+// ---------------------------------------------------------------------------
+//
+// inbox/{uid} is keyed by the CUSTOMER, not by the conversation: one shell per
+// person, forever. ai_state/last_search and ai_state/last_quote live in it and
+// were written with an `at` stamp that nothing ever read — so a model_id found
+// in August was still being injected into the prompt in September, under a
+// heading that called it "รุ่นที่ค้นพบแล้วในแชทนี้" and told the model it could
+// use the id immediately without searching again. A returning customer asking
+// about a different phone inherited the old one.
+//
+// SIX HOURS, and the asymmetry is the whole argument. Keeping a stale id costs
+// a card for a device the customer does not own; dropping a fresh one costs
+// one extra search_models call, which the prompt already instructs the model
+// to make when it has no id. No real sitting runs past six hours; a chat
+// picked up the next morning starts clean.
+//
+// NOT tied to CATALOG_REVALIDATE_SECONDS or any price clock — this is the age
+// of an INTENT ("which device are we discussing"), the same distinction
+// REFINEMENT_TTL_MS draws on the website side.
+const AI_STATE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Is this remembered ai_state entry still allowed to speak for the customer?
+ *
+ * Fail CLOSED on a missing stamp: rows written before `at` existed are, by
+ * definition, older than any TTL we would set, and treating "no evidence of
+ * age" as "fresh" is how the whole class of bug got here.
+ */
+function aiStateEntryFresh(entry, now) {
+  if (!entry) return false;
+  const at = Number(entry.at);
+  if (!Number.isFinite(at) || at <= 0) return false;
+  return Number(now) - at <= AI_STATE_TTL_MS;
+}
+
 // Pure model matcher (extracted so it can be unit-tested offline).
 // list items only need { brand, name, category }.
 // Product families — a match must stay inside the family the customer named.
@@ -2623,6 +2660,10 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
             const lqSnap = await db.ref(`inbox/${convoId}/ai_state/last_quote`).once("value");
             const lq = lqSnap.val();
             if (
+              // Same staleness rule as the prompt blocks, and it matters more
+              // here: a merge pulls last month's condition answers into this
+              // month's card. A miss is safe — the card is simply built fresh.
+              aiStateEntryFresh(lq, Date.now()) &&
               lq &&
               lq.model_id === modelId &&
               String(lq.variant_name || "").trim().toLowerCase() ===
@@ -3559,13 +3600,18 @@ function buildCheckoutErrorBlock(err) {
 // no last_quote, and tool results do not survive across turns — without this
 // block a later quote turn has no model_id and the model either re-searches
 // (fine) or gives up and escalates (the "iPhone 17" dead-end).
-function buildLastSearchBlock(lastSearch) {
+function buildLastSearchBlock(lastSearch, now) {
+  if (!aiStateEntryFresh(lastSearch, now)) return "";
   const results = lastSearch && Array.isArray(lastSearch.results) ? lastSearch.results : [];
   const rows = results.filter((r) => r && r.model_id && r.name);
   if (rows.length === 0) return "";
   return [
     "",
-    "รุ่นที่ค้นพบแล้วในแชทนี้ (ข้อมูลภายใน ห้ามพูด id ให้ลูกค้าฟัง — ใช้ตอนเรียก get_condition_questions/create_quote_card ได้ทันที ไม่ต้อง search_models ซ้ำ):",
+    // The old heading claimed these rows came from THIS chat and told the
+    // model not to search again — both false the moment the data outlived the
+    // conversation that produced it. It now says what it is, and names the one
+    // condition under which the shortcut is safe.
+    "ผลค้นหาล่าสุดที่ระบบจำไว้ (ข้อมูลภายใน ห้ามพูด id ให้ลูกค้าฟัง) — ถ้าตรงกับรุ่นที่ลูกค้ากำลังพูดถึงจริง ใช้เรียก get_condition_questions/create_quote_card ได้ทันทีไม่ต้อง search_models ซ้ำ; ถ้าลูกค้าพูดถึงรุ่นอื่น ให้ search_models ใหม่ ห้ามหยิบ id ข้างล่างมาใช้:",
     ...rows.map(
       (r) =>
         `- model_id: ${r.model_id} = ${r.name} | ความจุ: ${(r.variants || [])
@@ -3586,7 +3632,8 @@ function buildLastSearchBlock(lastSearch) {
 // model can know model_id/variant/answers when the customer amends conditions
 // later ("ถ้ามีรอยนิดนึง", "ไม่มีกล่องด้วยครับ") — without it the model can only
 // guess ids and create_quote_card fails.
-function buildLastQuoteBlock(lastQuote, conditionGroups) {
+function buildLastQuoteBlock(lastQuote, conditionGroups, now) {
+  if (!aiStateEntryFresh(lastQuote, now)) return "";
   if (!lastQuote || !lastQuote.model_id || !lastQuote.variant_name) return "";
   const answers =
     lastQuote.answers && typeof lastQuote.answers === "object" ? lastQuote.answers : {};
@@ -3846,9 +3893,25 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         waitingForHuman = true;
       }
 
-      // Closed conversation reopens under AI triage.
+      // Closed conversation reopens under AI triage — and the device memory
+      // goes with the old conversation. Whatever was being sold when a staffer
+      // marked this resolved has no claim on whatever the customer is asking
+      // about now. Only these two keys: ai_state/processed guards against
+      // answering the same message twice and must survive, and
+      // contact_prompted_at is "have we ever asked", which is permanent by
+      // design.
       if (status === "resolved") {
-        await db.ref(`inbox/${convoId}`).update({ status: "ai" });
+        await db.ref(`inbox/${convoId}`).update({
+          status: "ai",
+          "ai_state/last_search": null,
+          "ai_state/last_quote": null,
+        });
+        // convo was read before that write — clear the in-memory copy too, or
+        // this turn still builds its prompt from the rows we just deleted.
+        if (convo.ai_state) {
+          delete convo.ai_state.last_search;
+          delete convo.ai_state.last_quote;
+        }
       }
 
       // Manual mode — no API key configured: behave like a plain inbox.
@@ -4125,7 +4188,8 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // having to re-discover ids via tools (the step it skipped in the
         // "answers ชุดเดิม ยอดไม่ขยับ" bug). Best-effort — block still works
         // without the catalog.
-        const lastQuote = convo.ai_state && convo.ai_state.last_quote;
+        const staleQuote = convo.ai_state && convo.ai_state.last_quote;
+        const lastQuote = aiStateEntryFresh(staleQuote, now) ? staleQuote : null;
         let lastQuoteGroups = null;
         if (lastQuote && lastQuote.model_id) {
           try {
@@ -4158,8 +4222,8 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
           customerBlock +
           buildCheckoutErrorBlock(checkoutError) +
           (waitingForHuman ? buildWaitingModeBlock(convo.escalation) : "") +
-          buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search) +
-          buildLastQuoteBlock(lastQuote, lastQuoteGroups);
+          buildLastSearchBlock(convo.ai_state && convo.ai_state.last_search, now) +
+          buildLastQuoteBlock(lastQuote, lastQuoteGroups, now);
         const system = [
           { type: "text", text: systemStatic, cache_control: { type: "ephemeral" } },
           { type: "text", text: systemDynamic, cache_control: { type: "ephemeral" } },
@@ -4430,7 +4494,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // crashed on the TDZ ReferenceError ("ระบบขัดข้องชั่วคราว" to a real
         // customer, mid-assessment).
         const contactGateWillBlock =
-          !(convo.ai_state && convo.ai_state.last_quote) &&
+          !aiStateEntryFresh(convo.ai_state && convo.ai_state.last_quote, now) &&
           !convo.customer_phone &&
           !state.savedPhone &&
           (state.contactGatePromptedThisTurn || !(convo.ai_state && convo.ai_state.contact_prompted_at));
@@ -4967,7 +5031,8 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
       const transcript = msgs
         .map((m) => `${roleLabel[m.senderRole] || m.senderRole}: ${String(m.text).slice(0, 500)}`)
         .join("\n");
-      const lq = convo.ai_state && convo.ai_state.last_quote;
+      const lqRaw = convo.ai_state && convo.ai_state.last_quote;
+      const lq = aiStateEntryFresh(lqRaw, Date.now()) ? lqRaw : null;
       const context = [
         `ชื่อลูกค้า: ${convo.customer_name || convo.name || "ยังไม่ทราบ"}`,
         `เบอร์: ${convo.customer_phone || "ยังไม่มี"}`,
@@ -5181,6 +5246,8 @@ module.exports = {
     buildSystemPrompt,
     buildLastQuoteBlock,
     buildLastSearchBlock,
+    aiStateEntryFresh,
+    AI_STATE_TTL_MS,
     buildDeviceCheckBlock,
     buildKbGraphBlock,
     buildWaitingModeBlock,
