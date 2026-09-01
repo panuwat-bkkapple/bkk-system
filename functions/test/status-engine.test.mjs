@@ -166,9 +166,24 @@ check("a paid job cannot be reverted back into inspection", () => {
   assert.equal(decideTransition({ job: paid, event: "inspection_reverted", actor: ACTOR.RIDER }).code, "already_paid");
 });
 
-check("returning to the store requires the money to have moved first", () => {
-  const unpaid = job({ status: "Waiting For Handover" });
-  assert.equal(decideTransition({ job: unpaid, event: "rider_return_started", actor: ACTOR.RIDER }).code, "not_paid");
+// Written from what production actually holds: paid_at is auto-stamped only on
+// entry to PAID_STATUSES ("Paid", "PAID", "Payment Completed"), and
+// 'Waiting For Handover' is not one of them — the 21 live jobs at that status
+// carry no timestamp. A money check on this transition would strand every one
+// of their riders at the customer's door. The from-list is the guard: both
+// statuses already mean the transfer happened.
+check("the return leg works on the rows the legacy writer actually created", () => {
+  for (const status of ["Waiting For Handover", "Waiting for Handover", "Paid"]) {
+    const out = decideTransition({ job: job({ status }), event: "rider_return_started", actor: ACTOR.RIDER });
+    assert.equal(out.ok, true, `${status} rejected: ${out.code}`);
+    assert.equal(out.to, "Rider Returning");
+  }
+});
+
+check("but the return leg still refuses a status where nothing was transferred", () => {
+  const out = decideTransition({ job: job({ status: "QC Review" }), event: "rider_return_started", actor: ACTOR.RIDER });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "illegal_from");
 });
 
 // updateStatus() in the rider app never read the current status, so any button
