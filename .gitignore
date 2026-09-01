@@ -11,9 +11,22 @@ node_modules
 dist
 dist-ssr
 *.local
-.env.local
-.env.production
-functions/.env
+
+# env files — ห้าม commit ค่าจริงลงรีโปทุกกรณี (.env.example เป็นข้อยกเว้นเดียว)
+#
+# เดิมบรรทัดนี้เป็น `.env.local` + `.env.production` + `functions/.env` ซึ่ง
+# **ไม่ครอบ `.env` เปล่าๆ** — และ `.env` คือไฟล์ที่ถูก commit จริงมาตั้งแต่ initial
+# commit พร้อมคีย์ Google Maps ตัวจริง (ลบออกจาก HEAD วันเดียวกันที่ 03d8c3b ซึ่ง
+# ตอนนั้นเติม `.env` ลงไฟล์นี้ด้วย แต่ commit ถัดมา 41c0fdd ถอดบรรทัดนั้นออกแล้ว
+# commit ไฟล์กลับเข้ามา) รายละเอียดเต็มอยู่ที่
+# bkk-frontend-next/docs/reports/2026-09-01-secret-history-audit.md
+#
+# รูปแบบนี้ลอกมาจาก bkk-frontend-next ซึ่งตั้งถูกอยู่แล้ว — ครอบทั้ง `.env`,
+# `.env.local`, `.env.production` และ `functions/.env` ในบรรทัดเดียว
+.env*
+!.env.example
+# `.env.test` เป็นค่า dummy สำหรับรันเทส ไม่ใช่ความลับ — ดูคำอธิบายในไฟล์นั้น
+!.env.test
 
 # Editor directories and files
 .vscode/*
