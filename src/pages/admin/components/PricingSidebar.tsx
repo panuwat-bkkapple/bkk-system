@@ -427,7 +427,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
 
             {job.receive_method === 'Pickup' && grossPickupFee > 0 && (
               <div className="flex justify-between items-center text-sm font-bold text-red-400">
-                <span>หักค่าบริการไรเดอร์ (Rider Fee)</span>
+                <span>หักค่าบริการรับเครื่อง (เก็บจากลูกค้า)</span>
                 <span>- {formatCurrency(grossPickupFee)}</span>
               </div>
             )}
