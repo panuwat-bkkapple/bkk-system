@@ -1048,7 +1048,7 @@ export const MobileTicketDetail = () => {
               )}
               {grossPickupFee > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">ค่าไรเดอร์</span>
+                  <span className="text-slate-500">ค่าบริการรับเครื่อง (เก็บจากลูกค้า)</span>
                   <span className="font-bold text-red-500">-฿{grossPickupFee.toLocaleString()}</span>
                 </div>
               )}

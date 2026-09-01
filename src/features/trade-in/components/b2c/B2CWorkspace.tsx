@@ -433,7 +433,7 @@ export const B2CWorkspace = ({
                  )}
                  {grossPickupFee > 0 && (
                    <div className="flex justify-between text-red-400">
-                     <span>หักค่าบริการไรเดอร์</span>
+                     <span>หักค่าบริการรับเครื่อง (เก็บจากลูกค้า)</span>
                      <span>- ฿{formatCurrency(grossPickupFee)}</span>
                    </div>
                  )}
