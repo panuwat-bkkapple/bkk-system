@@ -4,7 +4,7 @@ import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF, TrafficLayer, Polyline
 import { useDatabase } from '../../hooks/useDatabase';
 import {
   Users, Zap, Clock, Battery,
-  Map as MapIcon, GripVertical, Box, Phone, X, MessageSquare
+  Map as MapIcon, GripVertical, Box, Phone, X, MessageSquare, MapPin
 } from 'lucide-react';
 import { ref, update, onValue, set } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -12,10 +12,10 @@ import { AdminChatBox } from '../../components/Fleet/AdminChatBox';
 import { hasUnreadFrom } from '../../utils/jobChats';
 import { useToast } from '../../components/ui/ToastProvider';
 import { JOB_STATUS } from '../../types/job-statuses';
+import { jobPin, riderPin } from '../../utils/dispatchPins';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 const center = { lat: 13.7563, lng: 100.5018 };
-const AREA_BOUNDS = { minLat: 13.45, maxLat: 14.10, minLng: 100.25, maxLng: 100.95 };
 
 const ACTIVE_STATUSES = [
   'Assigned', 'Accepted', 'Arrived', 'Being Inspected',
@@ -45,14 +45,6 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 const calculateETA = (distanceKm: number) => Math.ceil((distanceKm / 25) * 60 + 5);
-
-const getJobCoordinates = (jobId: string) => {
-  let hash = 0;
-  for (let i = 0; i < jobId.length; i++) hash = jobId.charCodeAt(i) + ((hash << 5) - hash);
-  const lat = AREA_BOUNDS.minLat + (Math.abs(hash % 100) / 100) * (AREA_BOUNDS.maxLat - AREA_BOUNDS.minLat);
-  const lng = AREA_BOUNDS.minLng + (Math.abs((hash >> 3) % 100) / 100) * (AREA_BOUNDS.maxLng - AREA_BOUNDS.minLng);
-  return { lat, lng };
-};
 
 export const DispatcherPage = () => {
   const toast = useToast();
@@ -93,24 +85,49 @@ export const DispatcherPage = () => {
   const riderStatusList = useMemo(() => {
     if (!ridersData) return [];
     const rawRiders = Array.isArray(ridersData) ? ridersData : Object.keys(ridersData).map(k => ({ id: k, ...(ridersData as any)[k] }));
-    const selectedJobCoords = selectedJobId ? getJobCoordinates(selectedJobId) : null;
+    // งานที่เลือกอยู่ + หมุดของมัน — ไม่มีหมุด = เรียงตามระยะทางไม่ได้เลย
+    const selectedJob = selectedJobId
+      ? [...unassignedJobs, ...activeJobs].find((j) => j.id === selectedJobId) ?? null
+      : null;
+    const selectedJobCoords = jobPin(selectedJob);
 
-    let processed = rawRiders.map((rider: any) => {
+    const processed = rawRiders.map((rider: any) => {
       // Normalize field names from the rider mobile app
       const name = rider.name || rider.fullName || rider.full_name || rider.displayName || rider.display_name || rider.rider_name || '';
       const phone = rider.phone || rider.phoneNumber || rider.phone_number || rider.tel || rider.mobile || '';
-      const lat = Number(rider.lat) || 13.75;
-      const lng = Number(rider.lng) || 100.50;
-      const distance = selectedJobCoords ? calculateDistance(lat, lng, selectedJobCoords.lat, selectedJobCoords.lng) : null;
-      const eta = distance ? calculateETA(distance) : null;
+      const pin = riderPin(rider);
+      // ระยะทางมีความหมายก็ต่อเมื่อ **ทั้งสองฝั่ง** มีหมุดจริง ขาดฝั่งไหนก็ null
+      // และ null ต้องถูกแสดงว่า "ไม่มีตำแหน่ง" ไม่ใช่ถูกแปลงเป็นเลขไกลๆ เงียบๆ
+      const distance = pin && selectedJobCoords
+        ? calculateDistance(pin.lat, pin.lng, selectedJobCoords.lat, selectedJobCoords.lng)
+        : null;
+      const eta = distance !== null ? calculateETA(distance) : null;
       const currentTasks = activeJobs.filter(j => j.rider_id === rider.id);
 
-      return { ...rider, name, phone, lat, lng, distance, eta, status: rider.status || 'Offline', tasks: currentTasks };
+      return { ...rider, name, phone, pin, distance, eta, status: rider.status || 'Offline', tasks: currentTasks };
     });
 
-    if (selectedJobId) processed.sort((a, b) => (a.distance || 999) - (b.distance || 999));
-    return processed;
-  }, [ridersData, selectedJobId, activeJobs]);
+    // เรียงเฉพาะคนที่มีระยะทางจริง ส่วนคนที่วัดไม่ได้ต่อท้ายแบบ **มีป้ายบอก**
+    // (ของเดิมใช้ `(a.distance || 999)` ซึ่งกลืนคนที่ไม่มีตำแหน่งไปอยู่ท้ายแถว
+    // โดยไม่มีอะไรบอกว่าเขาไม่ได้อยู่ไกล — เขาแค่ไม่มีใครรู้ว่าอยู่ไหน)
+    if (!selectedJobCoords) return processed;
+    const ranked = processed.filter((r) => r.distance !== null).sort((a, b) => a.distance - b.distance);
+    const unranked = processed.filter((r) => r.distance === null);
+    return [...ranked, ...unranked];
+  }, [ridersData, selectedJobId, activeJobs, unassignedJobs]);
+
+  // งานที่เลือกอยู่มีหมุดไหม — ใช้เตือนบนหัวคอลัมน์ว่าเรียงตามระยะทางไม่ได้
+  const selectedJobHasPin = useMemo(() => {
+    if (!selectedJobId) return true;
+    const job = [...unassignedJobs, ...activeJobs].find((j) => j.id === selectedJobId);
+    return jobPin(job) !== null;
+  }, [selectedJobId, unassignedJobs, activeJobs]);
+
+  // จำนวนงานในคิวที่ไม่มีหมุด — ปักบนแผนที่ไม่ได้ ต้องบอกให้เห็น ไม่ใช่หายไปเฉยๆ
+  const jobsWithoutPin = useMemo(
+    () => unassignedJobs.filter((j) => jobPin(j) === null).length,
+    [unassignedJobs],
+  );
 
   const handleAssignJob = async (riderId: string, jobId: string) => {
     try {
@@ -153,8 +170,18 @@ export const DispatcherPage = () => {
           <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
             <Users size={14} /> Fleet Monitoring
           </h2>
-          {selectedJobId && <span className="bg-blue-600 text-white text-[8px] px-2 py-0.5 rounded-full animate-pulse">OPTIMIZING</span>}
+          {selectedJobId && (selectedJobHasPin
+            ? <span className="bg-blue-600 text-white text-[8px] px-2 py-0.5 rounded-full animate-pulse">OPTIMIZING</span>
+            : <span className="bg-amber-500 text-slate-950 text-[8px] px-2 py-0.5 rounded-full font-black">NO PIN</span>)}
         </div>
+        {selectedJobId && !selectedJobHasPin && (
+          <div className="px-5 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-[10px] font-bold text-amber-400 leading-relaxed">
+            งานใบนี้ไม่มีหมุดจุดรับเครื่อง — เรียงไรเดอร์ตามระยะทางไม่ได้
+            <span className="block text-amber-500/70 font-normal mt-0.5">
+              จ่ายงานได้ตามปกติ แต่ตัวเลขระยะทาง/ETA จะไม่ขึ้น
+            </span>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {riderStatusList.map((rider, index) => (
@@ -162,7 +189,7 @@ export const DispatcherPage = () => {
               key={rider.id}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { const jId = e.dataTransfer.getData("jobId"); if (jId) handleAssignJob(rider.id, jId); }}
-              className={`p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden ${selectedJobId && index === 0 ? 'border-blue-500 bg-blue-900/20 shadow-lg shadow-blue-900/20' : 'border-slate-800 bg-slate-800/50 hover:border-slate-700'}`}
+              className={`p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden ${selectedJobId && index === 0 && rider.distance !== null ? 'border-blue-500 bg-blue-900/20 shadow-lg shadow-blue-900/20' : 'border-slate-800 bg-slate-800/50 hover:border-slate-700'}`}
             >
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
@@ -176,12 +203,21 @@ export const DispatcherPage = () => {
                     )}
                   </div>
                 </div>
-                {selectedJobId && rider.distance !== null && (
+                {selectedJobId && (rider.distance !== null ? (
                   <div className="text-right">
                     <div className={`text-[10px] font-black ${index === 0 ? 'text-blue-400' : 'text-slate-500'}`}>{rider.distance.toFixed(1)} km</div>
                     <div className="text-[9px] font-bold text-emerald-400 flex items-center gap-1"><Clock size={10} /> ~{rider.eta} mins</div>
                   </div>
-                )}
+                ) : (
+                  /* วัดระยะไม่ได้ ต้องบอกว่าเพราะอะไร — ไม่ใช่ปล่อยช่องว่าง
+                     ให้เดาว่าไรเดอร์คนนี้อยู่ไกล */
+                  <div className="text-right">
+                    <div className="text-[9px] font-black text-amber-500 uppercase tracking-wide">
+                      {rider.pin ? 'งานไม่มีหมุด' : 'ไม่มีตำแหน่ง'}
+                    </div>
+                    <div className="text-[8px] text-slate-600">วัดระยะไม่ได้</div>
+                  </div>
+                ))}
               </div>
 
               <div className="flex items-center justify-between mb-2">
@@ -235,10 +271,10 @@ export const DispatcherPage = () => {
       <main className="flex-1 relative">
         <GoogleMap mapContainerStyle={mapContainerStyle} center={center} zoom={11}>
           <TrafficLayer />
-          {riderStatusList.filter(r => r.status !== 'Offline').map((rider) => (
+          {riderStatusList.filter(r => r.status !== 'Offline' && r.pin).map((rider) => (
             <MarkerF
               key={rider.id}
-              position={{ lat: rider.lat, lng: rider.lng }}
+              position={rider.pin}
               icon={{
                 url: rider.battery < 20 ? 'https://cdn-icons-png.flaticon.com/512/587/587380.png' : 'https://cdn-icons-png.flaticon.com/512/3198/3198336.png',
                 scaledSize: new window.google.maps.Size(35, 35)
@@ -260,20 +296,25 @@ export const DispatcherPage = () => {
               )}
             </MarkerF>
           ))}
-          {unassignedJobs.map((job) => (
+          {/* ปักเฉพาะงานที่มีหมุดจริง — งานที่ไม่มีหมุดปักไม่ได้ และถูกนับไว้ที่
+              ป้าย "ไม่มีหมุด" ในคิวด้านขวาแทน ไม่ใช่ปักมั่วให้ครบจำนวน */}
+          {unassignedJobs.map((job) => ({ job, pin: jobPin(job) })).filter(({ pin }) => pin).map(({ job, pin }) => (
             <MarkerF
               key={job.id}
-              position={getJobCoordinates(job.id)}
+              position={pin!}
               icon={{
                 url: 'https://cdn-icons-png.flaticon.com/512/3135/3135706.png',
                 scaledSize: new window.google.maps.Size(30, 30)
               }}
             />
           ))}
-          {riderStatusList.map(rider => rider.tasks.map((task: any) => (
+          {riderStatusList.map(rider => rider.tasks
+            .map((task: any) => ({ task, taskPin: jobPin(task) }))
+            .filter(({ taskPin }: any) => rider.pin && taskPin)
+            .map(({ task, taskPin }: any) => (
             <PolylineF
               key={`${rider.id}-${task.id}`}
-              path={[{ lat: rider.lat, lng: rider.lng }, getJobCoordinates(task.id)]}
+              path={[rider.pin, taskPin]}
               options={{
                 strokeColor: STATUS_COLORS[task.status] || STATUS_COLORS.default,
                 strokeOpacity: 0.6,
@@ -291,7 +332,17 @@ export const DispatcherPage = () => {
             <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <Zap size={14} /> Incoming Queue
             </h2>
-            <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">{unassignedJobs.length}</span>
+            <div className="flex items-center gap-1.5">
+              {jobsWithoutPin > 0 && (
+                <span
+                  title="งานที่ไม่มี cust_lat/cust_lng — ปักบนแผนที่ไม่ได้ และเรียงไรเดอร์ตามระยะทางไม่ได้"
+                  className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full"
+                >
+                  {jobsWithoutPin} ไม่มีหมุด
+                </span>
+              )}
+              <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">{unassignedJobs.length}</span>
+            </div>
           </div>
           <div className="flex items-center justify-between bg-slate-800/50 p-2.5 rounded-lg border border-slate-700">
             <span className="text-[10px] text-slate-400 font-bold">MODE:</span>
@@ -325,6 +376,11 @@ export const DispatcherPage = () => {
                 <GripVertical size={12} className="opacity-30" /> {job.model}
               </div>
               <div className={`text-[10px] mt-1 pl-5 ${selectedJobId === job.id ? 'text-blue-200' : 'text-slate-500'}`}>{job.customer}</div>
+              {jobPin(job) === null && (
+                <div className="mt-2 ml-5 inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                  <MapPin size={9} /> ไม่มีหมุด
+                </div>
+              )}
             </div>
           ))}
         </div>
