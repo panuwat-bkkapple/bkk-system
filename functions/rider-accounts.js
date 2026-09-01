@@ -27,6 +27,9 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { getAuth } = require("firebase-admin/auth");
 const { getDatabase } = require("firebase-admin/database");
 const { lookupStaffByAuth } = require("./sickw-core");
+// standing ของไรเดอร์เป็นส่วนหนึ่งของ actor contract — นิยามอยู่ที่ actor.js
+// ที่เดียว ไฟล์นี้เป็นผู้ใช้ (re-export ไว้ให้ call site เดิมไม่ต้องรู้ว่ามันย้าย)
+const { effectiveApprovalStatus } = require("./actor");
 
 const REGION = "asia-southeast1";
 const MANAGE_ROLES = ["CEO", "MANAGER"];
@@ -44,16 +47,6 @@ const ACTIONS = {
 // action ที่แปลว่า "คนนี้ไม่ควรเข้าระบบได้อีก" → ต้องปิดบัญชี Auth ด้วย
 const BLOCKS_LOGIN = new Set(["reject", "suspend"]);
 
-// mirror ของ normalizeRider ใน src/pages/fleet/RiderManagement.tsx — record ที่
-// สมัครใหม่ยังไม่มี `approval_status` (Register.tsx เขียนแต่ `status: 'Pending'`)
-// ส่วน record ที่ไรเดอร์กำลังออนไลน์อยู่จะมี status เป็น Online/Offline/Busy
-// ซึ่งเป็นสถานะ "กำลังทำงาน" ไม่ใช่สถานะการอนุมัติ
-function effectiveApprovalStatus(rider) {
-  if (rider.approval_status) return String(rider.approval_status);
-  const status = String(rider.status || "");
-  if (["Online", "Offline", "Busy"].includes(status)) return "Active";
-  return status || "Pending";
-}
 
 // คืน true = ปิด/เปิดบัญชีสำเร็จ, false = ไม่มีบัญชี Auth ให้ปิด (record เก่าที่
 // สร้างด้วยมือ) — เคสหลังไม่ใช่ความล้มเหลว ธงใน DB คือทั้งหมดที่มี
