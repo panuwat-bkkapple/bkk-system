@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
+import { useFinanceGate } from '../../../hooks/useFinanceGate';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage'; // ✅ ใช้ Utility
 import { Search, CheckCircle2, X, Copy, Check, Bike, Upload, FileText, Loader2 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { computeRiderWht, readRiderWhtConfig } from '../../../utils/riderWht';
 export const RiderWithdrawals = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
+  const { guard } = useFinanceGate();
   // คำขอถอนอยู่ node ของตัวเอง /withdrawals (เขียนโดย callable
   // riderRequestWithdraw ฝั่ง bkk-rider-app เท่านั้น — ท่อเดิมที่อ่านจาก
   // /jobs type='Withdrawal' ไม่มีใครเขียนแล้ว ดูแผนเฟส 4 ใน bkk-rider-app
@@ -89,6 +91,11 @@ export const RiderWithdrawals = () => {
           `โอนจริง ${formatCurrency(wht.net)}`
         : `ยืนยันการโอนเงิน ${formatCurrency(selectedTx.withdraw_amount)} ให้ไรเดอร์?`
     )) return;
+
+    // ด่านสิทธิ์จ่ายเงินออก — เงินออกจริงพร้อมสลิป (คนละจังหวะกับการอนุมัติ
+    // ค่ารอบเข้า wallet ซึ่งเป็นแค่การตั้งหนี้ ยังไม่อยู่ใน slice นี้)
+    const gate = guard('rider_withdrawal', { refId: selectedTx.id, amount: Number(selectedTx.withdraw_amount || 0) });
+    if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
 
     setIsUploading(true);
     try {

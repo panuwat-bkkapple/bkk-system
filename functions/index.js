@@ -6502,6 +6502,14 @@ exports.adminStaffDelete = staffAccounts.adminStaffDelete;
 exports.adminStaffResetPassword = staffAccounts.adminStaffResetPassword;
 
 // =============================================================================
+// สิทธิ์จ่ายเงินออก — custom claim + audit (ดู ./finance-claims.js)
+// vertical slice: คุมเฉพาะ action ที่เงินออกจากบริษัท ส่วนอื่นยังเป็น admin boolean
+// =============================================================================
+const financeClaims = require("./finance-claims");
+exports.adminFinanceSetClaim = financeClaims.adminFinanceSetClaim;
+exports.adminFinanceAudit = financeClaims.adminFinanceAudit;
+
+// =============================================================================
 // BKK Diagnos — on-device diagnostic sessions (see ./diagnostics.js)
 // =============================================================================
 const diagnostics = require("./diagnostics");
