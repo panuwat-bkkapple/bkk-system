@@ -27,13 +27,56 @@ export function isStaleChunkError(error: unknown): boolean {
 }
 
 /**
+ * ผ่าน cooldown แล้วหรือยัง — แยกออกมาเป็น pure เพื่อให้เทสได้
+ * (vitest ของ repo นี้รันบน node ไม่มี jsdom แตะ window/sessionStorage ไม่ได้)
+ */
+export function shouldReloadForStaleBuild(nowMs: number, lastReloadMs: number): boolean {
+  return nowMs - lastReloadMs >= RELOAD_COOLDOWN_MS;
+}
+
+/**
+ * ตัดสินใจว่าจะทำอะไรกับ `vite:preloadError` — pure, รับ reload เข้ามาเพื่อเทสได้
+ *
+ * **`preventDefault()` ต้องเรียกเฉพาะตอนที่ reload จริงเท่านั้น**
+ *
+ * `preventDefault()` บน event นี้แปลว่า "จัดการแล้ว ไม่ต้อง throw" ผลคือ
+ * dynamic import **resolve ด้วย `undefined`** แทนที่จะ reject. ของเดิมเรียกมัน
+ * ก่อนเสมอแล้วค่อย reload ซึ่งพังตอนติด cooldown: ไม่ได้ reload แต่กลืน error
+ * ไปแล้ว ปลายทางจึงได้ undefined มาแทนโมดูล
+ *
+ * เคสจริง 2 ก.ย. 2569 01:54 (deploy 01:49) — แท็บที่เปิดค้างกดเข้า CEO
+ * Dashboard แล้วได้หน้าจอแดงว่า
+ *   `Cannot read properties of undefined (reading 'CEODashboard')`
+ * เพราะ App.tsx:32 เขียน `import(...).then(m => ({ default: m.CEODashboard }))`
+ * และ `m` เป็น undefined. ข้อความนั้น `isStaleChunkError` จับไม่ได้ (ถูกแล้ว —
+ * "อ่าน property ของ undefined" ส่วนใหญ่คือบั๊กธรรมดา ขยายให้จับจะกลายเป็น
+ * การ reload ทับบั๊กจริงจนมองไม่เห็น) ผู้ใช้จึงเห็น "ส่งภาพหน้านี้ให้ Claude"
+ * แทน "ระบบมีเวอร์ชันใหม่ กรุณาโหลดใหม่" ทั้งที่กดปุ่มเดียวก็จบ
+ *
+ * ไม่ได้ reload = ปล่อยให้ Vite throw ตามเดิม ได้ข้อความ "Failed to fetch
+ * dynamically imported module" ซึ่ง isStaleChunkError จับได้ และ ErrorBoundary
+ * ขึ้นข้อความที่ถูกพร้อมปุ่มโหลดใหม่
+ */
+export function handlePreloadError(
+  event: { preventDefault: () => void },
+  reload: () => boolean,
+): 'reloaded' | 'surfaced' {
+  if (reload()) {
+    // กลืนได้เพราะหน้ากำลังจะหายอยู่แล้ว ไม่มีใครรออ่านผลของ import
+    event.preventDefault();
+    return 'reloaded';
+  }
+  return 'surfaced';
+}
+
+/**
  * โหลดหน้าใหม่ถ้ายังไม่ได้ทำไปเมื่อกี้ — คืน true เมื่อสั่ง reload แล้ว
  * (ผู้เรียกจะได้รู้ว่าไม่ต้องโชว์ error ให้เห็นแวบหนึ่งก่อนหน้าจะรีเฟรช)
  */
 export function reloadForStaleBuild(): boolean {
   try {
     const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
-    if (Date.now() - last < RELOAD_COOLDOWN_MS) return false;
+    if (!shouldReloadForStaleBuild(Date.now(), last)) return false;
     sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
   } catch {
     // sessionStorage ใช้ไม่ได้ (โหมดส่วนตัวบางเบราว์เซอร์) — ยอมเสี่ยง
@@ -49,8 +92,11 @@ export function reloadForStaleBuild(): boolean {
  */
 export function installStaleBuildRecovery() {
   window.addEventListener('vite:preloadError', (event) => {
-    event.preventDefault();
-    console.warn('[staleBuild] chunk preload failed — reloading for the current build');
-    reloadForStaleBuild();
+    const outcome = handlePreloadError(event, reloadForStaleBuild);
+    console.warn(
+      outcome === 'reloaded'
+        ? '[staleBuild] chunk preload failed — reloading for the current build'
+        : '[staleBuild] chunk preload failed but a reload just happened — letting the error surface',
+    );
   });
 }
