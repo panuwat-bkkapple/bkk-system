@@ -45,6 +45,7 @@ import { isAwaitingOffer } from '../../utils/offerRequest';
 import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDecisionCard';
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
+import { wasRiderWithdrawn } from '../../utils/riderWithdrawal';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -1218,7 +1219,7 @@ export const MobileTicketDetail = () => {
           {(['Active Leads', 'Active Lead', 'Following Up'].includes(job.status)) &&
             !job.rider_id &&
             job.cancelled_at &&
-            (job.cancelled_by || '').startsWith('rider:') && (
+            wasRiderWithdrawn(job) && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
@@ -2199,7 +2200,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       if (isPickup) actions.push(dispatchAction);
       break;
     case 'Following Up': {
-      const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
+      const wasRiderCancelled = wasRiderWithdrawn(job);
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
       if (isPickup) {
         // After a rider cancels mid-pickup we land here (PR bkk-rider-app#52).
@@ -2276,7 +2277,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       // dispatched and just needed admin to mark them en-route — wrong
       // for both cases above.
       const hasRider = !!job?.rider_id;
-      const wasRiderCancelled = !!job?.cancelled_at && (job?.cancelled_by || '').startsWith('rider:');
+      const wasRiderCancelled = wasRiderWithdrawn(job);
       if (hasRider) {
         // "ไรเดอร์กำลังเดินทาง (ไปหาลูกค้า)" — this used to write the
         // overloaded 'In-Transit', which normalizeStatus reads as RIDER

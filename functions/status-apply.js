@@ -173,6 +173,14 @@ async function applyTransition({ db, jobId, event, actor, by, byName, reason, pa
     // accounting side reads.
     if (outcome.stamps.paid && !next.paid_at) next.paid_at = at;
     if (outcome.stamps.refunded && !next.refunded_at) next.refunded_at = at;
+    // **เขียนทับได้ ต่างจาก paid_at/refunded_at โดยตั้งใจ** — งานหนึ่งใบถูก
+    // ไรเดอร์ทิ้งได้หลายรอบ (ทิ้ง -> แอดมิน re-broadcast -> คนใหม่รับ -> ทิ้งอีก)
+    // สิ่งที่แอดมินต้องเห็นคือครั้งล่าสุด ไม่ใช่ครั้งแรก. ส่วนเงินตรงกันข้าม:
+    // ประทับครั้งเดียวแล้วห้ามขยับ เพราะฝั่งบัญชีอ่านค่านั้น
+    if (outcome.stamps.withdrawn) {
+      next.withdrawn_at = at;
+      next.withdrawn_by = by || actor;
+    }
     for (const field of outcome.clears) next[field] = null;
 
     decision = { ...outcome, status_version: next.status_version };
