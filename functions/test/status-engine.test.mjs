@@ -161,6 +161,69 @@ check("a paid job cannot re-accept a price, even from a status that allows it", 
   assert.equal(out.code, "already_paid");
 });
 
+// ── revised_offer_accepted ───────────────────────────────────────────────────
+// เจ้าของงานเคาะ (1 ก.ย. 2569) ว่าการ์ด Revised Offer ของแอปไรเดอร์ต้องพาไป
+// Payout Processing ตามพฤติกรรมวันนี้ ไม่ใช่ Price Accepted ตามที่ engine เคย
+// เสนอ เทสชุดนี้ตรึงทั้ง "ไปถูกที่" และ "ไม่กว้างเกินที่ถาม"
+check("ไรเดอร์กดยอมรับแทนลูกค้า: Revised Offer และ Negotiation ไป Payout Processing", () => {
+  for (const status of ["Revised Offer", "Negotiation"]) {
+    const out = decideTransition({
+      job: job({ status }),
+      event: "revised_offer_accepted",
+      actor: ACTOR.RIDER,
+    });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Payout Processing");
+  }
+});
+
+check("revised_offer_accepted ไม่เปิดทางลัดจากสถานะอื่น", () => {
+  // payout_started ยิงจาก QC Review กับ Price Accepted ได้ (แอดมิน/การเงิน)
+  // event ใหม่ต้องไม่พาสิทธิ์นั้นติดมือไรเดอร์ไปด้วย
+  for (const status of ["QC Review", "Price Accepted", "Being Inspected", "Pending QC"]) {
+    const out = decideTransition({
+      job: job({ status }),
+      event: "revised_offer_accepted",
+      actor: ACTOR.RIDER,
+    });
+    assert.equal(out.ok, false, `${status} ควรถูกปฏิเสธแต่ผ่าน`);
+    assert.equal(out.code, "illegal_from");
+  }
+});
+
+check("customer_accepted_price ยังพาไป Price Accepted เหมือนเดิม (ไม่แตะทางเว็บ)", () => {
+  // ทางเว็บ (/api/jobs/action accept-price) ยังไม่ย้ายมา engine — ถ้าวันหนึ่ง
+  // ปลายทางของ event นี้ถูกเปลี่ยนไปด้วยความเข้าใจผิดว่า "รวมให้เหมือนกัน"
+  // พฤติกรรมของอีกช่องทางจะเปลี่ยนเงียบๆ เทสนี้คือหมุดกันเรื่องนั้น
+  const out = decideTransition({
+    job: job({ status: "Revised Offer" }),
+    event: "customer_accepted_price",
+    actor: ACTOR.CUSTOMER,
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.to, "Price Accepted");
+});
+
+check("จ่ายเงินแล้วรับข้อเสนอใหม่ไม่ได้", () => {
+  const out = decideTransition({
+    job: job({ status: "Revised Offer", paid_at: 1_700_000_000_000 }),
+    event: "revised_offer_accepted",
+    actor: ACTOR.RIDER,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "already_paid");
+});
+
+check("การเงินไม่ใช่คนกดแทนลูกค้าหน้างาน", () => {
+  const out = decideTransition({
+    job: job({ status: "Revised Offer" }),
+    event: "revised_offer_accepted",
+    actor: ACTOR.FINANCE,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "wrong_actor");
+});
+
 check("a paid job cannot be reverted back into inspection", () => {
   const paid = job({ status: "QC Review", paid_at: 1_700_000_000_000 });
   assert.equal(decideTransition({ job: paid, event: "inspection_reverted", actor: ACTOR.RIDER }).code, "already_paid");

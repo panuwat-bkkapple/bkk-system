@@ -262,6 +262,31 @@ const TRANSITIONS = {
     blockedWhenPaid: true,
   },
 
+  // ลูกค้ารับราคาที่ปรับใหม่ "ต่อหน้าไรเดอร์" แล้วข้ามไป Payout Processing เลย
+  //
+  // ทำไมไม่ใช่ customer_accepted_price ซึ่งพาไป Price Accepted: เพราะนี่คือ
+  // พฤติกรรมที่ระบบทำอยู่จริงวันนี้ และเจ้าของงานตัดสินให้คงไว้ (1 ก.ย. 2569)
+  // ไรเดอร์ยืนอยู่หน้าลูกค้า ตกลงราคากันจบแล้ว ไม่มีขั้น "รอลูกค้ายืนยัน" คั่น
+  // อีกชั้น — งานเข้าคิวโอนเงินทันที
+  //
+  // **หนี้ที่รู้ตัวและตั้งใจรับไว้:** ตอนนี้ "ลูกค้ารับราคา" มีปลายทางสองที่
+  // ตามช่องทาง — ทางเว็บ (`/api/jobs/action` accept-price) ไป Price Accepted
+  // ส่วนทางไรเดอร์มาที่นี่ ไป Payout Processing. PR นี้ **ไม่แตะทางเว็บ**
+  // เพราะการรวมสองทางเป็นการตัดสินใจเชิง spec ไม่ใช่ผลพลอยได้ของ cutover —
+  // และมันคือส่วนหนึ่งของการยุบ Negotiation + Revised Offer เป็น
+  // Awaiting Customer Decision ใน v2 ซึ่งยังไม่เคาะ
+  //
+  // ขอบเขตแคบโดยตั้งใจ: from มีแค่สองสถานะที่ "มีข้อเสนอค้างอยู่จริง" และ
+  // ไม่ได้ไปเติม actor ไรเดอร์ให้ payout_started (ซึ่ง from กว้างกว่ามาก
+  // รวม QC Review กับ Price Accepted) เพราะนั่นคือการเปิดสิทธิ์เกินคำถาม
+  revised_offer_accepted: {
+    from: [S.REVISED_OFFER, S.NEGOTIATION],
+    to: S.PAYOUT_PROCESSING,
+    custody: "=",
+    actors: [ACTOR.CUSTOMER, ACTOR.RIDER, ACTOR.ADMIN_STAFF],
+    blockedWhenPaid: true,
+  },
+
   // Phase 5: payout ----------------------------------------------------------
   payout_started: {
     from: [S.PRICE_ACCEPTED, S.QC_REVIEW, S.NEGOTIATION, S.REVISED_OFFER],
