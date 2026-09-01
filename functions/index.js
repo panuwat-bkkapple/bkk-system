@@ -898,10 +898,10 @@ exports.finalizeCancelledJobs = onSchedule(
  * Returns true when the request may proceed; otherwise it has already sent
  * the response. Never logs the key or any part of it.
  */
-function migrationKeyAccepted(req, res) {
+function migrationKeyAccepted(req, res, label = "migrateOldJobs") {
   const expected = process.env.MIGRATION_API_KEY || "";
   if (!expected) {
-    console.error("[migrateOldJobs] refused: MIGRATION_API_KEY is not configured");
+    console.error(`[${label}] refused: MIGRATION_API_KEY is not configured`);
     res.status(503).json({
       success: false,
       error: "Endpoint disabled: MIGRATION_API_KEY is not configured on this deployment.",
@@ -921,7 +921,7 @@ function migrationKeyAccepted(req, res) {
 
   if (!ok) {
     // Deliberately logs neither the provided nor the expected value.
-    console.warn(`[migrateOldJobs] denied: bad or missing key (action=${String(req.query.action || "archive")})`);
+    console.warn(`[${label}] denied: bad or missing key (action=${String(req.query.action || "-")})`);
     res.status(401).json({ success: false, error: "Unauthorized" });
     return false;
   }
@@ -2451,12 +2451,24 @@ exports.onJobChatMessageV2 = onValueCreated(
  * เรียก:
  *   /notifyChatMessage?debug=true        → ดู tokens ใน database
  *   /notifyChatMessage?debug=true&send=true → ส่ง test push ไปทุก token
+ *
+ * โหมด debug ต้องแนบ shared secret เดียวกับ migrateOldJobs
+ * (header x-migration-key หรือ ?key= เทียบ MIGRATION_API_KEY, fail closed) —
+ * ก่อนหน้านี้เปิดโล่ง: ใครก็ dump FCM token พนักงานทุกคน + ยิง push
+ * broadcast ได้โดยไม่ต้อง login.
+ *
+ * path ปกติ (ไม่มี ?debug) ต้องคงเป็น no-op ที่ตอบ 200 โดยไม่มี auth ต่อไป —
+ * RiderChatModal ของเว็บลูกค้า (bkk-frontend-next) ยัง fetch มาที่นี่แบบ
+ * fire-and-forget หลังส่งแชททุกครั้ง (push แจ้งไรเดอร์ตัวจริงมาจาก
+ * onJobChatMessageV2 ไม่ใช่จาก endpoint นี้)
  */
 exports.notifyChatMessage = onRequest(
   { region: "asia-southeast1", cors: true },
   async (req, res) => {
-    // Debug mode: ดู tokens + ทดสอบ push
+    // Debug mode: ดู tokens + ทดสอบ push — gate ด้วย shared secret ก่อนแตะ
+    // อะไรทั้งนั้น (แบบเดียวกับ migrateOldJobs)
     if (req.query.debug === "true") {
+      if (!migrationKeyAccepted(req, res, "notifyChatMessage")) return;
       const db = getDatabase();
       const messaging = getMessaging();
       const shouldSend = req.query.send === "true";
