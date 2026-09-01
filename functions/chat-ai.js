@@ -5264,8 +5264,11 @@ module.exports = {
     batteryOptionRange,
     pickBatteryOptionId,
     modelLineMismatch,
-    expandLineShorthand,
     pickSiblingModel,
+    // วางไว้หลัง pickSiblingModel ไม่ใช่ติดกับ modelLineMismatch เพราะ PR
+    // ด่านตรวจรุ่น (#628) แทรกรายการของมันตรงจุดนั้นพอดี — สองใบจะชนกัน
+    // ที่ merge ทั้งที่ไม่มีอะไรขัดกันจริง. ลิสต์นี้ไม่ได้เรียงตามความหมายอยู่แล้ว
+    expandLineShorthand,
     parseTrackJobId,
     priceHaggleIntent,
     humanRequestIntent,
