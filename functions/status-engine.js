@@ -512,8 +512,34 @@ function availableEvents({ job, actor }) {
   return Object.keys(TRANSITIONS).filter((event) => decideTransition({ job, event, actor }).ok);
 }
 
+// ── Side-effect ownership ───────────────────────────────────────────────────
+// Everything the system does *because* a status changed, and the event that
+// will own it once the writers move (P2). Today each of these is keyed to a
+// status VALUE inside a trigger, which is why renaming a status silently stops
+// paying riders or stamping money — the failure mode this table exists to end.
+//
+// This is documentation with a test attached, not yet a dispatcher: the
+// triggers still fire off status values. What it buys now is that P2 has a
+// checklist, and the test below fails if the event named here stops agreeing
+// with the transition table (e.g. someone moves the paid stamp).
+const SIDE_EFFECT_OWNER = {
+  // functions/index.js onJobHandedOverCalcRiderFee — fires on FEE_TRIGGER_STATUSES
+  // ("Pending QC" plus two safety-net values). This is the rider getting paid.
+  rider_fee_computed: "rider_return_arrived",
+  // functions/index.js onAdminJobStatusNotify — auto-stamps paid_at when the
+  // status enters PAID_STATUSES, because the mobile "จ่ายเงินแล้ว" button only
+  // writes a status and the overdue scheduler needs an anchor.
+  paid_at_stamped: "payment_confirmed",
+  // src/utils/accessoryItems.ts unpackAccessoryItemsToStock — called from the
+  // QC station and mobile ticket detail when a job reaches In Stock.
+  accessories_unpacked: "intake_qc_passed",
+  // functions/index.js finalizeCancelledJobs — the 7-day soft-close finaliser.
+  soft_close_finalized: "finalized_lost",
+};
+
 module.exports = {
   ACTOR,
+  SIDE_EFFECT_OWNER,
   CUSTODY,
   TRANSITIONS,
   decideTransition,
