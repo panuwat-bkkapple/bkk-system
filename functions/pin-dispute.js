@@ -76,11 +76,17 @@ function settlementDelta(feeBefore, feeAfter, settled) {
   const delta = Math.round(after - before);
   if (!settled || delta === 0) return { delta, ledger: null };
   // จ่ายไปแล้วแล้วเลขขยับ = ต้องมีแถวส่วนต่าง ไม่งั้นกระเป๋ากับงานเล่าคนละเรื่อง
+  //
+  // หมวดเป็น ADJUSTMENT ทั้งสองทิศโดยตั้งใจ ไม่ใช่ JOB_PAYOUT/PENALTY —
+  // แถวนี้คือ "การแก้ตัวเลขที่คิดผิด" ไม่ใช่ค่ารอบงานใหม่ และไม่ใช่ค่าปรับ
+  // ไรเดอร์. เดิมทิศลบใช้ PENALTY ซึ่งขึ้นบนกระเป๋าไรเดอร์ว่า "รายการหัก"
+  // ทั้งที่ไม่มีใครทำอะไรผิด (เคสจริง 1 ก.ย. 2569: หมุดลูกค้าถูกต้องอยู่แล้ว
+  // แต่ไรเดอร์กดสามสถานะรวดตอนขากลับ ค่ารอบเลยถูกคิดใหม่จากจุดที่เช็คอิน)
   return {
     delta,
     ledger: delta > 0
-      ? { type: "CREDIT", category: "JOB_PAYOUT", amount: delta }
-      : { type: "DEBIT", category: "PENALTY", amount: Math.abs(delta) },
+      ? { type: "CREDIT", category: "ADJUSTMENT", amount: delta }
+      : { type: "DEBIT", category: "ADJUSTMENT", amount: Math.abs(delta) },
   };
 }
 
