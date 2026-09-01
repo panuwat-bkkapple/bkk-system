@@ -5482,6 +5482,39 @@ const {
   summarizeSickwFlags,
   parseSickwResult,
 } = require("./sickw-core");
+const { resolveActor, STANDING } = require("./actor");
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ด่านของ endpoint ที่ "ยิงแล้วเสียเงิน"
+//
+// สามตัวที่เรียก SICKW (single / bundle / catalog) เคยมีด่านเดียวคือ
+// `if (!request.auth)` ซึ่งในโปรเจกต์นี้แปลว่า "ใครก็ได้": ลูกค้าทุกคนบนเว็บ
+// ได้ anonymous auth ติดตัวมาอยู่แล้ว SICKW คิดเงินต่อการเรียกหนึ่งครั้ง และ
+// ไม่มีเพดานรายวันหรือ rate limit อยู่ที่ไหนเลย — sickw_usage บันทึกว่าใครใช้
+// ไปเท่าไร แต่บันทึกไม่ได้ห้ามใคร ด่านนี้จึงเป็นตัวคุมค่าใช้จ่ายตัวเดียวที่มี
+//
+// ใช้ resolveActor เพราะคนที่ควรเรียกได้มีสองกลุ่มที่อยู่คนละตาราง: พนักงาน
+// (/staff) กับไรเดอร์ที่อนุมัติแล้ว (/riders) — และ standing เป็นเรื่องสำคัญ
+// ตรงนี้จริงๆ ไรเดอร์ที่เพิ่งสมัครเองยังไม่ผ่านการอนุมัติ ก็ยิงเผาเครดิตได้
+// ถ้าเช็คแค่ว่า "มี record ไหม"
+//
+// ไม่แยกตาม role: คำถามคือ "คนนี้ทำงานที่นี่และยังทำงานอยู่ไหม" ไม่ใช่ว่า
+// ตำแหน่งอะไร — ทั้ง QC ทั้งไรเดอร์หน้างานต้องตรวจเครื่องได้เหมือนกัน
+async function requireActiveWorker(db, auth) {
+  const resolved = await resolveActor(db, auth);
+  if (!resolved) {
+    throw new HttpsError("permission-denied", "เฉพาะพนักงานและไรเดอร์เท่านั้นที่ตรวจเครื่องได้");
+  }
+  if (resolved.standing !== STANDING.ACTIVE) {
+    throw new HttpsError(
+      "permission-denied",
+      resolved.standing === STANDING.PENDING
+        ? "บัญชีของคุณยังรอการอนุมัติจากแอดมิน"
+        : "บัญชีของคุณถูกระงับการใช้งาน"
+    );
+  }
+  return resolved;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Audit log helper — บันทึก call ทุกครั้งของ Sickw (single + bundle)
@@ -5499,6 +5532,7 @@ exports.checkDeviceWithSickw = onCall({ region: SICKW_REGION, timeoutSeconds: 60
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
   }
+  await requireActiveWorker(getDatabase(), request.auth);
 
   const apiKey = process.env.SICKW_API_KEY;
   if (!apiKey) {
@@ -6066,6 +6100,7 @@ const SICKW_BALANCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 exports.listSickwServices = onCall({ region: SICKW_REGION, timeoutSeconds: 30 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  await requireActiveWorker(getDatabase(), request.auth);
   const apiKey = process.env.SICKW_API_KEY;
   if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
 
@@ -6168,6 +6203,7 @@ exports.getSickwBalance = onCall({ region: SICKW_REGION, timeoutSeconds: 20 }, a
 
 exports.checkDeviceWithSickwBundle = onCall({ region: SICKW_REGION, timeoutSeconds: 120 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
+  await requireActiveWorker(getDatabase(), request.auth);
   const apiKey = process.env.SICKW_API_KEY;
   if (!apiKey) throw new HttpsError("failed-precondition", "ระบบยังไม่ได้ตั้งค่า Sickw API Key");
 
