@@ -24,6 +24,7 @@ import { AmendmentBanner } from './components/AmendmentBanner';
 import { ConditionVerification } from './components/ConditionVerification';
 import { PricingSidebar } from './components/PricingSidebar';
 import { CancelModal } from './components/CancelModal';
+import { wasRiderWithdrawn } from '../../utils/riderWithdrawal';
 
 export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => void }) => {
   const toast = useToast();
@@ -494,8 +495,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
                 writes used Active Leads — both shapes show the banner. */}
             {['active leads', 'active lead', 'following up'].includes(statusLower) &&
               !job.rider_id &&
-              job.cancelled_at &&
-              (job.cancelled_by || '').startsWith('rider:') && (
+              wasRiderWithdrawn(job) && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <span className="text-lg">!</span>

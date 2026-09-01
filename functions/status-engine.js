@@ -170,6 +170,13 @@ const TRANSITIONS = {
     custody: CUSTODY.CUSTOMER,
     actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
     clears: ["rider_id"],
+    // ประทับ withdrawn_at/withdrawn_by แทนการเขียน cancel_* — แอดมินต้องรู้ว่า
+    // "ไรเดอร์ทิ้งงาน" เพื่อขึ้นปุ่ม Re-broadcast กับแบนเนอร์เตือน ซึ่งเดิม
+    // อ่านจาก cancelled_at + cancelled_by ที่ไคลเอนต์เขียน. ฟิลด์ชุดนั้นทำให้
+    // งานที่ยังวิ่งอยู่ถือ cancelled_at ค้างไว้ แล้ววันที่แอดมินยกเลิกจริงโดย
+    // ไม่เขียนทับ finalizeCancelledJobs จะเห็นเวลาเก่าหลายสัปดาห์แล้วปิดงาน
+    // ทันทีแทนที่จะรอครบ 7 วัน — แยกฟิลด์จึงไม่ใช่เรื่องความสะอาด แต่กันเคสนั้น
+    stampsWithdrawn: true,
   },
 
   // Phase 3b-3c: store-in and mail-in intake --------------------------------
@@ -534,6 +541,7 @@ function decideTransition({ job, event, actor }) {
     stamps: {
       paid: Boolean(rule.stampsPaid),
       refunded: Boolean(rule.stampsRefunded),
+      withdrawn: Boolean(rule.stampsWithdrawn),
     },
     clears: rule.clears || [],
   };

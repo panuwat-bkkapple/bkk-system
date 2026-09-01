@@ -253,6 +253,38 @@ const tests = [
     assert.equal(db.stored.paid_at, stampedEarlier, "the earlier stamp must survive");
   }),
 
+  check("การทิ้งงานประทับ withdrawn_* ไม่ใช่ cancel_*", async () => {
+    // แอดมินต้องรู้ว่าไรเดอร์ทิ้งงาน (ปุ่ม Re-broadcast + แบนเนอร์) โดยที่งาน
+    // ไม่ถือ cancelled_at ค้างไว้ทั้งที่ยังวิ่งอยู่
+    const db = fakeDb(job({ status: "Rider En Route", rider_id: "r1" }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_withdrew", actor: ACTOR.RIDER, by: "rider:r1", now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.status, "Following Up");
+    assert.equal(db.stored.withdrawn_at, clock());
+    assert.equal(db.stored.withdrawn_by, "rider:r1");
+    assert.equal(db.stored.rider_id, null);
+    // ห้ามแตะฟิลด์ยกเลิกเลย
+    assert.equal(db.stored.cancelled_at, undefined);
+    assert.equal(db.stored.cancel_category, undefined);
+  }),
+
+  check("ทิ้งงานซ้ำเขียนทับเวลาเดิม ต่างจาก paid_at", async () => {
+    // ทิ้ง -> แอดมิน re-broadcast -> คนใหม่รับ -> ทิ้งอีก: แอดมินต้องเห็น
+    // ครั้งล่าสุด ไม่ใช่ครั้งแรก (เงินตรงกันข้าม ประทับครั้งเดียวห้ามขยับ)
+    const db = fakeDb(job({
+      status: "Rider Arrived", rider_id: "r2",
+      withdrawn_at: 1_600_000_000_000, withdrawn_by: "rider:r1",
+    }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_withdrew", actor: ACTOR.RIDER, by: "rider:r2", now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.withdrawn_at, clock());
+    assert.equal(db.stored.withdrawn_by, "rider:r2");
+  }),
+
   check("clears wipe the field the rule names", async () => {
     const db = fakeDb(job({ status: "Rider En Route", rider_id: "r1" }));
     const out = await applyTransition({ db, jobId: "J1", event: "rider_withdrew", actor: ACTOR.RIDER, now: clock });
