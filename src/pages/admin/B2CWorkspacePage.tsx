@@ -19,6 +19,7 @@ import { CustomerInfoCard } from './components/CustomerInfoCard';
 import { KYCInfoCard } from './components/KYCInfoCard';
 import { LocationVerificationCard } from './components/LocationVerificationCard';
 import { CheckpointsCard } from './components/CheckpointsCard';
+import { PinDisputeCard } from './components/PinDisputeCard';
 import { AmendmentBanner } from './components/AmendmentBanner';
 import { ConditionVerification } from './components/ConditionVerification';
 import { PricingSidebar } from './components/PricingSidebar';
@@ -523,6 +524,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
             />
             <LocationVerificationCard job={job} />
             <CheckpointsCard job={job} />
+            <PinDisputeCard job={job} />
             <ConditionVerification job={job} modelsData={modelsData} conditionSets={conditionSets} />
           </div>
         </div>
