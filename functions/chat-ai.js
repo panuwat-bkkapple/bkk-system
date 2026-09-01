@@ -1195,10 +1195,10 @@ function statedModelUnsupported(statedModel, evidenceText) {
  * @param statedModel       input.customer_stated_model — the customer's own words
  * @param resolved          { id, name } of the row models/{model_id} points at
  * @param catalog           loadModelsLight() output
- * @param conditionEvidence customer utterances with contact replies stripped
+ * @param customerSaid      EVERY customer utterance, contact replies INCLUDED
  * @returns null when they agree, else { kind, line?, pinned?, candidates }
  */
-function quotedModelMismatch({ statedModel, resolved, catalog, conditionEvidence }) {
+function quotedModelMismatch({ statedModel, resolved, catalog, customerSaid }) {
   const stated = String(statedModel || "").trim();
   const resolvedName = String((resolved && resolved.name) || "");
   const list = Array.isArray(catalog) ? catalog : [];
@@ -1214,7 +1214,7 @@ function quotedModelMismatch({ statedModel, resolved, catalog, conditionEvidence
   const hit = (kind, extra) => ({ kind, candidates: candidatesOf(), ...(extra || {}) });
 
   // L1 provenance
-  if (statedModelUnsupported(stated, conditionEvidence)) return hit("unsupported_stated_model");
+  if (statedModelUnsupported(stated, customerSaid)) return hit("unsupported_stated_model");
   // L2/L3 — reuse the matcher's own family and sub-line rules, so "MacBook"
   // can never become an iPad and "Air" can never become a "mini" here either.
   if (familyMismatch(stated, resolvedName)) return hit("family_mismatch");
@@ -2801,7 +2801,16 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           statedModel,
           resolved: { id: modelId, name: `${model.brand || ""} ${model.name || ""}`.trim() },
           catalog: await loadModelsLight(db),
-          conditionEvidence,
+          // customerText, NOT conditionEvidence. The two differ by one thing:
+          // conditionEvidence drops any message carrying a phone number
+          // (looksLikeContactReply), which is right for CONDITION answers —
+          // that strip is what stopped a customer's nickname "จีน", sent with
+          // their number, from becoming "เครื่องนอก CH" and cutting 7,000 baht.
+          // It is WRONG for a model name: "ขาย iPhone 15 ครับ 0812345678" is an
+          // ordinary Thai message, and stripping it made this guard refuse a
+          // card for the model the customer had just named. Found by running
+          // real conversation shapes, not by reading the code.
+          customerSaid: customerText,
         });
         if (modelMiss) {
           let corrected = null;

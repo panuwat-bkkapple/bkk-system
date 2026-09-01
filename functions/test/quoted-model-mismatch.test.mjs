@@ -42,6 +42,7 @@
 // can fire; 6 keeps family and number identical so only sub-line can.
 // ---------------------------------------------------------------------------
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const { __test } = require("../chat-ai.js");
@@ -101,12 +102,57 @@ for (const [n, stated, id, expected] of CASES) {
     statedModel: stated,
     resolved: resolvedOf(id),
     catalog: CATALOG,
-    conditionEvidence: ALL_NAMES_EVIDENCE,
+    customerSaid: ALL_NAMES_EVIDENCE,
   });
   // Assert the KIND, never mere truthiness: a fixture that only checks
   // "blocked / not blocked" goes green when a DIFFERENT layer fires, and the
   // layer it was written for stays untested.
   check(`#${n} "${stated}" vs ${byId(id).name}`, res ? res.kind : null, expected);
+}
+
+// The provenance input is EVERY customer utterance, not the condition-answer
+// evidence — those differ by exactly one thing, and it matters. Naming the
+// device in the same message as a phone number ("ขาย iPhone 15 ครับ
+// 0812345678") is an ordinary Thai message; conditionEvidence drops it whole
+// (looksLikeContactReply), which is right for a DEDUCTION and wrong for a
+// model name. Fed the stripped text, this guard refused a card for the model
+// the customer had just named — on the contact-capture turn, the highest
+// intent moment in the conversation.
+check(
+  "#14 the model named alongside a phone number still counts as said",
+  quotedModelMismatch({
+    statedModel: "iPhone 15",
+    resolved: resolvedOf("iphone-15"),
+    catalog: CATALOG,
+    customerSaid: "สวัสดีครับ \n ขาย iPhone 15 ครับ 0812345678",
+  }),
+  null
+);
+
+// ...and the same input, STRIPPED the way conditionEvidence is, does block —
+// which is the whole reason the call site must not pass that one. The pair
+// pins the behaviour; neither half alone says anything about the wiring.
+check(
+  "#15 the same message stripped of its contact line would block (why the input matters)",
+  (quotedModelMismatch({
+    statedModel: "iPhone 15",
+    resolved: resolvedOf("iphone-15"),
+    catalog: CATALOG,
+    customerSaid: "สวัสดีครับ",
+  }) || {}).kind,
+  "unsupported_stated_model"
+);
+
+// And the wiring itself. #14/#15 exercise the pure function; the bug was in
+// which of two nearly identical strings the call site handed it, which no
+// pure-function fixture can reach — create_quote_card is async and
+// Firebase-bound. Source-level, like the call-site checks in
+// last-quote-block.test.mjs.
+{
+  const src = readFileSync(new URL("../chat-ai.js", import.meta.url), "utf8");
+  const call = src.slice(src.indexOf("const modelMiss = quotedModelMismatch({"), src.indexOf("const modelMiss = quotedModelMismatch({") + 1600);
+  check("#16 provenance is wired to the UNstripped customer text", call.includes("customerSaid: customerText"), true);
+  check("#16b and never to the condition-answer evidence", /customerSaid:\s*conditionEvidence/.test(call), false);
 }
 
 // #12 — provenance: the LLM filled the field with a model nobody mentioned.
@@ -116,7 +162,7 @@ check(
     statedModel: "iPhone 15",
     resolved: resolvedOf("iphone-15"),
     catalog: CATALOG,
-    conditionEvidence: "อยากขายเครื่องครับ",
+    customerSaid: "อยากขายเครื่องครับ",
   }) || {}).kind,
   "unsupported_stated_model"
 );
@@ -125,7 +171,7 @@ check(
 // conditionAnswerUnsupported's unknown-group rule.
 check(
   "#13 empty evidence does not block",
-  quotedModelMismatch({ statedModel: "iPhone 15", resolved: resolvedOf("iphone-15"), catalog: CATALOG, conditionEvidence: "" }),
+  quotedModelMismatch({ statedModel: "iPhone 15", resolved: resolvedOf("iphone-15"), catalog: CATALOG, customerSaid: "" }),
   null
 );
 
