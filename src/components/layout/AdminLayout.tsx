@@ -197,6 +197,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
               )}
+              {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-audit" icon={<ClipboardCheck size={18} />} label="ใบตรวจงานไรเดอร์" />}
               <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>

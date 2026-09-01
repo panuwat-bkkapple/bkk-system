@@ -39,6 +39,7 @@ const CustomerCRM = lazy(() => import('./pages/crm/CustomerCRM').then(m => ({ de
 const RiderManagement = lazy(() => import('./pages/fleet/RiderManagement').then(m => ({ default: m.RiderManagement })));
 const DiscrepancyReports = lazy(() => import('./pages/fleet/DiscrepancyReports').then(m => ({ default: m.DiscrepancyReports })));
 const RiderPerformance = lazy(() => import('./pages/fleet/RiderPerformance').then(m => ({ default: m.RiderPerformance })));
+const RiderAuditPage = lazy(() => import('./pages/fleet/RiderAuditPage').then(m => ({ default: m.RiderAuditPage })));
 const RiderPerformanceDetail = lazy(() => import('./pages/fleet/RiderPerformanceDetail').then(m => ({ default: m.RiderPerformanceDetail })));
 const CustomerTracking = lazy(() => import('./pages/tracking/CustomerTracking').then(m => ({ default: m.CustomerTracking })));
 const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').then(m => ({ default: m.B2CWorkspacePage })));
@@ -152,6 +153,7 @@ export default function App() {
               <Route path="/daily-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <DailyExpenses /> : <Navigate to="/" replace />} />
               <Route path="/riders" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderManagement /> : <Navigate to="/" replace />} />
               <Route path="/rider-performance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformance /> : <Navigate to="/" replace />} />
+              <Route path="/rider-audit" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <RiderAuditPage /> : <Navigate to="/" replace />} />
               <Route path="/rider-performance/:riderId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformanceDetail /> : <Navigate to="/" replace />} />
               <Route path="/discrepancy-reports" element={<DiscrepancyReports />} />
               <Route path="/crm" element={<CustomerCRM />} />
