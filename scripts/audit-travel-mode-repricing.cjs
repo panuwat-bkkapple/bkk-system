@@ -80,6 +80,23 @@ function shownEstimate(job) {
 }
 
 /**
+ * "เปลี่ยนจริง" ต่างจาก "เพิ่งมีฟิลด์นี้"
+ *
+ * meta ของค่ารอบโตขึ้นตามเวลา — `travel_mode`, `vehicle`, `branch_source` ถูก
+ * เพิ่มเข้า riderFeeMeta ทีหลัง (ดู functions/test/rider-fee-meta.test.mjs)
+ * งานที่คร่อมการเปลี่ยนแปลงนั้นจะมี estimate_meta ที่ยังไม่มีฟิลด์ กับ fee_meta
+ * ที่มีแล้ว **นั่นไม่ใช่ config เปลี่ยน มันคือ schema โต** — นับเป็นการเปลี่ยน
+ * เมื่อไหร่ = รายงานว่าไรเดอร์โดนรีไพรซ์ทั้งที่ไม่มีอะไรเกิดขึ้น
+ * (เคสจริงที่จับได้: OID-MS79LRH0-189 travel_mode null -> DRIVE, ระยะเท่าเดิม
+ *  เป๊ะ 30.51, เงินเท่าเดิม 500 — ถูกจัดเป็นถัง A ทั้งที่ไม่มีอะไรเปลี่ยนเลย)
+ */
+function changedValue(before, after) {
+  if (before === null || before === undefined) return false;
+  if (after === null || after === undefined) return false;
+  return before !== after;
+}
+
+/**
  * จัดประเภทงานหนึ่งใบ — pure ไม่มี I/O เพื่อให้ทดสอบได้
  * คืน null เมื่อ "ไม่มีอะไรให้เทียบ" (ไม่ใช่ Pickup / ยังไม่จบ / meta ไม่ครบ)
  */
@@ -94,15 +111,15 @@ function classifyJob(id, job) {
 
   const modeBefore = em.rates.travel_mode ?? null;
   const modeAfter = fm.rates.travel_mode ?? null;
-  const modeChanged = modeBefore !== modeAfter;
+  const modeChanged = changedValue(modeBefore, modeAfter);
 
   const rateDiffs = RATE_FIELDS
-    .filter((f) => finite(em.rates[f]) !== finite(fm.rates[f]))
+    .filter((f) => changedValue(finite(em.rates[f]), finite(fm.rates[f])))
     .map((f) => ({ field: f, before: finite(em.rates[f]), after: finite(fm.rates[f]) }));
 
   const distBefore = finite(em.distance_km);
   const distAfter = finite(fm.distance_km);
-  const distChanged = distBefore !== null && distAfter !== null && distBefore !== distAfter;
+  const distChanged = changedValue(distBefore, distAfter);
 
   const shown = shownEstimate(job);
   const settled = finite(job.rider_fee);
@@ -114,6 +131,20 @@ function classifyJob(id, job) {
   else if (distChanged) bucket = 'C_distance_only';
   if (!bucket) return null;
 
+  // ── ป้ายถังบอก "อะไรเปลี่ยน" แต่ไม่ได้บอก "อะไรทำให้เงินเปลี่ยน" ──────────
+  //
+  // ถัง A ชนะถัง B ตามลำดับ แต่เมื่อทั้งสองเปลี่ยนพร้อมกัน ป้าย A จะบัง
+  // ตัวจริง. เคสจริงที่จับได้: OID-MT2S0REB-823 travel_mode เปลี่ยน **และ**
+  // base_fee 60->100 / per_km 15->5 ขณะที่ระยะเท่าเดิมเป๊ะ 17.07 กม.
+  // แปลว่า 131 บาทที่หายมาจากการย้าย rate card ล้วนๆ ไม่ใช่ travel_mode เลย
+  // (60 + 15*17.07 = 316 -> 100 + 5*17.07 = 185)
+  //
+  // `dominant` จึงตอบจากตัวแปรที่ขยับจริง ไม่ใช่จากลำดับถัง
+  const dominant = rateDiffs.length > 0 && !distChanged ? 'rates'
+    : rateDiffs.length === 0 && distChanged ? 'distance'
+      : rateDiffs.length > 0 && distChanged ? 'both'
+        : 'none'; // โหมดเปลี่ยนแต่ระยะและอัตราไม่ขยับ = เงินไม่ควรเปลี่ยน
+
   return {
     id,
     ref_no: job.ref_no || job.OID || null,
@@ -121,6 +152,8 @@ function classifyJob(id, job) {
     rider_id: job.rider_id,
     rider_fee_status: job.rider_fee_status || '(none)',
     bucket,
+    // อะไรทำให้เงินเปลี่ยนจริง — ป้ายถังบอกแค่ว่าอะไรเปลี่ยน (ดูคอมเมนต์ข้างบน)
+    dominant,
     shown_estimate: shown,
     settled_fee: settled,
     delta,
@@ -131,6 +164,12 @@ function classifyJob(id, job) {
     distance_km_after: distAfter,
     vehicle_before: (em.rates && em.rates.vehicle) || null,
     vehicle_after: (fm.rates && fm.rates.vehicle) || null,
+    // สาขาที่วัดไปหา — resolveBranchCoords มี fallback สามชั้น (job.branch_details
+    // -> settings/branches/{id} -> สาขา active ตัวแรก) ถ้าสองรอบตกคนละชั้น
+    // ระยะทางจะต่างกันมากโดยที่ไม่มีอะไรผิดเลย เป็นสมมติฐานอันดับหนึ่งของถัง C
+    branch_source_before: em.branch_source ?? null,
+    branch_source_after: fm.branch_source ?? null,
+    branch_changed: changedValue(em.branch_source ?? null, fm.branch_source ?? null),
     reason_before: em.reason ?? null,
     reason_after: fm.reason ?? null,
     estimate_computed_at: finite(em.computed_at),
@@ -157,13 +196,28 @@ function summarize(rows) {
   for (const r of rows) {
     const paid = r.rider_fee_status === 'Paid';
     const key = r.bucket;
-    if (!out[key]) out[key] = { count: 0, paid: 0, unpaid: 0, delta_paid: 0, delta_unpaid: 0, delta_unknown: 0 };
+    if (!out[key]) {
+      out[key] = {
+        count: 0, paid: 0, unpaid: 0, delta_paid: 0, delta_unpaid: 0, delta_unknown: 0,
+        lose: 0, gain: 0, zero: 0, abs_total: 0, branch_changed: 0, dominant: {},
+      };
+    }
     const b = out[key];
     b.count += 1;
     if (paid) b.paid += 1; else b.unpaid += 1;
     if (r.delta === null) b.delta_unknown += 1;
     else if (paid) b.delta_paid += r.delta;
     else b.delta_unpaid += r.delta;
+    // ทิศทางของส่วนต่าง — config เปลี่ยนจะเอียงข้างเดียว ส่วนระยะแกว่งจะสมมาตร
+    // ซึ่งเป็นวิธีเดียวที่แยกสองสาเหตุออกจากกันได้โดยไม่ต้องเดา
+    if (r.delta !== null) {
+      if (r.delta < 0) b.lose += 1;
+      else if (r.delta > 0) b.gain += 1;
+      else b.zero += 1;
+      b.abs_total += Math.abs(r.delta);
+    }
+    b.dominant[r.dominant] = (b.dominant[r.dominant] || 0) + 1;
+    if (r.branch_changed) b.branch_changed += 1;
   }
   return out;
 }
@@ -225,13 +279,19 @@ async function main() {
     console.log(`\n ${BUCKET_LABEL[bucket] || bucket}`);
     console.log(`   ทั้งหมด ${s.count} ใบ — จ่ายแล้ว ${s.paid} · ยังไม่จ่าย ${s.unpaid}`);
     console.log(`   ผลต่างรวม (จ่ายจริง − ที่ไรเดอร์เห็น): ยังไม่จ่าย ${fmt(s.delta_unpaid)} บาท · จ่ายไปแล้ว ${fmt(s.delta_paid)} บาท`);
+    // เอียงข้างเดียว = config เปลี่ยน · สมมาตร = ระยะแกว่ง (คนละปัญหา คนละทางแก้)
+    console.log(`   ทิศทาง: ไรเดอร์เสีย ${s.lose} ใบ · ได้เพิ่ม ${s.gain} ใบ · เท่าเดิม ${s.zero} ใบ` +
+                `${s.gain === 0 && s.lose > 0 ? '  <-- เอียงข้างเดียว = การเปลี่ยนค่า ไม่ใช่ความคลาดเคลื่อน' : ''}`);
+    if (s.count) console.log(`   ขนาดความคลาดเคลื่อนเฉลี่ย (ไม่สนทิศ): ${(s.abs_total / s.count).toFixed(0)} บาท/ใบ`);
+    console.log(`   ตัวที่ทำให้เงินเปลี่ยนจริง: ${Object.entries(s.dominant).map(([k, n]) => `${k}=${n}`).join(' · ')}`);
+    if (s.branch_changed) console.log(`   สาขาปลายทางเปลี่ยนระหว่างสองรอบ: ${s.branch_changed} ใบ  <-- resolveBranchCoords ตกคนละชั้น`);
     if (s.delta_unknown) console.log(`   คำนวณผลต่างไม่ได้ ${s.delta_unknown} ใบ (ขาด rider_fee หรือ estimate)`);
   }
 
   console.log('\n== รายใบ (ใหม่สุดก่อน) ==');
   for (const r of rows) {
     const sign = r.delta === null ? '?' : (r.delta < 0 ? 'ไรเดอร์เสีย' : (r.delta > 0 ? 'ไรเดอร์ได้เพิ่ม' : 'เท่าเดิม'));
-    console.log(`\n  ${r.ref_no || r.id}  [${r.source}] ${r.bucket}`);
+    console.log(`\n  ${r.ref_no || r.id}  [${r.source}] ${r.bucket} (เงินเปลี่ยนเพราะ: ${r.dominant})`);
     console.log(`    งาน ${r.id} · status ${r.status} · rider_fee_status ${r.rider_fee_status} · rider ${r.rider_id}`);
     console.log(`    เห็นตอนกดรับ ${fmt(r.shown_estimate)} -> จ่ายจริง ${fmt(r.settled_fee)}  (${sign} ${r.delta === null ? '-' : fmt(Math.abs(r.delta))} บาท)`);
     if (r.travel_mode_before !== r.travel_mode_after) {
@@ -239,6 +299,9 @@ async function main() {
     }
     for (const d of r.rate_diffs) console.log(`    ${d.field}: ${d.before} -> ${d.after}`);
     console.log(`    ระยะ: ${r.distance_km_before} -> ${r.distance_km_after} กม. · ยานพาหนะ ${r.vehicle_before} -> ${r.vehicle_after}`);
+    if (r.branch_source_before !== null || r.branch_source_after !== null) {
+      console.log(`    สาขา: ${r.branch_source_before} -> ${r.branch_source_after}${r.branch_changed ? '  <-- วัดไปคนละสาขา' : ''}`);
+    }
     console.log(`    reason: ${r.reason_before} -> ${r.reason_after}${r.fallback_involved ? '  <-- มี fallback ปน ส่วนต่างอธิบายด้วยฐานวัดอย่างเดียวไม่ได้' : ''}`);
     console.log(`    เวลา: estimate ${ts(r.estimate_computed_at)} -> fee ${ts(r.fee_computed_at)}`);
   }

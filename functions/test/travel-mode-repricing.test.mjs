@@ -133,5 +133,84 @@ check("summarize: delta แยกกอง (-25 ต่อกอง)", s.A_travel
 check("analyzeJobs: node ว่าง = []", analyzeJobs(null, "jobs").length === 0);
 check("analyzeJobs: ข้ามงานที่เป็น null", analyzeJobs({ a: null, b: REAL }, "jobs").length === 1);
 
+// ── รอบสอง: บั๊กที่เจอตอนรันกับ production จริง (50 ใบ) ────────────────────
+
+// 11) schema โต != config เปลี่ยน
+//     เคสจริง OID-MS79LRH0-189: travel_mode null -> DRIVE, vehicle null -> motorcycle,
+//     ระยะเท่าเดิมเป๊ะ 30.51, เงินเท่าเดิม 500 — ไม่มีอะไรเปลี่ยนเลย แค่ meta ได้ฟิลด์ใหม่
+const SCHEMA_GREW = {
+  receive_method: "Pickup", rider_id: "r1", rider_fee: 500, rider_fee_status: "Paid",
+  rider_fee_estimate: 500,
+  rider_fee_estimate_meta: {
+    distance_km: 30.51, computed_at: 1,
+    fee_by_vehicle: { motorcycle: 500, car: 500 },
+    rates: { base_fee: 60, per_km: 15, min_fee: 100, max_fee: 500 }, // ไม่มี travel_mode / vehicle
+    reason: "calculated",
+  },
+  rider_fee_meta: {
+    distance_km: 30.51, computed_at: 2,
+    fee_by_vehicle: { motorcycle: 500, car: 500 },
+    rates: { base_fee: 60, per_km: 15, min_fee: 100, max_fee: 500, travel_mode: "DRIVE", vehicle: "motorcycle" },
+    reason: "calculated",
+  },
+};
+check("schema โต (travel_mode null -> DRIVE, ระยะเท่าเดิม) = ไม่นับ",
+  classifyJob("MS79LRH0-189", SCHEMA_GREW) === null);
+
+// อีกทิศหนึ่ง: ฟิลด์หายไปตอนหลัง ก็ไม่ใช่การเปลี่ยนเหมือนกัน
+const SCHEMA_SHRANK = clone(SCHEMA_GREW);
+SCHEMA_SHRANK.rider_fee_estimate_meta.rates.travel_mode = "DRIVE";
+delete SCHEMA_SHRANK.rider_fee_meta.rates.travel_mode;
+check("ฟิลด์หายตอนหลัง (DRIVE -> null, ระยะเท่าเดิม) = ไม่นับ",
+  classifyJob("x", SCHEMA_SHRANK) === null);
+
+// แต่ถ้ามีค่าจริงทั้งสองฝั่งและต่างกัน ต้องยังจับได้เหมือนเดิม
+check("ยังจับ travel_mode ที่มีค่าจริงทั้งสองฝั่ง", classifyJob("real", REAL).bucket === "A_travel_mode");
+
+// 12) dominant — ป้ายถังต้องไม่บังตัวที่ทำให้เงินเปลี่ยน
+//     เคสจริง OID-MT2S0REB-823: travel_mode เปลี่ยน **และ** base_fee 60->100,
+//     per_km 15->5 ขณะที่ระยะเท่าเดิมเป๊ะ 17.07 -> เงินหาย 131 มาจาก rate card ล้วนๆ
+const RATE_MIGRATION = {
+  receive_method: "Pickup", rider_id: "r1", rider_fee: 185, rider_fee_status: "Paid",
+  rider_fee_estimate: 316,
+  rider_fee_estimate_meta: {
+    distance_km: 17.07, computed_at: 1, fee_by_vehicle: { car: 316 },
+    rates: { base_fee: 60, per_km: 15, min_fee: 100, max_fee: 500, travel_mode: "TWO_WHEELER", vehicle: "car" },
+    reason: "calculated",
+  },
+  rider_fee_meta: {
+    distance_km: 17.07, computed_at: 2, fee_by_vehicle: { car: 185 },
+    rates: { base_fee: 100, per_km: 5, min_fee: 100, max_fee: 500, travel_mode: "DRIVE", vehicle: "car" },
+    reason: "calculated",
+  },
+};
+const mig = classifyJob("MT2S0REB-823", RATE_MIGRATION);
+check("rate migration: ยังเข้าถัง A (ลำดับถังเดิม)", mig.bucket === "A_travel_mode");
+check("rate migration: dominant = rates ไม่ใช่ travel_mode", mig.dominant === "rates");
+check("rate migration: delta -131 (316 -> 185)", mig.delta === -131);
+check("รายงานตัวเลข rate ที่เปลี่ยนครบสองฟิลด์", mig.rate_diffs.length === 2);
+check("เคสจริง 851: dominant = distance (อัตราไม่ขยับ)", real.dominant === "distance");
+check("ถัง B ล้วน: dominant = rates", bRow.dominant === "rates");
+check("เปลี่ยนทั้งอัตราและระยะ: dominant = both",
+  classifyJob("x", (() => { const j = clone(RATE_MIGRATION); j.rider_fee_meta.distance_km = 20; return j; })()).dominant === "both");
+
+// 13) branch_source — สมมติฐานอันดับหนึ่งของถัง C
+const BRANCH = clone(REAL);
+BRANCH.rider_fee_estimate_meta.branch_source = "branches/hq";
+BRANCH.rider_fee_meta.branch_source = "branches/rama9";
+const br = classifyJob("x", BRANCH);
+check("branch_source เปลี่ยน = ติดธง branch_changed", br.branch_changed === true);
+check("branch_source ไม่มีทั้งคู่ = ไม่ติดธง", real.branch_changed === false);
+const brOne = clone(REAL);
+brOne.rider_fee_meta.branch_source = "branches/hq"; // ฝั่งเดียว = schema โต
+check("branch_source มีฝั่งเดียว = ไม่ติดธง (schema โต)", classifyJob("x", brOne).branch_changed === false);
+
+// 14) summarize: ทิศทาง + dominant
+const s2 = summarize([real, mig, bRow, cRow]);
+check("summarize: นับทิศทางเสีย/ได้เพิ่ม/เท่าเดิม",
+  s2.A_travel_mode.lose === 2 && s2.A_travel_mode.gain === 0);
+check("summarize: abs_total สะสมขนาดไม่สนทิศ", s2.A_travel_mode.abs_total === 156);
+check("summarize: นับ dominant แยก", s2.A_travel_mode.dominant.rates === 1 && s2.A_travel_mode.dominant.distance === 1);
+
 console.log(failures === 0 ? "\nOK — ผ่านทั้งหมด" : `\nFAILED ${failures} เคส`);
 process.exit(failures === 0 ? 0 : 1);
