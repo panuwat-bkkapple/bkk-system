@@ -7,6 +7,8 @@
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "generate:status-vocab": "node scripts/generate-status-vocab.mjs",
+    "check:status-vocab": "node scripts/generate-status-vocab.mjs --check",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run"

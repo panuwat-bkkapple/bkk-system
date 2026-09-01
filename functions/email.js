@@ -608,57 +608,17 @@ function buildCustomerPaymentVoucherEmail(job) {
   };
 }
 
-// ── Status normalisation (ported from src/types/job-statuses.ts) ─────────────
-// functions/ is plain JS and can't import the canonical TS enum, so the legacy
-// aliasing + "In-Transit" overload rule are mirrored here. Keep in sync with
-// LEGACY_ALIAS / normalizeStatus in job-statuses.ts.
-
-const CANONICAL_STATUSES = new Set([
-  "New Lead", "Active Lead", "Following Up", "Appointment Set", "Waiting Drop-off",
-  "Awaiting Shipping", "Rider Assigned", "Rider Accepted", "Rider En Route",
-  "Rider Arrived", "Drop-off Received", "Parcel In Transit", "Parcel Received",
-  "Being Inspected", "Discrepancy Reported", "QC Review", "Revised Offer",
-  "Negotiation", "Price Accepted", "Payout Processing", "Waiting For Handover",
-  "Paid", "Rider Returning", "Pending QC", "Sent To QC Lab", "In Stock",
-  "Ready To Sell", "Sold", "Completed", "Cancelled", "Closed (Lost)",
-  "Drop-off Expired", "Shipping Expired", "Investigating Carrier", "Parcel Lost",
-  "Returning To Customer", "Return Confirmed", "Disputed", "Refund Initiated",
-  "Refund Completed",
-]);
-
-const LEGACY_ALIAS = {
-  PAID: "Paid",
-  "Payment Completed": "Paid",
-  "Active Leads": "Active Lead",
-  "Waiting for Handover": "Waiting For Handover",
-  Assigned: "Rider Assigned",
-  Accepted: "Rider Accepted",
-  "Heading to Customer": "Rider En Route",
-  Arrived: "Rider Arrived",
-  Returned: "Return Confirmed",
-};
-
-function normalizeStatus(legacy, receiveMethod) {
-  if (!legacy) return null;
-  if (CANONICAL_STATUSES.has(legacy)) return legacy;
-  if (legacy === "In-Transit") {
-    return receiveMethod === "Pickup" ? "Rider Returning" : "Parcel In Transit";
-  }
-  return LEGACY_ALIAS[legacy] || null;
-}
-
-const CANCEL_CATEGORY_LABEL_TH = {
-  customer_changed_mind: "ลูกค้าเปลี่ยนใจ",
-  customer_no_show: "ลูกค้าไม่มา / ติดต่อไม่ได้",
-  rider_issue: "ปัญหาฝั่งไรเดอร์",
-  device_mismatch: "เครื่องไม่ตรงใบสั่ง",
-  hidden_damage: "พบความเสียหายซ่อน",
-  price_disagreement: "เจรจาราคาไม่ลงตัว",
-  fraud_suspected: "สงสัยฉ้อโกง",
-  parcel_lost: "ขนส่งทำพัสดุหาย",
-  sla_timeout: "หมดเวลา (ระบบยกเลิกอัตโนมัติ)",
-  other: "อื่น ๆ",
-};
+// ── Status vocabulary ───────────────────────────────────────────────────────────
+// Generated from src/types/job-statuses.ts by scripts/generate-status-vocab.mjs
+// (npm run generate:status-vocab). These used to be hand-copied here, which is
+// how this file lost the 'Sent to QC Lab' and 'Ready to Sell' aliases the TS
+// source had gained — 93 live jobs' worth of spellings this file could not
+// read, and a drift no CI check covered. Never edit the generated file; edit
+// the enum and regenerate.
+const {
+  normalizeStatus,
+  CANCEL_CATEGORY_LABEL_TH,
+} = require("./status-vocab.generated");
 
 /** RTDB-safe idempotency key for "we already emailed about this status". */
 function statusEmailKey(status) {
