@@ -285,13 +285,23 @@ const TRANSITIONS = {
     actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
     methods: [RECEIVE_METHOD.PICKUP],
   },
+  // No paid-money check here, and that is a finding rather than an omission:
+  // paid_at is auto-stamped only on entry to PAID_STATUSES ("Paid", "PAID",
+  // "Payment Completed") — 'Waiting For Handover' is not one of them, so the
+  // 21 live jobs sitting at that status carry no timestamp at all. Requiring
+  // one would refuse the return leg for every job the legacy finance writer
+  // created, which is a rider stranded at the customer's door.
+  //
+  // The from-list is the real guard anyway: both statuses already mean the
+  // transfer happened. Once finance moves onto the engine, payment_confirmed
+  // stamps paid_at on the way into Waiting For Handover and the field becomes
+  // trustworthy — at which point a money check here would be worth adding.
   rider_return_started: {
     from: [S.PAID, S.WAITING_FOR_HANDOVER],
     to: S.RIDER_RETURNING,
     custody: CUSTODY.RIDER,
     actors: [ACTOR.RIDER],
     methods: [RECEIVE_METHOD.PICKUP],
-    requiresPaid: true,
   },
   // Entering Pending QC is what pays the rider (onJobHandedOverCalcRiderFee).
   // That side effect is keyed to the status value today; the registry moves it
@@ -453,7 +463,7 @@ function reject(code, message) {
  *
  * `code` is a closed set so callers can map it to their own copy:
  *   unknown_event | unreadable_status | illegal_from | wrong_actor |
- *   wrong_receive_method | missing_field | already_paid | not_paid
+ *   wrong_receive_method | missing_field | already_paid
  */
 function decideTransition({ job, event, actor }) {
   const rule = TRANSITIONS[event];
@@ -478,9 +488,6 @@ function decideTransition({ job, event, actor }) {
   const paid = jobIsPaid(job);
   if (rule.blockedWhenPaid && paid) {
     return reject("already_paid", `event ${event} ทำไม่ได้เมื่อจ่ายเงินแล้ว`);
-  }
-  if (rule.requiresPaid && !paid) {
-    return reject("not_paid", `event ${event} ต้องจ่ายเงินก่อน`);
   }
 
   for (const field of rule.requires || []) {
