@@ -84,9 +84,73 @@ function settlementDelta(feeBefore, feeAfter, settled) {
   };
 }
 
+/**
+ * ประกอบ multi-path update ของการอนุมัติ — pure เพื่อให้เทสจับกฎได้จริง
+ *
+ * **กติกาที่พลาดมาแล้วหนึ่งรอบ (1 ก.ย. 2569): ห้ามมี key ที่เป็นบรรพบุรุษของ
+ * อีก key ในก้อนเดียวกัน** — RTDB ปฏิเสธทั้ง update พร้อม error
+ * "...is ancestor of another path..." ซึ่งเด้งถึงแอดมินเป็นคำว่า INTERNAL
+ * เฉยๆ (เขียน `jobs/x/pin_dispute` ทั้งก้อน แล้วเขียน
+ * `jobs/x/pin_dispute/delta_tx_id` ต่อ = พังทันที และพังเฉพาะงานที่จ่ายค่ารอบ
+ * ไปแล้ว ซึ่งเป็นเส้นทางที่เทสตอนนั้นไม่ได้เดินไปถึง)
+ */
+/**
+ * แปลง exception ที่ไม่ได้ตั้งใจให้เป็นข้อความที่อ่านออก — ของเดิมเด้งถึง
+ * แอดมินเป็นคำว่า "INTERNAL" เฉยๆ ซึ่งบอกอะไรไม่ได้เลยว่าพังตรงไหน
+ * (เจอจริง 1 ก.ย. 2569 ตอน multi-path update มี path ซ้อนกัน)
+ */
+async function guarded(tag, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    console.error(`[pinDispute] ${tag} failed:`, err);
+    throw new HttpsError("internal", `ทำรายการไม่สำเร็จ: ${(err && err.message) || err}`);
+  }
+}
+
+function buildApprovalUpdates({ jobId, job, dispute, reviewer, result, meta, now, txKey, feeBefore, delta, ledger }) {
+  const disputeRow = {
+    ...dispute,
+    ...reviewer,
+    status: "approved",
+    fee_before: feeBefore,
+    fee_after: result.fee,
+    delta,
+    distance_km_after: result.distance_km ?? null,
+  };
+  const updates = {
+    [`jobs/${jobId}/rider_fee`]: result.fee,
+    [`jobs/${jobId}/rider_fee_meta`]: meta,
+    [`jobs/${jobId}/rider_fee_estimate`]: result.fee,
+    [`jobs/${jobId}/rider_fee_estimate_meta`]: meta,
+    [`jobs/${jobId}/updated_at`]: now,
+  };
+  // ยังไม่ได้จ่าย = ตัวเลขใหม่เข้าคิว settlement ตามปกติ ไม่ต้องแตะ ledger
+  if (!job.rider_fee_status) {
+    updates[`jobs/${jobId}/rider_fee_status`] = "Pending";
+  }
+  if (ledger && txKey) {
+    updates[`transactions/${txKey}`] = {
+      rider_id: dispute.requested_by_rider_id,
+      amount: ledger.amount,
+      type: ledger.type,
+      category: ledger.category,
+      description: `ปรับค่ารอบตามหมุดที่แก้ ${job.model || "งาน"} (${job.ref_no || job.OID || shortJob(jobId)})`,
+      timestamp: now,
+      ref_job_id: jobId,
+    };
+    // อยู่ "ข้างใน" object ของคำแย้ง ไม่ใช่ path แยก — ดูกติกาบรรพบุรุษด้านบน
+    disputeRow.delta_tx_id = txKey;
+  }
+  updates[`jobs/${jobId}/pin_dispute`] = disputeRow;
+  return updates;
+}
+
 function registerPinDispute({ computeRiderFee, riderFeeMeta, riderVehicleType, pushToRider, dispatchAdminPush, staffIdsByRoles }) {
   /** ไรเดอร์ยื่นแย้งหมุด — หลักฐานคือจุดเช็คอินของตัวเอง */
-  const riderDisputePickupPin = onCall({ region: REGION }, async (request) => {
+  const riderDisputePickupPin = onCall({ region: REGION }, async (request) =>
+    guarded("submit", async () => {
     if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
     const uid = request.auth.uid;
     const { jobId, reason } = request.data || {};
@@ -154,11 +218,13 @@ function registerPinDispute({ computeRiderFee, riderFeeMeta, riderVehicleType, p
       allow
     );
 
-    return { ok: true, status: "pending" };
-  });
+      return { ok: true, status: "pending" };
+    })
+  );
 
   /** แอดมิน (CEO/MANAGER) อนุมัติ = คิดค่าวิ่งใหม่จากพิกัดจุดเช็คอิน */
-  const adminReviewPinDispute = onCall({ region: REGION }, async (request) => {
+  const adminReviewPinDispute = onCall({ region: REGION }, async (request) =>
+    guarded("review", async () => {
     if (!request.auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
     const { jobId, decision, adminNote } = request.data || {};
     if (!jobId || (decision !== "approve" && decision !== "reject")) {
@@ -228,39 +294,12 @@ function registerPinDispute({ computeRiderFee, riderFeeMeta, riderVehicleType, p
     const { delta, ledger } = settlementDelta(feeBefore, result.fee, settled);
 
     const meta = { ...riderFeeMeta(result), basis: "pin_dispute_checkin" };
-    const updates = {
-      [`jobs/${jobId}/rider_fee`]: result.fee,
-      [`jobs/${jobId}/rider_fee_meta`]: meta,
-      [`jobs/${jobId}/rider_fee_estimate`]: result.fee,
-      [`jobs/${jobId}/rider_fee_estimate_meta`]: meta,
-      [`jobs/${jobId}/updated_at`]: now,
-      [`jobs/${jobId}/pin_dispute`]: {
-        ...dispute,
-        ...reviewer,
-        status: "approved",
-        fee_before: feeBefore,
-        fee_after: result.fee,
-        delta,
-        distance_km_after: result.distance_km ?? null,
-      },
-    };
-    // ยังไม่ได้จ่าย = ตัวเลขใหม่เข้าคิว settlement ตามปกติ ไม่ต้องแตะ ledger
-    if (!settled && !job.rider_fee_status) {
-      updates[`jobs/${jobId}/rider_fee_status`] = "Pending";
-    }
-    if (ledger) {
-      const txKey = db.ref("transactions").push().key;
-      updates[`transactions/${txKey}`] = {
-        rider_id: dispute.requested_by_rider_id,
-        amount: ledger.amount,
-        type: ledger.type,
-        category: ledger.category,
-        description: `ปรับค่ารอบตามหมุดที่แก้ ${job.model || "งาน"} (${job.ref_no || job.OID || shortJob(jobId)})`,
-        timestamp: now,
-        ref_job_id: jobId,
-      };
-      updates[`jobs/${jobId}/pin_dispute/delta_tx_id`] = txKey;
-    }
+    // key ของแถว ledger จองไว้ก่อนเสมอ (ถูกใช้ก็ต่อเมื่อมีส่วนต่างจริง) เพื่อให้
+    // การประกอบ update map เป็น pure ทั้งก้อน — เทสได้โดยไม่ต้องมี RTDB
+    const txKey = db.ref("transactions").push().key;
+    const updates = buildApprovalUpdates({
+      jobId, job, dispute, reviewer, result, meta, now, txKey, feeBefore, delta, ledger,
+    });
     await db.ref().update(updates);
 
     await pushToRider(
@@ -276,10 +315,11 @@ function registerPinDispute({ computeRiderFee, riderFeeMeta, riderVehicleType, p
       "pin-dispute-approved"
     );
 
-    return { ok: true, status: "approved", fee: result.fee, delta, distance_km: result.distance_km ?? null };
-  });
+      return { ok: true, status: "approved", fee: result.fee, delta, distance_km: result.distance_km ?? null };
+    })
+  );
 
   return { riderDisputePickupPin, adminReviewPinDispute };
 }
 
-module.exports = { registerPinDispute, checkinEvidence, settlementDelta };
+module.exports = { registerPinDispute, checkinEvidence, settlementDelta, buildApprovalUpdates };
