@@ -59,14 +59,21 @@ function historyOf(job) {
  *
  * Returns { ok: true, from, to, custody, status_version } on success, or
  * { ok: false, code, message } — codes from decideTransition plus:
- *   job_not_found | patch_conflict | write_contended
+ *   job_not_found | patch_conflict | write_contended, plus whatever `guard`
+ *   returns
  *
  * `patch` carries the domain fields the event needs (a tracking number, the
  * cancel taxonomy). It is merged BEFORE the decision is made, so rules like
  * "cancelling requires cancelled_at" see the values this event brings rather
  * than only what was already stored.
+ *
+ * `guard` is an optional caller check run INSIDE the transaction, for rules
+ * about WHO may act on THIS row rather than about the state machine — "is this
+ * the rider who holds the job". Returning { code, message } aborts. It has to
+ * run in here rather than before the call: a check made against a row read a
+ * moment earlier is a check against a job that may since have been reassigned.
  */
-async function applyTransition({ db, jobId, event, actor, by, reason, patch = {}, now = Date.now }) {
+async function applyTransition({ db, jobId, event, actor, by, reason, patch = {}, guard = null, now = Date.now }) {
   const conflicting = Object.keys(patch).filter((key) => ENGINE_OWNED.includes(key));
   if (conflicting.length > 0) {
     return {
@@ -92,6 +99,13 @@ async function applyTransition({ db, jobId, event, actor, by, reason, patch = {}
     }
 
     const proposed = { ...current, ...patch };
+
+    const blocked = guard ? guard(current) : null;
+    if (blocked) {
+      decision = { ok: false, ...blocked };
+      return; // undefined aborts the transaction
+    }
+
     const outcome = decideTransition({ job: proposed, event, actor });
     if (!outcome.ok) {
       decision = outcome;
