@@ -1,5 +1,6 @@
 // src/pages/finance/components/RiderSettlements.tsx
 import React, { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { CheckCircle2, FileText, Zap } from 'lucide-react';
@@ -44,75 +45,18 @@ export const RiderSettlements = () => {
   );
   const unpricedCount = pendingFees.length - payableFees.length;
 
-  // 💰 อนุมัติทีละรายการ
-  const handleApproveFee = async (job: any) => { 
-    const fee = settledRiderFee(job);
-    if (fee === null) {
-      // ปุ่มถูก disable ไว้อยู่แล้ว ด่านนี้กันเส้นทางอื่นที่อาจเรียกเข้ามา
-      toast.error('งานนี้ยังไม่มีค่ารอบที่ระบบคำนวณ — จ่ายไม่ได้จนกว่าจะมีตัวเลขจริง');
-      return;
-    }
-    if(!confirm(`ยืนยันอนุมัติค่าเที่ยวงาน ${job.ref_no} จำนวน ${formatCurrency(fee)} ใช่หรือไม่?`)) return;
-
-    try {
-        const now = Date.now();
-        // Atomic multi-path update: job + transaction ในครั้งเดียว
-        const txKey = push(child(ref(db), 'transactions')).key;
-        const updates: Record<string, any> = {};
-        updates[`jobs/${job.id}/rider_fee_status`] = 'Paid';
-        updates[`jobs/${job.id}/settled_at`] = now;
-        updates[`transactions/${txKey}`] = {
-            rider_id: job.rider_id,
-            amount: fee,
-            type: 'CREDIT',
-            category: 'JOB_PAYOUT',
-            description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'})`,
-            timestamp: now,
-            ref_job_id: job.id
-        };
-        await update(ref(db), updates);
-    } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
-  };
-
-  // ⚡ อนุมัติทั้งหมดในคลิกเดียว
-  const handleApproveAll = async () => {
-    if (payableFees.length === 0) {
-      toast.error('ไม่มีรายการที่มีค่ารอบพร้อมจ่าย');
-      return;
-    }
-    // นับจาก payableFees ไม่ใช่ pendingFees — ตัวเลขในคำถามต้องเป็นจำนวนที่จะ
-    // จ่ายจริง ไม่ใช่จำนวนแถวในตาราง มิฉะนั้นคนกดยืนยันคนละอย่างกับที่เกิดขึ้น
-    const skipNote = unpricedCount > 0
-      ? `\n(ข้าม ${unpricedCount} รายการที่ยังไม่มีค่ารอบ)`
-      : '';
-    if (!confirm(`ยืนยันอนุมัติจ่ายค่ารอบทั้งหมด ${payableFees.length} รายการ?${skipNote}`)) return;
-    
-    try {
-        const now = Date.now();
-        // Atomic multi-path update: jobs + transactions ทั้งหมดในครั้งเดียว
-        const updates: Record<string, any> = {};
-
-        payableFees.forEach(job => {
-            updates[`jobs/${job.id}/rider_fee_status`] = 'Paid';
-            updates[`jobs/${job.id}/settled_at`] = now;
-
-            const txKey = push(child(ref(db), 'transactions')).key;
-            updates[`transactions/${txKey}`] = {
-                rider_id: job.rider_id,
-                amount: settledRiderFee(job) as number,
-                type: 'CREDIT',
-                category: 'JOB_PAYOUT',
-                description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'}) [Batch]`,
-                timestamp: now,
-                ref_job_id: job.id
-            };
-        });
-
-        await update(ref(db), updates);
-
-        toast.success("อนุมัติทั้งหมดเข้า Wallet ไรเดอร์เรียบร้อยแล้ว!");
-    } catch(e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
-  };
+  // การอนุมัติค่ารอบย้ายไปที่ใบตรวจงานไรเดอร์ (/rider-audit) แล้ว
+  //
+  // เหตุผลไม่ใช่เรื่องการจัดเมนู: การอนุมัติคือการรับรองว่า "งานนี้ทำจริง ระยะ
+  // เท่านี้ ค่ารอบเท่านี้" ซึ่งเป็นข้อเท็จจริงหน้างาน และจอนี้เห็นแค่ 4 ช่อง
+  // (เลขที่งาน / ไรเดอร์ / เครื่อง / ยอด) คนกดจึงไม่มีข้อมูลจะรับรอง
+  //
+  // เส้นแบ่งนี้เป็นของระบบบัญชีอยู่แล้ว: อนุมัติค่ารอบ = ตั้งหนี้ เงินยังไม่ออก
+  // จากบัญชีบริษัท ส่วนการถอนคือการจ่ายเงินจริงที่มีสลิปและเป็นจุดหักภาษี
+  // ณ ที่จ่าย ซึ่งยังเป็นของหน้านี้ตามเดิม (ดู /rider-withdrawals)
+  //
+  // จอนี้จึงเหลือเป็น **คิวรอตรวจแบบอ่านอย่างเดียว** ให้ฝ่ายบัญชีเห็นว่ามีหนี้
+  // ค้างตั้งอยู่เท่าไร โดยไม่ต้องเป็นคนรับรองเอง
 
   if (loading) return <div className="p-10 text-center font-black text-slate-300 animate-pulse uppercase">Loading Settlements...</div>;
 
@@ -122,7 +66,7 @@ export const RiderSettlements = () => {
       <div className="flex justify-between items-center bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
         <div>
            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Zap className="text-emerald-500"/> ค่ารอบรออนุมัติ (Pending Rider Fees)</h3>
-           <p className="text-xs font-bold text-slate-400 mt-1">อนุมัติเพื่อให้เงินเข้ากระเป๋า Wallet ของไรเดอร์</p>
+           <p className="text-xs font-bold text-slate-400 mt-1">การอนุมัติย้ายไปที่ใบตรวจงานไรเดอร์แล้ว จอนี้แสดงหนี้ค่ารอบที่ค้างตั้งอยู่</p>
            {unpricedCount > 0 && (
              <p className="text-xs font-bold text-amber-600 mt-2">
                {unpricedCount} รายการยังไม่มีค่ารอบที่ระบบคำนวณ — จ่ายไม่ได้จนกว่าจะมีตัวเลขจริง
@@ -130,9 +74,7 @@ export const RiderSettlements = () => {
            )}
         </div>
         {payableFees.length > 0 && (
-          <button onClick={handleApproveAll} className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-emerald-200 hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-2">
-            <CheckCircle2 size={18}/> Approve All ({payableFees.length})
-          </button>
+          <Link to="/rider-audit" className="px-4 py-2 text-xs font-black rounded-xl bg-sky-600 text-white">ไปที่ใบตรวจงานไรเดอร์</Link>
         )}
       </div>
 
@@ -175,22 +117,9 @@ export const RiderSettlements = () => {
                    )}
                 </td>
                 <td className="p-6 text-right pr-10">
-                  {settledRiderFee(item) !== null ? (
-                    <button 
-                      onClick={() => handleApproveFee(item)} 
-                      className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-black active:scale-95 transition-all"
-                    >
-                      Approve
-                    </button>
-                  ) : (
-                    <button
-                      disabled
-                      title="ยังไม่มีค่ารอบที่ระบบคำนวณ (rider_fee) — ตรวจ log ของ onJobHandedOverCalcRiderFee"
-                      className="bg-slate-100 text-slate-400 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase cursor-not-allowed"
-                    >
-                      รอระบบคำนวณ
-                    </button>
-                  )}
+                  <Link to="/rider-audit" className="text-[10px] font-black uppercase text-sky-600 hover:underline">
+                    ตรวจที่ใบตรวจงาน
+                  </Link>
                 </td>
               </tr>
             ))}

@@ -30,6 +30,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const [pendingReviews, setPendingReviews] = useState(0);
   const [unreadInbox, setUnreadInbox] = useState(0);
   const [pendingDiscrepancies, setPendingDiscrepancies] = useState(0);
+  const [pendingRiderAudit, setPendingRiderAudit] = useState(0);
   const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
   // Register admin FCM token for push notifications — keyed by staff push id
@@ -110,8 +111,21 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
           }
         });
         setPendingDiscrepancies(count);
+
+        // ค่ารอบที่รออนุมัติ — นับในรอบเดียวกับข้างบน ไม่ subscribe เพิ่ม
+        //
+        // badge นี้เป็นส่วนหนึ่งของการย้ายขั้นตอนอนุมัติมาที่ใบตรวจงาน ไม่ใช่
+        // ของประดับ: ถ้าไม่มีอะไรบอกว่ามีคิวใหม่ ไรเดอร์จะไม่ได้เงินตามรอบ
+        // เพราะไม่มีใครรู้ว่าต้องไปกดที่ไหน ซึ่งเป็นความพังที่เงียบที่สุดของ
+        // การย้ายเจ้าของขั้นตอน
+        setPendingRiderAudit(
+          Object.values(data).filter(
+            (job: any) => job && job.rider_fee_status === 'Pending' && Number(job.rider_fee) > 0,
+          ).length,
+        );
       } else {
         setPendingDiscrepancies(0);
+        setPendingRiderAudit(0);
       }
     });
     return () => unsub();
@@ -197,7 +211,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {(currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER') && (
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
               )}
-              {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-audit" icon={<ClipboardCheck size={18} />} label="ใบตรวจงานไรเดอร์" />}
+              {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-audit" icon={<ClipboardCheck size={18} />} label="ใบตรวจงานไรเดอร์" badgeCount={pendingRiderAudit} />}
               <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>
