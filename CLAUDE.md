@@ -36,6 +36,7 @@
 - **Platform:** Firebase Hosting (`bkk-apple-admin.web.app`)
 - **CI/CD:** GitHub Actions (auto deploy on push to main)
 - **Build:** ใช้ **GitHub Secrets** (ไม่ใช่ `.env` file) — ดู `.github/workflows/firebase-hosting-deploy.yml`
+- **`.env` ไม่ถูก track แล้ว (ก.ย. 2569) — และห้าม commit กลับเข้ามา** `.gitignore` ครอบ `.env*` ยกเว้น `.env.example` · clone ใหม่ให้ `cp .env.example .env` แล้วเติมค่าเอง (ค่าฝั่ง build จริงมาจาก GitHub Secrets ทั้งหมด ยืนยันแล้วด้วยการ build โดยไม่มีไฟล์นี้บนดิสก์) · **ที่มา:** ไฟล์นี้ถูก commit มาตั้งแต่ initial commit พร้อมคีย์ Google Maps ตัวจริง ถูกลบและเติม `.gitignore` ที่ `03d8c3b` แล้ว **commit ถัดมา `41c0fdd` ถอดบรรทัดนั้นออกและ commit ไฟล์กลับเข้ามาในวันเดียวกัน** ค้างมา ~5.5 เดือนในรีโปที่ public — รายละเอียดเต็มที่ `bkk-frontend-next/docs/reports/2026-09-01-secret-history-audit.md`
 - **Cloud Functions:** Deploy พร้อม Hosting ใน workflow เดียวกัน (region: asia-southeast1)
 - **ต้องเช็ค GitHub Actions ผ่านก่อนบอกให้ user เทส** — ถ้า workflow fail = โค้ดใหม่ยังไม่ขึ้น
 - **Secrets ที่ต้องมี:** VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_DATABASE_URL, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID, VITE_FIREBASE_VAPID_KEY, VITE_GOOGLE_MAPS_API_KEY, FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN
