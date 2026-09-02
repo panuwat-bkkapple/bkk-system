@@ -155,6 +155,42 @@ check(
   check("#16b and never to the condition-answer evidence", /customerSaid:\s*conditionEvidence/.test(call), false);
 }
 
+// A PHOTO IS EVIDENCE THIS GUARD CANNOT READ. Rule 2.4 has the model read the
+// name off the box or the receipt, and the retail box carrying model+storage in
+// one image is the densest input a trade-in customer ever sends. When the name
+// came from there, no customer MESSAGE contains it — and blocking on that takes
+// the photo path out of service, silently, for every customer who sends one.
+check(
+  "#17 a model read off a customer's photo is not 'unsupported'",
+  quotedModelMismatch({
+    statedModel: "iPhone 15",
+    resolved: resolvedOf("iphone-15"),
+    catalog: CATALOG,
+    customerSaid: "ส่งรูปให้ดูนะครับ \n เครื่องสภาพดี",
+    customerSentPhoto: true,
+  }),
+  null
+);
+check(
+  "#17b ...and without the photo the same conversation still blocks",
+  (quotedModelMismatch({
+    statedModel: "iPhone 15",
+    resolved: resolvedOf("iphone-15"),
+    catalog: CATALOG,
+    customerSaid: "ส่งรูปให้ดูนะครับ \n เครื่องสภาพดี",
+    customerSentPhoto: false,
+  }) || {}).kind,
+  "unsupported_stated_model"
+);
+// The flag has to reach the guard from the handler, and it must be read off the
+// SAME window the vision attach uses — "the model could see a photo" and "the
+// guard knows a photo exists" must not be able to disagree.
+{
+  const srcAll = readFileSync(new URL("../chat-ai.js", import.meta.url), "utf8");
+  check("#18 the photo flag is computed from the vision window", /customerSentPhoto = history\s*\n\s*\.slice\(-VISION_RECENT_MESSAGES\)/.test(srcAll), true);
+  check("#18b and is passed into the guard", srcAll.includes("customerSentPhoto,\n        });"), true);
+}
+
 // #12 — provenance: the LLM filled the field with a model nobody mentioned.
 check(
   '#12 stated model absent from what the customer said',

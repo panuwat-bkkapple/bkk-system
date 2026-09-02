@@ -1177,7 +1177,16 @@ function statedGenerationOf(text) {
 // conditionAnswerUnsupported, for the same reason: one shared token is enough,
 // because blocking a real quote costs more than letting a coarse net pass.
 // Thai has no word boundaries, hence includes() rather than a token compare.
-function statedModelUnsupported(statedModel, evidenceText) {
+function statedModelUnsupported(statedModel, evidenceText, sawPhoto) {
+  // A PHOTO IS EVIDENCE THIS CHECK CANNOT READ.
+  //
+  // Rule 2.4 tells the model to read the model name off the box, the receipt
+  // or the device itself, and the retail box carrying model + storage in one
+  // image is the densest input a trade-in customer ever sends. When that is
+  // where the name came from, no customer MESSAGE contains it — and blocking
+  // on that would take the photo path out of service entirely, silently.
+  // Found by running conversation shapes, not by reading the code.
+  if (sawPhoto) return false;
   const ev = String(evidenceText || "").toLowerCase();
   if (!ev.trim()) return false; // nothing to judge against — never block
   const toks = String(statedModel || "")
@@ -1196,9 +1205,12 @@ function statedModelUnsupported(statedModel, evidenceText) {
  * @param resolved          { id, name } of the row models/{model_id} points at
  * @param catalog           loadModelsLight() output
  * @param customerSaid      EVERY customer utterance, contact replies INCLUDED
+ * @param customerSentPhoto true when the customer attached a photo in the
+ *                          window the model can see — the name may have come
+ *                          from there, where no text check can follow it
  * @returns null when they agree, else { kind, line?, pinned?, candidates }
  */
-function quotedModelMismatch({ statedModel, resolved, catalog, customerSaid }) {
+function quotedModelMismatch({ statedModel, resolved, catalog, customerSaid, customerSentPhoto }) {
   const stated = String(statedModel || "").trim();
   const resolvedName = String((resolved && resolved.name) || "");
   const list = Array.isArray(catalog) ? catalog : [];
@@ -1214,7 +1226,7 @@ function quotedModelMismatch({ statedModel, resolved, catalog, customerSaid }) {
   const hit = (kind, extra) => ({ kind, candidates: candidatesOf(), ...(extra || {}) });
 
   // L1 provenance
-  if (statedModelUnsupported(stated, customerSaid)) return hit("unsupported_stated_model");
+  if (statedModelUnsupported(stated, customerSaid, customerSentPhoto)) return hit("unsupported_stated_model");
   // L2/L3 — reuse the matcher's own family and sub-line rules, so "MacBook"
   // can never become an iPad and "Air" can never become a "mini" here either.
   if (familyMismatch(stated, resolvedName)) return hit("family_mismatch");
@@ -2433,7 +2445,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText, replyInEnglish }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText, replyInEnglish, customerSentPhoto }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -2811,6 +2823,7 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           // card for the model the customer had just named. Found by running
           // real conversation shapes, not by reading the code.
           customerSaid: customerText,
+          customerSentPhoto,
         });
         if (modelMiss) {
           let corrected = null;
@@ -4468,7 +4481,12 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // 128") carries no language, so it must not flip a Thai conversation
         // to English — see preferEnglishReply.
         const replyInEnglish = preferEnglishReply(text, history);
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText, replyInEnglish });
+        // Same window attachCustomerImages reads, so "the model could see a
+        // photo" and "the guard knows a photo exists" cannot disagree.
+        const customerSentPhoto = history
+          .slice(-VISION_RECENT_MESSAGES)
+          .some((m) => m && m.senderRole === "customer" && typeof m.imageUrl === "string" && m.imageUrl.trim());
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText, replyInEnglish, customerSentPhoto });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
