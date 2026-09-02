@@ -46,6 +46,15 @@ const time = (ts: number | null) =>
 const pointText = (p: { lat: number; lng: number } | null) =>
   p ? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}` : null;
 
+/** ข้อความอธิบายกฎที่ตัดสินยอด — `formula` ไม่ต้องบอก เพราะเลขอธิบายตัวเองอยู่แล้ว */
+const FEE_RULE_LABEL: Record<string, string | null> = {
+  formula: null,
+  min_floor: 'ชนขั้นต่ำ',
+  max_cap: 'ชนเพดาน',
+  no_distance: 'ไม่มีระยะ จ่ายขั้นต่ำ',
+  unknown: 'ไม่มีการ์ดอัตราเก็บไว้',
+};
+
 const CSV_HEADERS = [
   'job_id', 'ref_no', 'receive_method', 'status', 'rider_id', 'rider_name',
   'departure_lat', 'departure_lng', 'departure_gps_status', 'departure_at',
@@ -53,7 +62,8 @@ const CSV_HEADERS = [
   'rider_distance_km', 'rider_duration_min', 'travel_mode', 'eta_travel_mode',
   'branch_source', 'measured_from_lat', 'measured_from_lng', 'measured_to_lat', 'measured_to_lng', 'fee_reason',
   'customer_distance_km', 'distance_basis',
-  'settled_fee', 'estimate_fee', 'fee_breakdown_type',
+  'rate_base', 'rate_per_km', 'rate_min_fee', 'rate_max_fee', 'rate_vehicle',
+  'fee_before_clamp', 'fee_rule', 'settled_fee', 'estimate_fee', 'fee_breakdown_type',
   'pickup_fee', 'rider_fee_discount', 'effective_pickup_fee',
   'created_at', 'completed_at', 'elapsed_min',
   'cancel_category', 'cancel_reason', 'cancelled_by',
@@ -190,6 +200,8 @@ export const RiderAuditPage = () => {
         row.measuredTo?.lat ?? null, row.measuredTo?.lng ?? null,
         row.feeReason,
         row.customerDistanceKm, row.distanceBasis,
+        row.rateBase, row.ratePerKm, row.rateMinFee, row.rateMaxFee, row.rateVehicle,
+        row.feeBeforeClamp, row.feeRule,
         row.settledFee, row.estimateFee, row.feeBreakdownType,
         row.pickupFee, row.riderFeeDiscount, row.effectivePickupFee,
         row.createdAt, row.completedAt, row.elapsedMin,
@@ -270,7 +282,7 @@ export const RiderAuditPage = () => {
               <tr>
                 {canApprove && <th className="p-3 w-8" />}
                 {['ใบงาน', 'ไรเดอร์', 'จุดออกเดินทาง', 'หมุดลูกค้า', 'ระยะ (ค่ารอบ)', 'เวลา',
-                  'ระยะ (ค่าบริการ)', 'ค่ารอบ', 'ลูกค้าจ่าย', 'สถานะจ่าย', 'ต้องดู'].map((h) => (
+                  'ระยะ (ค่าบริการ)', 'ฐาน', 'ต่อ กม.', 'ค่ารอบรวม', 'ลูกค้าจ่าย', 'สถานะจ่าย', 'ต้องดู'].map((h) => (
                   <th key={h} className="p-3 text-left">{h}</th>
                 ))}
               </tr>
@@ -340,10 +352,36 @@ export const RiderAuditPage = () => {
                       {num(row.customerDistanceKm, ' กม.', 1)}
                       <div className="text-[10px] text-slate-400">ที่มา {row.distanceBasis ?? '-'}</div>
                     </td>
+                    {/* ฐาน / ต่อ กม. / รวม — แยกช่องเพราะอัตราแตกต่างกันได้ตาม
+                        ยานพาหนะวันนี้ และอาจต่างรายคนในอนาคต การ์ดอัตราถูก
+                        snapshot ไว้ต่อใบงาน ยอดเก่าจึงยังอธิบายได้แม้อัตราเปลี่ยน */}
+                    <td className="p-3">
+                      {row.rateBase === null ? <Unknown /> : formatCurrency(row.rateBase)}
+                      {row.rateVehicle && (
+                        <div className="text-[10px] text-slate-400">{row.rateVehicle}</div>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {row.ratePerKm === null ? <Unknown /> : (
+                        <>
+                          <div>{formatCurrency(row.ratePerKm)}</div>
+                          {row.feeBeforeClamp !== null && (
+                            <div className="text-[10px] text-slate-400">
+                              รวมสูตร {row.feeBeforeClamp.toFixed(0)}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td className="p-3">
                       {row.settledFee === null
                         ? <span className="text-slate-400">ประมาณ {row.estimateFee ?? '-'}</span>
                         : <span className="font-bold text-slate-800">{formatCurrency(row.settledFee)}</span>}
+                      {/* บอกว่ากฎไหนตัดสินยอด ไม่งั้นแถวที่ชนขั้นต่ำ/เพดานจะดู
+                          เหมือนบวกเลขผิด */}
+                      {FEE_RULE_LABEL[row.feeRule] && (
+                        <div className="text-[10px] text-slate-400">{FEE_RULE_LABEL[row.feeRule]}</div>
+                      )}
                       {row.feeBreakdownType && (
                         <div className="text-[10px] text-amber-600">{row.feeBreakdownType}</div>
                       )}
