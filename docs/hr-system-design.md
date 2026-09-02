@@ -1,0 +1,447 @@
+# ระบบบริหารบุคคลและเงินเดือน (HR / Payroll) — Design Doc
+
+วันที่: 1 ก.ย. 2569 · สถานะ: **DRAFT รอรีวิว** · ยังไม่ลงมือ
+
+ยึดโครงเอกสารตาม `docs/dealer-portal-design.md` เพราะเป็น bounded context
+ที่แยกโดเมนออกไปแล้วเชื่อมกลับ — รูปเดียวกับที่โจทย์นี้ต้องการ
+
+**ข้อสรุปจากเจ้าของงาน (1 ก.ย. 2569) ที่เอกสารนี้ยึดเป็นข้อกำหนด:**
+
+1. ไรเดอร์อยู่ทะเบียนพนักงานเดียวกัน
+2. ปัจจุบันจ่ายเงินเดือนด้วยการโอนมือ — จะย้ายเข้าระบบเมื่อ flow เสร็จ
+3. ภ.ง.ด.1 และประกันสังคม **ทำเอง** ไม่ส่งสำนักบัญชี
+4. เก็บข้อมูลพนักงาน **ทั้งหมด**
+5. ลา/ลงเวลา อยู่ในระบบ HR ด้วย
+6. **แยกโดเมนออกจากหน้าแอดมิน เป็นระบบ HR เฉพาะ แต่เชื่อมถึงกันทั้งหมด**
+7. **อนุมัติจ้าง → ได้รหัสประจำตัว + user/password ที่ระบบเจนให้ · พ้นสภาพ → ปิดการเข้าถึง**
+
+---
+
+## 1. โจทย์ธุรกิจ
+
+วันนี้บริษัทไม่มีทะเบียนพนักงาน มีแต่ "บัญชีเข้าระบบ" กระจายอยู่สองที่ และ
+แฟ้มประวัติที่สมบูรณ์ที่สุดกลับเป็นของแรงงานที่ไม่ประจำ
+
+| ต้องการ | สภาพวันนี้ |
+|---|---|
+| รู้ว่าใครทำงานที่นี่ ตั้งแต่เมื่อไหร่ เงื่อนไขอะไร | ไม่มีที่เก็บ |
+| จ่ายเงินเดือนพร้อมหักภาษี/ประกันสังคม | โอนมือ ไม่มีระบบ |
+| ยื่น ภ.ง.ด.1 + ประกันสังคม | ทำนอกระบบทั้งหมด |
+| สัญญาจ้าง เอกสารประจำตัว | ไม่มี |
+| ลา / ลงเวลา | ไม่มี |
+| ออกและปิดบัญชีเข้าระบบตามสถานะการจ้าง | ทำมือ แยกกันคนละที่ |
+
+**สิ่งที่มีอยู่แล้วและใช้ต่อได้ทันที** — อย่าสร้างใหม่:
+
+- **เครื่องจ่ายเงินให้ไรเดอร์ครบวงจร**: กระเป๋าเงิน → `/transactions` แยกหมวด →
+  `RiderSettlements` (ค่ารอบต่องาน) → `RiderWithdrawals` (อนุมัติ + สลิป) →
+  หัก 3% → ใบ 50 ทวิ PDF → `/wht-report` เตือนนำส่งวันที่ 7
+  นี่คือ payroll ของ freelance ที่ทำงานอยู่จริง
+- **เครื่องออกเอกสารไทย**: `functions/voucher-pdf.js` — 6 generator, ฟอนต์
+  Sarabun, แบบ archive ลง Storage + เขียน reference กลับ RTDB
+- **ทะเบียนเลขรันเอกสาร**: `accounting_documents` + counter แบบ transaction
+  ที่ `settings/accounting/*_seq_by_period`
+- **ค่าที่ตั้งได้ไม่ใช่ hardcode**: `settings/accounting` มี `vat_rate_percent`,
+  `rider_wht.rate_percent` อยู่แล้ว — อัตราภาษี/ประกันสังคมต้องไปทางเดียวกัน
+
+**หลักฐานว่าระบบตั้งใจจะมีเงินเดือนแต่หยุดกลางทาง** — `functions/rider-wht.js:63`:
+
+```js
+if (employmentType === "employee") return none("ลูกจ้างประจำ — หักที่ระบบเงินเดือน (ภ.ง.ด.1)");
+```
+
+โค้ดรู้จัก "ลูกจ้างประจำ" และรู้ว่าต้องหักที่ระบบเงินเดือน แล้วส่งต่อไปยังระบบ
+ที่ไม่มีอยู่ — ใครที่ตั้งเป็น `employee` วันนี้จะไม่ถูกหักภาษีที่ไหนเลย
+
+---
+
+## 2. หลักการออกแบบ
+
+1. **ทะเบียนพนักงานเป็นของใหม่ ของเดิมไม่ย้ายคีย์** — `employees` เป็นทะเบียนกลาง
+   ส่วน `/staff` และ `/riders` กลายเป็น "บทบาท" ที่ชี้กลับมา
+   เหตุผลไม่ใช่ความขี้เกียจ: `riders/{uid}` เป็นคีย์ที่ database rules และการ
+   จ่ายงานพึ่งอยู่ (`database.rules.json` — กฎ `jobs` อ่าน `riders/{auth.uid}`)
+   ส่วน `/staff` push id ถูกอ้างจาก `/admins/{uid}.staff_id`
+   **การ re-key คือการทำแอปไรเดอร์พังกลางสนาม**
+2. **หนึ่งคน หนึ่งบัญชี Auth — ออกโดย HR** ตามข้อกำหนดข้อ 7
+   ระบบที่เขาเข้าได้ตัดสินจากบทบาทที่ผูกกับ employee record ไม่ใช่จากการที่เขา
+   ไปสมัครเองที่ไหน
+3. **สองเครื่องจ่าย ทะเบียนเดียว** — `employment.type` เป็นสวิตช์
+   freelance ใช้เครื่องเดิม (ค่ารอบ → กระเป๋า → ถอน → 3% → ภ.ง.ด.3)
+   ลูกจ้างประจำใช้เครื่องใหม่ (รอบเดือน → ภ.ง.ด.1 + ประกันสังคม → สลิป)
+   **โค้ดคิดแบบนี้อยู่แล้ว แค่ปลายทางหนึ่งด้านยังว่าง**
+4. **ข้อมูลอ่อนไหวแยกโหนด** — `employees/{id}` (ชื่อ ตำแหน่ง สถานะ) กับ
+   `employees_private/{id}` (เงินเดือน เลขบัตร บัญชีธนาคาร เอกสาร)
+   แบบเดียวกับ `lots` / `lot_private` ของ dealer portal
+5. **อัตราภาษีและเพดานอยู่ใน settings ไม่อยู่ในโค้ด** — กฎหมายเปลี่ยนได้
+   และรูปแบบนี้มีอยู่แล้วใน `settings/accounting`
+6. **PDPA เป็นส่วนหนึ่งของการออกแบบ ไม่ใช่ของที่ค่อยมาแปะ** — ข้อมูลชุดนี้หนัก
+   ที่สุดในระบบ (เลขบัตร เงินเดือน เอกสาร) ต้องเข้า RoPA และ `dpo.ts` ตั้งแต่ต้น
+
+---
+
+## 3. สถาปัตยกรรม — Bounded Context แยกจากหน้าแอดมิน
+
+### 3.1 Topology
+
+ตามข้อกำหนดข้อ 6 และตามแบบ dealer portal เป๊ะ:
+
+| แอป | ที่อยู่ | hosting target | ผู้ใช้ |
+|---|---|---|---|
+| ระบบแอดมินเดิม | `src/` | `admin` | พนักงานหน้างาน (งาน/คลัง/การเงิน) |
+| **HR portal (ใหม่)** | `hr-portal/` | `hr` → ซับโดเมนของตัวเอง | ฝ่ายบุคคล + พนักงานทุกคน (self-service) |
+| Dealer portal | `dealer-portal/` | `dealer` | ดีลเลอร์ |
+
+- **`hr-portal/` ห้าม import จาก `src/`** — กฎเดียวกับ dealer portal
+  ถ้าต้องใช้ของร่วม ให้ mirror types ตามข้อ 3.2
+- logic ทั้งหมดอยู่ `functions/hr.js` ลงทะเบียนผ่าน `registerHr()` ที่ index.js
+  inject `dispatchAdminPush` / `dispatchTelegram` / `staffIdsByRoles` เข้าไป
+  (แบบเดียวกับ `registerDealerPortal` และ `registerHealthCheck`)
+- ชื่อ callable ทุกตัว prefix `hr*` / `adminHr*` ตามกฎ namespace `{region}/{name}`
+  — ชื่อ function ชนกันระดับ project ทำให้ deploy ทับกันได้
+
+**HR portal มีผู้ใช้สองกลุ่มในแอปเดียว** เหมือน dealer portal ที่มีเจ้าของร้าน
+กับลูกทีม:
+
+- **ฝ่ายบุคคล/ผู้บริหาร** — ทะเบียนพนักงาน, รอบจ่ายเงินเดือน, อนุมัติลา, รายงานภาษี
+- **พนักงานทุกคน (self-service)** — ดูสลิปตัวเอง, ขอลา, ดูเอกสารตัวเอง, ลงเวลา
+
+### 3.2 การแบ่งในระดับโค้ดและข้อมูล
+
+**MIRROR types 3 ที่** (กฎเดียวกับ dealer portal — เพิ่มสถานะหรือประเภทการจ้าง
+ต้องแก้ทั้งสาม):
+
+- `src/types/hr.ts` — ฝั่งแอดมินอ่าน (เช่น หน้าตั๋วอยากโชว์ชื่อพนักงาน)
+- `hr-portal/src/types.ts` — ตัวพอร์ทัล
+- enum ใน `functions/hr.js` — ตัวที่บังคับจริง
+
+**สิ่งที่ HR ไม่ทำ** — ขอบเขตต้องคม ไม่งั้นมันจะกลืนระบบแอดมิน:
+
+- ไม่แตะงาน (`/jobs`), ไม่แตะคลัง, ไม่แตะดีลเลอร์
+- ค่ารอบไรเดอร์ยังคิดที่เดิม (`computeRiderFee`) — HR ไม่ยุ่งกับการคิดค่างาน
+  มันยุ่งกับ **สถานะการจ้าง** ของคนที่ทำงานนั้น
+
+### 3.3 จุดสัมผัสกับโดเมนเดิม — มี 4 จุดเท่านั้น
+
+1. **ออกบัญชี** — HR อนุมัติจ้าง → เรียก `adminStaffCreate` (ที่มีอยู่) และ/หรือ
+   สร้าง `riders/{uid}` + ตั้ง `approval_status: Active` ผ่านเส้นของ
+   `adminRiderSetStatus` (ที่มีอยู่)
+2. **ปิดบัญชี** — HR เปลี่ยนสถานะเป็นพ้นสภาพ → ปิดทุกบัญชีที่ผูกอยู่
+   (ใช้ `adminStaffDelete` แบบ soft ที่เพิ่งทำ + suspend ไรเดอร์)
+3. **เงินเดือนลูกจ้างประจำ → บัญชี** — เขียน `accounting_documents` เข้าท่อเดียว
+   กับ VAT/WHT ที่มีอยู่ เพื่อให้ `/financial-report` เห็นค่าใช้จ่ายพนักงาน
+4. **อ่านชื่อ/ตำแหน่ง** — หน้าแอดมินเดิมอ่าน `employees/{id}` (ส่วนที่ไม่อ่อนไหว)
+   แทนการเดาจาก `/staff`
+
+### 3.4 Flow หลัก
+
+```
+ผู้สมัคร (job_applications)
+   → สัมภาษณ์ → เสนองาน → ตอบรับ
+   → HR กด "จ้าง"
+        ├─ สร้าง employees/{id} + รหัสพนักงาน EMP-YYYY-####
+        ├─ สร้างบัญชี Auth หนึ่งบัญชี + รหัสผ่านที่ระบบเจน
+        ├─ ผูกบทบาทตามงาน:
+        │     พนักงานแอดมิน → /staff + /admins   (adminStaffCreate)
+        │     ไรเดอร์        → /riders + Active   (เส้น adminRiderSetStatus)
+        │     ทุกคน          → เข้า HR portal ได้ (ดูสลิป/ลางาน)
+        └─ ส่งรหัสให้พนักงาน (อีเมล — ท่อ Resend มีอยู่แล้ว)
+   → ทดลองงาน → บรรจุ
+   → ทำงาน: ลงเวลา / ลา / รอบเงินเดือน / สลิป
+   → ลาออก หรือ เลิกจ้าง
+        ├─ ปิดทุกบัญชีที่ผูกอยู่ (Auth disabled, /admins ลบ, rider suspended)
+        ├─ คิดเงินงวดสุดท้าย
+        └─ แถว employees อยู่ต่อ พร้อม terminated_at
+```
+
+**แถวต้องอยู่ต่อ** เพราะ id ของพนักงานถูกประทับไว้ทั่วระบบ (qc_logs,
+adjustments, status_history ของ status machine) — เหตุผลเดียวกับที่
+`adminStaffDelete` เปลี่ยนเป็น soft delete ไปแล้ว (#630)
+
+---
+
+## 4. Data Model (RTDB)
+
+เก็บที่ RTDB ไม่ใช่ Firestore — database rules อ่าน Firestore ไม่ได้ และทั้งระบบ
+เป็น RTDB (ข้อยกเว้นเดียวคือ search analytics ซึ่งเป็น analytics ล้วน)
+
+### 4.1 `employees/{employeeId}` — ทะเบียน (ไม่อ่อนไหว)
+
+```
+employees/{id}
+  employee_code   "EMP-2569-0007"        รหัสประจำตัว โชว์ได้
+  name            ชื่อ-สกุล
+  nickname
+  photo_url
+  position        ตำแหน่ง
+  department      ฝ่าย
+  branch          สาขา
+  employment_type "monthly" | "daily" | "freelance"
+  status          "probation" | "active" | "resigned" | "terminated"
+  hired_at        วันเริ่มงาน
+  probation_until
+  terminated_at   / terminate_reason      (มีเมื่อพ้นสภาพ)
+  links
+    auth_uid      บัญชี Auth (หนึ่งคนหนึ่งบัญชี)
+    staff_id      push id ใน /staff — ถ้ามีสิทธิ์เข้าระบบแอดมิน
+    rider_id      = auth_uid — ถ้าเป็นไรเดอร์
+    application_id
+  created_at / updated_at
+```
+
+**`links` เป็นหัวใจของการไม่ย้ายคีย์** — ทะเบียนชี้ไปหาของเดิม ไม่ใช่กลืนมัน
+
+### 4.2 `employees_private/{employeeId}` — ข้อมูลอ่อนไหว (HR/CEO เท่านั้น)
+
+```
+employees_private/{id}
+  national_id            เลขบัตรประชาชน
+  birth_date
+  address                ที่อยู่ตามทะเบียนบ้าน / ที่อยู่ปัจจุบัน
+  phone / email / line
+  emergency_contact      { name, relation, phone }
+  bank                   { name, account, account_name }
+  tax_id
+  social_security_no
+  pay
+    base_salary          เงินเดือน (monthly)
+    daily_rate           (daily)
+    allowances[]         { label, amount, taxable, recurring }
+  documents              { contract, id_card, house_registration, education[] }
+```
+
+แยกโหนดเพราะหน้าแอดมินเดิมต้องอ่านชื่อ/ตำแหน่งได้ แต่ต้องไม่เห็นเงินเดือน
+— **การซ่อนที่ UI ไม่นับ** บทเรียนจาก `public_track`
+
+### 4.3 `employee_events/{pushId}` — ประวัติการจ้าง
+
+รูปเดียวกับ `staff_status_events` (#630) และ `rider_status_events` (#614)
+ฟิลด์ `by_*` ต้องเหมือนกันเป๊ะทั้งสามโหนด เพื่อให้ join ด้วย query shape เดียวได้
+
+```
+{ employee_id, action, from:{...}, to:{...}, reason, at,
+  by_staff_id, by_uid, by_name, by_role }
+```
+
+action: `hired` `probation_passed` `promoted` `salary_changed` `transferred`
+`resigned` `terminated` `account_issued` `account_revoked`
+
+**คนละแกนกับ `staff_status_events`** — ตัวนั้นบันทึกการเปลี่ยน *บัญชี*
+ตัวนี้บันทึกการเปลี่ยน *การจ้างงาน* คนคนเดียวมีได้ทั้งสอง
+
+### 4.4 `settings/hr` — คอนฟิก
+
+```
+settings/hr
+  payroll
+    cycle              "monthly"
+    pay_day            25
+    cutoff_day         20
+  social_security
+    enabled            true
+    rate_percent       5
+    wage_floor         1650
+    wage_ceiling       15000
+  income_tax
+    enabled            true
+    allowances         { personal, spouse, child, ... }   ตารางลดหย่อน
+  leave_types[]        { id, label, days_per_year, paid, carry_over }
+  work_hours           { start, end, days[] }
+  employee_code_prefix "EMP"
+```
+
+**อัตราทุกตัวอยู่ที่นี่ ไม่ใช่ในโค้ด** — กฎหมายเปลี่ยนได้ และ
+`settings/accounting` ทำแบบนี้อยู่แล้วกับ VAT และ WHT ไรเดอร์
+
+### 4.5 `payroll_runs/{runId}` + `payroll_items/{runId}/{employeeId}`
+
+```
+payroll_runs/{runId}
+  period        "2569-09"
+  status        "draft" | "approved" | "paid"
+  totals        { gross, wht, sso_employee, sso_employer, net, headcount }
+  approved_by_* / paid_at
+
+payroll_items/{runId}/{employeeId}
+  gross         เงินเดือน + เบี้ยเลี้ยง
+  earnings[]    { label, amount, taxable }
+  deductions[]  { label, amount, type: "wht"|"sso"|"leave"|"other" }
+  net
+  payslip       { storage_path, url, generated_at }
+```
+
+**รอบต้อง approve ก่อนจ่าย** และ approve แล้วแก้ไม่ได้ — เหมือนใบกำกับภาษีที่
+ออกแล้วแก้ไม่ได้ ถ้าผิดต้องออกรอบปรับปรุง ไม่ใช่แก้ของเดิม
+
+### 4.6 ลา / ลงเวลา
+
+```
+leave_requests/{id}
+  employee_id, type, from, to, days, reason, status,
+  approved_by_*, approved_at
+  .indexOn ["employee_id","status","from"]
+
+leave_balances/{employeeId}/{year}/{typeId}   { entitled, used, remaining }
+
+attendance/{employeeId}/{YYYY-MM-DD}
+  check_in, check_out, source ("portal"|"admin"), note
+  .indexOn ไม่ต้อง — อ่านตามคีย์ตรง
+```
+
+ลาที่ไม่ได้รับค่าจ้างไหลเข้า `payroll_items.deductions` ตอนปิดรอบ
+
+---
+
+## 5. การออกบัญชีและปิดการเข้าถึง (ข้อกำหนดข้อ 7)
+
+**หนึ่งการกระทำของ HR → ผลหลายระบบ** และต้องเป็น callable ตัวเดียวที่ทำครบ
+ไม่ใช่ให้ HR ไปกดทีละที่ (นั่นคือสภาพวันนี้ที่ทำให้ปิดไม่ครบ)
+
+| การกระทำ | ผลที่ต้องเกิดครบ |
+|---|---|
+| `adminHrHire` | employees + employee_code + Auth account + รหัสผ่าน + บทบาทตามงาน + อีเมลส่งรหัส + event `hired` |
+| `adminHrTerminate` | Auth disabled + revoke tokens + `/admins` ลบ + rider `approval_status: Suspended` + `employees.status` + `terminated_at` + event `terminated` |
+| `adminHrIssueAccount` | ออกบัญชีให้พนักงานที่มีอยู่แล้วแต่ยังไม่มี login |
+| `adminHrResetPassword` | ออกรหัสใหม่ + event |
+
+**ทั้งหมดต่อยอดของที่มีแล้ว ไม่เขียนใหม่**: `staff-accounts.js` มีการปิดบัญชี
+สามชั้นครบอยู่แล้ว (disable Auth + revoke tokens + ลบ `/admins`) และ
+`rider-accounts.js` มีเส้นอนุมัติ/ระงับไรเดอร์พร้อมบันทึกประวัติแล้ว
+
+**รหัสผ่านที่ระบบเจน** — มีตัวอย่างอยู่แล้วที่ `StaffManagement.tsx`
+(`generatePassword()`) และ dealer portal ใช้รูปเดียวกัน ส่งทางอีเมลผ่านท่อ
+Resend ที่มีอยู่ **ห้ามเก็บรหัสผ่านลง DB** — ส่งครั้งเดียวแล้วให้เปลี่ยนเอง
+
+**ไรเดอร์: เปลี่ยนประตูเข้า** — วันนี้ไรเดอร์สมัครเองแล้วมี record + บัญชี Auth
+ตั้งแต่ก่อนถูกอนุมัติ ซึ่งเป็นต้นเหตุของช่องโหว่หลายตัวที่ปิดไปวันนี้
+ปลายทางคือ **สมัคร = ใบสมัคร ไม่ใช่บัญชี** แล้ว HR อนุมัติจึงออกบัญชี
+เป็นการเปลี่ยนพฤติกรรมของแอปไรเดอร์ จึงต้องมีช่วงเปลี่ยนผ่าน (ดู Phase 6)
+
+---
+
+## 6. เงินเดือน ภาษี และประกันสังคม
+
+**สองเครื่อง หนึ่งทะเบียน**
+
+| | freelance (ไรเดอร์) | ลูกจ้างประจำ |
+|---|---|---|
+| ที่มาของเงิน | ค่ารอบต่องาน → กระเป๋า | เงินเดือน + เบี้ยเลี้ยง |
+| จังหวะจ่าย | ถอนเมื่อไหร่ก็ได้ | รอบเดือน |
+| ภาษี | 3% ตอนถอน → ภ.ง.ด.3 | ตามขั้น → ภ.ง.ด.1 |
+| ประกันสังคม | ไม่มี | 5% สองฝ่าย |
+| เอกสาร | 50 ทวิ ต่อการถอน | สลิป + 50 ทวิ + ภ.ง.ด.1ก ปลายปี |
+| สถานะ | **ทำงานอยู่แล้ว** | **ต้องสร้าง** |
+
+**ที่ต้องออกให้ครบ** (ข้อกำหนดข้อ 3 — ทำเอง):
+
+- **สลิปเงินเดือน** ต่อคนต่อรอบ — `voucher-pdf.js` ออกได้ ฟอนต์ไทยพร้อม
+- **ภ.ง.ด.1** รายเดือน นำส่งภายในวันที่ 7 ของเดือนถัดไป — รูปแบบเดียวกับที่
+  `/wht-report` เตือนอยู่แล้วสำหรับ ภ.ง.ด.3
+- **ประกันสังคม (สปส. 1-10)** รายเดือน นำส่งภายในวันที่ 15
+- **ภ.ง.ด.1ก** สรุปรายปี
+- **50 ทวิ** ให้พนักงานปลายปี
+
+**ทั้งหมดคำนวณจากค่าใน `settings/hr` ห้าม hardcode อัตรา** และควรมีหน้า
+`/hr/tax-report` ที่เตือนกำหนดนำส่งแบบเดียวกับ `/wht-report` — เพราะเงินที่หัก
+ไว้ไม่ใช่เงินบริษัท แต่เป็นเงินที่ถือไว้แทนแล้วต้องนำส่ง ลืมยื่น = เบี้ยปรับ
+
+---
+
+## 7. Cloud Functions ใหม่ (`functions/hr.js`)
+
+```
+adminHrHire                 จ้าง + ออกบัญชี (จุดสัมผัสโดเมนที่ 1)
+adminHrUpdateEmployee       แก้ข้อมูล (แยก private ออกจาก public)
+adminHrTerminate            พ้นสภาพ + ปิดทุกบัญชี (จุดสัมผัสที่ 2)
+adminHrIssueAccount         ออกบัญชีให้คนที่ยังไม่มี
+adminHrResetPassword
+adminHrPayrollDraft         สร้างรอบ + คำนวณทุกคน
+adminHrPayrollApprove       ล็อกรอบ + ออกสลิป + เขียน accounting_documents
+adminHrPayrollMarkPaid      ประทับจ่ายแล้ว
+adminHrLeaveDecide          อนุมัติ/ปฏิเสธการลา
+hrMyProfile                 พนักงานดูข้อมูลตัวเอง
+hrMyPayslips                พนักงานดูสลิปตัวเอง
+hrRequestLeave              พนักงานขอลา
+hrCheckIn / hrCheckOut      ลงเวลา
+onHrPayrollApproved         trigger → แจ้งเตือน + เอกสาร
+hrTaxDeadlineReminder       scheduler → เตือนกำหนดนำส่ง
+```
+
+ทุกตัว gate ด้วย `resolveActor` (`functions/actor.js` — #626) ซึ่งเป็นตัวเดียว
+ที่แปลง Firebase auth เป็นตัวตน + สถานะการทำงานอยู่แล้ว
+**HR ต้องเพิ่ม role ใหม่** (`HR`) เข้า `VALID_ROLES` และ `ROLE_TO_ACTOR`
+— แก้สองที่ตามที่เทส `actor-contract.test.mjs` ตรึงไว้
+
+---
+
+## 8. Database Rules ที่ต้องเพิ่ม (`bkk-frontend-next/database.rules.json`)
+
+| โหนด | read | write |
+|---|---|---|
+| `employees/$id` | พนักงานที่ล็อกอินแล้ว (ชื่อ/ตำแหน่ง) หรือเจ้าตัว | ปิด (Admin SDK) |
+| `employees_private/$id` | เจ้าตัว หรือ HR/CEO | ปิด |
+| `payroll_runs` / `payroll_items` | HR/CEO/FINANCE | ปิด |
+| `payroll_items/$run/$emp` | + เจ้าตัวอ่านของตัวเอง | ปิด |
+| `leave_requests/$id` | เจ้าตัว หรือ HR | ปิด (ผ่าน callable) |
+| `attendance/$emp` | เจ้าตัว หรือ HR | ปิด |
+| `employee_events` | HR/CEO | ปิด `.indexOn ["employee_id","at"]` |
+| `settings/hr` | auth (บางส่วน) | admin |
+
+**สิทธิ์ต้องอยู่ที่ชั้น `$id` ไม่ใช่ที่ collection** — บทเรียนจาก `public_track`
+และจาก `job_applications` ที่เพิ่งแก้วันนี้ (#930): `.write` ที่ระดับ collection
+ไหลลงทั้ง subtree และครอบตัวโหนดเอง = ลบทั้งก้อนได้ด้วยคำขอเดียว
+
+---
+
+## 9. PDPA
+
+ข้อมูลชุดนี้หนักที่สุดในระบบ — เลขบัตรประชาชน เงินเดือน ที่อยู่ เอกสารประจำตัว
+ของ **ลูกจ้าง** ซึ่งเป็นเจ้าของข้อมูลที่มีอำนาจต่อรองน้อยกว่าบริษัท
+
+ต้องทำตั้งแต่ต้น ไม่ใช่ค่อยแปะ:
+
+- **RoPA** — เพิ่ม Activity ใหม่ใน `bkk-frontend-next/docs/pdpa-ropa.md`
+- **สิทธิ์อ่านแคบจริง** — `employees_private` เข้าถึงได้แค่ HR/CEO และเจ้าตัว
+- **เก็บนานเท่าไหร่** — กฎหมายแรงงานให้เก็บเอกสารจ้างงานหลังพ้นสภาพระยะหนึ่ง
+  ต้องกำหนดชัดและมีตัวลบจริง ไม่ใช่เก็บตลอดกาล
+- **`dpo.ts`** — คำขอเข้าถึง/ลบข้อมูลของพนักงานต้องตอบได้
+- **เอกสารใน Storage** — ตามแบบ `jobs_kyc` (ชื่อไฟล์ทึบ, write-once) **และ**
+  ใช้บทเรียนวันนี้ (#922): `request.auth != null` ไม่ใช่ด่าน เพราะ anonymous auth
+  ทำให้ทุกคนที่เปิดเว็บนับเป็น "ล็อกอินแล้ว" — สิทธิ์ต้องเป็นเจ้าตัวหรือ HR
+
+---
+
+## 10. แผนการทำ (Phases)
+
+| เฟส | ได้อะไร | พึ่งอะไร |
+|---|---|---|
+| **P1 ทะเบียน** | `employees` + `employees_private` + `employee_events` + ผูกพนักงาน/ไรเดอร์ที่มีอยู่เข้าทะเบียน + รหัสพนักงาน · ยังไม่มีพอร์ทัล ใช้หน้าใน bkk-system ชั่วคราว | soft delete (#630) |
+| **P2 พอร์ทัล** | `hr-portal/` + hosting target + สิทธิ์ + role `HR` + ข้อมูลพนักงาน + self-service ดูข้อมูลตัวเอง | P1, `actor.js` (#626) |
+| **P3 ออก/ปิดบัญชี** | `adminHrHire` / `adminHrTerminate` เป็นจุดเดียวที่ออกและปิดบัญชีทุกระบบ | P2, `staff-accounts.js`, `rider-accounts.js` |
+| **P4 สัญญา + เอกสาร** | สัญญาจ้าง PDF + อัปโหลดเอกสารประจำตัว | `voucher-pdf.js`, แบบ `jobs_kyc` |
+| **P5 เงินเดือน** | รอบจ่าย + ภ.ง.ด.1 + ประกันสังคม + สลิป + หน้าเตือนกำหนดนำส่ง | P1, ท่อ WHT + `accounting_documents` |
+| **P6 ลา + ลงเวลา** | ขอลา อนุมัติ ยอดคงเหลือ ลงเวลา และไหลเข้ารอบเงินเดือน | P5 |
+| **P7 สรรหา** | ย้ายหน้ารีวิวใบสมัครมา HR portal, ตำแหน่งอยู่ DB, แจ้งเตือนใบสมัครใหม่, ผู้สมัคร→พนักงาน, ไรเดอร์สมัครผ่านใบสมัครแทนการสร้างบัญชีเอง | P3 + ชั้นแจ้งเตือน |
+
+**P1 ก่อนทุกอย่างเพราะทุกเฟสหลังต้องการทะเบียน** และ P1 คือสิ่งที่ทำให้
+soft delete ที่ทำไปแล้วมีความหมาย
+
+**P7 อยู่ท้ายเพราะยังไม่มีชั้นแจ้งเตือน** — วันนี้ยืนยันแล้วว่าไม่มี trigger ใดๆ
+บน `job_applications` ในทั้งสามรีโป การย้ายหน้ารีวิวมาโดยไม่มีคนรู้ว่ามีใบสมัคร
+เข้ามา = ย้ายปัญหาไม่ใช่แก้
+
+---
+
+## 11. คำถามเปิด (ตัดสินก่อนเริ่ม P1)
+
+1. **ซับโดเมนของ HR portal** — `hr.getmobie.com` หรือ `hr.bkkapple.com`
+   สัญญาจ้างทำในนามนิติบุคคล (บริษัท เก็ทโมบี้ จำกัด) ซึ่งเป็นแบรนด์เดียวกับ
+   dealer portal ไม่ใช่ BKK APPLE ที่เป็นชื่อทางการค้าฝั่งรับซื้อ
+2. **role `HR` เป็น role ที่ 5 หรือใช้ MANAGER ไปก่อน** — เพิ่ม role กระทบ
+   `VALID_ROLES`, `ROLE_TO_ACTOR`, route guard, settingsNav
+3. **พนักงานปัจจุบันมีกี่คน** — ตัดสินว่า P1 ต้องมี import จาก Excel ไหม
+   หรือกรอกมือได้
+4. **ไรเดอร์ที่มีอยู่ผูกเข้าทะเบียนยังไง** — จับคู่อัตโนมัติจาก uid หรือให้ HR
+   ยืนยันทีละคน (แนะนำอย่างหลัง: ข้อมูลจ้างงานผิดคนแก้ยาก)
+5. **รอบเงินเดือนและวันจ่ายจริง** — ตัดรอบวันไหน จ่ายวันไหน
+6. **เก็บเอกสารหลังพ้นสภาพนานเท่าไหร่** — ต้องมีตัวเลขก่อนเขียน retention
