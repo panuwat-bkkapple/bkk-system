@@ -93,18 +93,42 @@ check(
   Array.isArray(SYNC_ROLES) && !SYNC_ROLES.includes("RIDER")
 );
 
-// ---- 4. allowlist ต้องตรงกับตัวที่เขียน /staff จริง -------------------------
+// ---- 4. allowlist ต้องสอดคล้องกับตัวที่เขียน /staff จริง --------------------
 // staff-accounts.js เป็นตัวเดียวที่สร้าง staff record — role ที่ออกได้จริงมี
 // เท่าที่อยู่ใน VALID_ROLES ของมัน. เพิ่ม role ใหม่ที่นั่นแล้วลืมที่นี่ =
-// พนักงานจริงโดนปฏิเสธ, ลบที่นี่แล้วลืมที่นั่น = allowlist กว้างเกินจริง
+// พนักงานจริงโดนปฏิเสธ, ใส่ role ที่ออกไม่ได้ไว้ที่นี่ = allowlist กว้างเกินจริง
+//
+// เดิมข้อนี้บังคับให้สองลิสต์ "เท่ากันเป๊ะ" ซึ่งซ่อนสมมติฐานว่า **ทุก role ของ
+// พนักงานควรยิง SickW ได้** สมมติฐานนั้นพังตอนเพิ่ม role HR (ก.ย. 2569):
+// ฝ่ายบุคคลไม่มีเหตุแตะข้อมูลเครื่องบนใบงาน และเอนด์พอยต์นี้จ่ายเงินจริงต่อการ
+// เรียกหนึ่งครั้ง — การเติม HR เข้ามาเพื่อให้เทสเขียวคือการซื้อสิทธิ์ให้คนที่
+// ไม่ได้ขอด้วยเงินของบริษัท
+//
+// จึงเปลี่ยนเป็นสองข้อ: allowlist ต้องเป็นสับเซตของ role ที่ออกได้จริง และ
+// ทุก role ที่ออกได้ต้อง "อยู่ใน allowlist หรืออยู่ในรายชื่อที่ประกาศว่าไม่ให้"
+// สัญญาณเตือนตอนเพิ่ม role ใหม่แล้วลืมจึงยังดังเหมือนเดิม แต่การกันออกกลาย
+// เป็นสิ่งที่ต้องเขียนชื่อลงไป ไม่ใช่สิ่งที่เกิดจากการลืม
+const SICKW_EXCLUDED_ROLES = ["HR"];
 
 const VALID_ROLES = roleListOf(staffAccounts, "VALID_ROLES");
 check("staff-accounts.js ยังประกาศ VALID_ROLES", Array.isArray(VALID_ROLES));
 check(
-  "SICKW_SYNC_ROLES ตรงกับ VALID_ROLES ของ staff-accounts.js",
-  Array.isArray(SYNC_ROLES) &&
-    Array.isArray(VALID_ROLES) &&
-    [...SYNC_ROLES].sort().join(",") === [...VALID_ROLES].sort().join(",")
+  "SICKW_SYNC_ROLES เป็นสับเซตของ VALID_ROLES (ไม่มี role ที่ออกไม่ได้จริง)",
+  Array.isArray(SYNC_ROLES) && Array.isArray(VALID_ROLES) &&
+    SYNC_ROLES.every((r) => VALID_ROLES.includes(r))
+);
+check(
+  "ทุก role ที่ออกได้จริงอยู่ใน allowlist หรืออยู่ในรายชื่อที่ตั้งใจกันออก",
+  Array.isArray(SYNC_ROLES) && Array.isArray(VALID_ROLES) &&
+    VALID_ROLES.every((r) => SYNC_ROLES.includes(r) || SICKW_EXCLUDED_ROLES.includes(r))
+);
+check(
+  "role ที่ตั้งใจกันออกต้องไม่หลุดเข้า allowlist",
+  Array.isArray(SYNC_ROLES) && SICKW_EXCLUDED_ROLES.every((r) => !SYNC_ROLES.includes(r))
+);
+check(
+  "role ที่ตั้งใจกันออกต้องมีอยู่จริงใน VALID_ROLES — ไม่ใช่ข้อยกเว้นของ role ที่ไม่มีอยู่",
+  Array.isArray(VALID_ROLES) && SICKW_EXCLUDED_ROLES.every((r) => VALID_ROLES.includes(r))
 );
 
 // ---- 5. resolver ต้องไม่แจก role พนักงานให้ไรเดอร์ --------------------------

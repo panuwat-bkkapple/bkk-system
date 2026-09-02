@@ -27,6 +27,7 @@ const Accessories = lazy(() => import('./pages/inventory/Accessories').then(m =>
 const SalesHistory = lazy(() => import('./pages/sales/SalesHistory').then(m => ({ default: m.SalesHistory })));
 const Traceability = lazy(() => import('./pages/inventory/Traceability').then(m => ({ default: m.Traceability })));
 const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').then(m => ({ default: m.StaffManagement })));
+const EmployeeRegister = lazy(() => import('./pages/hr/EmployeeRegister').then(m => ({ default: m.EmployeeRegister })));
 const SettingsHub = lazy(() => import('./pages/settings/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
 const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
@@ -188,6 +189,10 @@ export default function App() {
               <Route element={<SettingsLayout currentUser={currentUser} />}>
                 <Route path="/settings" element={<SettingsHub currentUser={currentUser} />} />
                 <Route path="/staff" element={currentUser?.role === 'CEO' ? <StaffManagement /> : <Navigate to="/" replace />} />
+              {/* ทะเบียนพนักงาน (HR) — CEO/HR เท่านั้น ไม่รวม MANAGER เพราะโหนดนี้
+                  มีเงินเดือนของทุกคน การเปิดให้ทั้งชั้นบริหารเป็นการตัดสินใจ
+                  เรื่องคน ไม่ใช่ผลพลอยได้จากการจัดเมนู (ดู HR_ROLES ใน functions/hr.js) */}
+              <Route path="/employees" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <EmployeeRegister /> : <Navigate to="/" replace />} />
                 <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
                 <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
                 <Route path="/notification-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <NotificationSettings /> : <Navigate to="/" replace />} />

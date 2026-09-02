@@ -32,7 +32,11 @@ const { getAuth } = require("firebase-admin/auth");
 const { getDatabase } = require("firebase-admin/database");
 
 const REGION = "asia-southeast1";
-const VALID_ROLES = ["CEO", "MANAGER", "STAFF", "FINANCE"];
+// HR = role ที่ 5 (ก.ย. 2569) — ดู docs/hr-system-design.md ข้อ 7.1
+// **ห้ามเพิ่ม HR เข้า ROLE_TO_ACTOR ใน actor.js** การที่ resolveActor คืน null
+// ให้ HR คือด่านที่กันฝ่ายบุคคลออกจากเอนด์พอยต์ที่จ่ายเงิน (SICKW) และจาก
+// การเปลี่ยนสถานะงาน ไม่ใช่ของที่ลืมเติม
+const VALID_ROLES = ["CEO", "MANAGER", "STAFF", "FINANCE", "HR"];
 
 const normEmail = (e) => String(e || "").trim().toLowerCase();
 const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
@@ -89,9 +93,13 @@ function actorFields(callerStaffId, staffMap, auth) {
   };
 }
 
-// ตรวจว่า caller เป็น CEO ที่ ACTIVE จริง — จับคู่ด้วยอีเมลใน token (แหล่ง
-// เดียวที่ client ปลอมไม่ได้) ไม่เชื่อ role ที่ client ส่งมาเด็ดขาด
-async function requireCeoCaller(db, auth) {
+// หา staff record ที่ ACTIVE ของ caller — จับคู่ด้วยอีเมลใน verified token
+// (แหล่งเดียวที่ client ปลอมไม่ได้ เพราะ staff/{key} เป็น push id ไม่ใช่ uid)
+// ไม่เชื่อ role ที่ client ส่งมาเด็ดขาด
+//
+// แถวที่ปิดบัญชีไปแล้วไม่มีทางแมตช์: adminStaffDelete ย้ายอีเมลไป
+// email_at_termination แล้วเซ็ต email = null
+async function findActiveStaffByAuth(db, auth) {
   if (!auth) throw new HttpsError("unauthenticated", "ต้องเข้าสู่ระบบ");
   const email = normEmail(auth.token && auth.token.email);
   if (!email) throw new HttpsError("permission-denied", "บัญชีที่ login ไม่มีอีเมล");
@@ -100,18 +108,46 @@ async function requireCeoCaller(db, auth) {
     if (!s) continue;
     const status = String(s.status || "").toUpperCase();
     if (normEmail(s.email) === email && (status === "" || status === "ACTIVE")) {
-      if (String(s.role || "").toUpperCase() !== "CEO") {
-        throw new HttpsError("permission-denied", "เฉพาะ CEO เท่านั้นที่จัดการบัญชีพนักงานได้");
-      }
-      return { callerStaffId: id, caller: s, staffMap };
+      return {
+        callerStaffId: id,
+        caller: s,
+        callerRole: String(s.role || "").toUpperCase(),
+        staffMap,
+      };
     }
   }
   throw new HttpsError("permission-denied", "ไม่พบข้อมูลพนักงานของบัญชีนี้");
 }
 
+// ตรวจว่า caller เป็น CEO ที่ ACTIVE จริง
+async function requireCeoCaller(db, auth) {
+  const found = await findActiveStaffByAuth(db, auth);
+  if (found.callerRole !== "CEO") {
+    throw new HttpsError("permission-denied", "เฉพาะ CEO เท่านั้นที่จัดการบัญชีพนักงานได้");
+  }
+  return { callerStaffId: found.callerStaffId, caller: found.caller, staffMap: found.staffMap };
+}
+
+// gate แบบระบุ role เอง — ไฟล์นี้เป็นบ้านของ gate ที่ใช้ร่วมกันหลายโมดูล
+// (finance-claims.js ใช้ requireCeoCaller อยู่แล้วด้วยเหตุผลเดียวกัน: gate
+// เดียวกันต้องมีสำเนาเดียว ไม่งั้นวันหนึ่งสองไฟล์จะนิยาม role ไม่ตรงกัน)
+//
+// หมายเหตุ: dealer-portal.js มี requireStaffRole ของตัวเองที่ทำสิ่งเดียวกัน —
+// ควรพับมารวมที่นี่ตอนที่แตะไฟล์นั้นด้วยเหตุอื่นอยู่แล้ว ไม่ใช่ตอนนี้
+// (เส้นทางประมูลปิดซองไม่ใช่ที่ที่ควรมี diff แถมติดมา)
+async function requireStaffRole(db, auth, roles) {
+  const found = await findActiveStaffByAuth(db, auth);
+  if (!roles.includes(found.callerRole)) {
+    throw new HttpsError("permission-denied", `เฉพาะ ${roles.join("/")} เท่านั้น`);
+  }
+  return found;
+}
+
 // ใช้ร่วมกับ finance-claims.js — gate เดียวกันต้องมีสำเนาเดียว ไม่งั้นวันหนึ่ง
 // สองไฟล์จะนิยาม "CEO" ไม่ตรงกัน
 exports.requireCeoCaller = requireCeoCaller;
+// ใช้โดย hr.js (HR_ROLES = CEO/HR)
+exports.requireStaffRole = requireStaffRole;
 
 function countOtherActiveCeos(staffMap, excludeStaffId) {
   return Object.entries(staffMap).filter(([id, s]) => {

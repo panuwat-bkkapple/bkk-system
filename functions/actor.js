@@ -75,6 +75,12 @@ const STANDING = {
  * recognises them either (see UserRole in src/types/domain.ts), so they
  * resolve to no actor at all rather than being quietly treated as STAFF.
  */
+// HR **ไม่มีอยู่ในตารางนี้โดยตั้งใจ ห้ามเติม** (ก.ย. 2569 — docs/hr-system-design.md
+// ข้อ 7.1). resolveActor คืน null ให้ role ที่ไม่ได้ map ซึ่งแปลว่าฝ่ายบุคคล
+// ถูกปฏิเสธที่ requireActiveWorker (สามเอนด์พอยต์ SICKW ที่จ่ายเงินจริงต่อการ
+// เรียกหนึ่งครั้ง) และที่ applyTransition (เปลี่ยนสถานะงาน) — สองอย่างที่ HR
+// ไม่มีเหตุให้แตะ **การเห็นว่า "ขาดไป" แล้วเติมให้ครบตาราง คือการเปิดทั้งสอง
+// อย่างให้คนที่ไม่ได้ขอ** callable ของ HR gate ด้วย allowlist ของตัวเองใน hr.js
 const ROLE_TO_ACTOR = {
   CEO: ACTOR.ADMIN_MANAGER,
   MANAGER: ACTOR.ADMIN_MANAGER,
