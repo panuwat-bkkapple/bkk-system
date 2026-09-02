@@ -213,6 +213,92 @@ describe('หมุดที่ใช้วัดจริง', () => {
   });
 });
 
+describe('การ์ดอัตรา — ฐาน / ต่อ กม. / รวม', () => {
+  const rates = { base_fee: 60, per_km: 15, min_fee: 100, max_fee: 500, vehicle: 'motorcycle' };
+  const withRates = (over: any = {}) => ({
+    ...baseJob,
+    rider_fee_meta: { ...baseJob.rider_fee_meta, rates, ...over.meta },
+    ...over.job,
+  });
+
+  it('แตกการ์ดอัตราออกเป็นคอลัมน์ได้จากข้อมูลที่เก็บอยู่แล้ว', () => {
+    const r = buildRiderAuditRow(withRates())!;
+    expect(r.rateBase).toBe(60);
+    expect(r.ratePerKm).toBe(15);
+    expect(r.rateMinFee).toBe(100);
+    expect(r.rateMaxFee).toBe(500);
+    expect(r.rateVehicle).toBe('motorcycle');
+  });
+
+  it('สูตรตรงๆ: 60 + 15 x 12.4 = 246', () => {
+    const r = buildRiderAuditRow(withRates({ job: { rider_fee: 246 } }))!;
+    expect(r.feeBeforeClamp).toBe(246);
+    expect(r.feeRule).toBe('formula');
+  });
+
+  it('ต่ำกว่าขั้นต่ำ = min_floor และยอดจริงคือ min_fee ไม่ใช่ผลของสูตร', () => {
+    // 60 + 15 x 2 = 90 ซึ่งต่ำกว่า min_fee 100 — ถ้าไม่บอกกฎ คนตรวจจะเห็น
+    // ฐาน 60 ต่อกม. 15 ระยะ 2 รวม 100 แล้วนึกว่าบวกเลขผิด
+    const r = buildRiderAuditRow(withRates({
+      meta: { distance_km: 2 }, job: { rider_fee: 100 },
+    }))!;
+    expect(r.feeBeforeClamp).toBe(90);
+    expect(r.feeRule).toBe('min_floor');
+    expect(r.settledFee).toBe(100);
+  });
+
+  it('เกินเพดาน = max_cap', () => {
+    const r = buildRiderAuditRow(withRates({
+      meta: { distance_km: 100 }, job: { rider_fee: 500 },
+    }))!;
+    expect(r.feeBeforeClamp).toBe(1560);
+    expect(r.feeRule).toBe('max_cap');
+  });
+
+  it('วัดระยะไม่ได้ = no_distance ไม่ใช่ฐานเปล่าๆ', () => {
+    const r = buildRiderAuditRow(withRates({
+      meta: { distance_km: null }, job: { rider_fee: 100 },
+    }))!;
+    expect(r.feeBeforeClamp).toBeNull();
+    expect(r.feeRule).toBe('no_distance');
+  });
+
+  it('งานเก่าที่ไม่มีการ์ดอัตราเก็บไว้ = unknown ไม่ใช่เดาจากค่าปัจจุบัน', () => {
+    const r = buildRiderAuditRow(baseJob)!;
+    expect(r.rateBase).toBeNull();
+    expect(r.feeRule).toBe('unknown');
+  });
+
+  it('ไม่มีการ์ดอัตรา ต้องไม่ขึ้นธง "ยอดไม่ตรง" — ไม่งั้นงานเก่าติดธงยกแผง', () => {
+    expect(auditFlags(buildRiderAuditRow(baseJob)!).map((f) => f.code))
+      .not.toContain('fee_unexplained');
+  });
+
+  it('ยอดจริงไม่ตรงกับสูตร = ไม่รายงานว่า formula และขึ้นธง', () => {
+    // อัตราถูกแก้หลังคิดเงินไปแล้ว หรือยอดมาจากทางอื่น
+    const r = buildRiderAuditRow(withRates({ job: { rider_fee: 999 } }))!;
+    expect(r.feeRule).toBe('unknown');
+    expect(auditFlags(r).map((f) => f.code)).toContain('fee_unexplained');
+  });
+
+  it('ค่าเสียเวลาที่มี breakdown อยู่แล้ว ไม่ต้องขึ้นธงซ้ำ', () => {
+    const r = buildRiderAuditRow(withRates({
+      job: { rider_fee: 40, rider_fee_breakdown: { type: 'time_loss_customer_cancel' } },
+    }))!;
+    const codes = auditFlags(r).map((f) => f.code);
+    expect(codes).toContain('fee_not_from_distance');
+    expect(codes).not.toContain('fee_unexplained');
+  });
+
+  it('อัตราของยานพาหนะที่ต่างกันอ่านออกจากแถว ไม่ต้องเดา', () => {
+    const car = buildRiderAuditRow(withRates({
+      meta: { rates: { ...rates, base_fee: 120, per_km: 25, vehicle: 'car' } },
+    }))!;
+    expect(car.rateVehicle).toBe('car');
+    expect(car.rateBase).toBe(120);
+  });
+});
+
 describe('riderIdFromCancelledBy', () => {
   it('อ่าน id กลับจากรูป rider:{id}', () => {
     expect(riderIdFromCancelledBy('rider:r9')).toBe('r9');

@@ -56,6 +56,22 @@ export interface AuditCheckpoint {
   withinZone: boolean | null;
 }
 
+/**
+ * กฎที่ตัดสินยอดค่ารอบของใบงานหนึ่ง
+ *
+ * มีไว้เพราะพอแตกคอลัมน์เป็น ฐาน / ต่อ กม. / รวม แล้ว **แถวที่ชนเพดานหรือชน
+ * ขั้นต่ำจะดูเหมือนบวกเลขผิด** — 60 + 15x2 ควรได้ 90 แต่ยอดจริงคือ 100 เพราะ
+ * min_fee อุ้มไว้ ถ้าไม่บอกว่ากฎไหนทำงาน คนตรวจจะไล่หาความผิดที่ไม่มีอยู่จริง
+ * (ปัญหาเดียวกับ rider_fee_breakdown ที่ธง fee_not_from_distance มีไว้จับ)
+ *
+ *   formula      สูตรตรงๆ ไม่ชนขอบ
+ *   min_floor    ต่ำกว่าขั้นต่ำ ยอดถูกดันขึ้นเป็น min_fee
+ *   max_cap      เกินเพดาน ยอดถูกกดลงเป็น max_fee
+ *   no_distance  วัดระยะไม่ได้ ระบบจ่าย min_fee ตามพฤติกรรมเดิม
+ *   unknown      ไม่มีการ์ดอัตราเก็บไว้ (งานเก่า) หรือค่ารอบมาจากทางอื่น
+ */
+export type FeeRule = 'formula' | 'min_floor' | 'max_cap' | 'no_distance' | 'unknown';
+
 export interface RiderAuditRow {
   id: string;
   refNo: string | null;
@@ -106,6 +122,20 @@ export interface RiderAuditRow {
   /** มีค่าเมื่อค่ารอบไม่ได้มาจากระยะทาง (เช่น ค่าเสียเวลาตอนลูกค้ายกเลิก) */
   feeBreakdownType: string | null;
 
+  /** การ์ดอัตราที่ใช้คิดค่ารอบใบนี้ — snapshot ต่อใบงาน ไม่ใช่ค่าปัจจุบัน
+   *  ของ settings จึงย้อนดูได้ว่าตอนนั้นคิดด้วยอัตราอะไร ซึ่งเป็นสิ่งเดียวที่
+   *  จะทำให้อัตราที่ต่างกันรายคน (ถ้าวันหนึ่งมี) ตรวจย้อนหลังได้ */
+  rateBase: number | null;
+  ratePerKm: number | null;
+  rateMinFee: number | null;
+  rateMaxFee: number | null;
+  /** ยานพาหนะที่ "อัตรา" อิง — คนละตัวกับที่ ETA อิงได้ */
+  rateVehicle: string | null;
+  /** ผลของสูตรก่อน clamp: base + per_km x ระยะ */
+  feeBeforeClamp: number | null;
+  /** กฎที่ตัดสินยอดจริง — ดู FeeRule */
+  feeRule: FeeRule;
+
   pickupFee: number | null;
   riderFeeDiscount: number | null;
   /** ยอดที่ลูกค้าจ่ายจริง — ไม่มีฟิลด์นี้ใน DB ต้องคิดเอง */
@@ -144,6 +174,51 @@ export const riderIdFromCancelledBy = (v: unknown): string | null => {
   if (!s || !s.startsWith('rider:')) return null;
   return str(s.slice('rider:'.length));
 };
+
+/**
+ * แตกการ์ดอัตราออกเป็นคอลัมน์ และบอกว่ากฎไหนตัดสินยอด
+ *
+ * **ไม่คิดยอดใหม่เพื่อไปแทนที่ยอดที่จ่ายจริง** — `settledFee` ยังเป็นตัวเดียวที่
+ * ถือความจริงเรื่องเงิน ตัวเลขที่คิดที่นี่มีไว้ **อธิบาย** ยอดนั้นเท่านั้น
+ * (สูตรอยู่ที่ feeFromRates ใน functions/index.js — mirror ตัวที่สอง
+ *  แก้สูตรฝั่งนั้นต้องมาดูที่นี่ด้วย)
+ */
+function rateFields(meta: any, distanceKm: number | null, settled: number | null) {
+  const rates = meta?.rates;
+  const base = finiteOrNull(rates?.base_fee);
+  const perKm = finiteOrNull(rates?.per_km);
+  const minFee = finiteOrNull(rates?.min_fee);
+  const maxFee = finiteOrNull(rates?.max_fee);
+
+  let before: number | null = null;
+  let rule: FeeRule = 'unknown';
+
+  if (base !== null && perKm !== null) {
+    if (distanceKm === null) {
+      // วัดระยะไม่ได้ = จ่ายขั้นต่ำ ไม่ใช่ base เปล่าๆ (พฤติกรรมของ feeFromRates)
+      rule = 'no_distance';
+    } else {
+      before = base + perKm * distanceKm;
+      if (minFee !== null && before < minFee) rule = 'min_floor';
+      else if (maxFee !== null && before > maxFee) rule = 'max_cap';
+      else rule = 'formula';
+    }
+  }
+  // ค่ารอบที่มาจากทางอื่น (ค่าเสียเวลา) อธิบายด้วยการ์ดอัตราไม่ได้
+  if (settled !== null && rule === 'formula' && before !== null && Math.round(before) !== settled) {
+    rule = 'unknown';
+  }
+
+  return {
+    rateBase: base,
+    ratePerKm: perKm,
+    rateMinFee: minFee,
+    rateMaxFee: maxFee,
+    rateVehicle: typeof rates?.vehicle === 'string' ? rates.vehicle : null,
+    feeBeforeClamp: before === null ? null : Math.round(before * 100) / 100,
+    feeRule: rule,
+  };
+}
 
 export function buildRiderAuditRow(job: any): RiderAuditRow | null {
   if (!job?.id) return null;
@@ -198,6 +273,8 @@ export function buildRiderAuditRow(job: any): RiderAuditRow | null {
     settledFee: finiteOrNull(job.rider_fee),
     estimateFee: finiteOrNull(job.rider_fee_estimate),
     feeBreakdownType: str(job.rider_fee_breakdown?.type),
+
+    ...rateFields(riderMeta, finiteOrNull(riderMeta?.distance_km), finiteOrNull(job.rider_fee)),
 
     pickupFee,
     riderFeeDiscount: discount,
@@ -259,6 +336,17 @@ export function auditFlags(row: RiderAuditRow): AuditFlag[] {
   }
   if (row.customerPin === null && row.receiveMethod === 'Pickup') {
     out.push({ code: 'no_customer_pin', label: 'งานรับถึงบ้านแต่ไม่มีหมุดลูกค้า' });
+  }
+  // ธงนี้ขึ้นเฉพาะเมื่อ **มีการ์ดอัตราเก็บไว้แล้วคำนวณไม่ตรง** ซึ่งแปลว่าอัตรา
+  // ถูกแก้หลังคิดเงินไปแล้ว หรือยอดมาจากทางอื่น — ทั้งสองอย่างต้องมีคนดู
+  //
+  // งานเก่าที่ **ไม่มี** การ์ดอัตราเก็บไว้เลยเป็นคนละเรื่อง และห้ามขึ้นธงนี้:
+  // ฟิลด์เพิ่งมี งานก่อนหน้านั้นทุกใบจะติดธงพร้อมกันจนช่องธงไร้ประโยชน์
+  // (จับได้จากเทสตัวเอง ไม่ใช่จากการอ่านโค้ด) — ตารางบอกว่า "ไม่มีการ์ดอัตรา"
+  // ในช่องของมันอยู่แล้ว ซึ่งพอสำหรับกรณีนั้น
+  const hasRateCard = row.rateBase !== null && row.ratePerKm !== null;
+  if (hasRateCard && row.settledFee !== null && row.feeRule === 'unknown' && !row.feeBreakdownType) {
+    out.push({ code: 'fee_unexplained', label: 'ยอดไม่ตรงกับการ์ดอัตราที่เก็บไว้' });
   }
   if (row.feeBreakdownType) {
     out.push({
