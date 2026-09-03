@@ -6892,6 +6892,12 @@ Object.assign(exports, require("./hr").registerHr());
 Object.assign(exports, require("./hr-payroll-api").registerHrPayroll());
 
 // =============================================================================
+// เอกสารภาษีรายปีของพนักงาน — 50 ทวิ (ม.40(1)) + ตาราง ภ.ง.ด.1ก
+// คนละใบกับ 50 ทวิ ของไรเดอร์ (ม.40(8) ยื่น ภ.ง.ด.3) และคนละตัวนับเลขที่
+// =============================================================================
+Object.assign(exports, require("./hr-tax-api").registerHrTax());
+
+// =============================================================================
 // Ops Dashboard (/ops) — หลอดงบวัน + สุขภาพคำตอบ + cache/latency + สถานะ flag
 // ในหน้าเดียว (CEO/MANAGER). อ่านจาก chat_ai_usage + search_overview_archive
 // + settings ที่มีอยู่แล้วเท่านั้น — logic อยู่ ops-dashboard.js ซึ่งเป็น
