@@ -24,6 +24,7 @@
 export const HR_ALLOWED_PREFIXES = [
   '/employees',
   '/payroll',
+  '/hr-settings',
 ];
 
 /** หน้าแรกของ HR — ทะเบียนพนักงาน ไม่ใช่แดชบอร์ดรับซื้อ */
