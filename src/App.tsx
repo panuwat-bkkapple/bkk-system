@@ -49,6 +49,7 @@ const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').the
 const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
 const CouponManager = lazy(() => import('./pages/admin/CouponManager').then(m => ({ default: m.CouponManager })));
 const IssuedCoupons = lazy(() => import('./pages/admin/IssuedCoupons').then(m => ({ default: m.IssuedCoupons })));
+const RiderExpenses = lazy(() => import('./pages/finance/RiderExpenses').then(m => ({ default: m.RiderExpenses })));
 const RiderFeePromotions = lazy(() => import('./pages/admin/RiderFeePromotions').then(m => ({ default: m.RiderFeePromotions })));
 const IssuedRiderFeeDiscounts = lazy(() => import('./pages/admin/IssuedRiderFeeDiscounts').then(m => ({ default: m.IssuedRiderFeeDiscounts })));
 const GlobalSettings = lazy(() => import('./pages/admin/GlobalSettings'));
@@ -177,6 +178,10 @@ export default function App() {
               <Route path="/pricing" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
               <Route path="/pricing/:modelId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <PriceEditor /> : <Navigate to="/" replace />} />
               <Route path="/issued-coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedCoupons /> : <Navigate to="/" replace />} />
+              {/* อนุมัติ = สั่งจ่ายเงินออก จึงจำกัด CEO/MANAGER ให้ตรงกับ
+                  canReviewAdjustments ที่ทั้งหน้าและ callable ใช้ (FINANCE
+                  เป็นคนจ่ายเงิน ให้คนเดียวกันอนุมัติแล้วจ่าย = ไม่มีใครทานสอง) */}
+              <Route path="/rider-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderExpenses /> : <Navigate to="/" replace />} />
               <Route path="/issued-rider-fee-discounts" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedRiderFeeDiscounts /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/offer-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <OfferReport /> : <Navigate to="/" replace />} />
