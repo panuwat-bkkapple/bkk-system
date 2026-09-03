@@ -294,6 +294,40 @@ const tests = [
     assert.equal(db.stored.custody, CUSTODY.CUSTOMER);
   }),
 
+  check("unassign ล้างทั้ง rider_id และ assigned_at โดยไม่แตะ withdrawn_*", async () => {
+    // งานที่แอดมินสับเปลี่ยนคนต้องกลับเข้าคิวสะอาด: ไม่มีเจ้าของ ไม่มีเวลา
+    // มอบหมายค้าง และไม่ถือร่องรอย "ไรเดอร์ทิ้งงาน" ที่ตัวเองไม่ได้ทำ
+    const db = fakeDb(job({
+      status: "Rider Accepted", rider_id: "r1", assigned_at: 1_600_000_000_000,
+    }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_unassigned", actor: ACTOR.ADMIN_STAFF,
+      by: "admin:a1", now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.status, "Active Lead");
+    assert.equal(db.stored.rider_id, null);
+    assert.equal(db.stored.assigned_at, null);
+    assert.equal(db.stored.withdrawn_at, undefined);
+    assert.equal(db.stored.withdrawn_by, undefined);
+    assert.equal(db.stored.cancelled_at, undefined);
+  }),
+
+  check("unassign ไม่ลบร่องรอยการทิ้งงานครั้งก่อนของงานใบเดียวกัน", async () => {
+    // ไรเดอร์ทิ้ง -> แอดมิน re-broadcast -> คนใหม่รับ -> แอดมินสับเปลี่ยนอีก:
+    // withdrawn_* ของครั้งก่อนเป็นประวัติ ไม่ใช่ธงที่ unassign มีสิทธิ์ล้าง
+    const db = fakeDb(job({
+      status: "Rider Accepted", rider_id: "r2",
+      withdrawn_at: 1_600_000_000_000, withdrawn_by: "rider:r1",
+    }));
+    const out = await applyTransition({
+      db, jobId: "J1", event: "rider_unassigned", actor: ACTOR.ADMIN_STAFF, now: clock,
+    });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(db.stored.withdrawn_at, 1_600_000_000_000);
+    assert.equal(db.stored.withdrawn_by, "rider:r1");
+  }),
+
   check("a missing job is reported, not created", async () => {
     const db = fakeDb(null);
     const out = await applyTransition({ db, jobId: "ghost", event: "case_claimed", actor: ACTOR.ADMIN_STAFF, now: clock });

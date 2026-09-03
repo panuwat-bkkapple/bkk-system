@@ -191,6 +191,73 @@ check("revised_offer_accepted ไม่เปิดทางลัดจาก�
   }
 });
 
+check("แอดมินดึงงานกลับเข้าคิวได้ทุกจุดที่ไรเดอร์ยังไม่ได้เริ่มตรวจ", () => {
+  for (const status of ["Assigned", "Rider Accepted", "Rider En Route", "Rider Arrived"]) {
+    const out = decideTransition({
+      job: job({ status }),
+      event: "rider_unassigned",
+      actor: ACTOR.ADMIN_STAFF,
+    });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Active Lead");
+    assert.deepEqual(out.clears, ["rider_id", "assigned_at"]);
+  }
+});
+
+check("unassign กับ withdraw ต้องไม่ไปจบที่เดียวกัน", () => {
+  // ปลายทางคือสิ่งเดียวที่แยกสองเหตุการณ์นี้ออกจากกันในสายตาคนอ่านถัดไป:
+  // Active Lead = กลับเข้าคิวแย่งงานทันที · Following Up = ต้องมีคนโทรหาลูกค้า
+  // ก่อน เพราะมีไรเดอร์รับปากแล้วหายไป. ยุบให้เท่ากันเมื่อไหร่ ลูกค้าที่ถูก
+  // ทิ้งกลางทางจะเงียบหายไปในคิวโดยไม่มีใครโทรไปบอก
+  const unassign = decideTransition({
+    job: job({ status: "Rider Accepted" }),
+    event: "rider_unassigned",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  const withdraw = decideTransition({
+    job: job({ status: "Rider Accepted" }),
+    event: "rider_withdrew",
+    actor: ACTOR.RIDER,
+  });
+  assert.equal(unassign.to, "Active Lead");
+  assert.equal(withdraw.to, "Following Up");
+  assert.notEqual(unassign.to, withdraw.to);
+});
+
+check("unassign ไม่ประทับ withdrawn_* — ไม่งั้นแอดมินที่กดเองจะโดนเตือนว่าไรเดอร์ทิ้งงาน", () => {
+  const out = decideTransition({
+    job: job({ status: "Rider En Route" }),
+    event: "rider_unassigned",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.stamps.withdrawn, false);
+});
+
+check("ไรเดอร์ unassign ตัวเองไม่ได้ ต้องไปทาง rider_withdrew เท่านั้น", () => {
+  // ถ้าเปิดให้ไรเดอร์ยิง unassign ได้ การทิ้งงานจะกลายเป็นทางที่ไม่ประทับ
+  // withdrawn_* แล้วปุ่ม Re-broadcast กับแบนเนอร์เตือนจะไม่ขึ้นอีกเลย
+  const out = decideTransition({
+    job: job({ status: "Rider Accepted" }),
+    event: "rider_unassigned",
+    actor: ACTOR.RIDER,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "wrong_actor");
+});
+
+check("unassign ยิงหลังเริ่มตรวจแล้วไม่ได้ — เครื่องอยู่ในมือไรเดอร์", () => {
+  for (const status of ["Being Inspected", "Pending QC", "Payout Processing"]) {
+    const out = decideTransition({
+      job: job({ status }),
+      event: "rider_unassigned",
+      actor: ACTOR.ADMIN_STAFF,
+    });
+    assert.equal(out.ok, false, `${status} ควรถูกปฏิเสธแต่ผ่าน`);
+    assert.equal(out.code, "illegal_from");
+  }
+});
+
 check("customer_accepted_price ยังพาไป Price Accepted เหมือนเดิม (ไม่แตะทางเว็บ)", () => {
   // ทางเว็บ (/api/jobs/action accept-price) ยังไม่ย้ายมา engine — ถ้าวันหนึ่ง
   // ปลายทางของ event นี้ถูกเปลี่ยนไปด้วยความเข้าใจผิดว่า "รวมให้เหมือนกัน"
