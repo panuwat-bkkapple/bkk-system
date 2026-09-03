@@ -209,6 +209,25 @@ function sanitizeEmployeePrivate(input, { partial = false } = {}) {
   return { value: out, errors };
 }
 
+// สถานะอนุมัติของไรเดอร์ — MIRROR ของ `effectiveApprovalStatus` ใน actor.js
+//
+// ก๊อปกฎมาแทนที่จะ import เพราะ actor.js ลาก `sickw-core` (แตะ Firebase) เข้ามา
+// ด้วย ส่วนไฟล์นี้ตั้งใจให้ไม่มี dependency เลยเพื่อให้เทสขับได้ตรงๆ —
+// **แก้กฎที่หนึ่งต้องแก้ทั้งคู่**
+//
+// **ค่าจริงในระบบคือ Active / Pending / Rejected / Suspended (ขึ้นต้นตัวใหญ่)**
+// ไม่ใช่ "approved" — โค้ดเดิมของ accessSummary เทียบกับ `"approved"` ตัวเล็ก
+// ซึ่งไม่มีทางตรงกับค่าไหนเลย แปลว่า `riderOpen` เป็น false เสมอ และธง
+// `stale_access` **ไม่เคยเตือนเรื่องบัญชีไรเดอร์ที่ยังเปิดอยู่สักครั้ง**
+// (เจอตอนทำ P3 ก.ย. 2569 — ด่านที่เทียบกับค่าที่ไม่มีอยู่จริงคือด่านที่ว่าง)
+function riderApprovalStatus(riderRow) {
+  const r = riderRow || {};
+  if (r.approval_status) return String(r.approval_status);
+  const status = String(r.status || "");
+  if (["Online", "Offline", "Busy"].includes(status)) return "Active";
+  return status || "Pending";
+}
+
 // ── สถานะการเข้าถึงระบบของพนักงานคนหนึ่ง ────────────────────────────────────
 // ทะเบียนบอกว่า "พ้นสภาพแล้ว" ได้ แต่การปิดบัญชีจริงเป็นงานของ P3
 // (adminHrTerminate) — ระหว่างนั้นหน้าเว็บต้องบอกความจริงว่าบัญชียังเปิดอยู่
@@ -230,15 +249,12 @@ function accessSummary(employee, staffMap, ridersMap) {
       }
     : null;
   const rider = riderRow
-    ? {
-        id: riderId,
-        approval_status: String(riderRow.approval_status || "").toLowerCase() || "approved",
-      }
+    ? { id: riderId, approval_status: riderApprovalStatus(riderRow) }
     : null;
 
   // "เปิดอยู่" = ยังเข้าระบบได้จริง ไม่ใช่ "ยังมีแถวอยู่"
   const staffOpen = Boolean(staff && !staff.terminated && staff.status === "ACTIVE");
-  const riderOpen = Boolean(rider && rider.approval_status === "approved");
+  const riderOpen = Boolean(rider && rider.approval_status === "Active");
   const exEmployee = EX_EMPLOYEE_STATUSES.includes(String(employee && employee.status || "").toLowerCase());
 
   return {
@@ -247,6 +263,81 @@ function accessSummary(employee, staffMap, ridersMap) {
     // ธงเดียวที่หน้าเว็บต้องทำอะไรกับมัน
     stale_access: exEmployee && (staffOpen || riderOpen),
   };
+}
+
+// ── P3: ปิดการเข้าถึงเมื่อพ้นสภาพ — ตัววางแผนล้วน ──────────────────────────
+//
+// **การปิดบัญชีเป็นการถอนสิทธิ์ ปลอดภัยที่จะทำอัตโนมัติ · การเปิดคืนเป็นการ
+// ให้สิทธิ์ ต้องทำด้วยมือเสมอ** — ความไม่สมมาตรนี้เป็นกติกา ไม่ใช่ความขี้เกียจ:
+// การแก้สถานะกลับเป็น active คือการแก้ข้อมูล ไม่ใช่การอนุมัติให้คนกลับเข้าระบบ
+// ระบบที่คืนสิทธิ์ให้เป็นผลข้างเคียงของการแก้ข้อมูล คือระบบที่ให้สิทธิ์โดย
+// ไม่มีใครตั้งใจ (การเปิดคืนอยู่ที่ /staff และ /riders ซึ่ง gate ด้วย CEO/MANAGER)
+//
+// สามข้อที่ต้องปฏิเสธทั้งรายการ ไม่ใช่ข้ามเงียบ:
+//   1. **บัญชีที่จะปิดเป็นของ CEO และคนกดไม่ใช่ CEO** — ถ้าปล่อยผ่าน role HR
+//      จะปิดบัญชีเจ้าของบริษัทได้ผ่านทางอ้อม และการเปิดคืนต้องใช้ CEO ซึ่ง
+//      login ไม่ได้แล้ว = ล็อกตัวเองออกจากระบบแบบกู้ไม่ได้
+//   2. **CEO ที่ ACTIVE คนสุดท้าย** — เหตุผลเดียวกัน แม้คนกดจะเป็น CEO เอง
+//   3. **บัญชีของคนกดเอง** — ปิดกลางคำสั่งแล้วคำสั่งที่เหลือจะทำงานต่อไม่ได้
+//
+// ปฏิเสธ = ไม่แตะอะไรเลยแม้แต่สถานะในทะเบียน เพราะการบันทึกว่า "พ้นสภาพ"
+// ไว้โดยที่บัญชียังเปิด แล้วบอกให้ไปตามคนอื่นมากดต่อ คือสภาพครึ่งๆ กลางๆ
+// ที่ P3 มีไว้กำจัด
+function planAccountClosure({ employee, staffMap, ridersMap, callerRole, callerStaffId }) {
+  const links = (employee && employee.links) || {};
+  const staffId = links.staff_id || null;
+  const riderId = links.rider_id || null;
+  const staffRow = staffId ? (staffMap || {})[staffId] : null;
+  const riderRow = riderId ? (ridersMap || {})[riderId] : null;
+  const caller = String(callerRole || "").toUpperCase();
+
+  const staffStatus = String((staffRow && staffRow.status) || "").toUpperCase() || "ACTIVE";
+  const staffTerminated = Boolean(staffRow && staffRow.terminated_at);
+  const staffOpen = Boolean(staffRow) && !staffTerminated && staffStatus === "ACTIVE";
+  const staffRole = String((staffRow && staffRow.role) || "").toUpperCase();
+
+  if (staffOpen) {
+    if (staffRole === "CEO" && caller !== "CEO") {
+      return refuse("ceo_account", "บัญชีที่ผูกอยู่เป็นบัญชี CEO — ต้องให้ CEO เป็นคนบันทึกการพ้นสภาพเอง หรือถอดการผูกบัญชีออกก่อน");
+    }
+    if (staffId && staffId === callerStaffId) {
+      return refuse("self", "ปิดบัญชีของตัวเองไม่ได้ — ให้คนอื่นเป็นคนบันทึกการพ้นสภาพ");
+    }
+    if (staffRole === "CEO" && countOtherActiveCeos(staffMap, staffId) === 0) {
+      return refuse("last_ceo", "ต้องมี CEO ที่ Active อย่างน้อย 1 คนเสมอ — ตั้ง CEO คนใหม่ก่อน");
+    }
+  }
+
+  const riderStatus = riderRow ? riderApprovalStatus(riderRow) : null;
+  const riderOpen = riderStatus === "Active";
+
+  return {
+    refuse: null,
+    staff: staffRow
+      ? { id: staffId, close: staffOpen, skip: staffOpen ? null : (staffTerminated ? "ปิดบัญชีไปแล้ว" : `สถานะ ${staffStatus}`) }
+      : null,
+    rider: riderRow
+      ? { id: riderId, close: riderOpen, skip: riderOpen ? null : `สถานะ ${riderStatus}` }
+      : null,
+    // ไม่มีบัญชีให้ปิดไม่ใช่ความผิดพลาด — พนักงานที่ไม่เคยได้บัญชีก็มี แต่ต้อง
+    // บอกออกไปให้หน้าเว็บพูดได้ตรง ไม่ใช่ขึ้นว่า "ปิดบัญชีแล้ว" ทั้งที่ไม่มีอะไรถูกปิด
+    nothing_to_close: !staffRow && !riderRow,
+  };
+}
+
+const refuse = (code, message) => ({ refuse: { code, message }, staff: null, rider: null, nothing_to_close: false });
+
+/** CEO ที่ยัง ACTIVE คนอื่นนอกจากคนนี้ — MIRROR ของ countOtherActiveCeos ใน staff-accounts.js */
+function countOtherActiveCeos(staffMap, exceptId) {
+  let n = 0;
+  for (const [id, s] of Object.entries(staffMap || {})) {
+    if (!s || id === exceptId) continue;
+    if (String(s.role || "").toUpperCase() !== "CEO") continue;
+    if (String(s.status || "").toUpperCase() !== "ACTIVE") continue;
+    if (s.terminated_at) continue;
+    n += 1;
+  }
+  return n;
 }
 
 // ── บัญชีที่ยังไม่ถูกผูกเข้าทะเบียน ──────────────────────────────────────────
@@ -307,6 +398,9 @@ module.exports = {
   sanitizeEmployeePublic,
   sanitizeEmployeePrivate,
   accessSummary,
+  riderApprovalStatus,
+  planAccountClosure,
+  countOtherActiveCeos,
   unlinkedAccounts,
   employeeActorFields,
 };

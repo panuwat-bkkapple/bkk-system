@@ -341,6 +341,45 @@ exports.adminStaffUpdate = onCall({ region: REGION }, async (request) => {
 });
 
 // ---------------------------------------------------------------------------
+// การปิดบัญชีพนักงานจริงๆ — สามชั้นที่ต้องไปด้วยกันเสมอ
+//
+// แยกออกมาเพราะ P3 (การพ้นสภาพจากทะเบียน HR) ต้องปิดบัญชีด้วยกลไกเดียวกันเป๊ะ
+// **สำเนาที่สองของสามชั้นนี้คือทางที่ชั้นใดชั้นหนึ่งจะหายไปโดยไม่มีใครเห็น**
+// — และชั้นที่หายเงียบที่สุดคือ revokeRefreshTokens ซึ่งเป็นตัวเดียวที่เตะ
+// session ที่เปิดค้างอยู่ ถ้าขาดไป คนที่ถูกปิดบัญชีจะยังใช้งานต่อได้จนกว่า
+// token จะหมดอายุเอง
+//
+// **ด่านของ "ใครปิดใครได้" ไม่ได้อยู่ในนี้โดยตั้งใจ** — ตัวนี้ลงมือปิดอย่างเดียว
+// การตัดสินว่าปิดได้ไหมเป็นของ call site (adminStaffSetStatus ใช้ requireCeoCaller
+// + guard ของตัวเอง, ฝั่ง HR ใช้ planAccountClosure ใน hr-core.js) เพราะเงื่อนไข
+// ของสองทางเข้าไม่เหมือนกัน การยัดรวมไว้ที่นี่จะได้ด่านที่ถูกครึ่งเดียวทั้งสองฝั่ง
+async function suspendStaffAccount(db, { staffId, existing, action, reason, actor }) {
+  if (existing.uid) {
+    await getAuth().updateUser(existing.uid, { disabled: true });
+    await getAuth().revokeRefreshTokens(existing.uid);
+    await db.ref(`admins/${existing.uid}`).remove();
+  }
+  const at = Date.now();
+  await db.ref(`staff/${staffId}`).update({
+    status: "INACTIVE",
+    suspended_at: at,
+    updated_at: at,
+  });
+  await recordStaffEvent(db, {
+    staff_id: staffId,
+    action: action || "suspended",
+    from: { status: String(existing.status || ""), role: String(existing.role || "").toUpperCase() },
+    to: { status: "INACTIVE", role: String(existing.role || "").toUpperCase() },
+    reason: reason || null,
+    at,
+    ...(actor || {}),
+  });
+  console.log(`[staff-accounts] ${action || "suspended"} staff ${staffId} (${existing.email || "no-email"})`);
+  return { hadAuthAccount: Boolean(existing.uid) };
+}
+exports.suspendStaffAccount = suspendStaffAccount;
+
+// ---------------------------------------------------------------------------
 // adminStaffSetStatus — พักงาน / คืนสถานะ
 // ---------------------------------------------------------------------------
 exports.adminStaffSetStatus = onCall({ region: REGION }, async (request) => {
@@ -371,27 +410,11 @@ exports.adminStaffSetStatus = onCall({ region: REGION }, async (request) => {
     if (wasActiveCeo && countOtherActiveCeos(staffMap, staffId) === 0) {
       throw new HttpsError("failed-precondition", "ต้องมี CEO ที่ Active อย่างน้อย 1 คนเสมอ");
     }
-    if (existing.uid) {
-      await getAuth().updateUser(existing.uid, { disabled: true });
-      await getAuth().revokeRefreshTokens(existing.uid);
-      await db.ref(`admins/${existing.uid}`).remove();
-    }
-    const at = Date.now();
-    await db.ref(`staff/${staffId}`).update({
-      status: "INACTIVE",
-      suspended_at: at,
-      updated_at: at,
-    });
-    await recordStaffEvent(db, {
-      staff_id: staffId,
-      action: "suspended",
-      from: { status: String(existing.status || ""), role: String(existing.role || "").toUpperCase() },
-      to: { status: "INACTIVE", role: String(existing.role || "").toUpperCase() },
+    await suspendStaffAccount(db, {
+      staffId, existing, action: "suspended",
       reason: data.reason == null ? null : String(data.reason).trim() || null,
-      at,
-      ...actorFields(callerStaffId, staffMap, request.auth),
+      actor: actorFields(callerStaffId, staffMap, request.auth),
     });
-    console.log(`[staff-accounts] suspended staff ${staffId} (${existing.email || "no-email"})`);
   } else {
     if (existing.uid) {
       await getAuth().updateUser(existing.uid, { disabled: false });

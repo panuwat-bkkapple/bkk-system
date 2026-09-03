@@ -23,6 +23,13 @@ import {
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
+interface StatusResult {
+  ok: boolean;
+  access: EmployeeAccess;
+  nothing_to_close?: boolean;
+  closed?: { staff: string | null; rider: string | null; errors: string[] };
+}
+
 const call = async <T,>(name: string, data: Record<string, unknown>): Promise<T> => {
   const fn = httpsCallable(fns(), name);
   return (await fn(data)).data as T;
@@ -139,11 +146,24 @@ export const EmployeeRegister = () => {
     }
     setBusy(true);
     try {
-      const res = await call<{ ok: boolean; access: EmployeeAccess }>(
+      const res = await call<StatusResult>(
         'adminHrEmployeeSetStatus', { employeeId: row.id, status, reason }
       );
-      if (res.access?.open && (status === 'resigned' || status === 'terminated')) {
-        toast.error('บันทึกสถานะแล้ว แต่บัญชีเข้าระบบยังเปิดอยู่ — ต้องไปปิดที่หน้าพนักงาน/ไรเดอร์');
+      const leaving = status === 'resigned' || status === 'terminated';
+      if (leaving && res.closed?.errors?.length) {
+        // ปิดไม่สำเร็จต้องดังกว่า "บันทึกแล้ว" — คนที่พ้นสภาพแล้วยังเข้าระบบได้
+        // คือสิ่งเดียวที่งานนี้มีไว้กัน
+        toast.error(`บันทึกสถานะแล้ว แต่ ${res.closed.errors.join(' · ')}`);
+      } else if (leaving && res.access?.open) {
+        toast.error('บันทึกสถานะแล้ว แต่บัญชีเข้าระบบยังเปิดอยู่ — ไปปิดที่หน้าพนักงาน/ไรเดอร์');
+      } else if (leaving && res.nothing_to_close) {
+        toast.success('บันทึกสถานะแล้ว (คนนี้ไม่มีบัญชีเข้าระบบผูกอยู่)');
+      } else if (leaving) {
+        const what = [
+          res.closed?.staff === 'closed' ? 'บัญชีแอดมิน' : null,
+          res.closed?.rider === 'closed' ? 'บัญชีไรเดอร์' : null,
+        ].filter(Boolean);
+        toast.success(what.length ? `บันทึกสถานะและปิด${what.join(' + ')}แล้ว` : 'บันทึกสถานะแล้ว');
       } else {
         toast.success('บันทึกสถานะแล้ว');
       }
@@ -267,7 +287,7 @@ export const EmployeeRegister = () => {
                     </div>
                     {row.access?.stale_access && (
                       <p className="mt-2 text-xs font-bold text-rose-700 flex items-center gap-1">
-                        <ShieldAlert size={13} /> พ้นสภาพแล้วแต่บัญชียังเข้าระบบได้ — ไปปิดที่หน้าพนักงาน/ไรเดอร์
+                        <ShieldAlert size={13} /> พ้นสภาพแล้วแต่บัญชียังเข้าระบบได้ — ระบบปิดให้อัตโนมัติตอนบันทึกพ้นสภาพ ถ้ายังขึ้นแบบนี้แปลว่าปิดไม่สำเร็จหรือแถวนี้ถูกตั้งพ้นสภาพไว้ก่อนมีการปิดอัตโนมัติ ให้ไปปิดที่หน้าพนักงาน/ไรเดอร์
                       </p>
                     )}
                   </div>
