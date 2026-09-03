@@ -105,7 +105,9 @@ const TRANSITIONS = {
     to: S.APPOINTMENT_SET,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    methods: [RECEIVE_METHOD.PICKUP, RECEIVE_METHOD.STORE_IN],
+    // Mail-in เพิ่มเข้ามาเพราะปุ่ม "นัดหมายแล้ว" บน MobileTicketDetail ขึ้นที่
+    // New Lead ทุกวิธีรับ ไม่ได้แยก — การนัดวันส่งพัสดุก็เป็นการนัดหมายอย่างหนึ่ง
+    methods: [RECEIVE_METHOD.PICKUP, RECEIVE_METHOD.STORE_IN, RECEIVE_METHOD.MAIL_IN],
   },
   dropoff_confirmed: {
     from: [S.NEW_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET],
@@ -156,11 +158,15 @@ const TRANSITIONS = {
     actors: [ACTOR.RIDER],
     methods: [RECEIVE_METHOD.PICKUP],
   },
+  // เดิม actors เป็น [RIDER] เท่านั้น ซึ่งตรงกับความจริงว่าไรเดอร์เป็นคนกด แต่
+  // **แอดมินกดแทนได้อยู่แล้ววันนี้** จากปุ่ม "กำลังเดินทาง (Rider En Route)" บน
+  // MobileTicketDetail ซึ่งขึ้นที่ Assigned / Accepted / Active Lead (ที่มีไรเดอร์
+  // แล้ว) — ไรเดอร์ลืมกดแล้วโทรบอกแอดมินเป็นเรื่องปกติ เหตุผลเดียวกับ rider_arrived
   rider_departed: {
-    from: [S.RIDER_ACCEPTED],
+    from: [S.RIDER_ACCEPTED, S.RIDER_ASSIGNED, S.ACTIVE_LEAD],
     to: S.RIDER_EN_ROUTE,
     custody: "=",
-    actors: [ACTOR.RIDER],
+    actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
   },
   // RIDER_ASSIGNED/RIDER_ACCEPTED คือ manual override ของแอดมิน ไม่ใช่ช่องโหว่:
   // ปุ่ม "ไรเดอร์ถึงแล้ว (Mark Arrived)" ขึ้นทั้งกลุ่ม logistics เพราะไรเดอร์
@@ -232,8 +238,14 @@ const TRANSITIONS = {
     methods: [RECEIVE_METHOD.MAIL_IN],
     requires: ["tracking_number"],
   },
+  // ปุ่ม "รับพัสดุไว้ก่อน (ยังไม่เปิด)" บน MobileTicketDetail ขึ้นทั่วขาขายของ
+  // Mail-in ไม่ใช่แค่ตอน tracking บอกว่าของอยู่กับขนส่ง — พัสดุถึงสาขาได้โดยที่
+  // ไม่มีใครเคยกรอก tracking เลย (แถวเก่ายังค้างอยู่ที่สถานะไรเดอร์ก็มี)
   parcel_received: {
-    from: [S.PARCEL_IN_TRANSIT],
+    from: [
+      S.PARCEL_IN_TRANSIT, S.APPOINTMENT_SET, S.WAITING_DROP_OFF,
+      S.AWAITING_SHIPPING, S.ACTIVE_LEAD, S.RIDER_EN_ROUTE,
+    ],
     to: S.PARCEL_RECEIVED,
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
@@ -273,6 +285,11 @@ const TRANSITIONS = {
     from: [
       S.RIDER_ARRIVED, S.DROP_OFF_RECEIVED, S.PARCEL_RECEIVED, S.WAITING_DROP_OFF,
       S.APPOINTMENT_SET, S.RIDER_ASSIGNED, S.RIDER_ACCEPTED, S.RIDER_EN_ROUTE,
+      // สามตัวนี้มาจาก MobileTicketDetail (P2-j): ปุ่ม branch intake ขึ้นที่
+      // Awaiting Shipping / Parcel In Transit / Active Lead ด้วย เพราะเครื่อง
+      // มาถึงเคาน์เตอร์ได้ทุกจังหวะของขาขาย (ลูกค้าเดินเข้ามาก่อนนัด, พัสดุถึง
+      // ก่อนมีคนอัปเดต tracking) ไม่ใช่ตามลำดับที่สถานะบอก
+      S.AWAITING_SHIPPING, S.PARCEL_IN_TRANSIT, S.ACTIVE_LEAD,
     ],
     to: S.BEING_INSPECTED,
     custody: CUSTODY_BY_METHOD,
@@ -296,8 +313,10 @@ const TRANSITIONS = {
   // Today's two "customer must decide" statuses. v2 merges them into one
   // Awaiting Customer Decision with an SLA; until the readers move, the engine
   // keeps both reachable and treats them as the same stage.
+  // PENDING_QC มาจากปุ่ม "ต้องเจรจาราคา (Negotiation)" บน MobileTicketDetail
+  // ซึ่งขึ้นที่ Pending QC ด้วย (ขา Mail-in/Store-in ที่ยังไม่จ่ายเงิน)
   offer_revised: {
-    from: [S.QC_REVIEW, S.BEING_INSPECTED],
+    from: [S.QC_REVIEW, S.BEING_INSPECTED, S.PENDING_QC],
     to: S.NEGOTIATION,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
@@ -420,8 +439,14 @@ const TRANSITIONS = {
   },
 
   // Phase 7: inventory -------------------------------------------------------
+  // สามสถานะหลังจ่ายเงินมาจากปุ่ม "เข้าสต็อก (In Stock)" บน MobileTicketDetail
+  // ซึ่งขึ้นที่ Paid / Waiting For Handover / Rider Returning ของขา Store-in
+  // และ Mail-in — เครื่องอยู่ที่สาขาตั้งแต่ต้น ไม่มีขั้นรับมอบจากไรเดอร์คั่น
   intake_qc_passed: {
-    from: [S.PENDING_QC, S.QC_REVIEW, S.SENT_TO_QC_LAB],
+    from: [
+      S.PENDING_QC, S.QC_REVIEW, S.SENT_TO_QC_LAB,
+      S.PAID, S.WAITING_FOR_HANDOVER, S.RIDER_RETURNING,
+    ],
     to: S.IN_STOCK,
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
@@ -433,7 +458,7 @@ const TRANSITIONS = {
   // `hasBeenPaid` ของหน้านั้นครอบสถานะขายจบไปด้วย การถอยเครื่องที่ขายแล้วกลับ
   // เข้าแล็บไม่ใช่พฤติกรรมที่คุ้มค่าจะรักษา มันคือเงื่อนไขปุ่มที่หลวม ไม่ใช่ฟีเจอร์
   sent_to_lab: {
-    from: [S.PENDING_QC, S.IN_STOCK, S.PAID, S.WAITING_FOR_HANDOVER],
+    from: [S.PENDING_QC, S.IN_STOCK, S.PAID, S.WAITING_FOR_HANDOVER, S.RIDER_RETURNING],
     to: S.SENT_TO_QC_LAB,
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
@@ -444,8 +469,10 @@ const TRANSITIONS = {
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
   },
+  // PENDING_QC มาจากปุ่ม "ขายแล้ว (Sold)" บน MobileTicketDetail ที่ขึ้นเฉพาะสาขา
+  // "จ่ายเงินแล้ว" ของ Pending QC (ตรวจจาก qc_logs) = เครื่องอยู่ในมือเราแล้ว
   sold: {
-    from: [S.READY_TO_SELL, S.IN_STOCK],
+    from: [S.READY_TO_SELL, S.IN_STOCK, S.PENDING_QC],
     to: S.SOLD,
     custody: CUSTODY.RELEASED,
     actors: [ACTOR.ADMIN_STAFF, ACTOR.DEALER_FLOW],
@@ -468,6 +495,37 @@ const TRANSITIONS = {
   // cancel taxonomy is required by the engine rather than by convention: every
   // channel that skipped cancelled_at left a job that the 7-day finaliser
   // could never pick up, so it stayed soft-cancelled forever.
+  // แอดมินถอนงานออกจากคิวแย่งงานกลับไปขาขาย — ปุ่ม "กลับไปติดตาม (Following Up)"
+  // บน MobileTicketDetail ที่ขึ้นตอน Active Lead ยังไม่มีไรเดอร์รับ
+  //
+  // **คนละตัวกับ rider_unassigned ซึ่งวิ่งสวนทาง** (พาเข้าคิว) และคนละตัวกับ
+  // case_claimed (New Lead -> Following Up ตอนแอดมินรับเคสครั้งแรก) การยืมสองตัว
+  // นั้นมาใช้จะทำให้ qc_logs เล่าเรื่องผิด: ใบนี้ไม่ใช่การรับเคสใหม่และไม่ใช่การ
+  // ดึงงานจากไรเดอร์
+  broadcast_recalled: {
+    from: [S.ACTIVE_LEAD],
+    to: S.FOLLOWING_UP,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+  },
+  // ย้อนสถานะกลับจากปลายทางขายเมื่อกดผิด — ปุ่ม "ย้อนสถานะกลับ -> Pending QC"
+  // บน MobileTicketDetail ที่ขึ้นที่ Sold / In Stock / Ready To Sell / Sent To QC Lab
+  //
+  // ก่อนหน้านี้สี่สถานะนั้นไม่มีปุ่มอะไรเลย งานที่กดผิดจึงค้างถาวร ปุ่มนี้เป็น
+  // ทางกลับที่มีอยู่แล้ววันนี้ ไม่ใช่ของใหม่
+  //
+  // **ไม่ใช้ sale_voided** (Sold -> In Stock) เพราะปลายทางต่างกัน และตัวนั้นพูดถึง
+  // การยกเลิกการขายซึ่งมีความหมายทางบัญชี ส่วนใบนี้คือแอดมินกดผิดแล้วย้อน
+  //
+  // งานพวกนี้จ่ายเงินไปแล้วทั้งหมด จึงไม่ใส่ blockedWhenPaid (จะบล็อกทุกใบ) —
+  // ด่านที่กันการจ่ายซ้ำคือ blockedWhenPaid ของ payout_started ที่ปลายทางอีกฝั่ง
+  sale_reverted_to_qc: {
+    from: [S.SOLD, S.IN_STOCK, S.READY_TO_SELL, S.SENT_TO_QC_LAB],
+    to: S.PENDING_QC,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+  },
+
   cancelled: {
     from: [
       S.NEW_LEAD, S.ACTIVE_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET,
