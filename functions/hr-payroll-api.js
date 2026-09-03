@@ -78,6 +78,9 @@ const carryInput = (existing) => ({
   days_worked: existing && existing.days_worked != null ? existing.days_worked : null,
   extra_earnings: (existing && existing.manual_earnings) || [],
   extra_deductions: (existing && existing.manual_deductions) || [],
+  // ยอดภาษีที่พิมพ์ทับต้องรอดจากการคำนวณรอบใหม่ ไม่งั้นการกดรีเฟรชจะย้อนกลับไป
+  // ใช้เลขที่ระบบคิด โดยไม่มีอะไรบอกว่าของที่คนแก้ไว้หายไป
+  wht_override: (existing && existing.wht_override) || null,
   note: (existing && existing.note) || "",
 });
 
@@ -199,7 +202,7 @@ function registerHrPayroll() {
   // -------------------------------------------------------------------------
   const adminHrPayrollSetItem = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
-    await requireStaffRole(db, request.auth, HR_ROLES);
+    const caller = await requireStaffRole(db, request.auth, HR_ROLES);
     const data = request.data || {};
     const key = String(data.period || "");
     const employeeId = String(data.employeeId || "");
@@ -213,6 +216,7 @@ function registerHrPayroll() {
     if (run.status !== "draft") {
       throw new HttpsError("failed-precondition", "รอบนี้อนุมัติไปแล้ว แก้ไม่ได้");
     }
+    const { callerStaffId, staffMap } = caller;
 
     const [empSnap, privSnap] = await Promise.all([
       db.ref(`employees/${employeeId}`).once("value"),
@@ -226,13 +230,36 @@ function registerHrPayroll() {
       amount: Number((r && r.amount) || 0),
       taxable: !(r && r.taxable === false),
       sso_wage: Boolean(r && r.sso_wage),
+      occasional: Boolean(r && r.occasional),
     })).filter((r) => r.label && Number.isFinite(r.amount));
+
+    // การพิมพ์ทับยอดภาษีต้องมีเหตุผลเสมอ — ตัวเลขภาษีที่ถูกแก้ด้วยมือโดยไม่มี
+    // คำอธิบาย คือสิ่งแรกที่ผู้ตรวจถามและไม่มีใครตอบได้ ผู้แก้มาจาก auth token
+    // ไม่ใช่จาก client (ชื่อที่ client ส่งมาเองก็ปลอมได้เท่ากับ audit ที่ไม่มี)
+    let whtOverride = null;
+    const rawOv = data.wht_override;
+    if (rawOv && rawOv.amount !== null && rawOv.amount !== undefined && rawOv.amount !== "") {
+      const amount = Number(rawOv.amount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new HttpsError("invalid-argument", "ยอดภาษีที่กรอกเองต้องเป็นจำนวนที่ไม่ติดลบ");
+      }
+      const reason = String(rawOv.reason || "").trim().slice(0, 300);
+      if (!reason) {
+        throw new HttpsError("invalid-argument", "การแก้ยอดภาษีด้วยมือต้องระบุเหตุผล");
+      }
+      const actor = employeeActorFields(callerStaffId, staffMap, request.auth);
+      whtOverride = {
+        amount, reason,
+        by_name: actor.by_name, by_staff_id: actor.by_staff_id, at: Date.now(),
+      };
+    }
 
     const input = {
       days_worked: data.days_worked === "" || data.days_worked == null ? null : Number(data.days_worked),
       extra_earnings: clean(data.extra_earnings),
       extra_deductions: clean(data.extra_deductions),
       note: String(data.note || "").slice(0, 300),
+      wht_override: whtOverride,
     };
     if (input.days_worked != null && (!Number.isFinite(input.days_worked) || input.days_worked < 0 || input.days_worked > 31)) {
       throw new HttpsError("invalid-argument", "จำนวนวันต้องอยู่ระหว่าง 0-31");

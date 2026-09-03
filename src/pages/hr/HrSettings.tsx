@@ -48,17 +48,17 @@ const DEFAULT_BRACKETS = [
 ];
 
 interface Bracket { upTo: number | null; rate: number }
-interface Preset { label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean }
+interface Preset { label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean; occasional: boolean }
 
 // ต้องตรงกับ DEFAULT_ADJUSTMENT_PRESETS ใน functions/hr-payroll.js
 const DEFAULT_PRESETS: Preset[] = [
-  { label: 'ค่าล่วงเวลา', kind: 'earning', taxable: true, sso_wage: true },
-  { label: 'ค่าคอมมิชชั่น', kind: 'earning', taxable: true, sso_wage: true },
-  { label: 'โบนัส', kind: 'earning', taxable: true, sso_wage: false },
-  { label: 'เบี้ยขยัน', kind: 'earning', taxable: true, sso_wage: true },
-  { label: 'หักขาด/ลา/มาสาย', kind: 'deduction', taxable: true, sso_wage: false },
-  { label: 'หักเงินเบิกล่วงหน้า', kind: 'deduction', taxable: true, sso_wage: false },
-  { label: 'เงินหักอื่นๆ', kind: 'deduction', taxable: true, sso_wage: false },
+  { label: 'ค่าล่วงเวลา', kind: 'earning', taxable: true, sso_wage: true, occasional: false },
+  { label: 'ค่าคอมมิชชั่น', kind: 'earning', taxable: true, sso_wage: true, occasional: false },
+  { label: 'โบนัส', kind: 'earning', taxable: true, sso_wage: false, occasional: true },
+  { label: 'เบี้ยขยัน', kind: 'earning', taxable: true, sso_wage: true, occasional: false },
+  { label: 'หักขาด/ลา/มาสาย', kind: 'deduction', taxable: true, sso_wage: false, occasional: false },
+  { label: 'หักเงินเบิกล่วงหน้า', kind: 'deduction', taxable: true, sso_wage: false, occasional: false },
+  { label: 'เงินหักอื่นๆ', kind: 'deduction', taxable: true, sso_wage: false, occasional: false },
 ];
 
 const numOr = (v: unknown, d: number) => {
@@ -116,6 +116,7 @@ export const HrSettings = () => {
             kind: r.kind === 'deduction' ? 'deduction' : 'earning',
             taxable: r.taxable !== false,
             sso_wage: Boolean(r.sso_wage),
+            occasional: Boolean(r.occasional),
           }))
         : DEFAULT_PRESETS);
       setLoading(false);
@@ -196,7 +197,7 @@ export const HrSettings = () => {
         },
         employee_code_prefix: form.code_prefix.trim(),
         adjustment_presets: presets.map((r) => ({
-          label: r.label.trim(), kind: r.kind, taxable: r.taxable, sso_wage: r.sso_wage,
+          label: r.label.trim(), kind: r.kind, taxable: r.taxable, sso_wage: r.sso_wage, occasional: r.occasional,
         })),
       });
       toast.success('บันทึกค่าตั้งแล้ว — รอบที่อนุมัติไปแล้วไม่เปลี่ยนตาม');
@@ -371,6 +372,10 @@ export const HrSettings = () => {
           <b>เข้าฐานประกันสังคม</b> — ค่าล่วงเวลาและค่าคอมมิชชั่นเป็น &quot;ค่าจ้าง&quot; ตามกฎหมายประกันสังคมจึงเข้าฐานสมทบ
           ส่วนโบนัสประจำปีโดยทั่วไปไม่ใช่ ค่าที่ตั้งตรงนี้เป็นแค่ค่าเริ่มต้น หน้ารอบจ่ายยังติ๊กแก้รายบรรทัดได้เสมอ
           เพราะเส้นแบ่งขึ้นกับข้อเท็จจริงของรายการ ไม่ใช่ชื่อของมัน
+          <br /><br />
+          <b>จ่ายเป็นครั้งคราว</b> — รายการที่ไม่ได้จ่ายทุกเดือน (โบนัส คอมมิชชั่นที่ขึ้นลงแรง) จะไม่ถูกคูณจำนวนงวด
+          ตอนประมาณการภาษีทั้งปี ระบบจะคิดภาษีจากรายได้ประจำก่อน แล้วบวกเฉพาะส่วนต่างที่เกิดจากก้อนนั้นในงวดที่จ่ายจริง —
+          ถ้าไม่ติ๊ก ระบบจะเดาว่าได้เท่านี้ทุกเดือน แล้วหักภาษีเกินจริงในเดือนที่ได้ก้อนใหญ่
         </p>
         <div className="space-y-2">
           {presets.map((r, i) => (
@@ -397,6 +402,11 @@ export const HrSettings = () => {
                       onChange={(e) => setPresets((rows) => rows.map((x, idx) => (idx === i ? { ...x, sso_wage: e.target.checked } : x)))}
                       className="w-3.5 h-3.5 rounded border-gray-300" /> เข้าฐานประกันสังคม
                   </label>
+                  <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <input type="checkbox" checked={r.occasional}
+                      onChange={(e) => setPresets((rows) => rows.map((x, idx) => (idx === i ? { ...x, occasional: e.target.checked } : x)))}
+                      className="w-3.5 h-3.5 rounded border-gray-300" /> จ่ายเป็นครั้งคราว
+                  </label>
                 </>
               )}
               <button onClick={() => setPresets((rows) => rows.filter((_, idx) => idx !== i))}
@@ -404,7 +414,7 @@ export const HrSettings = () => {
             </div>
           ))}
         </div>
-        <button onClick={() => setPresets((rows) => [...rows, { label: '', kind: 'earning', taxable: true, sso_wage: true }])}
+        <button onClick={() => setPresets((rows) => [...rows, { label: '', kind: 'earning', taxable: true, sso_wage: true, occasional: false }])}
           className="mt-3 text-sm font-bold text-gray-600 hover:text-gray-800 flex items-center gap-1">
           <Plus size={15} /> เพิ่มรายการ
         </button>

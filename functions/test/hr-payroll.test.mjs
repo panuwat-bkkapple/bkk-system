@@ -22,7 +22,7 @@ import {
   resolvePayrollConfig, periodBounds, payDateOf, periodsInYear, bangkokMidnight,
   proratedBase, computeSso, progressiveTax, computeWithholding,
   buildPayrollItem, summarizeRun, DEFAULT_SSO, DEFAULT_TAX, DEFAULT_PAYROLL,
-  DEFAULT_ADJUSTMENT_PRESETS,
+  DEFAULT_ADJUSTMENT_PRESETS, round2,
 } from "../hr-payroll.js";
 import { eligibleForPeriod } from "../hr-payroll-api.js";
 
@@ -378,6 +378,108 @@ const daily = (rate, input) => buildPayrollItem({
     resolvePayrollConfig({ adjustment_presets: [] }).adjustment_presets.length, 0);
 }
 
+// ── 12e. เงินได้ครั้งคราว — ไม่ถูกคูณจำนวนงวด ─────────────────────────────
+// เคสจริงของคุณแนน: เงินเดือน 20,000 + คอมมิชชั่น 30,000
+//
+// คิดรวมแบบเดิม: (50,000x12=600,000) - 100,000 - 70,500 = 429,500
+//   → 7,500 + 129,500x10% = 20,450/ปี → 1,704.17/งวด
+// คิดแยกก้อนพิเศษ:
+//   ประจำ  240,000 - 100,000 - 70,500 = 69,500 → ต่ำกว่า 150,000 → ภาษี 0
+//   รวมก้อน 270,000 - 100,000 - 70,500 = 99,500 → ต่ำกว่า 150,000 → ภาษี 0
+//   → ส่วนต่าง 0 → หักงวดนี้ 0
+// ต่างกัน 1,704.17 บาทในเดือนเดียว ซึ่งคือเงินสดของลูกจ้างที่ถูกกันไว้ข้ามปี
+{
+  const withOcc = computeWithholding({
+    periodIncome: 20000, occasionalIncome: 30000, periods: 12,
+    ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax,
+  });
+  eq("แยกก้อนพิเศษแล้วไม่ถึงเกณฑ์เสียภาษี", withOcc.amount, 0);
+  eq("บันทึกยอดก้อนพิเศษไว้ให้อธิบายได้", withOcc.basis.occasional_income, 30000);
+  eq("ภาษีส่วนเพิ่มจากก้อนพิเศษ = 0", withOcc.basis.occasional_tax, 0);
+
+  const asRegular = computeWithholding({
+    periodIncome: 50000, periods: 12, ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax,
+  });
+  eq("คิดรวมเป็นรายได้ประจำ = 1,704.17 (ของเดิม)", asRegular.amount, 1704.17);
+  check("การแยกก้อนพิเศษให้ผลต่างจริง ไม่ใช่ทางที่ไม่มีใครเดินถึง",
+    withOcc.amount !== asRegular.amount);
+}
+{
+  // ก้อนพิเศษที่ใหญ่พอจะดันข้ามขั้น: เงินเดือน 40,000 + โบนัส 200,000
+  //   ประจำ  480,000 - 100,000 - 70,500 = 309,500 → 7,500 + 9,500x10% = 8,450
+  //   รวมก้อน 680,000 - 100,000 - 70,500 = 509,500 → 7,500+20,000+9,500x15%(1,425) = 28,925
+  //   ส่วนต่าง = 20,475 · ต่องวดของประจำ = 8,450/12 = 704.17 → รวม 21,179.17
+  const r = computeWithholding({
+    periodIncome: 40000, occasionalIncome: 200000, periods: 12,
+    ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax,
+  });
+  eq("ภาษีของรายได้ประจำทั้งปี", r.basis.annual_tax, 8450);
+  eq("ภาษีส่วนเพิ่มจากโบนัสก้อนใหญ่", r.basis.occasional_tax, 20475);
+  eq("รวมหักงวดที่จ่ายโบนัส", r.amount, 21179.17);
+}
+{
+  // เพดานค่าใช้จ่ายเหมาต้องคิดใหม่บนฐานที่รวมก้อนพิเศษ
+  //
+  // **fixture นี้เขียนขึ้นเพราะ injection ผ่าน** — สองเคสข้างบนมีรายได้ประจำสูง
+  // พอที่ค่าใช้จ่ายเหมาติดเพดาน 100,000 อยู่แล้วทั้งก่อนและหลังบวกก้อนพิเศษ
+  // การคิดใหม่จึงไม่เปลี่ยนอะไร กฎข้อนี้เลยไม่เคยถูกทดสอบ
+  //
+  // เคสที่ไปถึงกฎ: เงินเดือน 15,000 → ทั้งปี 180,000 → 50% = 90,000 (ยังไม่ติด
+  // เพดาน) พอบวกโบนัส 400,000 เป็น 580,000 → 50% = 290,000 → ติดเพดาน 100,000
+  //   ประจำ  180,000 - 90,000 - 69,000 = 21,000 → ภาษี 0
+  //   รวมก้อน 580,000 - 100,000 - 69,000 = 411,000
+  //          → 7,500 + 111,000x10% = 11,100 → รวม 18,600
+  // ถ้าไม่คิดค่าใช้จ่ายใหม่ (ใช้ 90,000 ต่อ) จะได้ 421,000 → 19,600 = หักเกิน 1,000
+  const r = computeWithholding({
+    periodIncome: 15000, occasionalIncome: 400000, periods: 12,
+    ssoPerPeriod: 750, allowances: {}, tax: CFG.income_tax,
+  });
+  eq("ค่าใช้จ่ายเหมาของรายได้ประจำยังไม่ติดเพดาน", r.basis.expenses, 90000);
+  eq("ภาษีของรายได้ประจำ = 0", r.basis.annual_tax, 0);
+  eq("ภาษีก้อนพิเศษคิดจากฐานที่ค่าใช้จ่ายติดเพดานแล้ว", r.basis.occasional_tax, 18600);
+  eq("รวมหักงวดนี้", r.amount, 18600);
+}
+{
+  eq("ไม่มีก้อนพิเศษ = สูตรยุบเหลือแบบเดิมเป๊ะ",
+    computeWithholding({ periodIncome: 50000, occasionalIncome: 0, periods: 12, ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax }).amount,
+    1704.17);
+}
+{
+  // ธง occasional บนบรรทัดต้องเดินไปถึงสูตรจริง ไม่ใช่แค่ถูกเก็บไว้
+  const plain = monthly(20000, null, null, { extra_earnings: [{ label: "คอม", amount: 30000, sso_wage: true }] });
+  const occ = monthly(20000, null, null, { extra_earnings: [{ label: "คอม", amount: 30000, sso_wage: true, occasional: true }] });
+  eq("ไม่ติ๊กครั้งคราว → หัก 1,704.17", plain.wht, 1704.17);
+  eq("ติ๊กครั้งคราว → หัก 0", occ.wht, 0);
+  eq("ยอดรายได้รวมเท่ากันทั้งสองแบบ", plain.gross, occ.gross);
+  eq("ฐานประกันสังคมไม่เปลี่ยนตามธงครั้งคราว", plain.sso_employee, occ.sso_employee);
+  eq("บันทึกยอดครั้งคราวไว้บนบรรทัด", occ.occasional_income, 30000);
+}
+
+// ── 12f. พิมพ์ทับยอดภาษี ────────────────────────────────────────────────────
+{
+  const base = monthly(50000);
+  const ov = monthly(50000, null, null, {
+    wht_override: { amount: 900, reason: "บัญชีคิดแยกก้อนพิเศษ", by_name: "CEO", at: 1 },
+  });
+  eq("ใช้ยอดที่พิมพ์ทับ", ov.wht, 900);
+  eq("เก็บยอดที่ระบบคำนวณไว้ด้วยเสมอ", ov.wht_computed, base.wht);
+  check("ยอดที่ระบบคำนวณไม่ถูกเขียนทับ", ov.wht_computed !== ov.wht);
+  eq("บันทึกเหตุผล", ov.wht_override.reason, "บัญชีคิดแยกก้อนพิเศษ");
+  eq("บันทึกผู้แก้", ov.wht_override.by_name, "CEO");
+  eq("ยอดสุทธิใช้เลขที่พิมพ์ทับ", ov.net, round2(50000 - 875 - 900));
+  const line = ov.deductions.find((d) => d.type === "wht");
+  check("บรรทัดหักบอกว่าแก้ด้วยมือ", /แก้ด้วยมือ/.test(line.label));
+  check("บรรทัดหักปกติไม่ติดป้ายนั้น",
+    !/แก้ด้วยมือ/.test(base.deductions.find((d) => d.type === "wht").label));
+}
+{
+  eq("พิมพ์ทับเป็น 0 ได้ (ไม่ใช่ถูกมองว่าไม่ได้ตั้ง)",
+    monthly(50000, null, null, { wht_override: { amount: 0, reason: "ยกเว้น" } }).wht, 0);
+  eq("ไม่ส่ง override = ใช้ที่ระบบคำนวณ", monthly(50000).wht, 1704.17);
+  check("ยอดติดลบถูกปัดเป็น 0 ไม่ใช่คืนเงินภาษี",
+    monthly(50000, null, null, { wht_override: { amount: -500, reason: "x" } }).wht === 0);
+}
+
 // ── 13. gate ของ callable + กติกาที่อ่านจาก source ─────────────────────────
 const apiSrc = readFileSync(join(fnDir, "hr-payroll-api.js"), "utf8");
 const engineSrc = readFileSync(join(fnDir, "hr-payroll.js"), "utf8");
@@ -401,6 +503,16 @@ for (const name of ["adminHrPayrollDraft", "adminHrPayrollSetItem", "adminHrPayr
   const body = apiSrc.slice(start, next === -1 ? apiSrc.length : next);
   check(`${name} ปฏิเสธรอบที่ไม่ใช่ draft`, /status !== "draft"|status && \w+\.status !== "draft"/.test(body));
 }
+// การพิมพ์ทับยอดภาษีต้องมีเหตุผลเสมอ และผู้แก้ต้องมาจาก auth token
+check("server บังคับให้ระบุเหตุผลตอนพิมพ์ทับยอดภาษี",
+  /ต้องระบุเหตุผล/.test(apiSrc) && /whtOverride/.test(apiSrc));
+check("ผู้แก้มาจาก employeeActorFields ไม่ใช่จาก client",
+  /const actor = employeeActorFields\(callerStaffId, staffMap, request\.auth\);/.test(apiSrc));
+check("ไม่รับชื่อผู้แก้ที่ client ส่งมา",
+  !/by_name: (data|rawOv)\./.test(apiSrc));
+check("ยอดที่พิมพ์ทับรอดจากการคำนวณรอบใหม่",
+  /wht_override: \(existing && existing\.wht_override\) \|\| null,/.test(apiSrc));
+
 check("อนุมัติไม่ได้ถ้ายังมีบรรทัดที่กรอกไม่ครบ",
   /const blocked = items\.filter\(\(i\) => i && i\.incomplete\);/.test(apiSrc) && /blocked\.length/.test(apiSrc));
 check("บันทึกว่าจ่ายแล้วได้เฉพาะรอบที่อนุมัติแล้ว",
@@ -520,6 +632,11 @@ check("หน้าตั้งค่าไม่แตะตัวนับร�
     /extra_earnings:/.test(ui) && /extra_deductions:/.test(ui));
   check("ช่อง 'เข้าฐานประกันสังคม' โชว์รายบรรทัด ไม่ได้ซ่อนไว้ในค่าตั้งต้น",
     /เข้าฐานประกันสังคม/.test(ui));
+  check("มีช่องติ๊ก 'จ่ายเป็นครั้งคราว' รายบรรทัด", /จ่ายเป็นครั้งคราว/.test(ui));
+  check("มีตัวพิมพ์ทับยอดภาษี", /<WhtOverrideEditor/.test(ui));
+  check("ปุ่มใช้ยอดที่พิมพ์ทับถูกปิดถ้าไม่กรอกเหตุผล", /!reason\.trim\(\)/.test(ui));
+  check("โชว์ทั้งเลขที่ระบบคิดและเลขที่คนแก้", /ระบบคำนวณ \{baht\(item\.wht_computed\)\}/.test(ui));
+  check("โชว์ที่มาของภาษีส่วนก้อนพิเศษ", /ภาษีส่วนเพิ่ม/.test(ui));
   check("หน้ารอบจ่ายโชว์ต้นทุนบริษัท (ไม่ใช่แค่ยอดโอน)", /ต้นทุนบริษัท/.test(ui));
   check("หน้ารอบจ่ายแยกยอดตามช่องทางจ่าย", /แยกตามช่องทางจ่าย/.test(ui));
 }
