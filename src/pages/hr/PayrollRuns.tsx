@@ -19,6 +19,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 import {
   Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2, Pencil, FileText,
 } from 'lucide-react';
+import { baht, thaiDate, toCsv, download, downloadBase64 } from './hrFormat';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
 const call = async <T,>(name: string, data: Record<string, unknown>): Promise<T> => {
@@ -82,42 +83,10 @@ interface Run {
   paid_at?: number;
 }
 
-const baht = (n: number | null | undefined) =>
-  typeof n === 'number' && Number.isFinite(n)
-    ? n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '-';
-
-const thaiDate = (ms?: number | null) =>
-  ms ? new Date(ms).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
-
 const STATUS = {
   draft: { label: 'ร่าง (แก้ได้)', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
   approved: { label: 'อนุมัติแล้ว (ล็อก)', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
   paid: { label: 'จ่ายแล้ว', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-};
-
-// CSV: คั่นด้วย comma และครอบด้วยเครื่องหมายคำพูดเสมอ + BOM เพื่อให้ Excel
-// ภาษาไทยเปิดแล้วไม่เป็นตัวยึกยือ
-const toCsv = (rows: (string | number)[][]) =>
-  '﻿' + rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-
-const downloadBase64 = (filename: string, base64: string) => {
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
-};
-
-const download = (filename: string, content: string) => {
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
 };
 
 const thisPeriod = () => {

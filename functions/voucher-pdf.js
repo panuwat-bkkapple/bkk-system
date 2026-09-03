@@ -1162,4 +1162,156 @@ async function buildPayslipPdf({ employee, item, run, company }) {
   return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf };
+// ---------------------------------------------------------------------------
+// 50 ทวิ ของลูกจ้าง — เงินได้ ม.40(1) สรุปทั้งปี
+//
+// คนละใบกับของไรเดอร์ (`buildWhtCertificatePdf`) และ **ห้ามยุบรวมกัน** แม้จะ
+// หน้าตาคล้าย: ไรเดอร์เป็น ม.40(8) ออกต่อการจ่ายหนึ่งครั้ง ยื่น ภ.ง.ด.3 ส่วน
+// ลูกจ้างเป็น ม.40(1) ออกปีละฉบับสรุปทั้งปี ยื่น ภ.ง.ด.1/1ก และมีบรรทัด
+// ประกันสังคมที่ใบของไรเดอร์ไม่มี — สามอย่างนี้คือสาระของเอกสาร ไม่ใช่ธีม
+//
+// ตัวเลขทุกตัวมาจาก `cert` ที่รวมมาแล้วจาก payroll_items ของรอบที่จ่ายแล้ว
+// ฟังก์ชันนี้ไม่บวกเลขเอง (กฎเดียวกับสลิป: สูตรสำเนาที่สองคือของที่วันหนึ่ง
+// จะไม่ตรงกับที่ยื่นจริง)
+// ---------------------------------------------------------------------------
+async function buildEmployeeWhtCertificatePdf({ employee, priv, cert, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const red = rgb(0.72, 0.11, 0.11);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = { ...companyOf({}), ...(company || {}) };
+  const emp = employee || {};
+  const pv = priv || {};
+
+  let y = height - M;
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) => {
+    const f = opts.bold ? fontB : font;
+    page.drawText(String(t == null ? "" : t), {
+      x, y: opts.y != null ? opts.y : y, size, font: f, color: opts.color || black,
+    });
+  };
+  const drawRight = (t, rightX, size, opts = {}) =>
+    draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({
+    start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor,
+  });
+  const wrap = (t, size, f, maxW) => {
+    const str = String(t == null ? "" : t);
+    const out = []; let cur = "";
+    for (const ch of str) {
+      if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  const title = "หนังสือรับรองการหักภาษี ณ ที่จ่าย";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 18;
+  const sub = "ตามมาตรา 50 ทวิ แห่งประมวลรัษฎากร";
+  draw(sub, (width - widthOf(sub, 10, font)) / 2, 10, { color: gray });
+  y -= 26;
+
+  draw(`เลขที่: ${cert.number || "-"}`, M, 11, { bold: true });
+  drawRight(`ปีภาษี ${cert.buddhist_year || "-"}`, width - M, 11, { bold: true });
+  y -= 16;
+  draw(
+    `เงินได้ที่จ่ายระหว่าง ${formatDate(cert.first_pay_date) || "-"} ถึง ${formatDate(cert.last_pay_date) || "-"}`,
+    M, 9, { color: gray },
+  );
+  y -= 20;
+
+  hr(y + 6); y -= 14;
+  draw("ผู้มีหน้าที่หักภาษี ณ ที่จ่าย", M, 11, { bold: true });
+  y -= 16;
+  draw(CO.legalName, M + 12, 11);
+  y -= 15;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M + 12, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M + 12, 10, contentW - 12, 13, { color: gray });
+  y -= 10;
+
+  hr(y + 6); y -= 14;
+  draw("ผู้ถูกหักภาษี ณ ที่จ่าย", M, 11, { bold: true });
+  y -= 16;
+  draw(emp.name || cert.name || "-", M + 12, 11);
+  drawRight(String(cert.employee_code || emp.employee_code || ""), width - M, 10, { color: gray });
+  y -= 15;
+  // บุคคลธรรมดาใช้เลขบัตรประชาชนเป็นเลขประจำตัวผู้เสียภาษี — เลขผู้เสียภาษี
+  // ที่กรอกแยกไว้ (ถ้ามี) มาก่อนเพราะบางคนจดทะเบียนไว้ต่างหาก
+  draw(`เลขประจำตัวผู้เสียภาษี/บัตรประชาชน ${pv.tax_id || pv.national_id || "-"}`, M + 12, 10, { color: gray });
+  y -= 14;
+  if (pv.address) drawWrapped(pv.address, M + 12, 10, contentW - 12, 13, { color: gray });
+  y -= 12;
+
+  hr(y + 6); y -= 14;
+  draw("ประเภทเงินได้พึงประเมินที่จ่าย", M, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน (บาท)", width - M, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+  draw("เงินเดือน ค่าจ้าง เบี้ยเลี้ยง โบนัส ตามมาตรา 40(1)", M, 11);
+  drawRight(thb(cert.gross), width - M, 11);
+  y -= 16;
+  draw(`(จ่าย ${cert.periods || 0} งวด)`, M + 12, 9, { color: gray });
+  y -= 20;
+
+  hr(y + 6); y -= 14;
+  draw("รวมเงินได้ที่จ่ายทั้งปี", M, 11, { color: gray });
+  drawRight(thb(cert.gross), width - M, 11, { color: gray });
+  y -= 18;
+  draw("รวมภาษีที่หักและนำส่ง", M, 13, { bold: true });
+  drawRight(thb(cert.wht), width - M, 13, { bold: true, color: red });
+  y -= 22;
+
+  const words = bahtText(cert.wht);
+  if (words) { draw(`ภาษีที่หักไว้ (ตัวอักษร): (${words})`, M, 11); y -= 22; }
+
+  // ประกันสังคม — ช่องนี้มีอยู่ในแบบ 50 ทวิ ของจริง และลูกจ้างใช้เป็นหลักฐาน
+  // ค่าลดหย่อนตอนยื่นภาษีเงินได้บุคคลธรรมดา ใบที่ไม่มีบรรทัดนี้ทำให้เจ้าตัว
+  // ต้องไปขอเอกสารเพิ่มอีกใบ
+  hr(y + 6); y -= 14;
+  draw("เงินที่ผู้ถูกหักภาษีจ่ายเข้ากองทุนประกันสังคม", M, 11, { color: gray });
+  drawRight(thb(cert.sso_employee), width - M, 11, { color: gray });
+  y -= 18;
+  draw("ใช้เป็นค่าลดหย่อนได้ตามที่จ่ายจริง ไม่เกินเพดานที่กฎหมายกำหนด", M + 12, 9, { color: gray });
+  y -= 20;
+
+  draw("ผู้จ่ายเงินได้นำส่งภาษีที่หักไว้ต่อกรมสรรพากรตามแบบ ภ.ง.ด.1 และสรุปรายปีตามแบบ ภ.ง.ด.1ก", M, 9, { color: gray });
+  y -= 12;
+  draw("ผู้ถูกหักภาษีใช้หนังสือรับรองฉบับนี้เป็นหลักฐานเครดิตภาษีในการยื่นแบบภาษีเงินได้บุคคลธรรมดา", M, 9, { color: gray });
+  y -= 12;
+  if (cert.reissued) {
+    draw("ฉบับนี้เป็นการออกซ้ำจากเลขที่เดิม ไม่ใช่เอกสารเพิ่มเติม", M, 9, { color: red });
+    y -= 12;
+  }
+  if (cert.draft) {
+    // ปีที่ยังมีรอบค้างจ่าย ตัวเลขยังขยับได้ ห้ามให้เอกสารเดินออกไปโดยดูเหมือนฉบับจริง
+    draw("ยังไม่สิ้นสุดปีภาษี — ยังมีรอบที่ยังไม่จ่ายในปีนี้ ตัวเลขจะเปลี่ยนเมื่อจ่ายครบ", M, 9, { color: red });
+    y -= 12;
+  }
+
+  const sigY = Math.max(y - 50, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้มีอำนาจลงนาม";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+
+  page.drawText("เอกสารนี้เป็นข้อมูลส่วนบุคคล โปรดเก็บรักษาเป็นความลับ", { x: M, y: 62, size: 8, font, color: gray });
+  page.drawText(`${CO.legalName} • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+  return Buffer.from(await pdf.save());
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf };
