@@ -272,6 +272,17 @@ export const CANCEL_CATEGORY_LABEL_TH: Record<CancelCategory, string> = {
 const LEGACY_ALIAS: Record<string, JobStatus> = {
   // Casing/format aliases
   PAID: JOB_STATUS.PAID,
+  // Screaming case จาก /api/jobs/action ของ bkk-frontend-next ตอนลูกค้ากดยอมรับ
+  // ราคา — ตัว *writer* ถูกแก้ให้เขียน canonical ไปแล้ว และคอมเมนต์ที่นั้นฝาก
+  // แถวเก่าไว้กับ data migration (`runStatusMigration`)
+  //
+  // **แต่ migration ตัวนั้นอ่านสถานะด้วย normalizeStatus เอง** (`resolveCanonical`
+  // ใน functions/index.js บรรทัด 1462 คือฟังก์ชันนี้) แล้วข้ามแถวที่อ่านไม่ออก
+  // ด้วย `if (!canonical) return` — มันจึงข้ามแถวที่มันถูกเขียนขึ้นมาเพื่อแก้พอดี
+  // ตัวแก้จึงต้องเป็น alias ที่นี่ ไม่ใช่สคริปต์: alias เดียวปลดทั้งสองชั้น —
+  // engine อ่านแถวเก่าได้ (ปุ่มแอดมินกลับมาทำงาน) และ migration ก็เปลี่ยนชื่อ
+  // ให้เป็น canonical ได้จริงในรอบถัดไป
+  'PRICE ACCEPTED': JOB_STATUS.PRICE_ACCEPTED,
   'Payment Completed': JOB_STATUS.PAID,
   'Active Leads': JOB_STATUS.ACTIVE_LEAD, // plural → singular
   'Waiting for Handover': JOB_STATUS.WAITING_FOR_HANDOVER, // lowercase 'for' (legacy admin writer)
