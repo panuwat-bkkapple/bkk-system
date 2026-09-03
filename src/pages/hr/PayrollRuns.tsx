@@ -17,7 +17,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
-  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2, Pencil,
+  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2, Pencil, FileText,
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -100,6 +100,16 @@ const STATUS = {
 // ภาษาไทยเปิดแล้วไม่เป็นตัวยึกยือ
 const toCsv = (rows: (string | number)[][]) =>
   '﻿' + rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+
+const downloadBase64 = (filename: string, base64: string) => {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+};
 
 const download = (filename: string, content: string) => {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
@@ -214,6 +224,21 @@ export const PayrollRuns = () => {
       await loadRuns(); await loadRun(run.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const payslip = async (item: Item) => {
+    if (!run) return;
+    setBusy(true);
+    try {
+      const res = await call<{ filename: string; base64: string; draft: boolean }>(
+        'adminHrPayrollPayslip', { period: run.id, employeeId: item.employee_id }
+      );
+      downloadBase64(res.filename, res.base64);
+      if (res.draft) toast.error('รอบนี้ยังเป็นร่าง — สลิปติดป้ายว่าร่างไว้ในชื่อไฟล์ อย่าเพิ่งส่งให้พนักงาน');
+      else toast.success('ดาวน์โหลดสลิปแล้ว');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ออกสลิปไม่สำเร็จ');
     } finally { setBusy(false); }
   };
 
@@ -453,6 +478,13 @@ export const PayrollRuns = () => {
                             <span>ยอดโอนสุทธิ</span><span>{baht(item.net)}</span>
                           </div>
                         </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => void payslip(item)} disabled={busy || Boolean(item.incomplete)}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40 flex items-center gap-1">
+                          <FileText size={14} /> สลิปเงินเดือน (PDF)
+                        </button>
                       </div>
 
                       {!locked && (

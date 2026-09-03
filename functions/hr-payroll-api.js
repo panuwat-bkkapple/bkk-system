@@ -30,6 +30,7 @@ const {
   resolvePayrollConfig, periodBounds, payDateOf, periodsInYear,
   buildPayrollItem, summarizeRun,
 } = require("./hr-payroll");
+const { buildPayslipPdf } = require("./voucher-pdf");
 
 const REGION = "asia-southeast1";
 
@@ -368,7 +369,59 @@ function registerHrPayroll() {
     return { ok: true };
   });
 
+  // -------------------------------------------------------------------------
+  // adminHrPayrollPayslip — สลิปเงินเดือนของคนหนึ่งคนในงวดหนึ่ง
+  //
+  // **สร้างสดแล้วส่งกลับเป็น base64 ไม่เก็บลง Storage โดยตั้งใจ** — ไฟล์ใน
+  // Storage มี URL ที่ถือติดตัวไปได้ตลอด (capability URL) ซึ่งไม่เหมาะกับ
+  // เอกสารที่มีเงินเดือนอยู่ข้างใน ส่วนข้อมูลจริงถูกแช่อยู่ในรอบที่อนุมัติแล้ว
+  // การ render ซ้ำจึงได้เอกสารเหมือนเดิมเป๊ะโดยไม่ต้องมีไฟล์ลอยอยู่
+  //
+  // ออกสลิปของรอบที่ยังเป็นร่างได้ เพราะ HR ต้องตรวจก่อนอนุมัติ — แต่ติดป้าย
+  // บอกไว้ในชื่อไฟล์ว่าเป็นฉบับร่าง จะได้ไม่ถูกส่งให้พนักงานโดยเข้าใจผิด
+  // -------------------------------------------------------------------------
+  const adminHrPayrollPayslip = onCall({ region: REGION, memory: "512MiB" }, async (request) => {
+    const db = getDatabase();
+    await requireStaffRole(db, request.auth, HR_ROLES);
+    const data = request.data || {};
+    const key = String(data.period || "");
+    const employeeId = String(data.employeeId || "");
+    if (!/^\d{4}-\d{2}$/.test(key) || !employeeId) {
+      throw new HttpsError("invalid-argument", "ต้องระบุงวดและพนักงาน");
+    }
+
+    const [runSnap, itemSnap, empSnap, acctSnap] = await Promise.all([
+      db.ref(`payroll_runs/${key}`).once("value"),
+      db.ref(`payroll_items/${key}/${employeeId}`).once("value"),
+      db.ref(`employees/${employeeId}`).once("value"),
+      db.ref("settings/accounting/company").once("value"),
+    ]);
+    if (!runSnap.exists()) throw new HttpsError("not-found", "ยังไม่มีรอบของงวดนี้");
+    if (!itemSnap.exists()) throw new HttpsError("not-found", "ไม่พบพนักงานคนนี้ในรอบนี้");
+
+    const run = { id: key, ...runSnap.val() };
+    const item = itemSnap.val();
+    if (item.incomplete) {
+      throw new HttpsError("failed-precondition", `ยังกรอกข้อมูลไม่ครบ: ${item.incomplete}`);
+    }
+
+    const pdf = await buildPayslipPdf({
+      employee: empSnap.val() || {},
+      item, run,
+      company: acctSnap.val() || {},
+    });
+
+    const draftTag = run.status === "draft" ? "-ร่าง" : "";
+    console.log(`[hr-payroll] payslip ${key}/${employeeId} status=${run.status} bytes=${pdf.length}`);
+    return {
+      filename: `payslip-${key}-${item.employee_code || employeeId}${draftTag}.pdf`,
+      base64: pdf.toString("base64"),
+      draft: run.status === "draft",
+    };
+  });
+
   return {
+    adminHrPayrollPayslip,
     adminHrPayrollList,
     adminHrPayrollGet,
     adminHrPayrollDraft,
