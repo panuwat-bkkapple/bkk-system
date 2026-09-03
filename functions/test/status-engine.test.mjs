@@ -500,6 +500,75 @@ check("การขยายไม่ได้พาสิทธิ์จ่า�
   assert.equal(out.ok, false, "งานที่จ่ายเงินแล้วต้องถูกปฏิเสธ");
 });
 
+check("แอดมินกดออกเดินทางแทนไรเดอร์ที่ลืมกดได้", () => {
+  for (const status of ["Rider Accepted", "Rider Assigned", "Active Lead"]) {
+    const out = decideTransition({ job: job({ status }), event: "rider_departed", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Rider En Route");
+  }
+});
+
+check("ถอนงานออกจากคิวแย่งงานกลับไปขาขาย — คนละทางกับ rider_unassigned", () => {
+  // สองตัวนี้วิ่งสวนทางกัน ยุบรวมเมื่อไหร่ qc_logs จะเล่าเรื่องกลับหัว
+  const recall = decideTransition({ job: job({ status: "Active Lead" }), event: "broadcast_recalled", actor: ACTOR.ADMIN_STAFF });
+  assert.equal(recall.ok, true, recall.code);
+  assert.equal(recall.to, "Following Up");
+
+  const unassign = decideTransition({ job: job({ status: "Rider Accepted" }), event: "rider_unassigned", actor: ACTOR.ADMIN_STAFF });
+  assert.equal(unassign.to, "Active Lead");
+  assert.notEqual(recall.to, unassign.to);
+});
+
+check("broadcast_recalled ยิงได้เฉพาะจากคิว ไม่ใช่จากงานที่ไรเดอร์ถืออยู่", () => {
+  // ถ้ายิงจาก Rider Accepted ได้ มันจะกลายเป็นทางถอนงานที่ไม่ล้าง rider_id
+  // แล้วงานจะไปอยู่ Following Up โดยยังมีเจ้าของค้างอยู่
+  for (const status of ["Rider Accepted", "Rider En Route", "New Lead"]) {
+    const out = decideTransition({ job: job({ status }), event: "broadcast_recalled", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, false, `${status} ควรถูกปฏิเสธแต่ผ่าน`);
+    assert.equal(out.code, "illegal_from");
+  }
+});
+
+check("ย้อนสถานะที่กดผิดจากปลายทางขายกลับมา Pending QC ได้ทั้งสี่จุด", () => {
+  for (const status of ["Sold", "In Stock", "Ready To Sell", "Sent To QC Lab"]) {
+    const out = decideTransition({ job: job({ status }), event: "sale_reverted_to_qc", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Pending QC");
+  }
+});
+
+check("การย้อนกลับไม่พาไปเข้าคิวจ่ายเงินอีกรอบ", () => {
+  // งานที่ย้อนกลับมาจ่ายเงินไปแล้วทุกใบ — ด่านที่กันการจ่ายซ้ำอยู่ที่ปลายทาง
+  // อีกฝั่ง ไม่ใช่ที่ตัวย้อน. เทสนี้พิสูจน์ว่าด่านนั้นยังทำงานหลังย้อนแล้ว
+  const out = decideTransition({
+    job: job({ status: "Pending QC", paid_at: 1_700_000_000_000 }),
+    event: "payout_started",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "already_paid");
+});
+
+check("ไรเดอร์ย้อนสถานะการขายหรือถอนงานจากคิวไม่ได้", () => {
+  for (const event of ["broadcast_recalled", "sale_reverted_to_qc"]) {
+    const status = event === "broadcast_recalled" ? "Active Lead" : "Sold";
+    const out = decideTransition({ job: job({ status }), event, actor: ACTOR.RIDER });
+    assert.equal(out.ok, false, `${event} ควรปฏิเสธไรเดอร์แต่ผ่าน`);
+    assert.equal(out.code, "wrong_actor");
+  }
+});
+
+check("นัดหมายได้ทุกวิธีรับ รวม Mail-in", () => {
+  for (const method of ["Pickup", "Store-in", "Mail-in"]) {
+    const out = decideTransition({
+      job: job({ status: "New Lead", receive_method: method }),
+      event: "appointment_set",
+      actor: ACTOR.ADMIN_STAFF,
+    });
+    assert.equal(out.ok, true, `${method} ถูกปฏิเสธ: ${out.code}`);
+  }
+});
+
 check("from-list ของ event ที่ปุ่มแอดมินเรียก ถูกตรึงไว้ — ขยายต้องตั้งใจ", () => {
   // ค่าชุดนี้ถูกขยายรอบหนึ่งแล้ว (P2-i) ให้ตรงกับสถานะที่ปุ่มบน PricingSidebar
   // ไปถึงได้จริง — เจ้าของงานเคาะว่าคงพฤติกรรมเดิมไว้ ไม่ให้ปุ่มแอดมินพัง
@@ -516,6 +585,7 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
     inspection_started: [
       "Rider Arrived", "Drop-off Received", "Parcel Received", "Waiting Drop-off",
       "Appointment Set", "Rider Assigned", "Rider Accepted", "Rider En Route",
+      "Awaiting Shipping", "Parcel In Transit", "Active Lead",
     ],
     broadcast_to_riders: [
       "New Lead", "Following Up", "Appointment Set",
@@ -527,7 +597,21 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
       "Being Inspected", "Pending QC", "Discrepancy Reported",
     ],
     rider_return_arrived: ["Rider Returning", "Paid", "Waiting For Handover"],
-    sent_to_lab: ["Pending QC", "In Stock", "Paid", "Waiting For Handover"],
+    sent_to_lab: ["Pending QC", "In Stock", "Paid", "Waiting For Handover", "Rider Returning"],
+    // P2-j — ปุ่มบน MobileTicketDetail
+    rider_departed: ["Rider Accepted", "Rider Assigned", "Active Lead"],
+    parcel_received: [
+      "Parcel In Transit", "Appointment Set", "Waiting Drop-off",
+      "Awaiting Shipping", "Active Lead", "Rider En Route",
+    ],
+    offer_revised: ["QC Review", "Being Inspected", "Pending QC"],
+    intake_qc_passed: [
+      "Pending QC", "QC Review", "Sent To QC Lab",
+      "Paid", "Waiting For Handover", "Rider Returning",
+    ],
+    sold: ["Ready To Sell", "In Stock", "Pending QC"],
+    broadcast_recalled: ["Active Lead"],
+    sale_reverted_to_qc: ["Sold", "In Stock", "Ready To Sell", "Sent To QC Lab"],
   };
   for (const [event, from] of Object.entries(pinned)) {
     assert.deepEqual(TRANSITIONS[event].from, from, `from-list ของ ${event} เปลี่ยน`);
