@@ -17,7 +17,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
-  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2,
+  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2, Pencil,
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -30,6 +30,7 @@ interface Line { label: string; amount: number; taxable?: boolean; sso_wage?: bo
 interface WhtBasis {
   periods?: number; annual_income?: number; expenses?: number;
   allowances_total?: number; sso_allowance?: number; net_income?: number; annual_tax?: number;
+  occasional_income?: number; occasional_tax?: number;
   skipped?: boolean;
 }
 interface Item {
@@ -56,14 +57,18 @@ interface Item {
   bank_masked?: string | null;
   manual_earnings?: ManualLine[];
   manual_deductions?: ManualLine[];
+  wht_computed?: number;
+  wht_override?: WhtOverride | null;
+  occasional_income?: number;
 }
 interface Totals {
   headcount: number; gross: number; wht: number;
   sso_employee: number; sso_employer: number; net: number; incomplete: number;
   employer_cost?: number; transfer?: number; cash?: number;
 }
-interface Preset { id: string | null; label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean }
-interface ManualLine { label: string; amount: number; taxable?: boolean; sso_wage?: boolean }
+interface Preset { id: string | null; label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean; occasional?: boolean }
+interface ManualLine { label: string; amount: number; taxable?: boolean; sso_wage?: boolean; occasional?: boolean }
+interface WhtOverride { amount: number; reason: string; by_name?: string | null; at?: number | null }
 interface Run {
   id: string;
   period: string;
@@ -167,6 +172,7 @@ export const PayrollRuns = () => {
     days_worked?: string | number | null;
     extra_earnings?: ManualLine[];
     extra_deductions?: ManualLine[];
+    wht_override?: WhtOverride | null;
   }) => {
     if (!run) return;
     setBusy(true);
@@ -177,6 +183,7 @@ export const PayrollRuns = () => {
         days_worked: patch.days_worked !== undefined ? patch.days_worked : item.days_worked,
         extra_earnings: patch.extra_earnings ?? item.manual_earnings ?? [],
         extra_deductions: patch.extra_deductions ?? item.manual_deductions ?? [],
+        wht_override: patch.wht_override !== undefined ? patch.wht_override : (item.wht_override ?? null),
       });
       await loadRun(run.id);
     } catch (e) {
@@ -458,7 +465,22 @@ export const PayrollRuns = () => {
                           <p className="font-black text-gray-500">ที่มาของภาษีหัก ณ ที่จ่าย</p>
                           <p>ประมาณการเงินได้ทั้งปี {baht(item.wht_basis?.annual_income)} ({item.wht_basis?.periods} งวด)</p>
                           <p>หักค่าใช้จ่าย {baht(item.wht_basis?.expenses)} · หักค่าลดหย่อน {baht(item.wht_basis?.allowances_total)} (รวมประกันสังคม {baht(item.wht_basis?.sso_allowance)})</p>
-                          <p>เงินได้สุทธิ {baht(item.wht_basis?.net_income)} → ภาษีทั้งปี {baht(item.wht_basis?.annual_tax)} → ต่องวด {baht(item.wht)}</p>
+                          <p>
+                            เงินได้สุทธิ {baht(item.wht_basis?.net_income)} → ภาษีทั้งปี {baht(item.wht_basis?.annual_tax)} → ต่องวด {baht((item.wht_basis?.annual_tax || 0) / (item.wht_basis?.periods || 12))}
+                          </p>
+                          {(item.wht_basis?.occasional_income || 0) > 0 && (
+                            <p className="text-gray-700">
+                              + เงินได้ครั้งคราว {baht(item.wht_basis?.occasional_income)} → ภาษีส่วนเพิ่ม {baht(item.wht_basis?.occasional_tax)}
+                              <span className="text-gray-400"> (ไม่ถูกคูณจำนวนงวด เพราะไม่ได้จ่ายทุกเดือน)</span>
+                            </p>
+                          )}
+                          <p className="font-bold text-gray-700">รวมหักงวดนี้ {baht(item.wht)}</p>
+                          {item.wht_override && (
+                            <p className="text-rose-700 font-bold">
+                              แก้ด้วยมือ: ระบบคำนวณ {baht(item.wht_computed)} → ใช้ {baht(item.wht_override.amount)}
+                              {item.wht_override.by_name ? ` โดย ${item.wht_override.by_name}` : ''} · {item.wht_override.reason}
+                            </p>
+                          )}
                           <p className="text-gray-400">
                             ค่าจ้างที่ใช้คิดประกันสังคม {baht(item.sso_wage)} (ลูกจ้าง {baht(item.sso_employee)} / นายจ้าง {baht(item.sso_employer)})
                           </p>
@@ -496,7 +518,9 @@ const ManualLinesEditor = ({ item, presets, busy, onSave }: {
   item: Item;
   presets: Preset[];
   busy: boolean;
-  onSave: (item: Item, patch: { extra_earnings?: ManualLine[]; extra_deductions?: ManualLine[] }) => Promise<void>;
+  onSave: (item: Item, patch: {
+    extra_earnings?: ManualLine[]; extra_deductions?: ManualLine[]; wht_override?: WhtOverride | null;
+  }) => Promise<void>;
 }) => {
   const earnings = item.manual_earnings || [];
   const deductions = item.manual_deductions || [];
@@ -511,6 +535,7 @@ const ManualLinesEditor = ({ item, presets, busy, onSave }: {
       amount: 0,
       taxable: preset ? preset.taxable : true,
       sso_wage: preset ? preset.sso_wage : false,
+      occasional: preset ? Boolean(preset.occasional) : false,
     };
     void commit(kind, [...(kind === 'earning' ? earnings : deductions), row]);
   };
@@ -540,12 +565,20 @@ const ManualLinesEditor = ({ item, presets, busy, onSave }: {
                 }}
                 className="w-28 px-2 py-1.5 rounded-lg border border-gray-200 text-sm text-right" />
               {kind === 'earning' && (
-                <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
-                  <input type="checkbox" checked={row.sso_wage !== false} disabled={busy}
-                    onChange={(e) => void commit(kind, rows.map((r, idx) => (idx === i ? { ...r, sso_wage: e.target.checked } : r)))}
-                    className="w-3.5 h-3.5 rounded border-gray-300" />
-                  เข้าฐานประกันสังคม
-                </label>
+                <>
+                  <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <input type="checkbox" checked={row.sso_wage !== false} disabled={busy}
+                      onChange={(e) => void commit(kind, rows.map((r, idx) => (idx === i ? { ...r, sso_wage: e.target.checked } : r)))}
+                      className="w-3.5 h-3.5 rounded border-gray-300" />
+                    เข้าฐานประกันสังคม
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <input type="checkbox" checked={Boolean(row.occasional)} disabled={busy}
+                      onChange={(e) => void commit(kind, rows.map((r, idx) => (idx === i ? { ...r, occasional: e.target.checked } : r)))}
+                      className="w-3.5 h-3.5 rounded border-gray-300" />
+                    จ่ายเป็นครั้งคราว
+                  </label>
+                </>
               )}
               <button onClick={() => void commit(kind, rows.filter((_, idx) => idx !== i))} disabled={busy}
                 className="text-gray-300 hover:text-rose-500"><Trash2 size={15} /></button>
@@ -573,9 +606,74 @@ const ManualLinesEditor = ({ item, presets, busy, onSave }: {
       {block('earning')}
       {block('deduction')}
       <p className="md:col-span-2 text-[11px] text-gray-400">
-        รายการที่แก้ที่นี่ผูกกับรอบนี้เท่านั้น ไม่ติดไปเดือนหน้า ·
-        เงินเดือนกับเบี้ยเลี้ยงประจำแก้ที่แฟ้มพนักงาน ·
+        <b>จ่ายเป็นครั้งคราว</b> = ไม่ถูกคูณจำนวนงวดตอนประมาณการภาษีทั้งปี ใช้กับโบนัสหรือคอมมิชชั่นที่ไม่ได้ได้ทุกเดือน —
+        ไม่ติ๊กแล้วระบบจะเดาว่าได้เท่านี้ทั้งปี ทำให้หักภาษีเกินจริงในเดือนที่ได้ก้อนใหญ่ ·
+        รายการที่แก้ที่นี่ผูกกับรอบนี้เท่านั้น เงินเดือนกับเบี้ยเลี้ยงประจำแก้ที่แฟ้มพนักงาน ·
         ตั้งรายการที่ใช้บ่อยได้ที่หน้าตั้งค่าเงินเดือน/ภาษี
+      </p>
+      <WhtOverrideEditor item={item} busy={busy} onSave={onSave} />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// พิมพ์ทับยอดภาษีหัก ณ ที่จ่าย
+//
+// มีไว้สำหรับเคสที่บัญชีคิดด้วยวิธีอื่น (เช่น เงินได้ครั้งคราวที่ไม่เข้ารูปแบบ
+// ที่ระบบรองรับ) — **ต้องระบุเหตุผลทุกครั้ง** ตัวเลขภาษีที่ถูกแก้ด้วยมือโดยไม่มี
+// คำอธิบายคือสิ่งแรกที่ผู้ตรวจถามและไม่มีใครตอบได้ ผู้แก้ถูกบันทึกจาก auth token
+// ฝั่ง server ไม่ใช่จากที่หน้าจอส่งไป
+const WhtOverrideEditor = ({ item, busy, onSave }: {
+  item: Item;
+  busy: boolean;
+  onSave: (item: Item, patch: { wht_override?: WhtOverride | null }) => Promise<void>;
+}) => {
+  const [open, setOpen] = useState(Boolean(item.wht_override));
+  const [amount, setAmount] = useState(item.wht_override ? String(item.wht_override.amount) : '');
+  const [reason, setReason] = useState(item.wht_override?.reason || '');
+
+  if (!open) {
+    return (
+      <div className="md:col-span-2">
+        <button onClick={() => setOpen(true)} disabled={busy}
+          className="text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center gap-1">
+          <Pencil size={13} /> กรอกยอดภาษีเอง (ปกติไม่ต้อง — ระบบคำนวณให้แล้ว)
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="md:col-span-2 rounded-xl border border-rose-200 bg-rose-50/50 p-3 space-y-2">
+      <p className="text-xs font-bold text-rose-800">
+        กรอกยอดภาษีหัก ณ ที่จ่ายเอง — ระบบคำนวณไว้ {baht(item.wht_computed ?? item.wht)} บาท
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="number" value={amount} disabled={busy} placeholder="ยอดภาษี"
+          onChange={(e) => setAmount(e.target.value)}
+          className="w-32 px-2 py-1.5 rounded-lg border border-gray-200 text-sm text-right" />
+        <input value={reason} disabled={busy} placeholder="เหตุผล (บังคับ)"
+          onChange={(e) => setReason(e.target.value)}
+          className="flex-1 min-w-[12rem] px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        <button disabled={busy || !amount.trim() || !reason.trim()}
+          onClick={() => void onSave(item, { wht_override: { amount: Number(amount), reason: reason.trim() } })}
+          className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold disabled:opacity-40">
+          ใช้ยอดนี้
+        </button>
+        {item.wht_override && (
+          <button disabled={busy}
+            onClick={() => { setAmount(''); setReason(''); setOpen(false); void onSave(item, { wht_override: null }); }}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600">
+            กลับไปใช้ที่ระบบคำนวณ
+          </button>
+        )}
+        {!item.wht_override && (
+          <button disabled={busy} onClick={() => setOpen(false)}
+            className="text-xs font-bold text-gray-500">ยกเลิก</button>
+        )}
+      </div>
+      <p className="text-[11px] text-rose-700">
+        ยอดที่กรอกเองจะขึ้นบนสลิปว่า &quot;แก้ด้วยมือ&quot; พร้อมชื่อผู้แก้และเหตุผล และรอดจากการกดคำนวณรอบใหม่
       </p>
     </div>
   );

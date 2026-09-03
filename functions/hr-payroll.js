@@ -73,7 +73,7 @@ const DEFAULT_SSO = {
 const DEFAULT_ADJUSTMENT_PRESETS = [
   { id: "ot", label: "ค่าล่วงเวลา", kind: "earning", taxable: true, sso_wage: true },
   { id: "commission", label: "ค่าคอมมิชชั่น", kind: "earning", taxable: true, sso_wage: true },
-  { id: "bonus", label: "โบนัส", kind: "earning", taxable: true, sso_wage: false },
+  { id: "bonus", label: "โบนัส", kind: "earning", taxable: true, sso_wage: false, occasional: true },
   { id: "allowance", label: "เบี้ยขยัน", kind: "earning", taxable: true, sso_wage: true },
   { id: "absence", label: "หักขาด/ลา/มาสาย", kind: "deduction" },
   { id: "advance", label: "หักเงินเบิกล่วงหน้า", kind: "deduction" },
@@ -123,6 +123,7 @@ function resolvePayrollConfig(settings) {
           kind: String((r && r.kind) || "").toLowerCase() === "deduction" ? "deduction" : "earning",
           taxable: !(r && r.taxable === false),
           sso_wage: Boolean(r && r.sso_wage),
+          occasional: Boolean(r && r.occasional),
         }))
         .filter((r) => r.label)
     : DEFAULT_ADJUSTMENT_PRESETS.map((r) => ({ ...r }));
@@ -263,17 +264,34 @@ function progressiveTax(netIncome, brackets) {
 }
 
 // ── ภาษีหัก ณ ที่จ่ายต่องวด ────────────────────────────────────────────────
-function computeWithholding({ periodIncome, periods, ssoPerPeriod, allowances, tax }) {
+// เงินได้ที่จ่ายเป็นครั้งคราว (โบนัส คอมมิชชั่นที่ไม่สม่ำเสมอ) ต้องคิดแยก
+//
+// วิธีประมาณการทั้งปีสมมติว่ารายได้งวดนี้จะได้ทุกงวด — ถูกสำหรับเงินเดือน
+// แต่ผิดทันทีที่มีก้อนพิเศษ: คอมมิชชั่น 30,000 เดือนเดียวถูกคูณ 12 เป็น
+// 360,000 ทำให้หักภาษีเกินจริงหลายเท่า เงินไม่หายไปไหน (ได้คืนตอนยื่น ภ.ง.ด.91)
+// แต่เงินสดของลูกจ้างถูกกันไว้ข้ามปี
+//
+// วิธีที่ถูกกว่า: คิดภาษีจากรายได้ประจำอย่างเดียวก่อน แล้วบวก **ส่วนต่าง** ของ
+// ภาษีที่เกิดจากก้อนพิเศษเข้าไปเฉพาะงวดที่จ่ายจริง ไม่เฉลี่ยข้ามงวด
+//
+//   ภาษีงวดนี้ = ภาษีของรายได้ประจำทั้งปี / จำนวนงวด
+//              + (ภาษีเมื่อรวมก้อนพิเศษ - ภาษีของรายได้ประจำ)
+//
+// ก้อนพิเศษ = 0 → สูตรยุบเหลือแบบเดิมเป๊ะ ของเก่าจึงไม่เปลี่ยนพฤติกรรม
+function computeWithholding({ periodIncome, occasionalIncome, periods, ssoPerPeriod, allowances, tax }) {
   const cfg = tax || DEFAULT_TAX;
   if (cfg.enabled === false) {
     return { amount: 0, basis: { skipped: true } };
   }
   const n = Math.max(1, Math.round(num(periods, 12)));
   const annualIncome = round2(num(periodIncome, 0) * n);
-  const expenses = round2(Math.min(
-    (annualIncome * num(cfg.expense_rate_percent, DEFAULT_TAX.expense_rate_percent)) / 100,
+  const occasional = Math.max(0, round2(num(occasionalIncome, 0)));
+
+  const expensesOf = (income) => round2(Math.min(
+    (income * num(cfg.expense_rate_percent, DEFAULT_TAX.expense_rate_percent)) / 100,
     num(cfg.expense_cap, DEFAULT_TAX.expense_cap)
   ));
+  const expenses = expensesOf(annualIncome);
 
   const a = allowances && typeof allowances === "object" ? allowances : {};
   const ssoYear = Math.min(
@@ -291,8 +309,16 @@ function computeWithholding({ periodIncome, periods, ssoPerPeriod, allowances, t
 
   const netIncome = Math.max(0, round2(annualIncome - expenses - allowanceTotal));
   const annualTax = progressiveTax(netIncome, cfg.brackets);
+
+  // ค่าใช้จ่ายเหมาคิดใหม่บนฐานที่รวมก้อนพิเศษ เพราะเพดานอาจเพิ่งมาบีบตรงนี้
+  const annualWithOccasional = round2(annualIncome + occasional);
+  const expensesWith = expensesOf(annualWithOccasional);
+  const netWith = Math.max(0, round2(annualWithOccasional - expensesWith - allowanceTotal));
+  const taxWith = progressiveTax(netWith, cfg.brackets);
+  const occasionalTax = round2(Math.max(0, taxWith - annualTax));
+
   return {
-    amount: round2(annualTax / n),
+    amount: round2(annualTax / n + occasionalTax),
     basis: {
       periods: n,
       annual_income: annualIncome,
@@ -301,6 +327,10 @@ function computeWithholding({ periodIncome, periods, ssoPerPeriod, allowances, t
       sso_allowance: ssoYear,
       net_income: netIncome,
       annual_tax: annualTax,
+      // ส่วนของก้อนพิเศษ — เก็บแยกเพื่อให้สลิปกับหน้าจออธิบายได้ว่าเดือนนี้
+      // หักเยอะกว่าปกติเพราะอะไร
+      occasional_income: occasional,
+      occasional_tax: occasionalTax,
     },
   };
 }
@@ -372,28 +402,51 @@ function buildPayrollItem({ employee, priv, config, period, input }) {
       // รายการครั้งเดียว (โบนัส เบี้ยขยัน) ไม่ใช่ "ค่าจ้าง" โดยอัตโนมัติ
       // ต้องติ๊กเอง ถ้าจะให้เข้าฐานประกันสังคม
       sso_wage: Boolean(e && e.sso_wage),
+      // จ่ายเป็นครั้งคราว = ไม่ถูกคูณจำนวนงวดตอนประมาณการภาษี
+      occasional: Boolean(e && e.occasional),
     });
   }
 
   const gross = round2(earnings.reduce((s, e) => s + num(e.amount, 0), 0));
   const taxableIncome = round2(earnings.filter((e) => e.taxable).reduce((s, e) => s + num(e.amount, 0), 0));
   const ssoWage = round2(earnings.filter((e) => e.sso_wage).reduce((s, e) => s + num(e.amount, 0), 0));
+  // แยกเงินได้ครั้งคราวออกจากรายได้ประจำก่อนประมาณการทั้งปี
+  const occasionalIncome = round2(
+    earnings.filter((e) => e.taxable && e.occasional).reduce((s, e) => s + num(e.amount, 0), 0)
+  );
+  const regularIncome = round2(taxableIncome - occasionalIncome);
 
   const sso = computeSso(ssoWage, cfg.social_security);
   const wht = computeWithholding({
-    periodIncome: taxableIncome,
+    periodIncome: regularIncome,
+    occasionalIncome,
     periods: period.periods,
     ssoPerPeriod: sso.employee,
     allowances: p.tax || {},
     tax: cfg.income_tax,
   });
 
+  // การพิมพ์ทับยอดภาษี — ต้องเห็นทั้งเลขที่ระบบคิดและเลขที่คนแก้ พร้อมเหตุผล
+  //
+  // เก็บเลขที่ระบบคิดไว้เสมอ ไม่ใช่เขียนทับ: ตัวเลขที่ถูกแก้ด้วยมือบนรอบจ่ายเงิน
+  // คือสิ่งแรกที่ผู้ตรวจถาม และคำตอบ "ใครแก้ จากเท่าไรเป็นเท่าไร เพราะอะไร"
+  // ต้องอยู่ในแถวเดียวกับตัวเลข ไม่ใช่ในความจำของคน
+  const ov = inp.wht_override;
+  const overrideAmount = ov && ov.amount !== null && ov.amount !== undefined && ov.amount !== ""
+    ? Math.max(0, round2(num(ov.amount, 0)))
+    : null;
+  const whtFinal = overrideAmount == null ? wht.amount : overrideAmount;
+
   const deductions = [];
   if (sso.employee > 0) {
     deductions.push({ label: "ประกันสังคม", amount: sso.employee, type: "sso" });
   }
-  if (wht.amount > 0) {
-    deductions.push({ label: "ภาษีหัก ณ ที่จ่าย", amount: wht.amount, type: "wht" });
+  if (whtFinal > 0) {
+    deductions.push({
+      label: overrideAmount == null ? "ภาษีหัก ณ ที่จ่าย" : "ภาษีหัก ณ ที่จ่าย (แก้ด้วยมือ)",
+      amount: whtFinal,
+      type: "wht",
+    });
   }
   for (const d of Array.isArray(inp.extra_deductions) ? inp.extra_deductions : []) {
     deductions.push({
@@ -428,8 +481,17 @@ function buildPayrollItem({ employee, priv, config, period, input }) {
     sso_wage: ssoWage,
     sso_employee: sso.employee,
     sso_employer: sso.employer,
-    wht: wht.amount,
+    wht: whtFinal,
     wht_basis: wht.basis,
+    wht_computed: wht.amount,
+    wht_override: overrideAmount == null ? null : {
+      amount: overrideAmount,
+      reason: String((ov && ov.reason) || "").slice(0, 300) || null,
+      by_name: (ov && ov.by_name) || null,
+      by_staff_id: (ov && ov.by_staff_id) || null,
+      at: num(ov && ov.at, 0) || null,
+    },
+    occasional_income: occasionalIncome,
     net: round2(gross - deductTotal),
     days_worked: inp.days_worked == null ? null : num(inp.days_worked, 0),
     note: String(inp.note || "").slice(0, 300) || null,
