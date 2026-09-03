@@ -347,8 +347,14 @@
 - **read rule ของ `wht_certificates` อยู่ที่ `bkk-frontend-next/database.rules.json`** (admin read, write ปิด) — **ต้อง deploy rules จาก repo นั้น**
 - **แอปไรเดอร์ต้องขึ้นพร้อมกัน** — `WithdrawModal` แสดง "ขอถอน / หัก / ได้รับจริง" ก่อนกดยืนยัน ถ้าเปิดสวิตช์โดยแอปยังไม่แก้ ไรเดอร์จะรู้ตอนเงินเข้าแล้วว่าได้ไม่ครบ
 
-## หมวดแถวกระเป๋าไรเดอร์ (/transactions.category) — MIRROR 2 ที่
-- **allowlist เดียวที่นับเข้ากระเป๋า** อยู่ที่ `bkk-rider-app/src/utils/walletLedger.ts` (`RIDER_WALLET_CATEGORIES` + ป้ายไทย) ↔ union ใน `src/utils/transactionLogger.ts` ของ repo นี้ — **เพิ่มหมวดต้องแก้ทั้งคู่** ไม่งั้นแถวที่เขียนได้จะไม่ถูกนับใน balance บนจอไรเดอร์ (หมวดนอก allowlist ถูกข้ามโดยตั้งใจ — ดูหัวไฟล์ walletLedger)
+## หมวดแถวกระเป๋าไรเดอร์ (/transactions.category) — MIRROR **3 ที่** (บรรทัดนี้เคยเขียนว่า 2 และนั่นทำให้หลุดจริง)
+- **สามสำเนา ต้องแก้ให้ครบทุกครั้ง:**
+  1. `bkk-rider-app/src/utils/walletLedger.ts` — `RIDER_WALLET_CATEGORIES` + ป้ายไทยของจอ
+  2. `bkk-rider-app/functions/src/index.ts` — สำเนาใน `riderRequestWithdraw` ที่ใช้คำนวณ **"ยอดถอนได้"**
+  3. `src/utils/transactionLogger.ts` ของ repo นี้ — union ของ `category`
+- **หลุดมาแล้วจริงหนึ่งรอบ:** `ADJUSTMENT` (#125) ถูกเพิ่มที่ (1) กับ (3) แต่**ลืม (2)** ผลคือกระเป๋าบนจอไรเดอร์รวมแถว ADJUSTMENT แล้ว แต่ยอดที่ถอนได้ไม่นับมัน — ตัวเลขสองตัวบนจอเดียวกันไม่ตรงกัน **โดยไม่มี error ที่ไหนบอก** และไม่มีเทสไหนจับได้จนกระทั่งมาอ่านโค้ดตอนทำระบบเบิกค่าใช้จ่าย (ก.ย. 2569) — ปิดไปแล้วพร้อมกับการเพิ่ม `EXPENSE_REIMBURSEMENT`
+- **ด่านที่กันไม่ให้หลุดอีก:** `bkk-rider-app/src/utils/walletCategoryParity.test.ts` เทียบทั้งสามสำเนาจาก**ข้อความจริงในไฟล์** (import ตัว functions ไม่ได้เพราะมันเรียก `initializeApp` ตอนโหลด) — สำเนาที่สามอยู่คนละรีโป ไม่ได้ checkout ไว้ = ข้าม ไม่ใช่แดง (แบบเดียวกับ `mirror-parity.mjs`)
+- **หมวดนอก allowlist ถูกข้ามโดยตั้งใจ** — ดูหัวไฟล์ walletLedger (แถวฝั่งบริษัทที่ติด rider_id เคยทำให้ยอดบวม)
 - **`ADJUSTMENT` = แก้ยอดที่คิดผิด ไม่ใช่ `PENALTY` และไม่ใช่ `JOB_PAYOUT`** — ใช้ทั้งสองทิศ (CREDIT/DEBIT) ที่ `functions/pin-dispute.js` (`settlementDelta`) กับ `scripts/revert-pin-dispute.cjs`. เดิมทิศลบเป็น `PENALTY` ซึ่งขึ้นบนกระเป๋าว่า **"รายการหัก"** ทั้งที่ไม่มีใครทำผิด (เคสจริง 1 ก.ย. 2569 งาน OID-MTHBWFJJ-384 — หมุดลูกค้าถูกอยู่แล้ว แต่ไรเดอร์กดสามสถานะรวดตอนขากลับ ค่ารอบเลยถูกคิดใหม่จากจุดเช็คอิน แล้วต้องย้อนคืน)
 - **หมวดเก่าห้ามถอดออกจาก allowlist** — `PENALTY`/`JOB_PAYOUT` ยังอยู่ทั้งคู่ ถอดเมื่อไหร่แถวเก่าที่ยังอ้างมันหลุดจาก balance เงียบๆ
 - **แถวเก่าที่ติดป้ายผิด แก้ป้ายได้ แต่ต้องทิ้งร่องรอย** — `scripts/relabel-pin-dispute-tx.cjs <jobId>` (dry-run เป็นค่าเริ่มต้น) แก้เฉพาะ `category` ของแถวที่ `pin_dispute` ชี้ (`delta_tx_id`/`revert_tx_id`) แล้วเขียน `category_was` + `category_corrected_at` + `category_correction_reason` ไว้ด้วยเสมอ
