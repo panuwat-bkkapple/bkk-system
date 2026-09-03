@@ -23,9 +23,7 @@ import type { AmountDirection } from '@/utils/signedAmount';
 import { SignedAmountInput } from '@/components/SignedAmountInput';
 
 interface PricingSidebarHandlers {
-  /** ตัวเขียนแบบเดิม (ไคลเอนต์เลือกสถานะเอง) — เหลือไว้ให้ปุ่มที่ยังย้ายไม่ได้ */
-  handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
-  /** ตัวเขียนใหม่: ส่ง event ให้ status engine ตัดสินปลายทาง */
+  /** ส่ง event ให้ status engine ตัดสินปลายทาง — ตัวเดียวที่เปลี่ยนสถานะงานได้ */
   handleTransition: (event: JobEvent, reason: string) => Promise<void>;
   handleCallCustomer: () => Promise<void>;
   handleReviseOffer: () => Promise<void>;
@@ -171,7 +169,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   job, handlers, couponState, pricing, currentUserName, currentUserRole
 }) => {
   const {
-    handleUpdateStatus, handleTransition, handleCallCustomer, handleReviseOffer,
+    handleTransition, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
     handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
     setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId,
@@ -782,9 +780,10 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             <button
               onClick={() => {
                 // Pickup: broadcast to riders. Works from any pre-rider
-                // status (New Lead, Following Up, Appointment Set) so
-                // admin can dispatch as soon as they're ready.
-                handleUpdateStatus(JOB_STATUS.ACTIVE_LEAD, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
+                // status so admin can dispatch as soon as they're ready —
+                // รวมงานที่อยู่ในคิวอยู่แล้ว (re-broadcast) และงานที่เพิ่ง
+                // เปลี่ยนวิธีรับมาเป็น Pickup แล้วค้างอยู่ที่สถานะของวิธีเดิม
+                handleTransition(JOB_EVENT.BROADCAST_TO_RIDERS, 'ส่งงานให้พนักงานเข้ารับเครื่อง');
               }}
               className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
@@ -1018,14 +1017,14 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
             </div>
             {statusLower !== 'arrived' && statusLower !== 'rider arrived' && (
               <button
-                onClick={() => handleUpdateStatus(JOB_STATUS.RIDER_ARRIVED, 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
+                onClick={() => handleTransition(JOB_EVENT.RIDER_ARRIVED, 'ไรเดอร์ถึงจุดนัดหมายแล้ว')}
                 className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
                 <Truck size={16} /> ไรเดอร์ถึงแล้ว (Mark Arrived)
               </button>
             )}
             <button
-              onClick={() => handleUpdateStatus('Being Inspected', 'เริ่มตรวจสอบสภาพเครื่อง')}
+              onClick={() => handleTransition(JOB_EVENT.INSPECTION_STARTED, 'เริ่มตรวจสอบสภาพเครื่อง')}
               className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
               <ListChecks size={16} /> เริ่มตรวจสภาพเครื่อง (Start QC)
@@ -1038,7 +1037,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           <div className="space-y-3 mt-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Store size={14} /> Store Operations</p>
             <button
-              onClick={() => handleUpdateStatus('Being Inspected', 'ลูกค้ามาถึงสาขา แอดมินเริ่มประเมินสภาพเครื่อง')}
+              onClick={() => handleTransition(JOB_EVENT.INSPECTION_STARTED, 'ลูกค้ามาถึงสาขา แอดมินเริ่มประเมินสภาพเครื่อง')}
               className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
               <Store size={18} /> ลูกค้ามาถึงสาขา + เริ่มตรวจสภาพ
@@ -1082,7 +1081,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               </div>
             </div>
 
-            <button onClick={() => handleUpdateStatus('Payout Processing', 'Approve Order')} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex justify-center items-center gap-2 mt-4">
+            <button onClick={() => handleTransition(JOB_EVENT.PAYOUT_STARTED, 'Approve Order')} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all active:scale-95 flex justify-center items-center gap-2 mt-4">
               <CheckCircle2 size={16} /> สภาพผ่านเกณฑ์ (Approve)
             </button>
           </div>
@@ -1123,7 +1122,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
                   รอไรเดอร์เดินทางกลับและส่งมอบเครื่องที่สาขา ระบบจะคำนวณค่าวิ่งให้ไรเดอร์ตอนรับเข้า (Pending QC) — ยังส่งเข้า QC Lab ไม่ได้จนกว่าจะรับเครื่องจริง
                 </p>
               </div>
-              <button onClick={() => handleUpdateStatus('Pending QC', 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา')} className="w-full flex items-center justify-between p-4 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all font-black text-xs uppercase tracking-widest">
+              <button onClick={() => handleTransition(JOB_EVENT.RIDER_RETURN_ARRIVED, 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา')} className="w-full flex items-center justify-between p-4 bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all font-black text-xs uppercase tracking-widest">
                 <span>ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)</span><PackageOpen size={18} />
               </button>
             </div>
@@ -1133,7 +1132,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               <button onClick={() => setIsQCModalOpen(true)} className="w-full flex items-center justify-between p-4 bg-blue-50 text-blue-700 rounded-2xl border border-blue-100 hover:bg-blue-100 transition-all font-black text-xs uppercase">
                 <span>ตรวจสอบเครื่อง (Internal QC)</span><ListChecks size={18} />
               </button>
-              <button onClick={() => handleUpdateStatus('Sent to QC Lab', 'รับมอบเครื่องและส่งเข้าห้องแล็บ')} className="w-full flex items-center justify-between p-4 bg-purple-600 text-white rounded-2xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all font-black text-xs uppercase tracking-widest">
+              <button onClick={() => handleTransition(JOB_EVENT.SENT_TO_LAB, 'รับมอบเครื่องและส่งเข้าห้องแล็บ')} className="w-full flex items-center justify-between p-4 bg-purple-600 text-white rounded-2xl shadow-lg shadow-purple-200 hover:bg-purple-700 transition-all font-black text-xs uppercase tracking-widest">
                 <span>Send to QC LAB (ส่งเข้าแล็บ)</span><ShieldCheck size={18} />
               </button>
             </div>

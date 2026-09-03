@@ -22,14 +22,14 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * 113 = ตัวเลขตอนเริ่ม P2-h · ลดได้ ขึ้นไม่ได้
+ * 112 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
  *
- * P2-h ย้าย 3 ใน 10 **จุดที่เรียก** `handleUpdateStatus` ไปเป็น event แต่เลขนี้
- * ไม่ขยับ เพราะตัวเขียนตรงคือ `handleUpdateStatus` เองซึ่งนับเป็น 1 จุด — มันจะ
- * หายไปตอนผู้เรียกครบทั้ง 10 ย้ายเสร็จ **ตัวเลขที่นิ่งจึงไม่ใช่สัญญาณว่าไม่มี
- * ความคืบหน้า** และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง
+ * P2-i ย้ายผู้เรียก `handleUpdateStatus` ครบทั้ง 10 จุด แล้วลบตัวฟังก์ชันทิ้ง
+ * ซึ่งเป็นตอนที่เลขขยับจริง — P2-h ย้ายไป 3 จุดแต่เลขไม่ขยับเพราะตัวเขียนตรง
+ * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
+ * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 113;
+const MAX_DIRECT_JOB_WRITES = 112;
 
 const SRC = resolve(__dirname, '..');
 
@@ -73,8 +73,8 @@ describe('สำมะโนการเขียนโหนดงานตร�
     expect(perFile.find(([f]) => f.endsWith('DispatcherPage.tsx'))).toBeUndefined();
   });
 
-  it('PricingSidebar เหลือเรียก handleUpdateStatus 7 จุด — 3 จุดย้ายเป็น event แล้ว', () => {
-    // ด่านนี้เพิ่มเข้ามาเพราะ injection รอบแรกเขียว: ย้อนปุ่มกลับไปเป็น
+  it('PricingSidebar ไม่เหลือ handleUpdateStatus เลย และยิง event 10 จุด', () => {
+    // ด่านนี้เพิ่มเข้ามาเพราะ injection รอบก่อนเขียว: ย้อนปุ่มกลับไปเป็น
     // handleUpdateStatus แล้วไม่มีเทสไหนรู้สึกอะไรเลย — ด่านที่ไปไม่ถึง
     //
     // นับจำนวนผู้เรียก ไม่ใช่เช็คว่า "มี handleTransition อยู่ไหม" เพราะแบบหลัง
@@ -82,14 +82,15 @@ describe('สำมะโนการเขียนโหนดงานตร�
     const sidebar = readFileSync(
       resolve(SRC, 'pages/admin/components/PricingSidebar.tsx'), 'utf8',
     );
-    const legacy = sidebar.match(/handleUpdateStatus\(/g) || [];
-    // +1 = การ destructure ออกจาก props ไม่ใช่การเรียก
-    expect(legacy.length).toBe(7);
+    expect(sidebar).not.toContain('handleUpdateStatus');
+    expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
+  });
 
-    // สามปลายทางนี้ต้องไม่ถูกไคลเอนต์เลือกเองอีก
-    for (const gone of ["handleUpdateStatus('Pending QC', 'เปิดพัสดุ", "handleUpdateStatus('Drop-off Received'", "handleUpdateStatus('Being Inspected', 'เริ่มประเมินสภาพเครื่องที่รับไว้แล้ว'"]) {
-      expect(sidebar).not.toContain(gone);
-    }
+  it('B2CWorkspacePage ไม่มีตัวเขียนสถานะแบบไคลเอนต์เลือกปลายทางเหลืออยู่', () => {
+    // ตัวฟังก์ชันถูกลบ ไม่ใช่แค่ไม่มีคนเรียก — ฟังก์ชันที่ยังอยู่คือฟังก์ชันที่
+    // PR หน้าจะหยิบมาใช้เพราะมันสะดวกกว่าการหา event ที่ถูก
+    const page = readFileSync(resolve(SRC, 'pages/admin/B2CWorkspacePage.tsx'), 'utf8');
+    expect(page).not.toContain('const handleUpdateStatus');
   });
 
   it('ยังนับเจอกองใหญ่ — ตัวนับที่นับไม่เจออะไรเลยจะเขียวเสมอ', () => {
