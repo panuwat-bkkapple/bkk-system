@@ -6790,6 +6790,15 @@ Object.assign(exports, require("./email-templates-admin").registerEmailTemplateA
 Object.assign(exports, require("./search-analytics").registerSearchAnalytics());
 
 // =============================================================================
+// ทะเบียนพนักงาน (HR) — เฟส P1 ของ docs/hr-system-design.md
+// อ่าน/เขียนผ่าน callable เท่านั้น เพราะ employees / employees_private /
+// employee_events ยังไม่มี rule เป็นของตัวเอง จึงตกกฎ root .read/.write:false
+// (ถูกต้องแล้วสำหรับโหนดที่มีเลขบัตรประชาชนและเงินเดือน — rules สำหรับ
+// self-service เป็นงานของ P2 ตอนที่พอร์ทัลต้องอ่าน realtime)
+// =============================================================================
+Object.assign(exports, require("./hr").registerHr());
+
+// =============================================================================
 // Ops Dashboard (/ops) — หลอดงบวัน + สุขภาพคำตอบ + cache/latency + สถานะ flag
 // ในหน้าเดียว (CEO/MANAGER). อ่านจาก chat_ai_usage + search_overview_archive
 // + settings ที่มีอยู่แล้วเท่านั้น — logic อยู่ ops-dashboard.js ซึ่งเป็น

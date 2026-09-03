@@ -29,13 +29,15 @@ import {
 /** พอสำหรับคำถามเดียวที่ถูกถาม: แถวนี้ปิดบัญชีไปแล้วหรือยัง */
 type Terminatable = { terminated_at?: number | null } | null | undefined;
 
-// Role ทั้ง 4 ค่านี้คือชุดเดียวที่ route guard ทั้งระบบรู้จัก (App.tsx,
+// Role ทั้ง 5 ค่านี้คือชุดเดียวที่ route guard ทั้งระบบรู้จัก (App.tsx,
 // AdminLayout, settingsNav, canReviewAdjustments, functions/staffIdsByRoles)
+// และต้องตรงกับ VALID_ROLES ใน functions/staff-accounts.js
 const ROLES = [
   { id: 'CEO', label: 'CEO / Owner', desc: 'เข้าถึงได้ทุกระบบ รวมจัดการพนักงาน ตั้งค่าระบบส่วนกลาง วิเคราะห์กำไร และอนุมัติ Offer', color: 'bg-purple-100 text-purple-700 border-purple-200' },
   { id: 'MANAGER', label: 'Manager (ผู้จัดการ)', desc: 'เกือบทุกระบบ: Tickets, สต็อก, CRM, Analytics, Catalog, คูปอง และอนุมัติ Offer — ยกเว้นจัดการพนักงาน ตั้งค่าส่วนกลาง และรายงานการเงิน/ภาษี', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   { id: 'STAFF', label: 'Staff (พนักงานทั่วไป)', desc: 'งานปฏิบัติการพื้นฐาน: Tickets, QC Lab, คลังสินค้า, POS, ประวัติการขาย — เสนอ Offer ได้แต่ต้องรอ CEO/Manager อนุมัติ', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
   { id: 'FINANCE', label: 'Finance (บัญชี/การเงิน)', desc: 'ระบบบัญชีและการเงิน: Finance, เบิกจ่าย, P&L, ภ.พ.30, สมุดรายวัน, ตั้งค่าระบบบัญชี และงานพื้นฐาน', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+  { id: 'HR', label: 'HR (ฝ่ายบุคคล)', desc: 'ทะเบียนพนักงาน ข้อมูลการจ้าง และเงินเดือน — เข้าได้เฉพาะหน้าของฝ่ายบุคคล ไม่เห็นงานรับซื้อ คลัง หรือลูกค้า', color: 'bg-rose-100 text-rose-700 border-rose-200' },
 ];
 
 const VALID_ROLE_IDS = ROLES.map(r => r.id);

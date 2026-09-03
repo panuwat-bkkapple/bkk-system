@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Outlet } from 'react-router-dom';
+import { useNavigate, Outlet, useLocation, Navigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, LogOut, ClipboardCheck,
   BarChart3, TrendingUp, Banknote, Settings,
@@ -17,6 +17,7 @@ import { NotificationCenter } from './NotificationCenter';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 import { useNewTicketAlert } from '../../hooks/useNewTicketAlert';
 import { useToast } from '../ui/ToastProvider';
+import { hrScopeRedirect, isHrRole } from '../../utils/hrScope';
 
 interface AdminLayoutProps {
   currentUser: any;
@@ -26,6 +27,7 @@ interface AdminLayoutProps {
 export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const [pendingReviews, setPendingReviews] = useState(0);
   const [unreadInbox, setUnreadInbox] = useState(0);
@@ -131,6 +133,17 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
     return () => unsub();
   }, []);
 
+  // role HR มีขอบเขตแคบที่สุดในระบบ: หน้าของฝ่ายบุคคลเท่านั้น ไม่ใช่
+  // "STAFF + หน้า HR" — route ในแอดมิน 28 เส้นทางไม่มี guard เลย ค่าเริ่มต้น
+  // จึงเป็น "ล็อกอินแล้วเข้าได้" ซึ่งจะแถมฐานข้อมูลลูกค้าให้ฝ่ายบุคคลฟรีๆ
+  //
+  // **นี่คือด่านระดับ UX ไม่ใช่ขอบเขตความปลอดภัย** — database rules ยังให้
+  // สิทธิ์ตาม /admins/{uid} แบบเหมารวม การแยกสิทธิ์ระดับฐานข้อมูลตาม role
+  // เป็นงานของพอร์ทัล HR แยกโดเมน (P2) ดู src/utils/hrScope.ts
+  const hrRedirect = hrScopeRedirect(currentUser?.role, location.pathname);
+  if (hrRedirect) return <Navigate to={hrRedirect} replace />;
+  const hrOnly = isHrRole(currentUser?.role);
+
   return (
     <div className="min-h-screen bg-[#F5F5F7] flex transition-all duration-300">
       <aside className={`${isCollapsed ? 'w-20' : 'w-72'} bg-white border-r flex flex-col fixed h-full z-20 shadow-sm transition-all duration-300 ease-in-out`}>
@@ -145,6 +158,20 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
         </div>
 
         <nav className="p-4 space-y-6 flex-1 overflow-y-auto no-scrollbar pb-20 overflow-x-hidden">
+          {/* ฝ่ายบุคคล — HR เห็นกลุ่มนี้กลุ่มเดียว ส่วน CEO เห็นคู่กับทุกอย่าง */}
+          {(hrOnly || hasAccess(['CEO'])) && (
+            <div>
+              {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">ฝ่ายบุคคล (HR)</p>}
+              <div className="space-y-1">
+                <NavButton collapsed={isCollapsed} to="/employees" icon={<Users size={18} />} label="ทะเบียนพนักงาน" />
+              </div>
+            </div>
+          )}
+
+          {/* ทุกกลุ่มที่เหลือเป็นงานปฏิบัติการ ไม่ใช่งานของฝ่ายบุคคล —
+              รวม Terminal Apps (POS / Dispatcher) ที่ไม่มี guard ของตัวเอง */}
+          {!hrOnly && (
+          <>
           {/* Trade-In */}
           <div>
             {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">Trade-In</p>}
@@ -246,6 +273,9 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               </button>
             </div>
           </div>
+
+          </>
+          )}
 
           {/* Settings — เมนูตั้งค่าทั้งหมดยุบเข้า hub /settings (จัดกลุ่ม
               Company / Basic / Advanced ใน SettingsLayout) เหลือทางลัด
