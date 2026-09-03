@@ -121,8 +121,16 @@ const TRANSITIONS = {
     actors: [ACTOR.ADMIN_STAFF],
     methods: [RECEIVE_METHOD.MAIL_IN],
   },
+  // from-list กว้างกว่าสเปกเดิมเพราะปุ่ม "ส่งงานให้พนักงานเข้ารับเครื่อง" บน
+  // PricingSidebar ขึ้นทั้งกลุ่ม `isNew` — ACTIVE_LEAD คือการ re-broadcast ซ้ำ
+  // (idempotent) ส่วน WAITING_DROP_OFF/AWAITING_SHIPPING คืองานที่แอดมิน
+  // เปลี่ยนวิธีรับจาก Store-in/Mail-in มาเป็น Pickup ทีหลัง (`canChangeReceiveMethod`
+  // เปิดทางนั้นไว้จริง) แถวนั้นค้างอยู่ที่สถานะของวิธีเดิม
   broadcast_to_riders: {
-    from: [S.NEW_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET],
+    from: [
+      S.NEW_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET,
+      S.ACTIVE_LEAD, S.WAITING_DROP_OFF, S.AWAITING_SHIPPING,
+    ],
     to: S.ACTIVE_LEAD,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
@@ -154,8 +162,12 @@ const TRANSITIONS = {
     custody: "=",
     actors: [ACTOR.RIDER],
   },
+  // RIDER_ASSIGNED/RIDER_ACCEPTED คือ manual override ของแอดมิน ไม่ใช่ช่องโหว่:
+  // ปุ่ม "ไรเดอร์ถึงแล้ว (Mark Arrived)" ขึ้นทั้งกลุ่ม logistics เพราะไรเดอร์
+  // ลืมกดปุ่มระหว่างทางเป็นเรื่องปกติ แล้วแอดมินแก้ให้จากหน้าจอ. ตัดออกเมื่อไหร่
+  // งานที่ไรเดอร์ลืมกดจะเดินต่อไม่ได้เลยและไม่มีทางแก้จากที่ไหน
   rider_arrived: {
-    from: [S.RIDER_EN_ROUTE],
+    from: [S.RIDER_EN_ROUTE, S.RIDER_ASSIGNED, S.RIDER_ACCEPTED],
     to: S.RIDER_ARRIVED,
     custody: "=",
     actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
@@ -250,8 +262,18 @@ const TRANSITIONS = {
   },
 
   // Phase 4: inspection ------------------------------------------------------
+  // สามสถานะไรเดอร์ที่เพิ่มเข้ามา (ASSIGNED/ACCEPTED/EN_ROUTE) มาจากปุ่ม "เริ่ม
+  // ตรวจสภาพเครื่อง (Start QC)" ที่ขึ้นทั้งกลุ่ม logistics — เงื่อนไขปุ่มหลวม
+  // กว่าที่ควร (เริ่มตรวจก่อนไรเดอร์ถึงบ้านลูกค้าไม่มีความหมาย) แต่วันนี้ยอมให้
+  // ทำ และการปิดที่ engine จะทำให้ปุ่มพังโดยที่ไม่มีใครแก้เงื่อนไขปุ่ม
+  // **ที่ควรแก้คือเงื่อนไขปุ่ม ไม่ใช่ from-list — ทำแยกใบเมื่อเจ้าของงานเคาะ**
+  //
+  // APPOINTMENT_SET มาจากปุ่ม "ลูกค้ามาถึงสาขา" ของ Store-in ซึ่งถูกต้องตรงไปตรงมา
   inspection_started: {
-    from: [S.RIDER_ARRIVED, S.DROP_OFF_RECEIVED, S.PARCEL_RECEIVED, S.WAITING_DROP_OFF],
+    from: [
+      S.RIDER_ARRIVED, S.DROP_OFF_RECEIVED, S.PARCEL_RECEIVED, S.WAITING_DROP_OFF,
+      S.APPOINTMENT_SET, S.RIDER_ASSIGNED, S.RIDER_ACCEPTED, S.RIDER_EN_ROUTE,
+    ],
     to: S.BEING_INSPECTED,
     custody: CUSTODY_BY_METHOD,
     actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
@@ -317,11 +339,30 @@ const TRANSITIONS = {
   },
 
   // Phase 5: payout ----------------------------------------------------------
+  // **การขยายที่หนักที่สุดในชุดนี้ และเจ้าของงานเคาะแล้วว่าคงพฤติกรรมเดิม**
+  //
+  // ปุ่ม "สภาพผ่านเกณฑ์ (Approve)" ขึ้นทั้งกลุ่ม `isQC` = Being Inspected,
+  // Pending QC, QC Review, Discrepancy Reported แปลว่าวันนี้แอดมินอนุมัติจ่ายเงิน
+  // จาก Being Inspected ได้โดย**ข้ามขั้น QC Review** ซึ่งเป็นของจริงในร้าน:
+  // Store-in/Mail-in แอดมินตรวจแล้วอนุมัติในนั่งเดียว ไม่มีขั้นรีวิวคั่น
+  //
+  // ที่ตัดสินใจแบบนี้เพราะปิดที่ engine = ปุ่มจ่ายเงินพังทั้งสาย Store-in/Mail-in
+  // ส่วนด่านที่ยังกันอยู่จริงคือ `!hasBeenPaid` ที่เงื่อนไขปุ่ม + blockedWhenPaid
+  // ของ event ปลายทาง ไม่ใช่ from-list ตัวนี้
   payout_started: {
-    from: [S.PRICE_ACCEPTED, S.QC_REVIEW, S.NEGOTIATION, S.REVISED_OFFER],
+    from: [
+      S.PRICE_ACCEPTED, S.QC_REVIEW, S.NEGOTIATION, S.REVISED_OFFER,
+      S.BEING_INSPECTED, S.PENDING_QC, S.DISCREPANCY_REPORTED,
+    ],
     to: S.PAYOUT_PROCESSING,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF, ACTOR.FINANCE],
+    // **จำเป็นเพราะการขยาย from-list ข้างบน ไม่ใช่ของแถม** — PENDING_QC เป็น
+    // สถานะ *หลังจ่ายเงิน* ของสาย Pickup (ไรเดอร์ส่งมอบเครื่องที่สาขา) การรับ
+    // สถานะนั้นเข้ามาโดยไม่มีด่านนี้ = ดันงานที่จ่ายเงินไปแล้วกลับเข้าคิวจ่ายเงิน
+    // ได้อีกรอบ ซึ่งคือการจ่ายซ้ำ. เงื่อนไขปุ่มมี `!hasBeenPaid` อยู่แล้วแต่
+    // engine ห้ามพึ่ง UI — เทสที่จับเรื่องนี้ได้คือตัวที่เขียนหลังขยายเสร็จ
+    blockedWhenPaid: true,
   },
   // The one event that stamps paid_at. Everything downstream reads that field
   // instead of guessing from the status or scanning qc_logs.
@@ -360,8 +401,12 @@ const TRANSITIONS = {
   // Entering Pending QC is what pays the rider (onJobHandedOverCalcRiderFee).
   // That side effect is keyed to the status value today; the registry moves it
   // to this event so a rename cannot silently stop paying riders.
+  // PAID/WAITING_FOR_HANDOVER = แอดมินกดยืนยันรับมอบแทนไรเดอร์ที่ไม่ได้กด
+  // "เดินทางกลับ" (ปุ่มบน PricingSidebar ขึ้นตั้งแต่งานจ่ายเงินแล้วและยังไม่ถึง
+  // Pending QC) — ขั้นนี้เป็นตัวที่ทำให้ `onJobHandedOverCalcRiderFee` คำนวณ
+  // ค่าวิ่ง ปิดทางนี้ = ไรเดอร์ไม่ได้เงินค่ารอบเมื่อลืมกดปุ่มเดียว
   rider_return_arrived: {
-    from: [S.RIDER_RETURNING],
+    from: [S.RIDER_RETURNING, S.PAID, S.WAITING_FOR_HANDOVER],
     to: S.PENDING_QC,
     custody: CUSTODY.STORE,
     actors: [ACTOR.RIDER, ACTOR.ADMIN_STAFF],
@@ -381,8 +426,14 @@ const TRANSITIONS = {
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
   },
+  // PAID/WAITING_FOR_HANDOVER = สาย Store-in/Mail-in ที่จ่ายเงินแล้วและเครื่อง
+  // อยู่ที่ร้านตั้งแต่ต้น ไม่มีขั้นรับมอบจากไรเดอร์คั่น จึงส่งเข้าแล็บได้ตรงๆ
+  //
+  // **ไม่ขยายไปถึง SOLD/COMPLETED/READY_TO_SELL ทั้งที่ปุ่มไปถึงได้วันนี้** —
+  // `hasBeenPaid` ของหน้านั้นครอบสถานะขายจบไปด้วย การถอยเครื่องที่ขายแล้วกลับ
+  // เข้าแล็บไม่ใช่พฤติกรรมที่คุ้มค่าจะรักษา มันคือเงื่อนไขปุ่มที่หลวม ไม่ใช่ฟีเจอร์
   sent_to_lab: {
-    from: [S.PENDING_QC, S.IN_STOCK],
+    from: [S.PENDING_QC, S.IN_STOCK, S.PAID, S.WAITING_FOR_HANDOVER],
     to: S.SENT_TO_QC_LAB,
     custody: CUSTODY.STORE,
     actors: [ACTOR.ADMIN_STAFF],
