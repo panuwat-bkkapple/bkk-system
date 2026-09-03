@@ -22,14 +22,20 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * 112 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
+ * 108 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
+ *
+ * P2-k: 112 -> 108 มาจากการ **ลบโค้ดตาย** 4 ฟังก์ชันใน TradeInDashboard ไม่ใช่
+ * การย้าย writer — ตัวเลขลดเท่ากันแต่คนละเรื่อง อย่าอ่านรวมกับความคืบหน้าของ
+ * การย้าย. **ตัวนับนี้นับ *ทุก* การเขียน `jobs/{id}` ตรง ไม่ใช่แค่ที่มี
+ * `status:`** เพราะการเขียนโหนดนี้ตรงข้าม engine ไม่ว่าฟิลด์ไหนก็เลี่ยง
+ * status_version ที่กันสองเครื่องเขียนทับกัน
  *
  * P2-i ย้ายผู้เรียก `handleUpdateStatus` ครบทั้ง 10 จุด แล้วลบตัวฟังก์ชันทิ้ง
  * ซึ่งเป็นตอนที่เลขขยับจริง — P2-h ย้ายไป 3 จุดแต่เลขไม่ขยับเพราะตัวเขียนตรง
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 112;
+const MAX_DIRECT_JOB_WRITES = 108;
 
 const SRC = resolve(__dirname, '..');
 
@@ -84,6 +90,43 @@ describe('สำมะโนการเขียนโหนดงานตร�
     );
     expect(sidebar).not.toContain('handleUpdateStatus');
     expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
+  });
+
+  it('TradeInDashboard: สี่ฟังก์ชันที่ไม่มีใครเรียกต้องไม่กลับมา', () => {
+    // ทั้งสี่ตัวถูกลบใน P2-k เพราะ eslint ยืนยันว่า assigned but never used และ
+    // ไม่ได้ส่งเป็น prop ไปไหน — ตัวจริงที่หน้าจอใช้เป็นชื่อเดียวกันในไฟล์อื่น
+    //
+    // ด่านนี้ไม่ใช่เรื่องความสะอาด: ทั้งสี่ตัวเขียน `jobs/{id}` ตรงและสามตัวเขียน
+    // `status` เอง ถ้าใครก๊อปกลับมาเพราะเห็นว่า "เคยมี" มันจะเป็นทางเขียนที่ไม่
+    // ผ่าน engine ที่ไม่มีปุ่มไหนเรียก และไม่มีใครสังเกต
+    const page = readFileSync(resolve(SRC, 'features/trade-in/TradeInDashboard.tsx'), 'utf8');
+    for (const gone of [
+      'const handleUpdateStatus',
+      'const handleReviseOffer',
+      'const handleClaimTicket',
+      'const handleSaveNotes',
+    ]) {
+      expect(page, gone).not.toContain(gone);
+    }
+  });
+
+  it('TradeInDashboard: ตัวที่เหลือแตะแค่ is_read ไม่ใช่ status', () => {
+    // handleRowClick ยังอยู่และถูกเรียกจริงจาก JSX สองที่ — มันเขียน `is_read`
+    // ซึ่งเป็นธงของ UI ไม่ใช่สถานะงาน engine ไม่ได้เป็นเจ้าของฟิลด์นั้น
+    const page = readFileSync(resolve(SRC, 'features/trade-in/TradeInDashboard.tsx'), 'utf8');
+    const writes = page.match(/update\(ref\(db, `jobs\/\$\{[^}]+\}`\)/g) || [];
+    expect(writes.length).toBe(1);
+    expect(page).toContain('is_read: true');
+
+    // `status:` ที่เหลือในไฟล์เป็น payload ของการ **สร้างงานใหม่** (instant-sell
+    // และ B2B lead) ซึ่งไม่ใช่ transition — engine เปลี่ยนสถานะของงานที่มีอยู่
+    // การตั้งสถานะเริ่มต้นตอนสร้างจึงอยู่นอกขอบเขตมันโดยนิยาม
+    //
+    // ที่ต้องไม่มีคือ `status:` ที่อยู่ใน object ของ update() ต่องานที่มีอยู่แล้ว
+    const updateBlocks = page.match(/update\(ref\(db, `jobs\/\$\{[^}]+\}`\), \{[^}]*\}/g) || [];
+    for (const block of updateBlocks) {
+      expect(block, 'update() ต่องานที่มีอยู่ห้ามพา status: ไปเอง').not.toContain('status:');
+    }
   });
 
   it('MobileTicketDetail: ตาราง quick actions ยิง event 23 ใบ เหลือ legacy 2 ใบ', () => {
