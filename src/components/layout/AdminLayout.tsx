@@ -9,7 +9,7 @@ import {
   Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, FileSpreadsheet, BookOpen, HandCoins,
   Search
 } from 'lucide-react';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { NavButton } from './NavButton';
 import { CHAT_APP_URL } from '../../config/appLinks';
@@ -33,6 +33,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   const [unreadInbox, setUnreadInbox] = useState(0);
   const [pendingDiscrepancies, setPendingDiscrepancies] = useState(0);
   const [pendingRiderAudit, setPendingRiderAudit] = useState(0);
+  const [pendingRiderExpenses, setPendingRiderExpenses] = useState(0);
   const [newTicketAlerts, setNewTicketAlerts] = useState<any[]>([]);
 
   // Register admin FCM token for push notifications — keyed by staff push id
@@ -130,6 +131,25 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
         setPendingRiderAudit(0);
       }
     });
+    return () => unsub();
+  }, []);
+
+  // คำขอเบิกค่าใช้จ่ายไรเดอร์ที่รออนุมัติ
+  //
+  // query ตาม `.indexOn: status` ที่ rider_expenses มีอยู่แล้ว ไม่ subscribe
+  // ทั้งโหนด — badge อยู่บนทุกหน้าของแอดมิน ถ้าดึงทั้งก้อนจะกลายเป็นค่า
+  // download คูณด้วยทุกหน้าที่เปิด ซึ่งเป็นรูปที่กฎค่า RTDB มีไว้กัน
+  //
+  // badge นี้ไม่ใช่ของประดับ: ไรเดอร์สำรองจ่ายเงินตัวเองไปแล้ว ถ้าไม่มีอะไร
+  // บอกว่ามีคิวใหม่ เขาจะรอเงินคืนโดยไม่มีใครรู้ว่าต้องไปกดที่ไหน
+  useEffect(() => {
+    const q = query(ref(db, 'rider_expenses'), orderByChild('status'), equalTo('submitted'));
+    const unsub = onValue(
+      q,
+      (snap) => setPendingRiderExpenses(snap.exists() ? Object.keys(snap.val()).length : 0),
+      // อ่านไม่ได้ (ยังไม่ deploy rules) = badge เป็นศูนย์ ไม่ใช่หน้าพัง
+      () => setPendingRiderExpenses(0),
+    );
     return () => unsub();
   }, []);
 
@@ -241,6 +261,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
               )}
               {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-audit" icon={<ClipboardCheck size={18} />} label="ใบตรวจงานไรเดอร์" badgeCount={pendingRiderAudit} />}
+              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/rider-expenses" icon={<ReceiptText size={18} />} label="เบิกค่าใช้จ่ายไรเดอร์" badgeCount={pendingRiderExpenses} />}
               <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>

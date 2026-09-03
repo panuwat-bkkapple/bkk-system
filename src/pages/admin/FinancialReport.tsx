@@ -4,6 +4,14 @@
 //   - ยอดขาย POS + ต้นทุน + กำไรขั้นต้น  → /sales
 //   - รายได้ค่าบริการ + ภาษีขาย          → /accounting_documents
 //   - ค่าใช้จ่ายดำเนินงาน                 → /expenses
+//   - ค่าจ้างไรเดอร์                      → /expenses แถวที่ source = rider_withdrawal
+//
+// **ค่าจ้างไรเดอร์เพิ่งเข้ามาอยู่ในรายงานนี้ (3 ก.ย. 2569)** — ก่อนหน้านั้น
+// ไม่เคยปรากฏเลย กำไรสุทธิรายเดือนจึงสูงเกินจริงเท่ากับค่าจ้างทั้งเดือน
+// (`riderFeeAbsorbed` ข้างล่างเป็น *ส่วนลดที่ให้ลูกค้า* ไม่ใช่เงินที่จ่ายไรเดอร์
+//  คนละก้อน อย่าสับสน) แถวถูกเขียนโดย `functions/rider-fee-expense.js`
+// **ตอนไรเดอร์ถอนเงิน** ไม่ใช่ตอนอนุมัติค่ารอบ — ตัวเลขรายเดือนจึงเลื่อนตาม
+// พฤติกรรมการถอน ไม่ใช่ตามเดือนที่งานเกิด (เจ้าของงานเคาะให้ตรงกับจุดหัก WHT)
 // เลือกงวด (เดือน, อิงเวลาไทย) → P&L + VAT สุทธิ + export CSV.
 
 import { useEffect, useMemo, useState } from 'react';
@@ -27,7 +35,7 @@ function bangkokMonthRange(month: string): [number, number] {
 const fmt = (n: number) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface Totals {
-  salesGross: number; cogs: number; grossProfit: number;
+  salesGross: number; cogs: number; grossProfit: number; riderLabour: number;
   serviceBase: number; opex: number;
   // Rider-fee discount the company absorbs (lowers the customer pickup_fee
   // without reducing rider pay) — a marketing/absorbed cost in the P&L.
@@ -35,7 +43,12 @@ interface Totals {
   outputVat: number; salesCount: number;
 }
 
-const ZERO: Totals = { salesGross: 0, cogs: 0, grossProfit: 0, serviceBase: 0, opex: 0, riderFeeAbsorbed: 0, outputVat: 0, salesCount: 0 };
+const ZERO: Totals = { salesGross: 0, cogs: 0, grossProfit: 0, riderLabour: 0, serviceBase: 0, opex: 0, riderFeeAbsorbed: 0, outputVat: 0, salesCount: 0 };
+
+/** ค่าของ `source` ที่ `functions/rider-fee-expense.js` ประทับไว้
+ *  MIRROR — แก้คำที่ฝั่งไหนต้องแก้ทั้งคู่ ไม่งั้นค่าจ้างไรเดอร์จะไหลกลับไป
+ *  รวมอยู่ในบรรทัด "ค่าใช้จ่ายดำเนินงาน" เงียบๆ แล้วบรรทัดของมันเป็นศูนย์ */
+const RIDER_LABOUR_SOURCE = 'rider_withdrawal';
 
 export default function FinancialReport() {
   const [month, setMonth] = useState<string>(currentBangkokMonth());
@@ -82,7 +95,12 @@ export default function FinancialReport() {
           expRes.value.forEach((c) => {
             const e = c.val();
             const at = Number(e?.created_at) || 0;
-            if (at >= start && at < end) out.opex += Number(e.amount) || 0;
+            if (at >= start && at < end) {
+              // แยกค่าจ้างไรเดอร์ออกมาเป็นบรรทัดของตัวเอง แต่ **ยังอยู่ในยอดรวม
+              // เดียวกัน** — สูตรกำไรจึงไม่เปลี่ยนรูป แค่อ่านออกว่าเงินไปไหน
+              if (e?.source === RIDER_LABOUR_SOURCE) out.riderLabour += Number(e.amount) || 0;
+              else out.opex += Number(e.amount) || 0;
+            }
           });
         } else failed.push('ค่าใช้จ่าย');
 
@@ -117,13 +135,17 @@ export default function FinancialReport() {
     return () => { cancelled = true; };
   }, [month, period]);
 
-  const netProfit = useMemo(() => t.grossProfit + t.serviceBase - t.opex - t.riderFeeAbsorbed, [t]);
+  const netProfit = useMemo(
+    () => t.grossProfit + t.serviceBase - t.opex - t.riderLabour - t.riderFeeAbsorbed,
+    [t]
+  );
 
   const rows: Array<[string, number, 'in' | 'out' | 'net' | 'sub']> = [
     ['ยอดขายสินค้า (POS, รวม VAT)', t.salesGross, 'sub'],
     ['ต้นทุนสินค้าที่ขาย (COGS)', -t.cogs, 'sub'],
     ['กำไรขั้นต้นจากการขาย', t.grossProfit, 'in'],
     ['รายได้ค่าบริการรับเครื่อง (ก่อน VAT)', t.serviceBase, 'in'],
+    ['ค่าจ้างไรเดอร์ (ตามยอดที่ถอนจริงในงวด)', -t.riderLabour, 'out'],
     ['ค่าใช้จ่ายดำเนินงาน', -t.opex, 'out'],
     ['ส่วนลดค่าไรเดอร์ (บริษัทรับภาระ)', -t.riderFeeAbsorbed, 'out'],
     ['กำไรสุทธิโดยประมาณ', netProfit, 'net'],
@@ -135,6 +157,7 @@ export default function FinancialReport() {
       [],
       ['ยอดขายสินค้า (POS, รวม VAT)', t.salesGross.toFixed(2)],
       ['ต้นทุนสินค้าที่ขาย', t.cogs.toFixed(2)],
+      ['ค่าจ้างไรเดอร์', t.riderLabour.toFixed(2)],
       ['กำไรขั้นต้นจากการขาย', t.grossProfit.toFixed(2)],
       ['รายได้ค่าบริการ (ก่อน VAT)', t.serviceBase.toFixed(2)],
       ['ค่าใช้จ่ายดำเนินงาน', t.opex.toFixed(2)],
