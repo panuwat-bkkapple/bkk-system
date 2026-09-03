@@ -147,17 +147,12 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
     return devs;
   };
 
-  // ตัวเขียนแบบเดิม: **ไคลเอนต์เลือกสถานะปลายทางเอง** ซึ่งเป็นรูปที่ status
-  // engine มีไว้กำจัด — PricingSidebar ยังเรียกอยู่ 7 จุดเพราะปุ่มพวกนั้นโผล่
-  // ในสถานะที่กว้างกว่า from-list ของ engine (ดู §12 ของ bkk-frontend-next/docs/design/status-machine-v2.md) ย้าย
-  // ตอนนี้ = ปุ่มแอดมินโดนปฏิเสธบน production
+  // `handleUpdateStatus(สถานะ, รายละเอียด)` ตัวเดิมถูกลบไปแล้ว (P2-i) — ปุ่มทั้ง
+  // 10 จุดบน PricingSidebar ย้ายมาส่ง event ครบ **ห้ามสร้างตัวใหม่ในรูปนั้นอีก**
+  // ไคลเอนต์ที่เลือกสถานะปลายทางเองคือรูปที่ status engine มีไว้กำจัด
   //
-  // ห้ามเพิ่ม call site ใหม่ให้ตัวนี้ ของใหม่ใช้ handleTransition
-  const handleUpdateStatus = async (newStatus: string, details: string) => {
-    await update(ref(db, `jobs/${job.id}`), { status: newStatus, qc_logs: [makeLog(newStatus, details), ...(job.qc_logs || [])], updated_at: Date.now() });
-  };
-  // ตัวเขียนใหม่: ส่ง event ปลายทางเป็นเรื่องของ engine — engine เขียน qc_logs
-  // ให้เองด้วย จึงไม่ต้องส่ง makeLog ไป (`reason` ไปโผล่ในแถวนั้นแทน)
+  // ส่ง event ปลายทางเป็นเรื่องของ engine — engine เขียน qc_logs ให้เองด้วย
+  // จึงไม่ต้องส่ง makeLog ไป (`reason` ไปโผล่ในแถวนั้นแทน)
   const handleTransition = async (event: JobEvent, reason: string) => {
     const res = await runJobTransition(job.id, event, { reason });
     if (!res.ok) toast.error(res.message);
@@ -544,7 +539,7 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
         </div>
         <PricingSidebar
           job={job}
-          handlers={{ handleUpdateStatus, handleTransition, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment, handleEditRiderDiscount, handleRemoveRiderDiscount, handleDecideCustomerOffer }}
+          handlers={{ handleTransition, handleCallCustomer, handleReviseOffer, handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon, handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover, setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId, handleAddAdjustment, handleRemoveAdjustment, handleReviewAdjustment, handleEditRiderDiscount, handleRemoveRiderDiscount, handleDecideCustomerOffer }}
           couponState={{ isAddingCoupon, setIsAddingCoupon, adminCouponCode, setAdminCouponCode, adminCouponValue, setAdminCouponValue, revisedPrice, setRevisedPrice, reviseReason, setReviseReason, negotiatedPrice, setNegotiatedPrice, callNotes, setCallNotes }}
           pricing={{ basePrice, pickupFee, couponValue, netPayout, adjustments: listAdjustments(job), adjustmentsSum, isCancelled, isReopenable, reopenDeadline, needsFeeRecovery, isNew, isLogistics, isQC, isNegotiation, isProcessingPayment, hasBeenPaid }}
           currentUserName={currentUser?.name || 'Admin'}

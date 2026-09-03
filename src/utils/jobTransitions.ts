@@ -25,14 +25,21 @@ export const JOB_EVENT = {
   // สามตัวนี้ย้ายมาจาก `handleUpdateStatus(สถานะ, รายละเอียด)` ซึ่งเป็นตัวเขียน
   // แบบ "ไคลเอนต์เลือกปลายทางเอง" ที่ PricingSidebar เรียกอยู่ 10 จุด
   //
-  // **ย้ายมาแค่ 3 จุด ไม่ใช่ 10 โดยตั้งใจ** — อีก 7 จุดปุ่มมันโผล่ในสถานะที่
-  // กว้างกว่า from-list ของ engine (เช่นปุ่ม "ไรเดอร์ถึงแล้ว" ขึ้นตั้งแต่งานยัง
-  // อยู่ Rider Assigned) ย้ายทั้งชุดตอนนี้ = ปุ่มแอดมินพังบน production. การ
-  // ขยาย from-list เป็นการตัดสินใจเชิงธุรกิจว่า override ไหนของแอดมินถูกต้อง
-  // ดูตารางใน bkk-frontend-next/docs/design/status-machine-v2.md §12
+  // ครบทั้ง 10 ปุ่มแล้ว (P2-i) — from-list ของ engine ถูกขยายให้ตรงกับสถานะที่
+  // ปุ่มพวกนี้ไปถึงได้จริงก่อน ไม่ใช่ปล่อยให้ปุ่มโดนปฏิเสธ
+  //
+  // ที่ยังรู้ว่าหลวมและเป็นงานแยก: ปุ่ม Start QC ขึ้นตั้งแต่งานอยู่ Rider Assigned
+  // (เริ่มตรวจก่อนไรเดอร์ถึงบ้านลูกค้าไม่มีความหมาย) และปุ่ม Approve ขึ้นตั้งแต่
+  // Being Inspected (ข้ามขั้น QC Review) — **ทางแก้คือรัดเงื่อนไขปุ่ม ไม่ใช่หด
+  // from-list กลับ ซึ่งจะทำให้ปุ่มพังโดยไม่มีใครแก้ปุ่ม**
   INTAKE_QUEUED_FOR_QC: 'intake_queued_for_qc',
   DROPOFF_RECEIVED: 'dropoff_received',
   INSPECTION_STARTED: 'inspection_started',
+  BROADCAST_TO_RIDERS: 'broadcast_to_riders',
+  RIDER_ARRIVED: 'rider_arrived',
+  PAYOUT_STARTED: 'payout_started',
+  RIDER_RETURN_ARRIVED: 'rider_return_arrived',
+  SENT_TO_LAB: 'sent_to_lab',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];
