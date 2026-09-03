@@ -702,8 +702,72 @@ async function buildAiDownMessage(db) {
   return parts.join(" ");
 }
 
+// ---------------------------------------------------------------------------
+// Line shorthand
+// ---------------------------------------------------------------------------
+//
+// Customers abbreviate the line, we never did. "17 PM 256 sillver" matched
+// NOTHING: "pm" is in no model name, no alias and no category, so meaningfulOk
+// failed on every row at once and the search came back empty — after which the
+// LLM picked a model_id itself and a customer holding an iPhone 17 Pro Max got
+// a card for an iPhone 15. The empty result was the first domino.
+//
+// Even when a family word carried the search, the shorthand still lost the
+// line: "iphone 17 pm" tied iPhone 17 / 17 Pro / 17 Pro Max on hits, and the
+// name-length tiebreak handed first place to the BASE model — the cheapest of
+// the three.
+//
+// MIRROR: bkk-frontend-next/lib/searchMatch.ts (LINE_SHORTHAND). Same
+// catalogue, same question; the two must not disagree about which words name
+// a device. Change one, change the other.
+//
+// Only well-established abbreviations, and nothing one letter long: a bare "p"
+// is dropped by the single-letter filter below precisely because it
+// substring-hits everything, and re-inflating it to "pro" would undo that.
+const LINE_SHORTHAND = [
+  // "pmax" and "p max" both; "promax" is already handled by the caller.
+  [/\bp\s*max\b/g, " pro max "],
+  [/\bpm\b/g, " pro max "],
+  [/\bpmx\b/g, " pro max "],
+  [/\bpl\b/g, " plus "],
+];
+
+/**
+ * Expand line shorthand in something the CUSTOMER wrote.
+ *
+ * Only customer text, because that is the only place shorthand comes from —
+ * Apple does not abbreviate. Running it on catalog names as well was tried as
+ * an injection and NOTHING caught it: no name, alias or category in the live
+ * catalogue contains "pm", "pl" or "p max", so on today\'s data it is a no-op
+ * either way. So this is a scope rule, not a guard, and it is written down as
+ * one: keeping it on one side is one less place to stay in sync, and there is
+ * nothing to gain on the other.
+ *
+ * Runs AFTER the letter/digit splitter, not before, and that ordering is the
+ * whole coverage question: "17pm" only becomes reachable once it is "17 pm",
+ * because \b sees no boundary inside "17pm". The cost of that choice is that a
+ * literal clock time ("ขาย 2pm") also expands. Accepted: nobody searches a
+ * trade-in catalogue for a time of day, the worst outcome is a list of Pro Max
+ * phones, and since the quoted-model guard landed a mis-resolution asks the
+ * customer to confirm the model rather than pricing one.
+ *
+ * Idempotent — "pro max" contains no shorthand token — so it is safe to apply
+ * at more than one seam.
+ */
+function expandLineShorthand(text) {
+  // Splits letter/digit runs ITSELF rather than trusting the caller to have
+  // done it, because \b sees no boundary inside "17pm" and the callers do not
+  // all split ("16PM" reaches modelLineMismatch glued). Callers that already
+  // split lose nothing — the operation is idempotent.
+  let t = ` ${String(text || "").toLowerCase()} `
+    .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z฀-๿])/g, "$1 $2");
+  for (const [re, to] of LINE_SHORTHAND) t = t.replace(re, to);
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function rankQueryTokens(rawQuery) {
-  const q = String(rawQuery || "")
+  const qRaw = String(rawQuery || "")
     .toLowerCase()
     .trim()
     .replace(/ไอแพ[คต]/g, "ไอแพด") // live typo: "ไอแพคเจน11" found nothing
@@ -712,6 +776,8 @@ function rankQueryTokens(rawQuery) {
     .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
     .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
     .trim();
+  // After the splitter on purpose — see expandLineShorthand.
+  const q = expandLineShorthand(qRaw);
   if (!q) return { q: "", tokens: [] };
   const raw = q.split(/\s+/).filter(Boolean);
   const glued = [];
@@ -1007,6 +1073,10 @@ function normalizeForPin(s) {
     .replace(/([a-z฀-๿])(\d)/g, "$1 $2")
     .replace(/(\d)([a-z฀-๿])/g, "$1 $2")
     .replace(/[^\w\s฀-๿]/g, " ");
+  // Same expansion the ranker uses, so a pin key and a rank key cannot
+  // disagree about what the customer typed. This is what lets "17 PM" pin to
+  // the Pro Max instead of falling through to no pin at all.
+  t = expandLineShorthand(t);
   const DROP = new Set([
     "gb", "tb", "กิ๊ก", "รุ่น", "ตัว", "เครื่อง", "ธรรมดา", "ปกติ", "regular", "standard", "base", "normal",
     "คะ", "ค่ะ", "ครับ", "ค่า", "จ้า", "นะ", "นะคะ", "นะครับ", "ชิป",
@@ -1129,7 +1199,11 @@ function exactModelPin(list, rawQuery) {
 // that the resolved model lacks (a DOWNGRADE), or null when they agree. Only
 // flags the downgrade direction — the reverse is far rarer and riskier to guess.
 function modelLineMismatch(customerText, modelFullName) {
-  const c = ` ${String(customerText || "").toLowerCase().replace(/pro\s*max/g, "pro max").replace(/\s+/g, " ")} `;
+  // Customer side expanded, catalog side not: "PM" is something only a
+  // customer writes. Without this the guard reads "16 PM" as naming no line at
+  // all and lets a plain "iPhone 16 Pro" through — the exact silence that let
+  // the live wrong-model card ship.
+  const c = ` ${expandLineShorthand(String(customerText || "").replace(/pro\s*max/g, "pro max"))} `;
   const n = ` ${String(modelFullName || "").toLowerCase().replace(/pro\s*max/g, "pro max")} `;
   // Most specific first: a "pro max" mention must not be satisfied by a plain
   // "pro" model (which also contains the substring "pro").
@@ -5604,6 +5678,10 @@ module.exports = {
     statedModelUnsupported,
     recoveryTerminalText,
     pickSiblingModel,
+    // วางไว้หลัง pickSiblingModel ไม่ใช่ติดกับ modelLineMismatch เพราะ PR
+    // ด่านตรวจรุ่น (#628) แทรกรายการของมันตรงจุดนั้นพอดี — สองใบจะชนกัน
+    // ที่ merge ทั้งที่ไม่มีอะไรขัดกันจริง. ลิสต์นี้ไม่ได้เรียงตามความหมายอยู่แล้ว
+    expandLineShorthand,
     parseTrackJobId,
     priceHaggleIntent,
     humanRequestIntent,
