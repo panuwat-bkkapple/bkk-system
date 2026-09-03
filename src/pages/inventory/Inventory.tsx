@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { formatDate } from '../../utils/formatters';
+import { JOB_EVENT } from '../../utils/jobTransitions';
+import { runJobTransition } from '../../utils/runJobTransition';
 import {
   Package, Search, DollarSign, TrendingUp,
   Clock, Tag, Barcode, CheckCircle2, Save, Smartphone,
@@ -97,6 +99,14 @@ export const Inventory = () => {
     });
   };
 
+  // **ยังไม่ย้าย และไม่ใช่เพราะยังไม่ถึงคิว** — ช่องสถานะของฟอร์มนี้เป็น dropdown
+  // 3 ค่า: In Stock / Ready to Sell / **Reserved** ซึ่งตัวสุดท้าย
+  // `normalizeStatus()` อ่านไม่ออก (ไม่มีทั้งใน JOB_STATUS และใน LEGACY_ALIAS)
+  // → `transitionJob` จะปฏิเสธด้วย unreadable_status ก่อนถึง from-list เสียด้วย
+  //
+  // และการย้อน Ready to Sell -> In Stock ก็ยังไม่มี event รองรับ (`sale_voided`
+  // คือ Sold -> In Stock คนละขา) จะย้ายได้ต้องเคาะเรื่อง Reserved ในระดับ enum
+  // ก่อน ซึ่งเป็นการแก้ 3 repo พร้อมกัน
   const handleSavePricing = async () => {
     if (!editingItem) return;
     // เครื่องที่ล็อกอยู่ในล็อตขายส่ง (Dealer Portal) — ห้ามแก้สถานะจากหน้านี้
@@ -118,30 +128,27 @@ export const Inventory = () => {
     } catch (e) { toast.error('Update failed'); }
   };
 
-  // 🔥 ส่งข้อมูลไปยัง POS (อัปเดตสถานะเป็น Ready to Sell)
+  // ส่งขึ้นหน้าร้าน — ปุ่มขึ้นเฉพาะแถวที่สถานะ In Stock ซึ่งตรงกับ from-list ของ
+  // `pushed_to_pos` เป๊ะ (In Stock เท่านั้น) จึงไม่ต้องขยายอะไรที่ engine
   const handlePushToPOS = async (id: string) => {
     if(!confirm('ยืนยันส่งสินค้านี้ขึ้นระบบหน้าร้าน (POS) ใช่หรือไม่?')) return;
-    try {
-      await update(ref(db, `jobs/${id}`), {
-          status: 'Ready to Sell',
-          listed_at: Date.now()
-      });
-    } catch (error) {
-      toast.error('ส่งสินค้าขึ้น POS ไม่สำเร็จ');
-    }
+    const res = await runJobTransition(id, JOB_EVENT.PUSHED_TO_POS, {
+      patch: { listed_at: Date.now() },
+      reason: 'ส่งสินค้าขึ้นระบบหน้าร้าน (POS)',
+    });
+    if (!res.ok) toast.error(res.message);
   };
 
-  // 🔥 กรณีขายหน้าร้านโดยตรง (Manual Sold)
+  // ขายหน้าร้านโดยตรง — ปุ่มขึ้นเฉพาะแถว Ready to Sell ซึ่งอยู่ใน from-list ของ
+  // `sold` แล้ว. **`sold_date` ไปกับ patch ไม่ใช่ write ที่สอง** — ประวัติการขาย
+  // กรองด้วยฟิลด์นี้ ถ้าเขียนแยกแล้วล้มครึ่งทาง เครื่องจะหายจากทั้งคลังและประวัติ
   const handleMarkSold = async (id: string) => {
     if(!confirm('ยืนยันการขายสินค้านี้? (รายการจะถูกย้ายไปที่ประวัติการขาย)')) return;
-    try {
-      await update(ref(db, `jobs/${id}`), {
-          status: 'Sold',
-          sold_date: Date.now()
-      });
-    } catch (error) {
-      toast.error('บันทึกการขายไม่สำเร็จ');
-    }
+    const res = await runJobTransition(id, JOB_EVENT.SOLD, {
+      patch: { sold_date: Date.now() },
+      reason: 'ขายหน้าร้านโดยตรง (Manual Sold)',
+    });
+    if (!res.ok) toast.error(res.message);
   };
 
   if (loading) return <div className="p-10 text-center text-slate-400">Loading Inventory...</div>;
