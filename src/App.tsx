@@ -31,6 +31,7 @@ const EmployeeRegister = lazy(() => import('./pages/hr/EmployeeRegister').then(m
 const PayrollRuns = lazy(() => import('./pages/hr/PayrollRuns').then(m => ({ default: m.PayrollRuns })));
 const HrSettings = lazy(() => import('./pages/hr/HrSettings').then(m => ({ default: m.HrSettings })));
 const TaxYear = lazy(() => import('./pages/hr/TaxYear').then(m => ({ default: m.TaxYear })));
+const TaxFilings = lazy(() => import('./pages/admin/TaxFilings').then(m => ({ default: m.TaxFilings })));
 const SettingsHub = lazy(() => import('./pages/settings/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
 const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
@@ -188,6 +189,7 @@ export default function App() {
               <Route path="/offer-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <OfferReport /> : <Navigate to="/" replace />} />
               <Route path="/vat-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <VatReport /> : <Navigate to="/" replace />} />
               <Route path="/wht-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <WhtReport /> : <Navigate to="/" replace />} />
+              <Route path="/tax-filings" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <TaxFilings /> : <Navigate to="/" replace />} />
               <Route path="/financial-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <FinancialReport /> : <Navigate to="/" replace />} />
               <Route path="/general-ledger" element={currentUser?.role === 'CEO' || currentUser?.role === 'FINANCE' ? <GeneralLedger /> : <Navigate to="/" replace />} />
               <Route path="/sickw-usage" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <SickwUsagePage /> : <Navigate to="/" replace />} />
