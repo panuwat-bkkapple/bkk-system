@@ -33,7 +33,9 @@ const DEFAULT_TAX = {
   child_allowance: 30000,
   parent_allowance: 30000,
   // เงินสมทบประกันสังคมที่จ่ายทั้งปี ใช้ลดหย่อนได้ตามจริงแต่ไม่เกินเพดาน
-  sso_allowance_cap: 9000,
+  // ต้องไม่ต่ำกว่า 12 x เงินสมทบสูงสุดต่อเดือน (875 x 12) — เพดานที่บีบต่ำกว่า
+  // ยอดที่หักไปจริง แปลว่าเราคิดภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ มีเทสตรึงไว้
+  sso_allowance_cap: 10500,
   // ขั้นบันไดภาษีเงินได้บุคคลธรรมดา — upTo: null = ขั้นบนสุด
   brackets: [
     { upTo: 150000, rate: 0 },
@@ -47,11 +49,18 @@ const DEFAULT_TAX = {
   ],
 };
 
+// เพดานค่าจ้าง 17,500 (ปรับปี 2569 จากเดิม 15,000) → สมทบสูงสุด 875 บาท/เดือน
+// พื้น 1,650 → สมทบต่ำสุด 83 บาท/เดือน
+//
+// `round_to_baht` มาจากหลักฐานว่าพื้น 1,650 x 5% = 82.50 แต่ตารางของประกันสังคม
+// เก็บ 83 บาท — ปัดเป็นจำนวนเต็มบาทแบบครึ่งขึ้น **ตั้งเป็นค่าที่ปิดได้เผื่อ
+// กติกาการปัดไม่ตรงกับที่เข้าใจ** ยอดที่ลงท้าย .50 เท่านั้นที่ต่างกัน
 const DEFAULT_SSO = {
   enabled: true,
   rate_percent: 5,
   wage_floor: 1650,
-  wage_ceiling: 15000,
+  wage_ceiling: 17500,
+  round_to_baht: true,
 };
 
 const DEFAULT_PAYROLL = {
@@ -98,6 +107,7 @@ function resolvePayrollConfig(settings) {
       rate_percent: num(sso.rate_percent, DEFAULT_SSO.rate_percent),
       wage_floor: num(sso.wage_floor, DEFAULT_SSO.wage_floor),
       wage_ceiling: num(sso.wage_ceiling, DEFAULT_SSO.wage_ceiling),
+      round_to_baht: sso.round_to_baht !== false,
     },
     income_tax: {
       enabled: tax.enabled !== false,
@@ -197,7 +207,8 @@ function computeSso(wage, sso) {
   const floor = num(cfg.wage_floor, DEFAULT_SSO.wage_floor);
   const ceiling = num(cfg.wage_ceiling, DEFAULT_SSO.wage_ceiling);
   const used = Math.min(Math.max(w, floor), ceiling);
-  const amount = round2((used * num(cfg.rate_percent, DEFAULT_SSO.rate_percent)) / 100);
+  const raw = (used * num(cfg.rate_percent, DEFAULT_SSO.rate_percent)) / 100;
+  const amount = cfg.round_to_baht === false ? round2(raw) : Math.round(raw);
   return { employee: amount, employer: amount, wage_used: used, skipped: false };
 }
 

@@ -9,10 +9,10 @@
 //
 // การคิดที่ยกมาเป็นตัวอย่างหลัก — เงินเดือน 60,000 โสด ไม่มีลดหย่อนอื่น:
 //   ทั้งปี 720,000 · ค่าใช้จ่าย 50% = 360,000 แต่ติดเพดาน 100,000
-//   ลดหย่อน = ส่วนตัว 60,000 + ประกันสังคมทั้งปี 750x12 = 9,000 → 69,000
-//   เงินได้สุทธิ = 720,000 - 100,000 - 69,000 = 551,000
+//   ลดหย่อน = ส่วนตัว 60,000 + ประกันสังคมทั้งปี 875x12 = 10,500 → 70,500
+//   เงินได้สุทธิ = 720,000 - 100,000 - 70,500 = 549,500
 //   ภาษี = 150,000 ยกเว้น + 150,000x5% (7,500) + 200,000x10% (20,000)
-//        + 51,000x15% (7,650) = 35,150 → ต่อเดือน 2,929.166... = 2,929.17
+//        + 49,500x15% (7,425) = 34,925 → ต่อเดือน 2,910.416... = 2,910.42
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "fs";
@@ -21,7 +21,7 @@ import { dirname, join } from "path";
 import {
   resolvePayrollConfig, periodBounds, payDateOf, periodsInYear, bangkokMidnight,
   proratedBase, computeSso, progressiveTax, computeWithholding,
-  buildPayrollItem, summarizeRun, DEFAULT_SSO,
+  buildPayrollItem, summarizeRun, DEFAULT_SSO, DEFAULT_TAX, DEFAULT_PAYROLL,
 } from "../hr-payroll.js";
 import { eligibleForPeriod } from "../hr-payroll-api.js";
 
@@ -76,48 +76,61 @@ eq("2,000,000 → 365,000", progressiveTax(2000000, CFG.income_tax.brackets), 36
 eq("ติดลบ/ศูนย์ = 0", progressiveTax(-5, CFG.income_tax.brackets), 0);
 
 // ── 4. ประกันสังคม — เพดานและพื้น ──────────────────────────────────────────
-eq("15,000 ขึ้นไป = 750", computeSso(15000, CFG.social_security).employee, 750);
-eq("เกินเพดานยังคง 750", computeSso(90000, CFG.social_security).employee, 750);
+// ตารางปี 2569 ที่เจ้าของงานยืนยัน: เพดาน 17,500 → สูงสุด 875 · พื้น 1,650 → 83
 eq("10,000 = 500", computeSso(10000, CFG.social_security).employee, 500);
-eq("ต่ำกว่าพื้น 1,650 ถูกยกขึ้นเป็นพื้น = 82.5", computeSso(1000, CFG.social_security).employee, 82.5);
-eq("นายจ้างสมทบเท่าลูกจ้าง", computeSso(15000, CFG.social_security).employer, 750);
+eq("15,000 = 750", computeSso(15000, CFG.social_security).employee, 750);
+eq("17,500 (เพดานใหม่ 2569) = 875", computeSso(17500, CFG.social_security).employee, 875);
+eq("20,000 ติดเพดาน = 875", computeSso(20000, CFG.social_security).employee, 875);
+eq("เกินเพดานไปมากก็ยัง 875", computeSso(90000, CFG.social_security).employee, 875);
+eq("ต่ำกว่าพื้น 1,650 ถูกยกขึ้นเป็นพื้น แล้วปัดเป็นบาท = 83", computeSso(1000, CFG.social_security).employee, 83);
+// **ต้องทดสอบผ่าน resolvePayrollConfig ไม่ใช่ประกอบ object เอง** — การส่ง
+// object ที่เขียนมือเข้าไปพิสูจน์แค่ว่า computeSso อ่านฟิลด์เป็น ไม่ได้พิสูจน์ว่า
+// ค่าที่แอดมินตั้งใน settings/hr เดินทางมาถึง (รอบแรกเทสข้อนี้เขียวทั้งที่ถอด
+// round_to_baht ออกจาก resolvePayrollConfig ไปแล้ว = สวิตช์บนหน้าตั้งค่าไม่ทำงาน)
+eq("ปิดการปัดเป็นบาทจาก settings ได้จริง (82.5)",
+  computeSso(1000, resolvePayrollConfig({ social_security: { round_to_baht: false } }).social_security).employee, 82.5);
+eq("ไม่ตั้ง round_to_baht = ปัดเป็นบาทตามค่าตั้งต้น",
+  computeSso(1000, resolvePayrollConfig({}).social_security).employee, 83);
+eq("ตั้ง round_to_baht: true ชัดๆ ก็ยังปัด",
+  computeSso(1000, resolvePayrollConfig({ social_security: { round_to_baht: true } }).social_security).employee, 83);
+eq("นายจ้างสมทบเท่าลูกจ้าง", computeSso(20000, CFG.social_security).employer, 875);
 eq("ค่าจ้าง 0 = ไม่สมทบ", computeSso(0, CFG.social_security).employee, 0);
 check("ปิดประกันสังคมได้", computeSso(15000, { ...DEFAULT_SSO, enabled: false }).skipped === true);
 
 // ── 5. ภาษีหัก ณ ที่จ่ายต่องวด — เคสหลักที่คิดมือไว้ในหัวไฟล์ ─────────────
 {
   const r = computeWithholding({
-    periodIncome: 60000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: CFG.income_tax,
+    periodIncome: 60000, periods: 12, ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax,
   });
-  eq("60,000/เดือน → ภาษีทั้งปี 35,150", r.basis.annual_tax, 35150);
-  eq("60,000/เดือน → หักต่องวด 2,929.17", r.amount, 2929.17);
+  eq("60,000/เดือน → ภาษีทั้งปี 34,925", r.basis.annual_tax, 34925);
+  eq("60,000/เดือน → หักต่องวด 2,910.42", r.amount, 2910.42);
   eq("ค่าใช้จ่ายติดเพดาน 100,000", r.basis.expenses, 100000);
-  eq("ลดหย่อนรวม 69,000", r.basis.allowances_total, 69000);
+  eq("ลดหย่อนรวม 70,500", r.basis.allowances_total, 70500);
 }
 {
   // 25,000/เดือน = 300,000/ปี → 300,000-100,000(50%)-69,000 = 131,000 < 150,000
-  const r = computeWithholding({ periodIncome: 25000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: CFG.income_tax });
+  const r = computeWithholding({ periodIncome: 25000, periods: 12, ssoPerPeriod: 875, allowances: {}, tax: CFG.income_tax });
   eq("25,000/เดือน ไม่ถึงเกณฑ์เสียภาษี", r.amount, 0);
   eq("ค่าใช้จ่าย 50% ของ 300,000 = 150,000 แต่ติดเพดาน 100,000", r.basis.expenses, 100000);
 }
 {
-  // ลดหย่อนคู่สมรส 60,000 + บุตร 2 คน 60,000 → รวม 189,000
-  // สุทธิ = 720,000-100,000-189,000 = 431,000
-  // ภาษี = 7,500 + 131,000x10% = 13,100 → 20,600 → ต่องวด 1,716.67
+  // ลดหย่อนคู่สมรส 60,000 + บุตร 2 คน 60,000 + ประกันสังคม 10,500 → รวม 190,500
+  // สุทธิ = 720,000-100,000-190,500 = 429,500
+  // ภาษี = 7,500 + 129,500x10% = 12,950 → 20,450 → ต่องวด 1,704.17
   const r = computeWithholding({
-    periodIncome: 60000, periods: 12, ssoPerPeriod: 750,
+    periodIncome: 60000, periods: 12, ssoPerPeriod: 875,
     allowances: { spouse: true, children: 2 }, tax: CFG.income_tax,
   });
-  eq("มีคู่สมรส+บุตร 2 → ลดหย่อน 189,000", r.basis.allowances_total, 189000);
-  eq("มีคู่สมรส+บุตร 2 → หักต่องวด 1,716.67", r.amount, 1716.67);
+  eq("มีคู่สมรส+บุตร 2 → ลดหย่อน 190,500", r.basis.allowances_total, 190500);
+  eq("มีคู่สมรส+บุตร 2 → หักต่องวด 1,704.17", r.amount, 1704.17);
 }
 {
   // เพดานลดหย่อนประกันสังคม 9,000 ต้องกันไม่ให้เกินแม้สมทบสูงกว่า
   const r = computeWithholding({ periodIncome: 60000, periods: 12, ssoPerPeriod: 5000, allowances: {}, tax: CFG.income_tax });
-  eq("ลดหย่อนประกันสังคมติดเพดาน 9,000", r.basis.sso_allowance, 9000);
+  eq("ลดหย่อนประกันสังคมติดเพดาน 10,500", r.basis.sso_allowance, 10500);
 }
 {
-  const r = computeWithholding({ periodIncome: 60000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: { ...CFG.income_tax, enabled: false } });
+  const r = computeWithholding({ periodIncome: 60000, periods: 12, ssoPerPeriod: 875, allowances: {}, tax: { ...CFG.income_tax, enabled: false } });
   eq("ปิดการหักภาษีได้", r.amount, 0);
 }
 
@@ -157,16 +170,16 @@ const monthly = (base, priv, emp, input) => buildPayrollItem({
 {
   const i = monthly(60000);
   eq("บรรทัดเงินเดือน 60,000 → รายได้รวม", i.gross, 60000);
-  eq("บรรทัดเงินเดือน 60,000 → ประกันสังคม 750", i.sso_employee, 750);
-  eq("บรรทัดเงินเดือน 60,000 → ภาษี 2,929.17", i.wht, 2929.17);
-  eq("บรรทัดเงินเดือน 60,000 → สุทธิ 56,320.83", i.net, 56320.83);
+  eq("บรรทัดเงินเดือน 60,000 → ประกันสังคม 875", i.sso_employee, 875);
+  eq("บรรทัดเงินเดือน 60,000 → ภาษี 2,910.42", i.wht, 2910.42);
+  eq("บรรทัดเงินเดือน 60,000 → สุทธิ 56,214.58", i.net, 56214.58);
   check("ไม่มีธง incomplete", i.incomplete === null);
 }
 {
   // เบี้ยเลี้ยงประจำเข้าทั้งฐานภาษีและฐานประกันสังคม
   const i = monthly(14000, { pay: { base_salary: 14000, allowances: [{ label: "ค่าเดินทาง", amount: 2000, taxable: true, recurring: true }] } });
   eq("เบี้ยเลี้ยงประจำรวมในรายได้", i.gross, 16000);
-  eq("เบี้ยเลี้ยงประจำเข้าฐานประกันสังคม (16,000 เกินเพดาน → 750)", i.sso_employee, 750);
+  eq("เบี้ยเลี้ยงประจำเข้าฐานประกันสังคม (16,000 ยังไม่ถึงเพดาน 17,500 → 800)", i.sso_employee, 800);
 }
 {
   // เบี้ยเลี้ยงที่ไม่เสียภาษี ต้องไม่เข้าฐานภาษีแต่ยังอยู่ในรายได้รวม
@@ -186,11 +199,11 @@ const monthly = (base, priv, emp, input) => buildPayrollItem({
   eq("ติ๊กให้เข้าฐานประกันสังคมได้", i.sso_wage, 15000);
 }
 {
-  // 30,000/เดือน → ปีละ 360,000 - 100,000 - 69,000 = 191,000
-  // ภาษี = 41,000x5% = 2,050 → ต่องวด 170.83
+  // 30,000/เดือน → ปีละ 360,000 - 100,000 - 70,500 = 189,500
+  // ภาษี = 39,500x5% = 1,975 → ต่องวด 164.58
   const i = monthly(30000, null, null, { extra_deductions: [{ label: "เบิกล่วงหน้า", amount: 3000 }] });
-  eq("ภาษีของ 30,000/เดือน = 170.83", i.wht, 170.83);
-  eq("รายการหักเพิ่มลดยอดสุทธิ", i.net, 30000 - 750 - 170.83 - 3000);
+  eq("ภาษีของ 30,000/เดือน = 164.58", i.wht, 164.58);
+  eq("รายการหักเพิ่มลดยอดสุทธิ", i.net, 30000 - 875 - 164.58 - 3000);
 }
 {
   const i = monthly(0);
@@ -251,14 +264,14 @@ const daily = (rate, input) => buildPayrollItem({
   eq("นับเฉพาะคนที่อยู่ในรอบ", t.headcount, 3);
   eq("รวมรายได้", t.gross, 71000);
   eq("นับจำนวนคนที่กรอกไม่ครบ", t.incomplete, 1);
-  eq("รวมสมทบนายจ้าง", t.sso_employer, 750 + 550);
+  eq("รวมสมทบนายจ้าง", t.sso_employer, 875 + 550);
 }
 
 // ── 12. ค่าที่ตั้งครึ่งเดียวต้องไม่ทำให้ฟิลด์อื่นเป็นศูนย์ ─────────────────
 // เพดานค่าใช้จ่ายที่กลายเป็น 0 = หักภาษีเกินจริงทุกคนแบบเงียบๆ
 {
   const c = resolvePayrollConfig({ social_security: { rate_percent: 3 } });
-  eq("ตั้งแค่อัตรา สปส. — เพดานยังเป็นค่าตั้งต้น", c.social_security.wage_ceiling, 15000);
+  eq("ตั้งแค่อัตรา สปส. — เพดานยังเป็นค่าตั้งต้น", c.social_security.wage_ceiling, 17500);
   eq("อัตราที่ตั้งถูกใช้จริง", c.social_security.rate_percent, 3);
   eq("ค่าใช้จ่ายเหมายังเป็นค่าตั้งต้น", c.income_tax.expense_cap, 100000);
   eq("ขั้นบันไดยังครบ", c.income_tax.brackets.length, 8);
@@ -271,6 +284,23 @@ const daily = (rate, input) => buildPayrollItem({
 {
   const c = resolvePayrollConfig({ income_tax: { brackets: [{ upTo: null, rate: 10 }] } });
   eq("ขั้นบันไดที่ตั้งเองถูกใช้จริง", progressiveTax(100000, c.income_tax.brackets), 10000);
+}
+
+// ── 12b. เพดานลดหย่อนต้องไม่บีบต่ำกว่ายอดที่หักไปจริง ─────────────────────
+// ถ้าเพดานลดหย่อนประกันสังคมต่ำกว่า 12 x เงินสมทบสูงสุดต่อเดือน แปลว่าเราคิด
+// ภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ — เป็นค่าคู่ที่อยู่คนละหัวข้อกัน จึงพลาด
+// ได้ง่ายเวลาแก้เพดานค่าจ้างแล้วลืมแก้เพดานลดหย่อน (เกิดขึ้นจริงตอนเพดาน
+// ขยับจาก 15,000 เป็น 17,500 ในปี 2569)
+{
+  const maxMonthly = (DEFAULT_SSO.wage_ceiling * DEFAULT_SSO.rate_percent) / 100;
+  check(
+    `เพดานลดหย่อน สปส. (${DEFAULT_TAX.sso_allowance_cap}) ต้องไม่ต่ำกว่า 12 x สมทบสูงสุด (${maxMonthly * 12})`,
+    DEFAULT_TAX.sso_allowance_cap >= maxMonthly * 12
+  );
+  // และต้องเป็นจริงกับค่าที่ resolve แล้วด้วย ไม่ใช่แค่ค่าคงที่ในโค้ด
+  const c = resolvePayrollConfig({});
+  const resolvedMax = (c.social_security.wage_ceiling * c.social_security.rate_percent) / 100;
+  check("เพดานลดหย่อนหลัง resolve ก็ยังไม่บีบ", c.income_tax.sso_allowance_cap >= resolvedMax * 12);
 }
 
 // ── 13. gate ของ callable + กติกาที่อ่านจาก source ─────────────────────────
@@ -339,6 +369,64 @@ check("หน้าเว็บกางที่มาของภาษีใ�
 check("ตัวตัดคอมเมนต์ตัดได้จริง",
   stripComments("a\n// x\n/* y */b").indexOf("x") === -1 && stripComments("a\n// x\nb").includes("a"));
 check("ปุ่มอนุมัติถูกปิดเมื่อยังกรอกไม่ครบ", /disabled=\{busy \|\| incomplete\.length > 0\}/.test(uiSrc));
+
+// ── 16. หน้าตั้งค่า settings/hr ────────────────────────────────────────────
+const setSrc = readFileSync(join(root, "src/pages/hr/HrSettings.tsx"), "utf8");
+
+// ห้าม set() ที่ settings/hr เด็ดขาด — ใต้โหนดเดียวกันมี employee_code_seq_by_year
+// (ตัวนับรหัสพนักงาน) เขียนทับทั้งก้อนเมื่อไหร่ ตัวนับกลับไปเริ่มใหม่ แล้วรหัส
+// พนักงานคนใหม่จะซ้ำกับคนที่มีอยู่แล้ว
+check("หน้าตั้งค่าเขียนด้วย update() ไม่ใช่ set()",
+  /update\(ref\(db, ['"]settings\/hr['"]\)/.test(setSrc));
+check("หน้าตั้งค่าไม่มี set() ที่ settings/hr เลย",
+  !/[^a-zA-Z]set\(ref\(db, ['"]settings\/hr['"]/.test(setSrc));
+check("หน้าตั้งค่าไม่แตะตัวนับรหัสพนักงาน",
+  !/employee_code_seq_by_year/.test(setSrc.replace(/\/\/.*$/gm, "")));
+
+// ค่าที่หน้าเว็บบอกว่า "ถ้าไม่ตั้งจะได้อะไร" ต้องตรงกับค่าตั้งต้นจริงของ
+// เครื่องคิดเงิน — ไม่ตรงเมื่อไหร่ หน้าตั้งค่าจะโกหกคนที่มาอ่าน
+{
+  const block = setSrc.slice(setSrc.indexOf("const CODE_DEFAULTS"), setSrc.indexOf("const DEFAULT_BRACKETS"));
+  const mirrors = [
+    ["cutoff_day", DEFAULT_PAYROLL.cutoff_day],
+    ["pay_day", DEFAULT_PAYROLL.pay_day],
+    ["prorate_divisor", DEFAULT_PAYROLL.prorate_divisor],
+    ["rate_percent", DEFAULT_SSO.rate_percent],
+    ["wage_floor", DEFAULT_SSO.wage_floor],
+    ["wage_ceiling", DEFAULT_SSO.wage_ceiling],
+    ["expense_rate_percent", DEFAULT_TAX.expense_rate_percent],
+    ["expense_cap", DEFAULT_TAX.expense_cap],
+    ["personal_allowance", DEFAULT_TAX.personal_allowance],
+    ["spouse_allowance", DEFAULT_TAX.spouse_allowance],
+    ["child_allowance", DEFAULT_TAX.child_allowance],
+    ["parent_allowance", DEFAULT_TAX.parent_allowance],
+    ["sso_allowance_cap", DEFAULT_TAX.sso_allowance_cap],
+  ];
+  const missing = mirrors.filter(([k, v]) => !new RegExp(`${k}: ${v}\\b`).test(block));
+  check(`CODE_DEFAULTS ในหน้าตั้งค่าตรงกับค่าตั้งต้นของเครื่องคิดเงินครบทุกตัว${missing.length ? " (ไม่ตรง: " + missing.map((m) => m[0]).join(", ") + ")" : ""}`,
+    missing.length === 0);
+}
+{
+  // ขั้นบันไดที่หน้าเว็บใช้เป็นค่าตั้งต้นต้องตรงกับของเครื่องคิดเงินด้วย
+  const block = setSrc.slice(setSrc.indexOf("const DEFAULT_BRACKETS"), setSrc.indexOf("interface Bracket"));
+  const rows = block.match(/upTo:/g) || [];
+  check("จำนวนขั้นบันไดในหน้าตั้งค่าเท่ากับเครื่องคิดเงิน", rows.length === DEFAULT_TAX.brackets.length);
+  const topRate = DEFAULT_TAX.brackets[DEFAULT_TAX.brackets.length - 1].rate;
+  check("ขั้นบนสุดของหน้าตั้งค่าไม่มีเพดานและอัตราตรงกัน",
+    new RegExp(`upTo: null[^,]*, rate: ${topRate}`).test(block));
+}
+// เช็คว่ามัน **ถูก render** ไม่ใช่แค่มีชื่อตัวแปรอยู่ในไฟล์ — รอบแรกเทสข้อนี้
+// เขียวตอนเปลี่ยนชื่อตัวแปรเป็น capWarningDisabled เพราะ /capWarning/ ยัง match
+// สตริงที่ยาวกว่า (การ์ดหายจากจอแต่เทสไม่รู้)
+{
+  const ui = stripComments(setSrc);
+  check("หน้าตั้งค่าคำนวณคำเตือนเพดานลดหย่อน", /const capWarning = useMemo\(/.test(ui));
+  check("หน้าตั้งค่า render คำเตือนนั้นจริง", /\{capWarning && \(/.test(ui));
+  check("ข้อความเตือนบอกว่าจะคิดภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ",
+    /คิดภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ/.test(ui));
+}
+check("หน้าตั้งค่าบอกว่ารอบที่อนุมัติแล้วไม่เปลี่ยนตาม",
+  /ไม่ย้อนไปแก้รอบที่อนุมัติแล้ว/.test(stripComments(setSrc)));
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

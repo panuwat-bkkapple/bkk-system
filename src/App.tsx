@@ -29,6 +29,7 @@ const Traceability = lazy(() => import('./pages/inventory/Traceability').then(m 
 const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').then(m => ({ default: m.StaffManagement })));
 const EmployeeRegister = lazy(() => import('./pages/hr/EmployeeRegister').then(m => ({ default: m.EmployeeRegister })));
 const PayrollRuns = lazy(() => import('./pages/hr/PayrollRuns').then(m => ({ default: m.PayrollRuns })));
+const HrSettings = lazy(() => import('./pages/hr/HrSettings').then(m => ({ default: m.HrSettings })));
 const SettingsHub = lazy(() => import('./pages/settings/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
 const CEODashboard = lazy(() => import('./pages/dashboard/CEODashboard').then(m => ({ default: m.CEODashboard })));
@@ -196,6 +197,7 @@ export default function App() {
                   เรื่องคน ไม่ใช่ผลพลอยได้จากการจัดเมนู (ดู HR_ROLES ใน functions/hr.js) */}
               <Route path="/employees" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <EmployeeRegister /> : <Navigate to="/" replace />} />
               <Route path="/payroll" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <PayrollRuns /> : <Navigate to="/" replace />} />
+              <Route path="/hr-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <HrSettings /> : <Navigate to="/" replace />} />
                 <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
                 <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
                 <Route path="/notification-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <NotificationSettings /> : <Navigate to="/" replace />} />

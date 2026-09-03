@@ -165,6 +165,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               <div className="space-y-1">
                 <NavButton collapsed={isCollapsed} to="/employees" icon={<Users size={18} />} label="ทะเบียนพนักงาน" />
                 <NavButton collapsed={isCollapsed} to="/payroll" icon={<Banknote size={18} />} label="รอบจ่ายเงินเดือน" />
+                <NavButton collapsed={isCollapsed} to="/hr-settings" icon={<Settings size={18} />} label="ตั้งค่าเงินเดือน/ภาษี" />
               </div>
             </div>
           )}
