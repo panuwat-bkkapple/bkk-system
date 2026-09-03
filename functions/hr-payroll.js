@@ -63,6 +63,23 @@ const DEFAULT_SSO = {
   round_to_baht: true,
 };
 
+// รายการปรับเพิ่ม/ปรับลดที่ใช้ประจำ — ตั้งเองได้ที่ settings/hr
+//
+// **`sso_wage` เป็นการตัดสินที่ต้องเห็น ไม่ใช่ค่าที่ซ่อนอยู่** — ค่าล่วงเวลากับ
+// ค่าคอมมิชชั่นของพนักงานขายเป็น "ค่าจ้าง" ตามกฎหมายประกันสังคม จึงเข้าฐาน
+// สมทบ ส่วนโบนัสประจำปีโดยทั่วไปไม่ใช่ ค่าตั้งต้นจึงต่างกัน และหน้าจอโชว์
+// ช่องติ๊กรายบรรทัดให้แก้ได้เสมอ เพราะเส้นแบ่งนี้ขึ้นกับข้อเท็จจริงของแต่ละ
+// รายการ ไม่ใช่ชื่อของมัน
+const DEFAULT_ADJUSTMENT_PRESETS = [
+  { id: "ot", label: "ค่าล่วงเวลา", kind: "earning", taxable: true, sso_wage: true },
+  { id: "commission", label: "ค่าคอมมิชชั่น", kind: "earning", taxable: true, sso_wage: true },
+  { id: "bonus", label: "โบนัส", kind: "earning", taxable: true, sso_wage: false },
+  { id: "allowance", label: "เบี้ยขยัน", kind: "earning", taxable: true, sso_wage: true },
+  { id: "absence", label: "หักขาด/ลา/มาสาย", kind: "deduction" },
+  { id: "advance", label: "หักเงินเบิกล่วงหน้า", kind: "deduction" },
+  { id: "other_deduction", label: "เงินหักอื่นๆ", kind: "deduction" },
+];
+
 const DEFAULT_PAYROLL = {
   cycle: "monthly",
   cutoff_day: 20,
@@ -95,7 +112,23 @@ function resolvePayrollConfig(settings) {
       }))
     : DEFAULT_TAX.brackets.map((b) => ({ ...b }));
 
+  // **มีคีย์อยู่ = เชื่อสิ่งที่แอดมินตั้ง แม้จะเหลือศูนย์แถว** ตกกลับไปใช้
+  // ค่าตั้งต้นเฉพาะตอนที่ยังไม่เคยตั้งเท่านั้น — ถ้าลิสต์ว่างแล้วคืนค่าตั้งต้น
+  // แปลว่า "ลบทิ้งทั้งหมด" ทำไม่ได้ รายการที่ลบไปจะโผล่กลับมาเองทุกครั้ง
+  const presets = Array.isArray(s.adjustment_presets)
+    ? s.adjustment_presets
+        .map((r) => ({
+          id: String((r && r.id) || "").trim() || null,
+          label: String((r && r.label) || "").trim(),
+          kind: String((r && r.kind) || "").toLowerCase() === "deduction" ? "deduction" : "earning",
+          taxable: !(r && r.taxable === false),
+          sso_wage: Boolean(r && r.sso_wage),
+        }))
+        .filter((r) => r.label)
+    : DEFAULT_ADJUSTMENT_PRESETS.map((r) => ({ ...r }));
+
   return {
+    adjustment_presets: presets,
     payroll: {
       cycle: String(pay.cycle || DEFAULT_PAYROLL.cycle),
       cutoff_day: num(pay.cutoff_day, DEFAULT_PAYROLL.cutoff_day),
@@ -372,9 +405,20 @@ function buildPayrollItem({ employee, priv, config, period, input }) {
 
   const deductTotal = round2(deductions.reduce((s, d) => s + num(d.amount, 0), 0));
 
+  // ช่องทางจ่ายมาจาก "มีเลขบัญชีไหม" ไม่ใช่ฟิลด์ที่ต้องมากรอกซ้ำ
+  //
+  // เก็บเลขบัญชีแบบ mask เท่านั้นในบรรทัดนี้ — เลขเต็มอยู่ที่ employees_private
+  // ที่เดียว การก๊อปมาไว้ในทุกรอบทุกเดือนคือการเพิ่มที่ที่ข้อมูลธนาคารอยู่
+  // โดยไม่ได้เพิ่มความสามารถอะไร (ตอนทำไฟล์โอนจริงค่อยอ่านจากต้นทาง)
+  const account = String((p.bank && p.bank.account) || "").replace(/\s|-/g, "");
+  const payMethod = account ? "transfer" : "cash";
+
   return {
     employee_id: emp.id || null,
     employee_code: emp.employee_code || null,
+    pay_method: payMethod,
+    bank_name: (p.bank && p.bank.name) || null,
+    bank_masked: account ? `••••${account.slice(-4)}` : null,
     name: emp.name || null,
     employment_type: type,
     earnings,
@@ -403,12 +447,20 @@ function summarizeRun(items) {
     sso_employee: sum("sso_employee"),
     sso_employer: sum("sso_employer"),
     net: sum("net"),
+    // ต้นทุนจริงของบริษัท = ที่จ่ายลูกจ้าง + เงินสมทบฝั่งนายจ้าง
+    // ยอดโอนสุทธิไม่ใช่ตัวเลขที่ควรเอาไปคิดต้นทุน เพราะมันคือยอดหลังหักภาษี
+    // และประกันสังคมที่บริษัทถือไว้นำส่งแทน ไม่ใช่เงินที่บริษัทประหยัดได้
+    employer_cost: round2(sum("gross") + sum("sso_employer")),
+    // แยกตามช่องทางจ่ายเพื่อให้กระทบยอดกับสลิปโอนได้
+    transfer: round2(list.filter((i) => i.pay_method !== "cash").reduce((s2, i) => s2 + num(i.net, 0), 0)),
+    cash: round2(list.filter((i) => i.pay_method === "cash").reduce((s2, i) => s2 + num(i.net, 0), 0)),
     incomplete: list.filter((i) => i.incomplete).length,
   };
 }
 
 module.exports = {
   DEFAULT_TAX,
+  DEFAULT_ADJUSTMENT_PRESETS,
   DEFAULT_SSO,
   DEFAULT_PAYROLL,
   resolvePayrollConfig,

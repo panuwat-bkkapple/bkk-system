@@ -17,7 +17,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
-  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar,
+  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2,
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -51,11 +51,19 @@ interface Item {
   days_worked: number | null;
   note: string | null;
   incomplete: string | null;
+  pay_method?: 'transfer' | 'cash';
+  bank_name?: string | null;
+  bank_masked?: string | null;
+  manual_earnings?: ManualLine[];
+  manual_deductions?: ManualLine[];
 }
 interface Totals {
   headcount: number; gross: number; wht: number;
   sso_employee: number; sso_employer: number; net: number; incomplete: number;
+  employer_cost?: number; transfer?: number; cash?: number;
 }
+interface Preset { id: string | null; label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean }
+interface ManualLine { label: string; amount: number; taxable?: boolean; sso_wage?: boolean }
 interface Run {
   id: string;
   period: string;
@@ -112,6 +120,7 @@ export const PayrollRuns = () => {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [period, setPeriod] = useState(thisPeriod);
+  const [presets, setPresets] = useState<Preset[]>([]);
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -128,8 +137,8 @@ export const PayrollRuns = () => {
 
   const loadRun = useCallback(async (key: string) => {
     try {
-      const res = await call<{ run: Run; items: Item[] }>('adminHrPayrollGet', { period: key });
-      setRun(res.run); setItems(res.items || []);
+      const res = await call<{ run: Run; items: Item[]; presets: Preset[] }>('adminHrPayrollGet', { period: key });
+      setRun(res.run); setItems(res.items || []); setPresets(res.presets || []);
     } catch (e) {
       setRun(null); setItems([]);
       toast.error(e instanceof Error ? e.message : 'โหลดรอบไม่สำเร็จ');
@@ -151,12 +160,23 @@ export const PayrollRuns = () => {
     } finally { setBusy(false); }
   };
 
-  const setDays = async (item: Item, days: string) => {
+  // ทุกการแก้บรรทัดเดินทางเดียวกัน: ส่ง "สภาพที่ควรเป็น" ทั้งชุดให้ server
+  // คิดใหม่ ไม่ใช่ส่ง delta — บรรทัดที่คิดจากค่าคนละชุดกับบรรทัดอื่นในรอบเดียวกัน
+  // คือที่มาของยอดที่กระทบไม่ลง
+  const saveItem = async (item: Item, patch: {
+    days_worked?: string | number | null;
+    extra_earnings?: ManualLine[];
+    extra_deductions?: ManualLine[];
+  }) => {
     if (!run) return;
     setBusy(true);
     try {
       await call('adminHrPayrollSetItem', {
-        period: run.id, employeeId: item.employee_id, days_worked: days,
+        period: run.id,
+        employeeId: item.employee_id,
+        days_worked: patch.days_worked !== undefined ? patch.days_worked : item.days_worked,
+        extra_earnings: patch.extra_earnings ?? item.manual_earnings ?? [],
+        extra_deductions: patch.extra_deductions ?? item.manual_deductions ?? [],
       });
       await loadRun(run.id);
     } catch (e) {
@@ -324,13 +344,14 @@ export const PayrollRuns = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-5">
               {[
                 ['พนักงาน', `${run.totals?.headcount ?? 0} คน`],
                 ['รวมรายได้', baht(run.totals?.gross)],
                 ['ภาษีหัก ณ ที่จ่าย', baht(run.totals?.wht)],
                 ['ประกันสังคม (ลูกจ้าง/นายจ้าง)', `${baht(run.totals?.sso_employee)} / ${baht(run.totals?.sso_employer)}`],
-                ['ยอดโอนสุทธิ', baht(run.totals?.net)],
+                ['ยอดจ่ายสุทธิ', baht(run.totals?.net)],
+                ['ต้นทุนบริษัท (รวมสมทบนายจ้าง)', baht(run.totals?.employer_cost)],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl bg-gray-50 p-3">
                   <p className="text-[11px] font-bold text-gray-400">{label}</p>
@@ -344,8 +365,12 @@ export const PayrollRuns = () => {
                 <AlertTriangle size={15} /> ยังกรอกไม่ครบ {incomplete.length} คน — อนุมัติไม่ได้จนกว่าจะครบ
               </p>
             )}
+            <p className="mt-4 text-xs text-gray-500">
+              แยกตามช่องทางจ่าย — โอน {baht(run.totals?.transfer)} · เงินสด {baht(run.totals?.cash)}
+              <span className="text-gray-400"> (คนที่ยังไม่กรอกเลขบัญชีจะนับเป็นเงินสด)</span>
+            </p>
             {locked && (
-              <p className="mt-4 text-xs text-gray-400 flex items-center gap-1">
+              <p className="mt-2 text-xs text-gray-400 flex items-center gap-1">
                 <Lock size={12} /> รอบนี้ล็อกแล้ว การแก้ไขต้องออกรอบปรับปรุง
               </p>
             )}
@@ -372,6 +397,9 @@ export const PayrollRuns = () => {
                       <p className="font-black text-gray-800">{baht(item.net)}</p>
                       <p className="text-[11px] text-gray-400">
                         รายได้ {baht(item.gross)} · หัก {baht(item.gross - item.net)}
+                        {item.pay_method === 'cash'
+                          ? ' · จ่ายเงินสด (ไม่มีเลขบัญชี)'
+                          : item.bank_masked ? ` · ${item.bank_name || 'โอน'} ${item.bank_masked}` : ''}
                       </p>
                     </div>
                   </button>
@@ -383,7 +411,7 @@ export const PayrollRuns = () => {
                           จำนวนวันทำงานในงวดนี้
                           <input type="number" min={0} max={31} disabled={locked || busy}
                             defaultValue={item.days_worked ?? ''}
-                            onBlur={(e) => { if (e.target.value !== String(item.days_worked ?? '')) void setDays(item, e.target.value); }}
+                            onBlur={(e) => { if (e.target.value !== String(item.days_worked ?? '')) void saveItem(item, { days_worked: e.target.value }); }}
                             className="mt-1 block w-32 px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50" />
                         </label>
                       )}
@@ -420,6 +448,10 @@ export const PayrollRuns = () => {
                         </div>
                       </div>
 
+                      {!locked && (
+                        <ManualLinesEditor item={item} presets={presets} busy={busy} onSave={saveItem} />
+                      )}
+
                       {/* ที่มาของภาษี — ตัวเลขที่อธิบายตัวเองไม่ได้คือตัวเลขที่ไม่มีใครกล้าตรวจ */}
                       {!item.wht_basis?.skipped && (
                         <div className="rounded-xl bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
@@ -446,6 +478,105 @@ export const PayrollRuns = () => {
           </p>
         </>
       )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// รายการปรับเพิ่ม/ปรับลดต่อคนต่อรอบ
+//
+// **ช่อง "เข้าฐานประกันสังคม" โชว์ให้เห็นทุกบรรทัดโดยตั้งใจ** — ค่าล่วงเวลากับ
+// ค่าคอมมิชชั่นของพนักงานขายเป็นค่าจ้างตามกฎหมายประกันสังคมจึงเข้าฐานสมทบ
+// ส่วนโบนัสประจำปีโดยทั่วไปไม่ใช่ เส้นแบ่งนี้ขึ้นกับข้อเท็จจริงของรายการ
+// ไม่ใช่ชื่อของมัน การซ่อนไว้ในค่าตั้งต้นแปลว่าคนกรอกไม่มีทางรู้ว่าเลือกอะไรอยู่
+//
+// แก้แล้วยิงบันทึกทันทีทีละครั้ง ไม่มีปุ่ม "บันทึกทั้งหมด" — server คิดยอดใหม่
+// ให้ทุกครั้ง คนกรอกจึงเห็นผลของสิ่งที่เพิ่งพิมพ์ ไม่ใช่เห็นตอนกดอนุมัติ
+const ManualLinesEditor = ({ item, presets, busy, onSave }: {
+  item: Item;
+  presets: Preset[];
+  busy: boolean;
+  onSave: (item: Item, patch: { extra_earnings?: ManualLine[]; extra_deductions?: ManualLine[] }) => Promise<void>;
+}) => {
+  const earnings = item.manual_earnings || [];
+  const deductions = item.manual_deductions || [];
+
+  const commit = (kind: 'earning' | 'deduction', rows: ManualLine[]) =>
+    onSave(item, kind === 'earning' ? { extra_earnings: rows } : { extra_deductions: rows });
+
+  const addFrom = (kind: 'earning' | 'deduction', label: string) => {
+    const preset = presets.find((p) => p.label === label && p.kind === kind);
+    const row: ManualLine = {
+      label,
+      amount: 0,
+      taxable: preset ? preset.taxable : true,
+      sso_wage: preset ? preset.sso_wage : false,
+    };
+    void commit(kind, [...(kind === 'earning' ? earnings : deductions), row]);
+  };
+
+  const block = (kind: 'earning' | 'deduction') => {
+    const rows = kind === 'earning' ? earnings : deductions;
+    const options = presets.filter((p) => p.kind === kind);
+    return (
+      <div>
+        <p className="text-xs font-black text-gray-400 uppercase mb-2">
+          {kind === 'earning' ? 'รายการปรับเพิ่ม' : 'รายการปรับลด'}
+        </p>
+        <div className="space-y-2">
+          {rows.map((row, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <input value={row.label} disabled={busy}
+                onChange={(e) => {
+                  const next = rows.map((r, idx) => (idx === i ? { ...r, label: e.target.value } : r));
+                  void commit(kind, next);
+                }}
+                className="flex-1 min-w-[8rem] px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+              <input type="number" defaultValue={String(row.amount)} disabled={busy}
+                onBlur={(e) => {
+                  const v = Number(e.target.value) || 0;
+                  if (v === row.amount) return;
+                  void commit(kind, rows.map((r, idx) => (idx === i ? { ...r, amount: v } : r)));
+                }}
+                className="w-28 px-2 py-1.5 rounded-lg border border-gray-200 text-sm text-right" />
+              {kind === 'earning' && (
+                <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                  <input type="checkbox" checked={row.sso_wage !== false} disabled={busy}
+                    onChange={(e) => void commit(kind, rows.map((r, idx) => (idx === i ? { ...r, sso_wage: e.target.checked } : r)))}
+                    className="w-3.5 h-3.5 rounded border-gray-300" />
+                  เข้าฐานประกันสังคม
+                </label>
+              )}
+              <button onClick={() => void commit(kind, rows.filter((_, idx) => idx !== i))} disabled={busy}
+                className="text-gray-300 hover:text-rose-500"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <select value="" disabled={busy}
+            onChange={(e) => { if (e.target.value) addFrom(kind, e.target.value); }}
+            className="text-xs font-bold border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+            <option value="">เพิ่มรายการ...</option>
+            {options.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
+          </select>
+          <button onClick={() => addFrom(kind, kind === 'earning' ? 'รายการเพิ่ม' : 'รายการหัก')} disabled={busy}
+            className="text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center gap-1">
+            <Plus size={13} /> กรอกเอง
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+      {block('earning')}
+      {block('deduction')}
+      <p className="md:col-span-2 text-[11px] text-gray-400">
+        รายการที่แก้ที่นี่ผูกกับรอบนี้เท่านั้น ไม่ติดไปเดือนหน้า ·
+        เงินเดือนกับเบี้ยเลี้ยงประจำแก้ที่แฟ้มพนักงาน ·
+        ตั้งรายการที่ใช้บ่อยได้ที่หน้าตั้งค่าเงินเดือน/ภาษี
+      </p>
     </div>
   );
 };
