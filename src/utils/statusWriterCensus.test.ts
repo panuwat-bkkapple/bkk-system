@@ -1,24 +1,42 @@
-// สำมะโนตัวเขียน `jobs/{id}/status` ตรง — ตัวเลขต้องลดลงเท่านั้น
+// สำมะโนการเขียน `jobs/{id}` ตรงจากไคลเอนต์ — ตัวเลขต้องลดลงเท่านั้น
 //
-// ทำไมเป็นเทส ไม่ใช่รายการใน doc: ตอนเริ่ม P2 ฝั่งเดสก์ท็อปมี 53 จุดใน 17 ไฟล์
-// การย้ายทั้งหมดใช้หลาย PR หลายวัน ระหว่างนั้นมีคนอื่นเขียนฟีเจอร์ใหม่ในไฟล์
-// เดียวกัน — ถ้าไม่มีอะไรนับ จุดใหม่จะเพิ่มเข้ามาเงียบๆ เร็วกว่าที่เราย้ายออก
-// แล้วงานนี้จะไม่จบ (รูปเดียวกับด่าน census ของแอปไรเดอร์ที่ตอนนี้ตรึงไว้ที่ 0)
+// **ตัวนับรอบแรก (#657) นับผิด และนี่คือรอบแก้** ของเดิมมองหา `status:` ใน
+// หน้าต่าง 25 บรรทัดหลังคำสั่ง update ซึ่งจับ `status` ของ object ที่ถูกเขียน
+// เป็น **ค่า** มาด้วย (`customer_offer.status: 'accepted'`, adjustment ที่
+// `status: 'pending'`) — B2CWorkspacePage จึงถูกรายงานว่ามี 17 จุดทั้งที่จริง
+// มี 11 และเลข 53/51 ที่เขียนไว้ใน PR ก่อนหน้าก็เกินจริงตามกันไป
 //
-// **แดงเพราะเพิ่มขึ้น = ไปแก้ที่ตัวเขียนใหม่ ให้เรียก runJobTransition**
-// **แดงเพราะลดลง = ย้ายสำเร็จ ลดเลขในไฟล์นี้ลงพร้อมกับ PR นั้น**
+// รอบนี้เปลี่ยนไปนับสิ่งที่ **นับพลาดไม่ได้**: จำนวนคำสั่งเขียนโหนดงานทั้งหมด
+// ไม่ว่า payload จะเป็นรูปไหน (object literal, ตัวแปรที่ประกอบไว้ก่อน,
+// multi-path). ตัวนับที่พลาดไปข้างน้อยคือตัวนับที่ปล่อยตัวเขียนใหม่เข้ามาได้
+// ซึ่งเป็นทิศที่อันตรายกว่าการนับเกิน
+//
+// สิ่งที่นับได้จึงกว้างกว่า "ตัวเขียนสถานะ" — มีทั้งการเขียน qc_logs เปล่าๆ
+// ข้อมูลลูกค้า และคูปอง ซึ่งไม่ใช่ transition และไม่ต้องย้ายทั้งหมด **แต่ในฐานะ
+// ราวกันตกมันตอบคำถามที่ถูกกว่า: "มีทางเขียนโหนดงานตรงเพิ่มขึ้นไหม"**
+//
+// แดงเพราะเพิ่มขึ้น = ไปแก้ที่ตัวเขียนใหม่ ให้เรียก runJobTransition
+// แดงเพราะลดลง = ย้ายสำเร็จ ลดเลขข้างล่างพร้อมกับ PR นั้น
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * เพดานปัจจุบัน — ลดลงทุกครั้งที่ย้าย writer สำเร็จ ห้ามขึ้น
+ * 113 = ตัวเลขตอนเริ่ม P2-h · ลดได้ ขึ้นไม่ได้
  *
- * 53 คือตัวเลขตอนเริ่ม (ก่อน P2-g2) · DispatcherPage ย้ายไป 2 จุดใน PR นี้
+ * P2-h ย้าย 3 ใน 10 **จุดที่เรียก** `handleUpdateStatus` ไปเป็น event แต่เลขนี้
+ * ไม่ขยับ เพราะตัวเขียนตรงคือ `handleUpdateStatus` เองซึ่งนับเป็น 1 จุด — มันจะ
+ * หายไปตอนผู้เรียกครบทั้ง 10 ย้ายเสร็จ **ตัวเลขที่นิ่งจึงไม่ใช่สัญญาณว่าไม่มี
+ * ความคืบหน้า** และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง
  */
-const MAX_DIRECT_STATUS_WRITERS = 51;
+const MAX_DIRECT_JOB_WRITES = 113;
 
 const SRC = resolve(__dirname, '..');
+
+/** คำสั่งเขียนโหนดงาน: `update|set|remove(ref(db, \`jobs/${...}\`)` */
+const CALL_FORM = /(?:update|set|remove)\(ref\(db,\s*`jobs\/\$\{[^`]*`\)/g;
+/** multi-path: `updates[\`jobs/${id}/...\`] = ...` */
+const PATH_FORM = /\[`jobs\/\$\{[^`]*`\]\s*=/g;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -29,58 +47,56 @@ function walk(dir: string): string[] {
   });
 }
 
-/**
- * นับจุดที่เขียน `status` ลง `jobs/{id}` ตรงๆ
- *
- * สองรูป: multi-path (`updates['jobs/${id}/status'] = ...`) กับ object update
- * (`update(ref(db, 'jobs/${id}'), { status: ... })` ซึ่งฟิลด์อยู่ในบล็อกถัดไป)
- */
-function countDirectStatusWrites(source: string): number {
-  const lines = source.split('\n');
-  let count = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/\[`jobs\/\$\{[^}]+\}\/status`\]/.test(line) || /`jobs\/\$\{[^}]+\}\/status`/.test(line)) {
-      count++;
-      continue;
-    }
-    if (/(update|set)\(ref\(db, `jobs\/\$\{[^}]+\}`\)/.test(line)) {
-      const blob = lines.slice(i, i + 25).join('\n');
-      if (/\bstatus:\s/.test(blob)) count++;
-    }
-  }
-  return count;
+function countDirectWrites(source: string): number {
+  return (source.match(CALL_FORM) || []).length + (source.match(PATH_FORM) || []).length;
 }
 
-describe('สำมะโนตัวเขียนสถานะตรง', () => {
+describe('สำมะโนการเขียนโหนดงานตรง', () => {
   const perFile = walk(SRC)
-    .map((file) => [file.slice(SRC.length + 1), countDirectStatusWrites(readFileSync(file, 'utf8'))] as const)
+    .map((f) => [f.slice(SRC.length + 1), countDirectWrites(readFileSync(f, 'utf8'))] as const)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
 
   const total = perFile.reduce((sum, [, n]) => sum + n, 0);
 
-  it(`ไม่เกินเพดาน ${MAX_DIRECT_STATUS_WRITERS} จุด`, () => {
-    // ข้อความนี้คือสิ่งที่คนแก้จะอ่านตอนแดง — ต้องบอกว่าเหลือที่ไหนบ้าง
+  it(`ไม่เกินเพดาน ${MAX_DIRECT_JOB_WRITES} จุด`, () => {
     expect(total, `เหลือ:\n${perFile.map(([f, n]) => `  ${n} ${f}`).join('\n')}`)
-      .toBeLessThanOrEqual(MAX_DIRECT_STATUS_WRITERS);
+      .toBeLessThanOrEqual(MAX_DIRECT_JOB_WRITES);
   });
 
   it('เพดานไม่หลวมเกินจริง — ย้ายสำเร็จแล้วต้องลดเลขในไฟล์นี้ด้วย', () => {
-    // เพดานที่ตั้งสูงกว่าความจริงมากคือเพดานที่รับ writer ใหม่ได้เงียบๆ
-    expect(total).toBeGreaterThan(MAX_DIRECT_STATUS_WRITERS - 3);
+    // เพดานที่ตั้งสูงกว่าความจริงมากคือเพดานที่รับตัวเขียนใหม่ได้เงียบๆ
+    expect(total).toBeGreaterThan(MAX_DIRECT_JOB_WRITES - 3);
   });
 
   it('DispatcherPage ย้ายแล้ว ห้ามกลับมาเขียนตรง', () => {
-    const dispatcher = perFile.find(([f]) => f.endsWith('DispatcherPage.tsx'));
-    expect(dispatcher).toBeUndefined();
+    expect(perFile.find(([f]) => f.endsWith('DispatcherPage.tsx'))).toBeUndefined();
   });
 
-  it('ยังรู้ว่ากองใหญ่อยู่ที่ไหน', () => {
-    // ถ้าสองไฟล์นี้หลุดออกจากลิสต์ไปเองโดยไม่มี PR ที่ย้ายมัน แปลว่า regex
-    // นับไม่เจอแล้ว ไม่ใช่ว่างานเสร็จ — ตัวนับที่นับไม่เจออะไรเลยจะเขียวเสมอ
+  it('PricingSidebar เหลือเรียก handleUpdateStatus 7 จุด — 3 จุดย้ายเป็น event แล้ว', () => {
+    // ด่านนี้เพิ่มเข้ามาเพราะ injection รอบแรกเขียว: ย้อนปุ่มกลับไปเป็น
+    // handleUpdateStatus แล้วไม่มีเทสไหนรู้สึกอะไรเลย — ด่านที่ไปไม่ถึง
+    //
+    // นับจำนวนผู้เรียก ไม่ใช่เช็คว่า "มี handleTransition อยู่ไหม" เพราะแบบหลัง
+    // เขียวได้ทั้งที่ปุ่มถูกย้อนกลับไปแล้วทุกตัว
+    const sidebar = readFileSync(
+      resolve(SRC, 'pages/admin/components/PricingSidebar.tsx'), 'utf8',
+    );
+    const legacy = sidebar.match(/handleUpdateStatus\(/g) || [];
+    // +1 = การ destructure ออกจาก props ไม่ใช่การเรียก
+    expect(legacy.length).toBe(7);
+
+    // สามปลายทางนี้ต้องไม่ถูกไคลเอนต์เลือกเองอีก
+    for (const gone of ["handleUpdateStatus('Pending QC', 'เปิดพัสดุ", "handleUpdateStatus('Drop-off Received'", "handleUpdateStatus('Being Inspected', 'เริ่มประเมินสภาพเครื่องที่รับไว้แล้ว'"]) {
+      expect(sidebar).not.toContain(gone);
+    }
+  });
+
+  it('ยังนับเจอกองใหญ่ — ตัวนับที่นับไม่เจออะไรเลยจะเขียวเสมอ', () => {
     const names = perFile.map(([f]) => f);
     expect(names.some((f) => f.endsWith('B2CWorkspacePage.tsx'))).toBe(true);
     expect(names.some((f) => f.endsWith('MobileTicketDetail.tsx'))).toBe(true);
+    // นับได้ทั้งสองรูป ไม่ใช่แค่รูปเดียว: TradeInPayouts เป็น multi-path ล้วน
+    expect(names.some((f) => f.endsWith('TradeInPayouts.tsx'))).toBe(true);
   });
 });

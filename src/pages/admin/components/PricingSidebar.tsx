@@ -18,11 +18,15 @@ import PickupLocationPicker, { geocodeAddress } from '@/components/PickupLocatio
 import { canReviewAdjustments, listAppliedCoupons } from '@/utils/adjustments';
 import type { JobAdjustment } from '@/utils/adjustments';
 import { signedAmount } from '@/utils/signedAmount';
+import { JOB_EVENT, type JobEvent } from '@/utils/jobTransitions';
 import type { AmountDirection } from '@/utils/signedAmount';
 import { SignedAmountInput } from '@/components/SignedAmountInput';
 
 interface PricingSidebarHandlers {
+  /** ตัวเขียนแบบเดิม (ไคลเอนต์เลือกสถานะเอง) — เหลือไว้ให้ปุ่มที่ยังย้ายไม่ได้ */
   handleUpdateStatus: (newStatus: string, details: string) => Promise<void>;
+  /** ตัวเขียนใหม่: ส่ง event ให้ status engine ตัดสินปลายทาง */
+  handleTransition: (event: JobEvent, reason: string) => Promise<void>;
   handleCallCustomer: () => Promise<void>;
   handleReviseOffer: () => Promise<void>;
   handleCloseNegotiation: () => Promise<void>;
@@ -167,7 +171,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
   job, handlers, couponState, pricing, currentUserName, currentUserRole
 }) => {
   const {
-    handleUpdateStatus, handleCallCustomer, handleReviseOffer,
+    handleUpdateStatus, handleTransition, handleCallCustomer, handleReviseOffer,
     handleCloseNegotiation, handleApplyAdminCoupon, handleRemoveCoupon,
     handleSaveNotes, handleReopen, handleCloseLost, handleRecoverHandover,
     setIsQCModalOpen, setIsCancelModalOpen, setActiveChatJobId,
@@ -756,7 +760,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           <div className="space-y-3">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PackageOpen size={14} /> รอเปิดพัสดุ + ตรวจสภาพ</p>
             <button
-              onClick={() => handleUpdateStatus('Pending QC', 'เปิดพัสดุและพร้อมเข้ากระบวนการ QC')}
+              onClick={() => handleTransition(JOB_EVENT.INTAKE_QUEUED_FOR_QC, 'เปิดพัสดุและพร้อมเข้ากระบวนการ QC')}
               className="w-full py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
               <PackageOpen size={18} /> เปิดพัสดุ + พร้อมตรวจ (Pending QC)
@@ -1040,7 +1044,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
               <Store size={18} /> ลูกค้ามาถึงสาขา + เริ่มตรวจสภาพ
             </button>
             <button
-              onClick={() => handleUpdateStatus('Drop-off Received', 'รับเครื่องที่เคาน์เตอร์ รอตรวจ')}
+              onClick={() => handleTransition(JOB_EVENT.DROPOFF_RECEIVED, 'รับเครื่องที่เคาน์เตอร์ รอตรวจ')}
               className="w-full py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
             >
               รับเครื่องไว้ก่อน (ยังไม่ตรวจ)
@@ -1053,7 +1057,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           <div className="space-y-3 mt-4">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Store size={14} /> รับเครื่องแล้ว — รอตรวจ</p>
             <button
-              onClick={() => handleUpdateStatus('Being Inspected', 'เริ่มประเมินสภาพเครื่องที่รับไว้แล้ว')}
+              onClick={() => handleTransition(JOB_EVENT.INSPECTION_STARTED, 'เริ่มประเมินสภาพเครื่องที่รับไว้แล้ว')}
               className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-200 transition-all active:scale-95 flex justify-center items-center gap-2"
             >
               <Store size={18} /> เริ่มตรวจสภาพ QC

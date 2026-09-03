@@ -20,6 +20,19 @@ export const JOB_EVENT = {
   // และตัวนี้ไม่ประทับ withdrawn_* — ถ้าประทับ แอดมินที่เพิ่งกดสับเปลี่ยนเอง
   // จะโดนแบนเนอร์เตือนว่า "ไรเดอร์ทิ้งงานใบนี้" ทุกครั้ง (`wasRiderWithdrawn`)
   RIDER_UNASSIGNED: 'rider_unassigned',
+
+  // ── ขั้นรับเครื่องเข้าร้าน ──────────────────────────────────────────────
+  // สามตัวนี้ย้ายมาจาก `handleUpdateStatus(สถานะ, รายละเอียด)` ซึ่งเป็นตัวเขียน
+  // แบบ "ไคลเอนต์เลือกปลายทางเอง" ที่ PricingSidebar เรียกอยู่ 10 จุด
+  //
+  // **ย้ายมาแค่ 3 จุด ไม่ใช่ 10 โดยตั้งใจ** — อีก 7 จุดปุ่มมันโผล่ในสถานะที่
+  // กว้างกว่า from-list ของ engine (เช่นปุ่ม "ไรเดอร์ถึงแล้ว" ขึ้นตั้งแต่งานยัง
+  // อยู่ Rider Assigned) ย้ายทั้งชุดตอนนี้ = ปุ่มแอดมินพังบน production. การ
+  // ขยาย from-list เป็นการตัดสินใจเชิงธุรกิจว่า override ไหนของแอดมินถูกต้อง
+  // ดูตารางใน bkk-frontend-next/docs/design/status-machine-v2.md §12
+  INTAKE_QUEUED_FOR_QC: 'intake_queued_for_qc',
+  DROPOFF_RECEIVED: 'dropoff_received',
+  INSPECTION_STARTED: 'inspection_started',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];
