@@ -196,6 +196,13 @@ const actorSrc = readFileSync(join(fnDir, "actor.js"), "utf8");
 const staffSrc = readFileSync(join(fnDir, "staff-accounts.js"), "utf8");
 const uiSrc = readFileSync(join(root, "src/pages/hr/EmployeeRegister.tsx"), "utf8");
 
+function handlerOfHr(name) {
+  const start = hrSrc.indexOf(`const ${name} = onCall`);
+  if (start === -1) return null;
+  const next = hrSrc.indexOf("\n  const admin", start + 1);
+  return hrSrc.slice(start, next === -1 ? hrSrc.length : next);
+}
+
 function callableOf(name) {
   const start = hrSrc.indexOf(`const ${name} = onCall`);
   if (start === -1) return null;
@@ -223,6 +230,39 @@ for (const name of CALLABLES) {
     !!m && JSON.parse(m[1].replace(/'/g, '"')).sort().join(",") === "CEO,HR");
   check("hr.js ไม่ประกาศ HR_ROLES ของตัวเอง (สำเนาเดียว)",
     !/const HR_ROLES = \[/.test(hrSrc));
+}
+
+// ── 8b. ค่าลดหย่อนภาษีรายคน ────────────────────────────────────────────────
+// เก็บเป็น "จำนวน" ไม่ใช่ "จำนวนเงิน" — จำนวนเงินต่อหัวเป็นอัตราตามกฎหมายซึ่ง
+// อยู่ที่ settings/hr เก็บเงินไว้ที่ตัวคนแปลว่าอัตราเปลี่ยนแล้วต้องไล่แก้ทุกคน
+{
+  const { value, errors } = sanitizeEmployeePrivate({
+    tax: { spouse: true, children: 2, parents: 1, other: 50000, spouse_allowance: 999999 },
+  });
+  check("tax ไม่ปล่อยคีย์แปลกปลอม (เช่นการยัดจำนวนเงินลดหย่อนเอง)",
+    Object.keys(value.tax).sort().join(",") === "children,other,parents,spouse");
+  check("tax เก็บค่าที่กรอกได้ครบ",
+    value.tax.spouse === true && value.tax.children === 2 && value.tax.parents === 1 && value.tax.other === 50000 && errors.length === 0);
+}
+check("จำนวนบุตรเกินจริง = error", sanitizeEmployeePrivate({ tax: { children: 99 } }).errors.length > 0);
+check("ค่าลดหย่อนอื่นติดลบ = error", sanitizeEmployeePrivate({ tax: { other: -1 } }).errors.length > 0);
+check("ไม่ส่ง tax ในโหมด partial = ไม่ถูกแตะ",
+  !("tax" in sanitizeEmployeePrivate({ phone: "0800000000" }, { partial: true }).value));
+
+// ── 8c. แก้ข้อมูลต้องไม่ลบเบี้ยเลี้ยงประจำทิ้ง ─────────────────────────────
+// `update()` แทนที่โหนด pay ทั้งก้อน และฟอร์มแก้ไขส่งมาแค่เงินเดือน/ค่าแรงรายวัน
+// ถ้าไม่หิ้วของเดิมมาด้วย การแก้เบอร์โทรจะลบเบี้ยเลี้ยงทิ้ง แล้วเงินเดือนงวด
+// ถัดไปลดลงโดยไม่มีใครเห็นว่าเกิดจากอะไร (pay.allowances เข้าสูตรทั้งฝั่งรายได้
+// และฐานประกันสังคมใน hr-payroll.js)
+{
+  const upd = handlerOfHr("adminHrEmployeeUpdate");
+  check("adminHrEmployeeUpdate หิ้วเบี้ยเลี้ยงเดิมมาเมื่อ caller ไม่ได้ส่งมา",
+    !!upd && /const sentAllowances = Array\.isArray\(/.test(upd)
+      && /if \(!sentAllowances\)/.test(upd)
+      && /priv\.value\.pay\.allowances = Array\.isArray\(before\.allowances\)/.test(upd));
+  check("sanitizer เองยังล้าง allowances เมื่อไม่ได้ส่งมา (ด่านอยู่ที่ callable จริงๆ)",
+    Array.isArray(sanitizeEmployeePrivate({ pay: { base_salary: 1 } }, { partial: true }).value.pay.allowances)
+      && sanitizeEmployeePrivate({ pay: { base_salary: 1 } }, { partial: true }).value.pay.allowances.length === 0);
 }
 
 // ── 9. ห้าม log ข้อมูลอ่อนไหว ──────────────────────────────────────────────

@@ -19,7 +19,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
-  Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus,
+  Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus, Pencil, Receipt,
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -55,6 +55,8 @@ interface EmployeePrivate {
   address?: string | null;
   bank?: { name?: string | null; account?: string | null; account_name?: string | null } | null;
   pay?: { base_salary?: number | null; daily_rate?: number | null } | null;
+  /** ค่าลดหย่อนภาษี — เก็บเป็นจำนวน ไม่ใช่จำนวนเงิน (อัตราต่อหัวอยู่ที่ settings/hr) */
+  tax?: { spouse?: boolean; children?: number; parents?: number; other?: number } | null;
 }
 
 interface EmployeeRow {
@@ -98,7 +100,7 @@ export const EmployeeRegister = () => {
   const [unlinked, setUnlinked] = useState<UnlinkedAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
+  const [formFor, setFormFor] = useState<{ mode: 'create' } | { mode: 'edit'; row: EmployeeRow } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -185,7 +187,7 @@ export const EmployeeRegister = () => {
             className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> รีเฟรช
           </button>
-          <button onClick={() => setShowCreate(true)}
+          <button onClick={() => setFormFor({ mode: 'create' })}
             className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 flex items-center gap-2">
             <Plus size={16} /> เพิ่มพนักงาน
           </button>
@@ -269,7 +271,11 @@ export const EmployeeRegister = () => {
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0 items-start">
+                    <button onClick={() => setFormFor({ mode: 'edit', row })} disabled={busy}
+                      className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                      <Pencil size={13} /> แก้ไข
+                    </button>
                     <select value={row.status} disabled={busy}
                       onChange={(e) => void setStatus(row, e.target.value)}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
@@ -313,44 +319,89 @@ export const EmployeeRegister = () => {
         </div>
       )}
 
-      {showCreate && (
-        <CreateEmployeeModal
-          onClose={() => setShowCreate(false)}
-          onSaved={async () => { setShowCreate(false); await load(); }}
+      {formFor && (
+        <EmployeeFormModal
+          key={formFor.mode === 'edit' ? formFor.row.id : 'create'}
+          existing={formFor.mode === 'edit' ? formFor.row : null}
+          onClose={() => setFormFor(null)}
+          onSaved={async () => { setFormFor(null); await load(); }}
         />
       )}
     </div>
   );
 };
 
-const CreateEmployeeModal = ({ onClose, onSaved }: { onClose: () => void; onSaved: () => Promise<void> }) => {
+// ฟอร์มเดียวใช้ทั้งสร้างและแก้ไข — สองฟอร์มที่ต้อง sync กันเองคือของที่วันหนึ่ง
+// จะไม่ตรงกัน (ช่องใหม่ถูกเพิ่มที่เดียว) กฎเดียวกับ LoginForm ฝั่งเว็บลูกค้า
+//
+// **โหมดแก้ไขเติมเลขบัตรประชาชนตัวเต็มลงในช่อง ไม่ใช่ค่าที่ mask แล้ว** —
+// ผู้เรียกคือ CEO/HR ซึ่งอ่านค่านี้ได้อยู่แล้วผ่าน callable และถ้าเติมค่าที่ mask
+// ไว้ การกดบันทึกโดยไม่แตะช่องนั้นจะเขียนทับเลขจริงด้วยจุดสี่จุด ตารางข้างนอก
+// ยัง mask ตามเดิม
+const EmployeeFormModal = ({ existing, onClose, onSaved }: {
+  existing: EmployeeRow | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) => {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
+  const editing = Boolean(existing);
+  const priv = existing?.private || {};
   const [form, setForm] = useState({
-    name: '', nickname: '', position: '', department: '', branch: 'Main Store',
-    employment_type: 'monthly', hired_at: new Date().toISOString().slice(0, 10),
-    national_id: '', phone: '', email: '', base_salary: '', daily_rate: '',
-    bank_name: '', bank_account: '', bank_account_name: '',
+    name: existing?.name || '',
+    nickname: existing?.nickname || '',
+    position: existing?.position || '',
+    department: existing?.department || '',
+    branch: existing?.branch || 'Main Store',
+    employment_type: existing?.employment_type || 'monthly',
+    hired_at: existing?.hired_at
+      ? new Date(existing.hired_at).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10),
+    national_id: priv.national_id || '',
+    phone: priv.phone || '',
+    email: priv.email || '',
+    base_salary: priv.pay?.base_salary != null ? String(priv.pay.base_salary) : '',
+    daily_rate: priv.pay?.daily_rate != null ? String(priv.pay.daily_rate) : '',
+    bank_name: priv.bank?.name || '',
+    bank_account: priv.bank?.account || '',
+    bank_account_name: priv.bank?.account_name || '',
+    tax_spouse: priv.tax?.spouse ? '1' : '',
+    tax_children: priv.tax?.children != null ? String(priv.tax.children) : '',
+    tax_parents: priv.tax?.parents != null ? String(priv.tax.parents) : '',
+    tax_other: priv.tax?.other != null ? String(priv.tax.other) : '',
   });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const payload = () => ({
+    profile: {
+      name: form.name, nickname: form.nickname, position: form.position,
+      department: form.department, branch: form.branch,
+      employment_type: form.employment_type,
+      hired_at: form.hired_at ? new Date(form.hired_at).getTime() : null,
+    },
+    private: {
+      national_id: form.national_id, phone: form.phone, email: form.email,
+      bank: { name: form.bank_name, account: form.bank_account, account_name: form.bank_account_name },
+      pay: { base_salary: form.base_salary || null, daily_rate: form.daily_rate || null },
+      tax: {
+        spouse: form.tax_spouse === '1',
+        children: form.tax_children || 0,
+        parents: form.tax_parents || 0,
+        other: form.tax_other || 0,
+      },
+    },
+  });
 
   const submit = async () => {
     setSaving(true);
     try {
-      await call('adminHrEmployeeCreate', {
-        profile: {
-          name: form.name, nickname: form.nickname, position: form.position,
-          department: form.department, branch: form.branch,
-          employment_type: form.employment_type,
-          hired_at: form.hired_at ? new Date(form.hired_at).getTime() : null,
-        },
-        private: {
-          national_id: form.national_id, phone: form.phone, email: form.email,
-          bank: { name: form.bank_name, account: form.bank_account, account_name: form.bank_account_name },
-          pay: { base_salary: form.base_salary || null, daily_rate: form.daily_rate || null },
-        },
-      });
-      toast.success('เพิ่มพนักงานเข้าทะเบียนแล้ว');
+      if (editing && existing) {
+        await call('adminHrEmployeeUpdate', { employeeId: existing.id, ...payload() });
+        toast.success('บันทึกการแก้ไขแล้ว');
+      } else {
+        await call('adminHrEmployeeCreate', payload());
+        toast.success('เพิ่มพนักงานเข้าทะเบียนแล้ว');
+      }
       await onSaved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
@@ -372,14 +423,20 @@ const CreateEmployeeModal = ({ onClose, onSaved }: { onClose: () => void; onSave
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl w-full max-w-2xl my-8">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-black text-gray-800">เพิ่มพนักงานเข้าทะเบียน</h2>
+          <h2 className="font-black text-gray-800">
+            {editing ? `แก้ไขข้อมูล ${existing?.name || ''}` : 'เพิ่มพนักงานเข้าทะเบียน'}
+            {editing && <span className="text-xs font-mono text-gray-400 ml-2">{existing?.employee_code}</span>}
+          </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
-        <div className="p-5 space-y-4">
-          <p className="text-xs text-gray-500 bg-gray-50 rounded-xl p-3">
-            การเพิ่มที่นี่ <b>ไม่ได้สร้างบัญชีเข้าระบบ</b> — ถ้าคนนี้มีบัญชีอยู่แล้ว
-            ให้ผูกเข้ามาจากรายการ &quot;บัญชีที่ยังไม่มีแฟ้มพนักงาน&quot; หลังบันทึก
-          </p>
+        <div className="p-5 space-y-5">
+          {!editing && (
+            <p className="text-xs text-gray-500 bg-gray-50 rounded-xl p-3">
+              การเพิ่มที่นี่ <b>ไม่ได้สร้างบัญชีเข้าระบบ</b> — ถ้าคนนี้มีบัญชีอยู่แล้ว
+              ให้ผูกเข้ามาจากรายการ &quot;บัญชีที่ยังไม่มีแฟ้มพนักงาน&quot; หลังบันทึก
+            </p>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {field('name', 'ชื่อ-สกุล *')}
             {field('nickname', 'ชื่อเล่น')}
@@ -403,12 +460,39 @@ const CreateEmployeeModal = ({ onClose, onSaved }: { onClose: () => void; onSave
             {field('bank_account', 'เลขบัญชี')}
             {field('bank_account_name', 'ชื่อบัญชี')}
           </div>
+
+          {/* ค่าลดหย่อน — ไม่กรอกแปลว่าคิดให้เฉพาะลดหย่อนส่วนตัวกับประกันสังคม
+              ซึ่งจะหักภาษีไว้สูงกว่าจริง ต้องเขียนบอกตรงๆ ไม่ใช่ปล่อยให้เดาเอง */}
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="font-bold text-sm text-gray-700 flex items-center gap-2">
+              <Receipt size={15} /> ค่าลดหย่อนภาษี
+            </p>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              ใช้คิดภาษีหัก ณ ที่จ่ายในรอบเงินเดือน — <b>ไม่กรอก = ระบบคิดให้เฉพาะลดหย่อนส่วนตัวกับประกันสังคม
+              ซึ่งจะหักภาษีไว้สูงกว่าความเป็นจริง</b> จำนวนเงินต่อหัวเป็นอัตราตามกฎหมาย ตั้งที่ <code>settings/hr</code>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={form.tax_spouse === '1'}
+                  onChange={(e) => set('tax_spouse', e.target.checked ? '1' : '')}
+                  className="w-4 h-4 rounded border-gray-300" />
+                คู่สมรสไม่มีเงินได้
+              </label>
+              <div />
+              {field('tax_children', 'จำนวนบุตร', 'number')}
+              {field('tax_parents', 'จำนวนบิดามารดาในอุปการะ', 'number')}
+              {field('tax_other', 'ค่าลดหย่อนอื่นรวมทั้งปี (บาท)', 'number')}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2">
+              ค่าลดหย่อนอื่น เช่น เบี้ยประกันชีวิต กองทุนสำรองเลี้ยงชีพ ดอกเบี้ยบ้าน เงินบริจาค — ใส่เป็นยอดรวมทั้งปี
+            </p>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600">ยกเลิก</button>
           <button onClick={() => void submit()} disabled={saving || !form.name.trim()}
             className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold disabled:opacity-50">
-            {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+            {saving ? 'กำลังบันทึก...' : editing ? 'บันทึกการแก้ไข' : 'บันทึก'}
           </button>
         </div>
       </div>

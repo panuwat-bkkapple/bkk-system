@@ -240,6 +240,20 @@ function registerHr() {
         const before = (await db.ref(`employees_private/${employeeId}/pay`).once("value")).val() || {};
         salaryChanged = Number(before.base_salary || 0) !== Number(priv.value.pay.base_salary || 0)
           || Number(before.daily_rate || 0) !== Number(priv.value.pay.daily_rate || 0);
+
+        // เบี้ยเลี้ยงประจำต้องรอดจากการแก้ข้อมูลที่ไม่เกี่ยวกับมัน
+        //
+        // `update()` แทนที่โหนด `pay` ทั้งก้อน และฟอร์มแก้ไขส่งมาแค่เงินเดือน
+        // กับค่าแรงรายวัน — ถ้าไม่หิ้วของเดิมมาด้วย การแก้เบอร์โทรจะลบเบี้ยเลี้ยง
+        // ทิ้ง แล้วเงินเดือนงวดถัดไปจะลดลงโดยไม่มีใครเห็นว่าเกิดจากอะไร
+        // (`pay.allowances` เข้าสูตรใน hr-payroll.js ทั้งฝั่งรายได้และฐาน
+        // ประกันสังคม) — รูปเดียวกับ carryInput ของรอบเงินเดือน
+        const sentAllowances = Array.isArray(
+          data.private && data.private.pay && data.private.pay.allowances
+        );
+        if (!sentAllowances) {
+          priv.value.pay.allowances = Array.isArray(before.allowances) ? before.allowances : [];
+        }
       }
       await db.ref(`employees_private/${employeeId}`).update({ ...priv.value, updated_at: at });
     }
