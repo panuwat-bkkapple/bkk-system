@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Store, MapPin, Users, Calculator, Gift, PackageSearch, ClipboardList,
   Ticket, Bike, Settings, MessageSquareQuote, Bot, Share2, HandCoins, Bell, Activity, Mail, Gauge,
-  CalendarClock
+  CalendarClock, Receipt
 } from 'lucide-react';
 
 // Single source of truth ของโครงเมนูตั้งค่า (Reusely-style 3 กลุ่ม):
@@ -53,6 +53,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { path: '/rider-fee-promos', label: 'โปรส่วนลดค่าไรเดอร์', description: 'โปรโมชั่นลดค่าบริการรับเครื่องถึงบ้าน', icon: <Bike size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/offer-settings', label: 'เสนอราคาเอง (Make Offer)', description: 'Master switch + เพดานรับอัตโนมัติ ของระบบลูกค้าเสนอราคา', icon: <HandCoins size={18} />, roles: ['CEO', 'MANAGER'] },
       { path: '/membership-settings', label: 'สมาชิก & สิทธิพิเศษ', description: 'การ์ดสิทธิประโยชน์สมาชิกที่โชว์ตอน checkout', icon: <Gift size={18} />, roles: ['CEO', 'MANAGER'] },
+      { path: '/settings/receipt', label: 'ใบเสร็จขาย', description: 'หัวกระดาษ ท้ายใบเสร็จ ขนาดกระดาษและตัวอักษร ของใบเสร็จ POS และการพิมพ์ซ้ำ', icon: <Receipt size={18} />, roles: ['CEO'] },
     ],
   },
   {
