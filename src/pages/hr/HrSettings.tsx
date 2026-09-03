@@ -34,6 +34,15 @@ const CODE_DEFAULTS = {
     parent_allowance: 30000, sso_allowance_cap: 10500,
   },
   employee_code_prefix: 'EMP',
+  // เงื่อนไขจ้างที่ไปโผล่บนสัญญาจ้างและจดหมายบุคคล — **ค่าตั้งต้นเป็นจุดเริ่ม
+  // ให้แก้ ไม่ใช่คำแนะนำทางกฎหมาย** MIRROR ของ DEFAULT_CONTRACT ใน
+  // functions/hr-documents.js (functions import TS ไม่ได้) — แก้ต้องแก้ทั้งคู่
+  contract: {
+    probation_days: 119, work_days_per_week: 6, work_hours_per_day: 8,
+    work_start: '09:00', work_end: '18:00', weekly_holiday: 'อาทิตย์',
+    notice_days: 30, warning_valid_days: 365,
+    probation_note: '', benefits: '', extra_clauses: '',
+  },
 };
 
 const DEFAULT_BRACKETS = [
@@ -77,6 +86,10 @@ export const HrSettings = () => {
     tax_enabled: true, expense_rate: '50', expense_cap: '100000',
     personal: '60000', spouse: '60000', child: '30000', parent: '30000', sso_allowance_cap: '10500',
     code_prefix: 'EMP',
+    probation_days: '119', work_days_per_week: '6', work_hours_per_day: '8',
+    work_start: '09:00', work_end: '18:00', weekly_holiday: 'อาทิตย์',
+    notice_days: '30', warning_valid_days: '365',
+    probation_note: '', benefits: '', extra_clauses: '',
   });
   const [brackets, setBrackets] = useState<Bracket[]>(DEFAULT_BRACKETS);
   const [presets, setPresets] = useState<Preset[]>(DEFAULT_PRESETS);
@@ -85,6 +98,7 @@ export const HrSettings = () => {
     const unsub = onValue(ref(db, 'settings/hr'), (snap) => {
       const v = snap.val() || {};
       const p = v.payroll || {}; const s = v.social_security || {}; const t = v.income_tax || {};
+      const c = v.contract || {};
       const d = CODE_DEFAULTS;
       setForm({
         cutoff_day: String(numOr(p.cutoff_day, d.payroll.cutoff_day)),
@@ -104,6 +118,17 @@ export const HrSettings = () => {
         parent: String(numOr(t.parent_allowance, d.income_tax.parent_allowance)),
         sso_allowance_cap: String(numOr(t.sso_allowance_cap, d.income_tax.sso_allowance_cap)),
         code_prefix: String(v.employee_code_prefix || d.employee_code_prefix),
+        probation_days: String(numOr(c.probation_days, d.contract.probation_days)),
+        work_days_per_week: String(numOr(c.work_days_per_week, d.contract.work_days_per_week)),
+        work_hours_per_day: String(numOr(c.work_hours_per_day, d.contract.work_hours_per_day)),
+        work_start: String(c.work_start || d.contract.work_start),
+        work_end: String(c.work_end || d.contract.work_end),
+        weekly_holiday: String(c.weekly_holiday || d.contract.weekly_holiday),
+        notice_days: String(numOr(c.notice_days, d.contract.notice_days)),
+        warning_valid_days: String(numOr(c.warning_valid_days, d.contract.warning_valid_days)),
+        probation_note: String(c.probation_note || ''),
+        benefits: String(c.benefits || ''),
+        extra_clauses: String(c.extra_clauses || ''),
       });
       setBrackets(Array.isArray(t.brackets) && t.brackets.length
         ? t.brackets.map((b: { upTo?: number | null; rate?: number }) => ({
@@ -195,6 +220,19 @@ export const HrSettings = () => {
           sso_allowance_cap: Number(form.sso_allowance_cap),
           brackets: brackets.map((b) => ({ upTo: b.upTo, rate: b.rate })),
         },
+        contract: {
+          probation_days: Math.round(Number(form.probation_days)),
+          work_days_per_week: Number(form.work_days_per_week),
+          work_hours_per_day: Number(form.work_hours_per_day),
+          work_start: form.work_start.trim(),
+          work_end: form.work_end.trim(),
+          weekly_holiday: form.weekly_holiday.trim(),
+          notice_days: Math.round(Number(form.notice_days)),
+          warning_valid_days: Math.round(Number(form.warning_valid_days)),
+          probation_note: form.probation_note.trim(),
+          benefits: form.benefits.trim(),
+          extra_clauses: form.extra_clauses.trim(),
+        },
         employee_code_prefix: form.code_prefix.trim(),
         adjustment_presets: presets.map((r) => ({
           label: r.label.trim(), kind: r.kind, taxable: r.taxable, sso_wage: r.sso_wage, occasional: r.occasional,
@@ -207,6 +245,24 @@ export const HrSettings = () => {
       setSaving(false);
     }
   };
+
+  const text = (key: keyof typeof form, label: string, hint?: string) => (
+    <label className="block">
+      <span className="text-xs font-bold text-gray-500">{label}</span>
+      <input type="text" value={String(form[key])} onChange={(e) => set(key as string, e.target.value)}
+        className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-200" />
+      {hint && <span className="block mt-1 text-[11px] text-gray-400">{hint}</span>}
+    </label>
+  );
+
+  const area = (key: keyof typeof form, label: string, hint?: string) => (
+    <label className="block">
+      <span className="text-xs font-bold text-gray-500">{label}</span>
+      <textarea rows={2} value={String(form[key])} onChange={(e) => set(key as string, e.target.value)}
+        className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-200" />
+      {hint && <span className="block mt-1 text-[11px] text-gray-400">{hint}</span>}
+    </label>
+  );
 
   const money = (key: keyof typeof form, label: string, hint?: string) => (
     <label className="block">
@@ -418,6 +474,41 @@ export const HrSettings = () => {
           className="mt-3 text-sm font-bold text-gray-600 hover:text-gray-800 flex items-center gap-1">
           <Plus size={15} /> เพิ่มรายการ
         </button>
+      </section>
+
+      {/* เงื่อนไขจ้างที่ไปโผล่บนสัญญาและจดหมายบุคคล
+          **ค่าเหล่านี้ระบบไม่ได้รับรองว่าถูกกฎหมาย** กล่องเตือนด้านล่างเขียนไว้ตรงๆ
+          และห้ามลบ — เอกสารจ้างงานมีผลผูกพันจริง คนกรอกต้องรู้ว่าใครเป็นคนรับผิดชอบ */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="font-black text-gray-800">เงื่อนไขในสัญญาจ้างและเอกสารบุคคล</h2>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          ค่าเหล่านี้ถูกพิมพ์ลงสัญญาจ้าง หนังสือเตือน และหนังสือผ่านทดลองงาน —
+          <b> เอกสารที่ออกไปแล้วจะไม่เปลี่ยนตาม</b> เพราะเงื่อนไขถูกบันทึกไว้กับเอกสารตอนออก
+        </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-900 mb-4 flex gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <p>
+            <b>ระบบไม่ได้ตรวจว่าค่าเหล่านี้ถูกต้องตามกฎหมายแรงงาน</b> — เป็นค่าตั้งต้นให้แก้เท่านั้น
+            สัญญาและหนังสือเตือนเป็นเอกสารที่มีผลผูกพันจริง <b>ให้ผู้ที่ปรึกษาได้ตรวจฉบับแรกก่อนใช้จริง</b>
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {money('probation_days', 'ทดลองงาน (วัน)', 'ใส่ 0 = ไม่มีทดลองงาน')}
+          {money('notice_days', 'บอกกล่าวล่วงหน้า (วัน)')}
+          {money('work_days_per_week', 'ทำงาน (วัน/สัปดาห์)')}
+          {money('work_hours_per_day', 'ทำงาน (ชม./วัน)')}
+          {text('work_start', 'เวลาเข้างาน')}
+          {text('work_end', 'เวลาเลิกงาน')}
+          {text('weekly_holiday', 'วันหยุดประจำสัปดาห์')}
+          {money('warning_valid_days', 'อายุหนังสือเตือน (วัน)', 'ใบที่เกินอายุจะไม่ถูกนับว่ายังมีผล')}
+        </div>
+        <div className="mt-4 space-y-3">
+          {area('benefits', 'สวัสดิการ', 'เว้นว่าง = ไม่พิมพ์ข้อนี้ในสัญญา')}
+          {area('extra_clauses', 'ข้อตกลงอื่น', 'เว้นว่าง = ไม่พิมพ์ข้อนี้ในสัญญา')}
+          {area('probation_note', 'หมายเหตุท้ายข้อทดลองงาน', 'ต่อท้ายข้อ 3 ของสัญญา')}
+        </div>
       </section>
 
       <p className="text-xs text-gray-400 leading-relaxed">
