@@ -46,6 +46,8 @@ import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDeci
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 import { wasRiderWithdrawn } from '../../utils/riderWithdrawal';
+import { JOB_EVENT, type JobEvent } from '../../utils/jobTransitions';
+import { runJobTransition } from '../../utils/runJobTransition';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -548,6 +550,25 @@ export const MobileTicketDetail = () => {
     toast.success('รับเคสสำเร็จ');
   };
 
+  // ตัวเขียนใหม่: ส่ง event ให้ engine ตัดสินปลายทาง
+  //
+  // engine เขียน qc_logs ให้เองแล้ว จึงไม่ส่ง makeLog ไป (`reason` ไปโผล่ในแถวนั้น)
+  const handleTransition = async (event: JobEvent, details: string) => {
+    const res = await runJobTransition(job.id, event, { reason: details });
+    if (!res.ok) { toast.error(res.message); return; }
+    toast.success(`อัพเดทเป็น ${res.to}`);
+    // **ผลพลอยได้ที่ต้องตามมาด้วย ไม่ใช่แค่ย้าย call** — งานที่ขายพ่วงอุปกรณ์เสริม
+    // ต้องแตกเป็น stock รายชิ้นตอนเข้าคลัง ตัวนี้เคยผูกกับสถานะที่ไคลเอนต์เพิ่ง
+    // เขียนเอง ตอนนี้ผูกกับปลายทางที่ engine ตอบกลับมา (idempotent ผ่าน
+    // accessories_unpacked_at อยู่แล้ว ยิงซ้ำไม่เสียหาย)
+    if (res.to === 'In Stock') {
+      const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
+      if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
+    }
+  };
+
+  // ตัวเขียนเดิม (ไคลเอนต์เลือกปลายทางเอง) — **เหลือไว้ให้ 2 ปุ่มที่รอเจ้าของงาน
+  // เคาะเท่านั้น ห้ามเพิ่ม call site ใหม่** เหตุผลเต็มอยู่ที่ type QuickAction
   const handleUpdateStatus = async (newStatus: string, details: string) => {
     // ปุ่ม "จ่ายเงินแล้ว (Paid)" คือทางลัดที่ประกาศว่าเงินออกแล้วโดยไม่ผ่านหน้า
     // finance และไม่สร้างแถว transactions — จึงต้องผ่านด่านเดียวกับการโอนจริง
@@ -1696,7 +1717,8 @@ export const MobileTicketDetail = () => {
                   key={i}
                   onClick={() => {
                     if (action.confirm && !confirm(action.confirm)) return;
-                    handleUpdateStatus(action.status, action.log);
+                    if (action.event) handleTransition(action.event, action.log);
+                    else handleUpdateStatus(action.legacyStatus, action.log);
                   }}
                   className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${action.style}`}
                 >
@@ -2153,10 +2175,40 @@ const getConditionIcon = (text: string) => {
 // Quick Actions by Status
 // ---------------------------------------------------------------------------
 
+/**
+ * ปุ่มหนึ่งใบในตาราง quick actions
+ *
+ * `event` คือรูปที่ถูก: ปุ่มบอกว่า "เกิดอะไรขึ้น" แล้ว engine ตัดสินปลายทาง
+ *
+ * `legacyStatus` คือรูปเดิมที่ไคลเอนต์เลือกปลายทางเอง — **เหลือไว้ 2 ใบเท่านั้น
+ * และห้ามเพิ่มใบที่สาม** ทั้งสองใบรอการตัดสินใจเชิงธุรกิจ ไม่ใช่รอเวลาว่าง:
+ *
+ * 1. "จ่ายเงินแล้ว (Paid)" ที่ Payout Processing — ปุ่มนี้ประกาศว่าเงินออกแล้ว
+ *    โดยข้ามหน้า finance และ **ไม่สร้างแถว `transactions`** ส่วน engine มองการ
+ *    จ่ายเงินเป็นสองขั้นและขั้นที่ประทับ `paid_at` เป็นของ finance เท่านั้น
+ *    (`payment_confirmed`) จะย้ายได้ต้องเคาะก่อนว่า "เงินออกได้โดยไม่มีแถวบัญชี
+ *    ไหม" ซึ่งเป็นคำถามทางบัญชี ไม่ใช่คำถามเรื่องสถานะ
+ * 2. "เริ่มดำเนินการ (Active Lead)" ของ Store-in/Mail-in — `broadcast_to_riders`
+ *    เป็น Pickup-only โดยออกแบบ (Active Lead = คิวแย่งงานของไรเดอร์) แต่ปุ่มนี้
+ *    ขึ้นกับงานที่ไม่มีไรเดอร์เกี่ยวข้องเลย จะย้ายได้ต้องเคาะว่าจะให้ Mail-in
+ *    เข้าคิวไรเดอร์ หรือเลิกใช้ Active Lead เป็นสถานะกลางของสองวิธีนั้น
+ */
+type QuickAction = {
+  label: string;
+  log: string;
+  style: string;
+  confirm?: string;
+} & (
+  | { event: JobEvent; legacyStatus?: never }
+  | { legacyStatus: string; event?: never }
+);
+
 function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string, job?: any) {
   if (isCancelled) return [];
 
-  const actions: { label: string; status: string; log: string; style: string; confirm?: string }[] = [];
+  // สองรูป: `event` = ย้ายมา engine แล้ว · `legacyStatus` = ยังเขียนสถานะเอง
+  // เพราะรอเจ้าของงานเคาะ (เหลือ 2 ตัว ดู PENDING_DECISION ในไฟล์นี้)
+  const actions: QuickAction[] = [];
   const isPickup = receiveMethod === 'Pickup';
   const isMailIn = receiveMethod === 'Mail-in';
   // The "ส่งให้ไรเดอร์" broadcast button is available through the whole
@@ -2166,7 +2218,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
   // bkk-rider-app useRiderJobs accepts both spellings).
   const dispatchAction = {
     label: 'ส่งให้ไรเดอร์ (Broadcast)',
-    status: JOB_STATUS.ACTIVE_LEAD,
+    event: JOB_EVENT.BROADCAST_TO_RIDERS,
     log: 'แอดมินส่งงานให้ไรเดอร์ (broadcast pool)',
     style: 'bg-orange-500 text-white',
   };
@@ -2178,7 +2230,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     label: isMailIn
       ? 'เปิดพัสดุแล้ว เริ่มตรวจสอบ (Being Inspected)'
       : 'รับเครื่องแล้ว เริ่มตรวจสอบ (Being Inspected)',
-    status: 'Being Inspected',
+    event: JOB_EVENT.INSPECTION_STARTED,
     log: isMailIn
       ? 'พัสดุถึงสาขา เปิดพัสดุแล้ว เริ่มตรวจสอบ'
       : 'รับเครื่องที่สาขา/พัสดุถึงแล้ว เริ่มตรวจสอบ',
@@ -2188,20 +2240,20 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
   // Mirrors the desktop "รับพัสดุไว้ก่อน (ยังไม่เปิด)" button in PricingSidebar.
   const parcelHeldAction = {
     label: 'รับพัสดุไว้ก่อน (ยังไม่เปิด)',
-    status: 'Parcel Received',
+    event: JOB_EVENT.PARCEL_RECEIVED,
     log: 'รับพัสดุที่สาขา รอเปิดและตรวจ',
     style: 'bg-orange-50 text-orange-700 border border-orange-200',
   };
 
   switch (status) {
     case 'New Lead':
-      actions.push({ label: 'เริ่มติดตาม (Following Up)', status: 'Following Up', log: 'เริ่มติดตามลูกค้า', style: 'bg-amber-500 text-white' });
-      actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
+      actions.push({ label: 'เริ่มติดตาม (Following Up)', event: JOB_EVENT.CASE_CLAIMED, log: 'เริ่มติดตามลูกค้า', style: 'bg-amber-500 text-white' });
+      actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', event: JOB_EVENT.APPOINTMENT_SET, log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
       if (isPickup) actions.push(dispatchAction);
       break;
     case 'Following Up': {
       const wasRiderCancelled = wasRiderWithdrawn(job);
-      actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', status: 'Appointment Set', log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
+      actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', event: JOB_EVENT.APPOINTMENT_SET, log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
       if (isPickup) {
         // After a rider cancels mid-pickup we land here (PR bkk-rider-app#52).
         // Re-label the broadcast button so admin knows this is a deliberate
@@ -2209,7 +2261,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: JOB_STATUS.ACTIVE_LEAD,
+            event: JOB_EVENT.BROADCAST_TO_RIDERS,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
@@ -2231,7 +2283,8 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // instead of forcing a detour through Active Leads.
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
-        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', status: JOB_STATUS.ACTIVE_LEAD, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+        // PENDING_DECISION 2/2 — ดูหัวข้อ QuickAction ด้านล่างไฟล์
+        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', legacyStatus: JOB_STATUS.ACTIVE_LEAD, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       }
       break;
     // Mail-in logistics. `Parcel In Transit` is what the customer's own
@@ -2261,7 +2314,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       if (!isPickup) {
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
-        actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
+        actions.push({ label: 'กลับไปติดตาม (Following Up)', event: JOB_EVENT.BROADCAST_RECALLED, log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
         break;
       }
       // Two distinct cases at Active Lead (Pickup):
@@ -2284,19 +2337,19 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // RETURNING for Pickup (the rider app's meaning) — the same value
         // meant two different legs depending on who wrote it. The canonical
         // en-route status says what this button actually means.
-        actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+        actions.push({ label: 'กำลังเดินทาง (Rider En Route)', event: JOB_EVENT.RIDER_DEPARTED, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       } else {
         // No rider currently. Either nobody picked up yet, or a rider
         // dropped it. Admin can re-broadcast or fall back to Following Up.
         if (wasRiderCancelled) {
           actions.push({
             label: 'ส่งให้ไรเดอร์ใหม่ (Re-broadcast)',
-            status: JOB_STATUS.ACTIVE_LEAD,
+            event: JOB_EVENT.BROADCAST_TO_RIDERS,
             log: 'แอดมินยืนยันให้ broadcast ใหม่หลังไรเดอร์ยกเลิก',
             style: 'bg-orange-500 text-white',
           });
         }
-        actions.push({ label: 'กลับไปติดตาม (Following Up)', status: 'Following Up', log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
+        actions.push({ label: 'กลับไปติดตาม (Following Up)', event: JOB_EVENT.BROADCAST_RECALLED, log: 'กลับไปสถานะติดตามลูกค้า', style: 'bg-amber-500 text-white' });
       }
       break;
     }
@@ -2304,7 +2357,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     case 'Accepted':
     case 'Rider Assigned':
     case 'Rider Accepted':
-      actions.push({ label: 'กำลังเดินทาง (Rider En Route)', status: JOB_STATUS.RIDER_EN_ROUTE, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
+      actions.push({ label: 'กำลังเดินทาง (Rider En Route)', event: JOB_EVENT.RIDER_DEPARTED, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       break;
     case 'Heading to Customer':
     case 'In-Transit':
@@ -2319,7 +2372,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         if (isMailIn) actions.push(parcelHeldAction);
         break;
       }
-      actions.push({ label: 'รับเครื่องแล้ว ตรวจสอบ (Being Inspected)', status: 'Being Inspected', log: 'ได้รับเครื่องแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
+      actions.push({ label: 'รับเครื่องแล้ว ตรวจสอบ (Being Inspected)', event: JOB_EVENT.INSPECTION_STARTED, log: 'ได้รับเครื่องแล้ว เริ่มตรวจสอบ', style: 'bg-purple-500 text-white' });
       break;
     case 'Being Inspected':
     case 'Pending QC':
@@ -2337,21 +2390,22 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         (l: any) => l && (l.action === 'Paid' || l.action === 'PAID'),
       );
       if (status === 'Pending QC' && wasPaid) {
-        actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', status: 'Sent to QC Lab', log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
-        actions.push({ label: 'ผ่าน QC → เก็บ Stock', status: 'In Stock', log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
-        actions.push({ label: 'ขายแล้ว (Sold)', status: 'Sold', log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white', confirm: 'ยืนยันทำเครื่องหมายว่า "ขายแล้ว (Sold)"? ปุ่มนี้ปิดวงจรการขาย' });
+        actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', event: JOB_EVENT.SENT_TO_LAB, log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
+        actions.push({ label: 'ผ่าน QC → เก็บ Stock', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
+        actions.push({ label: 'ขายแล้ว (Sold)', event: JOB_EVENT.SOLD, log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white', confirm: 'ยืนยันทำเครื่องหมายว่า "ขายแล้ว (Sold)"? ปุ่มนี้ปิดวงจรการขาย' });
       } else {
-        actions.push({ label: 'ผ่าน QC → Payout', status: 'Payout Processing', log: 'ผ่านการตรวจสอบ ดำเนินการจ่ายเงิน', style: 'bg-emerald-500 text-white' });
-        actions.push({ label: 'ต้องเจรจาราคา (Negotiation)', status: 'Negotiation', log: 'ต้องเจรจาราคากับลูกค้า', style: 'bg-red-500 text-white' });
+        actions.push({ label: 'ผ่าน QC → Payout', event: JOB_EVENT.PAYOUT_STARTED, log: 'ผ่านการตรวจสอบ ดำเนินการจ่ายเงิน', style: 'bg-emerald-500 text-white' });
+        actions.push({ label: 'ต้องเจรจาราคา (Negotiation)', event: JOB_EVENT.OFFER_REVISED, log: 'ต้องเจรจาราคากับลูกค้า', style: 'bg-red-500 text-white' });
       }
       break;
     }
     case 'Revised Offer':
     case 'Negotiation':
-      actions.push({ label: 'ตกลงราคา → Payout', status: 'Payout Processing', log: 'ลูกค้าตกลงราคา เริ่มจ่ายเงิน', style: 'bg-emerald-500 text-white' });
+      actions.push({ label: 'ตกลงราคา → Payout', event: JOB_EVENT.PAYOUT_STARTED, log: 'ลูกค้าตกลงราคา เริ่มจ่ายเงิน', style: 'bg-emerald-500 text-white' });
       break;
     case 'Payout Processing':
-      actions.push({ label: 'จ่ายเงินแล้ว (Paid)', status: 'Paid', log: 'โอนเงินให้ลูกค้าเรียบร้อย', style: 'bg-green-600 text-white' });
+      // PENDING_DECISION 1/2 — ดูหัวข้อ QuickAction ด้านล่างไฟล์
+      actions.push({ label: 'จ่ายเงินแล้ว (Paid)', legacyStatus: 'Paid', log: 'โอนเงินให้ลูกค้าเรียบร้อย', style: 'bg-green-600 text-white' });
       break;
     case 'Paid':
     case 'PAID':
@@ -2365,12 +2419,12 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // the branch (→ Pending QC, where the rider fee is computed). Block the
         // QC-lab / stock jump; only offer the handover confirmation, which
         // routes through Pending QC so the rider always gets paid.
-        actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', status: 'Pending QC', log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
+        actions.push({ label: 'ยืนยันไรเดอร์ส่งมอบเครื่องแล้ว (รับเข้าสาขา)', event: JOB_EVENT.RIDER_RETURN_ARRIVED, log: 'แอดมินยืนยันรับมอบเครื่องจากไรเดอร์ที่สาขา', style: 'bg-emerald-600 text-white' });
       } else {
         // Store-in / Mail-in: device is already at the branch → send into the
         // QC pipeline or straight to stock.
-        actions.push({ label: 'ส่งเข้า QC Lab', status: 'Sent to QC Lab', log: 'รับมอบเครื่องและส่งเข้าห้องแล็บ', style: 'bg-purple-600 text-white' });
-        actions.push({ label: 'เข้าสต็อก (In Stock)', status: 'In Stock', log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
+        actions.push({ label: 'ส่งเข้า QC Lab', event: JOB_EVENT.SENT_TO_LAB, log: 'รับมอบเครื่องและส่งเข้าห้องแล็บ', style: 'bg-purple-600 text-white' });
+        actions.push({ label: 'เข้าสต็อก (In Stock)', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
       }
       break;
     case 'Sold':
@@ -2382,7 +2436,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       // guarded rewind to the post-payment QC hub (Pending QC). Since this job
       // was already Paid, the Pending QC branch re-offers Lab/Stock/Sold (not a
       // second payout), so no double-pay risk.
-      actions.push({ label: 'ย้อนสถานะกลับ → Pending QC', status: 'Pending QC', log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดสถานะผิด' });
+      actions.push({ label: 'ย้อนสถานะกลับ → Pending QC', event: JOB_EVENT.SALE_REVERTED_TO_QC, log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดสถานะผิด' });
       break;
   }
 

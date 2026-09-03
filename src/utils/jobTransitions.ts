@@ -40,6 +40,20 @@ export const JOB_EVENT = {
   PAYOUT_STARTED: 'payout_started',
   RIDER_RETURN_ARRIVED: 'rider_return_arrived',
   SENT_TO_LAB: 'sent_to_lab',
+
+  // P2-j — ตาราง getQuickActions() ของ MobileTicketDetail
+  CASE_CLAIMED: 'case_claimed',
+  APPOINTMENT_SET: 'appointment_set',
+  PARCEL_RECEIVED: 'parcel_received',
+  RIDER_DEPARTED: 'rider_departed',
+  OFFER_REVISED: 'offer_revised',
+  INTAKE_QC_PASSED: 'intake_qc_passed',
+  SOLD: 'sold',
+  // แอดมินถอนงานออกจากคิวแย่งงาน — วิ่งสวนทางกับ rider_unassigned ห้ามสลับ
+  BROADCAST_RECALLED: 'broadcast_recalled',
+  // ย้อนสถานะปลายทางขายที่กดผิดกลับมา Pending QC — ไม่ใช่ sale_voided ซึ่งพูดถึง
+  // การยกเลิกการขายที่มีความหมายทางบัญชี
+  SALE_REVERTED_TO_QC: 'sale_reverted_to_qc',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];

@@ -2,9 +2,12 @@
 // ไม่ใช่จากลิสต์รหัสใน CODE_TO_HTTPS. เทสที่เดินตามลิสต์จะเขียวแม้ข้อความจะ
 // บอกแอดมินไม่ได้ว่าต้องทำอะไรต่อ ซึ่งเป็นเหตุผลเดียวที่ไฟล์นี้มีอยู่
 import { describe, it, expect } from 'vitest';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JOB_EVENT, engineErrorCode, transitionErrorMessage } from './jobTransitions';
+
+const require = createRequire(import.meta.url);
 
 describe('JOB_EVENT', () => {
   it('ทุกชื่อ event มีอยู่จริงในตาราง TRANSITIONS ของ engine', () => {
@@ -14,6 +17,52 @@ describe('JOB_EVENT', () => {
     for (const event of Object.values(JOB_EVENT)) {
       expect(engine, event).toContain(`\n  ${event}: {`);
     }
+  });
+
+  it('ทุก event ชี้ไปที่ปลายทางที่ปุ่มสัญญาไว้ ไม่ใช่แค่มีชื่ออยู่ในตาราง', () => {
+    // **ด่านนี้เพิ่มเพราะ injection เขียว**: สลับ BROADCAST_RECALLED ให้ชี้ไป
+    // `rider_unassigned` แล้วเทสทั้งชุดผ่านหมด เพราะตัวที่มีอยู่เช็คแค่ว่า "ชื่อนี้
+    // มีในตาราง engine ไหม" ซึ่ง rider_unassigned ก็มี
+    //
+    // ผลถ้าหลุดจริง: ปุ่ม "กลับไปติดตาม" จะพางานไป **Active Lead** (เข้าคิว
+    // แย่งงานของไรเดอร์) แทน Following Up — สวนทางกับที่ปุ่มเขียนไว้ และดูเหมือน
+    // ทำงานปกติ ไม่มี error ไม่มีใครรู้
+    const engine = require(resolve(__dirname, '../../functions/status-engine.js'));
+    const expected: Record<string, string> = {
+      [JOB_EVENT.RIDER_ASSIGNED]: 'Rider Assigned',
+      [JOB_EVENT.RIDER_UNASSIGNED]: 'Active Lead',
+      [JOB_EVENT.INTAKE_QUEUED_FOR_QC]: 'Pending QC',
+      [JOB_EVENT.DROPOFF_RECEIVED]: 'Drop-off Received',
+      [JOB_EVENT.INSPECTION_STARTED]: 'Being Inspected',
+      [JOB_EVENT.BROADCAST_TO_RIDERS]: 'Active Lead',
+      [JOB_EVENT.RIDER_ARRIVED]: 'Rider Arrived',
+      [JOB_EVENT.PAYOUT_STARTED]: 'Payout Processing',
+      [JOB_EVENT.RIDER_RETURN_ARRIVED]: 'Pending QC',
+      [JOB_EVENT.SENT_TO_LAB]: 'Sent To QC Lab',
+      [JOB_EVENT.CASE_CLAIMED]: 'Following Up',
+      [JOB_EVENT.APPOINTMENT_SET]: 'Appointment Set',
+      [JOB_EVENT.PARCEL_RECEIVED]: 'Parcel Received',
+      [JOB_EVENT.RIDER_DEPARTED]: 'Rider En Route',
+      [JOB_EVENT.OFFER_REVISED]: 'Negotiation',
+      [JOB_EVENT.INTAKE_QC_PASSED]: 'In Stock',
+      [JOB_EVENT.SOLD]: 'Sold',
+      [JOB_EVENT.BROADCAST_RECALLED]: 'Following Up',
+      [JOB_EVENT.SALE_REVERTED_TO_QC]: 'Pending QC',
+    };
+
+    // ทุกตัวใน JOB_EVENT ต้องอยู่ในตารางนี้ — เพิ่ม event แล้วลืมปักปลายทาง
+    // = กลับไปมีรูเดิม
+    for (const event of Object.values(JOB_EVENT)) {
+      expect(expected[event], `${event} ยังไม่ได้ปักปลายทางไว้ในเทสนี้`).toBeDefined();
+      expect(engine.TRANSITIONS[event]?.to, event).toBe(expected[event]);
+    }
+  });
+
+  it('event ที่วิ่งสวนทางกันต้องไม่ชี้ไปที่เดียวกัน', () => {
+    const engine = require(resolve(__dirname, '../../functions/status-engine.js'));
+    // ถอนงานออกจากคิว vs ดึงงานจากไรเดอร์เข้าคิว
+    expect(engine.TRANSITIONS[JOB_EVENT.BROADCAST_RECALLED].to)
+      .not.toBe(engine.TRANSITIONS[JOB_EVENT.RIDER_UNASSIGNED].to);
   });
 
   it('assign กับ unassign ไม่ใช่ event เดียวกัน', () => {
