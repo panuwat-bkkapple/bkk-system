@@ -434,6 +434,30 @@ check("availableEvents is derived from the same table, not a second list", () =>
   assert.ok(!events.includes("payment_confirmed"));
 });
 
+check("from-list ของ event ที่ปุ่มแอดมินเรียก ถูกตรึงไว้ — ขยายต้องตั้งใจ", () => {
+  // ปุ่มบน PricingSidebar โผล่ในสถานะที่ **กว้างกว่า** from-list พวกนี้ (ปุ่ม
+  // "ไรเดอร์ถึงแล้ว" ขึ้นตั้งแต่งานยังอยู่ Rider Assigned, ปุ่ม Approve ขึ้น
+  // ตั้งแต่ Being Inspected) การย้ายปุ่มพวกนั้นมาใช้ event จึงติดอยู่ที่คำถาม
+  // ว่า override ไหนของแอดมินถูกต้อง ซึ่งเป็นการตัดสินใจเชิงธุรกิจ
+  //
+  // เทสนี้ไม่ได้บอกว่าค่าพวกนี้ถูก — มันบอกว่าถ้าใครขยาย ต้องขยายที่นี่ด้วย
+  // และจะมองเห็นใน diff แทนที่จะไหลเข้ามาพร้อมการย้ายปุ่มสักตัว
+  const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
+  const pinned = {
+    intake_queued_for_qc: ["Parcel Received", "Drop-off Received", "Parcel In Transit"],
+    dropoff_received: ["Waiting Drop-off", "Appointment Set", "New Lead", "Following Up"],
+    inspection_started: ["Rider Arrived", "Drop-off Received", "Parcel Received", "Waiting Drop-off"],
+    broadcast_to_riders: ["New Lead", "Following Up", "Appointment Set"],
+    rider_arrived: ["Rider En Route"],
+    payout_started: ["Price Accepted", "QC Review", "Negotiation", "Revised Offer"],
+    rider_return_arrived: ["Rider Returning"],
+    sent_to_lab: ["Pending QC", "In Stock"],
+  };
+  for (const [event, from] of Object.entries(pinned)) {
+    assert.deepEqual(TRANSITIONS[event].from, from, `from-list ของ ${event} เปลี่ยน`);
+  }
+});
+
 check("every rule names a destination inside the canonical enum", () => {
   const vocab = require(path.join(root, "functions/status-vocab.generated.js"));
   const canonical = new Set(Object.values(vocab.JOB_STATUS));
