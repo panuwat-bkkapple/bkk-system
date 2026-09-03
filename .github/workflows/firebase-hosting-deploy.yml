@@ -10,6 +10,36 @@ on:
   # which has had this button all along; this workflow did not).
   workflow_dispatch:
 
+# หนึ่ง deploy ต่อหนึ่งครั้ง ห้ามซ้อนกัน — และ `cancel-in-progress: false`
+# เป็นส่วนสำคัญของกฎนี้ ไม่ใช่ค่าเริ่มต้นที่ปล่อยไว้
+#
+# เคสจริง 3 ก.ย. 2569: #665 กับ #671 merge ห่างกัน 33 วินาที เกิด deploy สองตัว
+# วิ่งพร้อมกัน ผลเสียสองอย่างที่ไม่เกี่ยวกันเลย
+#
+#   1. ตัวที่ถือต้นไม้ "เก่ากว่า" (run #709 ของ #665) จบทีหลัง (16:21:25 vs
+#      16:16:54) แล้วเขียน hosting ทับ — UI ของ #671 ถูกย้อนออกจาก production
+#      โดยที่ทั้งสอง run ไม่มีใครแดงเรื่องนี้ และไม่มีอะไรบอก
+#   2. run ที่ใหม่กว่า (#710) อ่านสถานะฝั่ง Firebase ตอนที่ #709 กำลังสร้าง
+#      ฟังก์ชันใหม่ `onRiderWithdrawalExpense` อยู่กลางทาง จึงเห็นมันในสภาพ
+#      ที่ยังเป็น HTTPS แล้วล้มด้วย "Changing from an HTTPS function to a
+#      background triggered function is not allowed" ซึ่งอ่านเหมือนบั๊กของโค้ด
+#      ทั้งที่เป็นการแข่งกันเขียน
+#
+# รอบนั้นรอดเพราะมี merge ตามมาอีกสองใบซึ่ง deploy ต้นไม้ใหม่ทับให้ **ถ้า #665
+# เป็น merge สุดท้ายของวัน #671 จะค้างในสภาพถูกย้อนโดยไม่มีใครรู้**
+#
+# ทำไมไม่ใช่ `cancel-in-progress: true` ซึ่งเป็นค่าที่คนมักใส่: การฆ่า deploy
+# ที่วิ่งอยู่กลางทางคือการทำให้เกิดสภาพครึ่งๆ แบบข้อ 2 **โดยตั้งใจ** —
+# `firebase deploy --only functions` สร้าง/แก้ Cloud Run service ทีละตัว ถูกฆ่า
+# ตอนไหนก็ค้างตรงนั้น ซึ่งแย่กว่า deploy ที่ช้าไปสองนาที การต่อคิวจึงถูก:
+# ตัวที่วิ่งอยู่ได้วิ่งจบ แล้วตัวถัดไปค่อยเขียนทับด้วยต้นไม้ที่ใหม่กว่า
+#
+# GitHub เก็บคิวรอไว้ตัวเดียวต่อ group — merge ถี่ๆ สามใบจะได้ "ตัวแรกวิ่งจบ
+# แล้วข้ามไปตัวล่าสุด" ซึ่งเป็นผลที่ต้องการ เพราะต้นไม้ล่าสุดมีของทุกใบอยู่แล้ว
+concurrency:
+  group: firebase-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 # Hosting and Functions are deployed by two INDEPENDENT jobs that run in
 # parallel. Previously they were sequential steps in one job with Functions
 # before Hosting and no `continue-on-error`, so any Functions failure (e.g. a
