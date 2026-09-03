@@ -178,6 +178,28 @@ const TRANSITIONS = {
     // ทันทีแทนที่จะรอครบ 7 วัน — แยกฟิลด์จึงไม่ใช่เรื่องความสะอาด แต่กันเคสนั้น
     stampsWithdrawn: true,
   },
+  // แอดมินดึงงานกลับเข้าคิวเอง — คนละเหตุการณ์กับ rider_withdrew และ**ห้ามยุบ
+  // รวมกันแม้ actors จะทับกัน** เพราะสองอย่างนี้ต่างกันที่ปลายทางและที่คนอ่าน:
+  //
+  // - ปลายทาง: ไรเดอร์ทิ้งงานกลางทาง = ลูกค้ารออยู่แล้วไม่มีใครไป ต้องมีคนโทร
+  //   ไปบอก จึงลง Following Up. แอดมินสับเปลี่ยนคนเอง = ไม่มีอะไรต้องอธิบาย
+  //   กับลูกค้า งานกลับเข้าคิวแย่งงานตรงๆ จึงลง Active Leads
+  // - คนอ่าน: `wasRiderWithdrawn()` (src/utils/riderWithdrawal.ts) เป็นตัวขึ้น
+  //   ปุ่ม Re-broadcast กับแบนเนอร์เตือน ถ้า unassign ประทับ withdrawn_* ด้วย
+  //   แอดมินที่เพิ่งกดสับเปลี่ยนเองจะโดนเตือนว่า "ไรเดอร์ทิ้งงานใบนี้" ทุกครั้ง
+  //
+  // ล้าง assigned_at ด้วย ไม่ใช่แค่ rider_id — เป็นการรักษาพฤติกรรมที่ตัวเขียน
+  // เดิม (DispatcherPage.handleUnassignJob) ทำอยู่แล้ว ไม่ใช่ของใหม่. คนอ่าน
+  // ฟิลด์นี้มีที่เดียวคือ `src/utils/riderAudit.ts` ซึ่งวางมันลงแถว audit ตรงๆ
+  // ถ้าค้างไว้ งานที่กลับเข้าคิวแย่งงานแล้วจะยังโชว์เวลามอบหมายของคนก่อนหน้า
+  rider_unassigned: {
+    from: [S.RIDER_ASSIGNED, S.RIDER_ACCEPTED, S.RIDER_EN_ROUTE, S.RIDER_ARRIVED],
+    to: S.ACTIVE_LEAD,
+    custody: CUSTODY.CUSTOMER,
+    actors: [ACTOR.ADMIN_STAFF],
+    methods: [RECEIVE_METHOD.PICKUP],
+    clears: ["rider_id", "assigned_at"],
+  },
 
   // Phase 3b-3c: store-in and mail-in intake --------------------------------
   dropoff_received: {
