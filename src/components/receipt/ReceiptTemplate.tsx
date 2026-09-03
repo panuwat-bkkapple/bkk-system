@@ -51,12 +51,31 @@ const paperCss = (paper: ReceiptPaperSize) =>
 const printCss = (domId: string, paper: ReceiptPaperSize) => `
 @media print {
   @page { ${paperCss(paper)} }
-  body * { visibility: hidden; }
-  #${domId}, #${domId} * { visibility: visible; }
+
+  /* ซ่อนทุกอย่างที่ไม่ใช่ใบเสร็จ ไม่ใช่บรรพบุรุษของมัน และไม่ได้อยู่ในมัน
+     — ต้องเป็น display:none ไม่ใช่ visibility:hidden
+
+     ของเดิมใช้ \`body * { visibility: hidden }\` ซึ่งซ่อนแค่ "หมึก" ไม่ซ่อน
+     "พื้นที่": ตารางประวัติการขายยังกินความสูงเท่าเดิม จำนวนหน้าที่พิมพ์จึงมา
+     จากความสูงของทั้งหน้า ไม่ใช่ของใบเสร็จ — สั่งพิมพ์บิลใบเดียวจาก
+     /sales-history แล้วได้ 3 หน้า ว่างเปล่า 2 หน้า (วัดจริง 3 ก.ย. 2569)
+     **บนหน้าเปล่ามันดูปกติ** ซึ่งเป็นเหตุผลที่รอดสายตามาได้ */
+  body *:not(:has(#${domId})):not(#${domId}):not(#${domId} *) { display: none !important; }
+
+  /* บรรพบุรุษเหลือไว้แค่กล่องเปล่า — ไม่งั้น padding กับ min-h-screen ของหน้า
+     ยังดันความสูงอยู่ */
+  body *:has(#${domId}) {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  body { margin: 0 !important; }
+
   #${domId} {
-    position: absolute;
-    left: 0;
-    top: 0;
     width: 100%;
     max-width: none;
     min-height: 0;
