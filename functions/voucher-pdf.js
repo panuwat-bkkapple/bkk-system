@@ -988,4 +988,178 @@ async function buildWhtCertificatePdf({ rider, cert, company }) {
   return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf };
+/**
+ * สลิปเงินเดือน — เอกสารที่พนักงานได้รับต่อหนึ่งงวด
+ *
+ * **สร้างสดทุกครั้ง ไม่เก็บลง Storage โดยตั้งใจ** — ต่างจากใบกำกับภาษีกับ
+ * ใบสำคัญรับเงินซึ่งต้องมีสำเนาถาวรตามกฎหมาย สลิปเงินเดือนเป็นข้อมูลส่วนบุคคล
+ * ที่ไฟล์ใน Storage จะมี URL ถือติดตัวไปได้ตลอด (capability URL) ส่วนตัวข้อมูล
+ * จริงถูกแช่อยู่ในรอบที่อนุมัติแล้วอยู่แล้ว การ render ซ้ำจึงได้เอกสารเหมือนเดิม
+ * เป๊ะโดยไม่ต้องมีไฟล์ลอยอยู่
+ *
+ * **กางที่มาของภาษีให้พนักงานเห็น** — สลิปที่บอกแค่ "หักภาษี 1,704.17" คือ
+ * ตัวเลขที่เจ้าตัวตรวจไม่ได้ และภาษีหัก ณ ที่จ่ายเป็นเงินของเขาที่บริษัทถือไว้
+ * นำส่งแทน เขาจึงมีสิทธิ์รู้ว่ามันมาจากไหน
+ */
+async function buildPayslipPdf({ employee, item, run, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const red = rgb(0.72, 0.11, 0.11);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = { ...companyOf({}), ...(company || {}) };
+  const emp = employee || {};
+  const it = item || {};
+  const basis = it.wht_basis || {};
+
+  let y = height - M;
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) => {
+    const f = opts.bold ? fontB : font;
+    page.drawText(String(t == null ? "" : t), {
+      x, y: opts.y != null ? opts.y : y, size, font: f, color: opts.color || black,
+    });
+  };
+  const drawRight = (t, rightX, size, opts = {}) =>
+    draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({
+    start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor,
+  });
+
+  // หัวเอกสาร
+  const title = "สลิปเงินเดือน";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 18;
+  const sub = `${CO.legalName}${CO.taxId ? ` · เลขประจำตัวผู้เสียภาษี ${CO.taxId}` : ""}`;
+  draw(sub, (width - widthOf(sub, 9, font)) / 2, 9, { color: gray });
+  y -= 24;
+
+  hr(y + 6); y -= 15;
+  draw(`งวด ${run.period || run.id || "-"}`, M, 11, { bold: true });
+  const range = `${formatDate(run.period_from)} - ${formatDate(run.period_to)}`;
+  draw(range, M + 90, 10, { color: gray });
+  drawRight(`วันที่จ่าย ${formatDate(run.pay_date) || "-"}`, width - M, 10);
+  y -= 20;
+
+  // ตัวพนักงาน
+  hr(y + 6); y -= 15;
+  draw(emp.name || it.name || "-", M, 12, { bold: true });
+  drawRight(String(it.employee_code || emp.employee_code || ""), width - M, 10, { color: gray });
+  y -= 15;
+  const meta = [emp.position, emp.department, emp.branch].filter(Boolean).join(" · ");
+  if (meta) { draw(meta, M, 10, { color: gray }); y -= 14; }
+  const channel = it.pay_method === "cash"
+    ? "ช่องทางจ่าย: เงินสด"
+    : `ช่องทางจ่าย: โอนเข้าบัญชี ${it.bank_name || ""} ${it.bank_masked || ""}`.trim();
+  draw(channel, M, 10, { color: gray });
+  y -= 18;
+
+  // สองคอลัมน์: รายได้ / รายการหัก
+  const colGap = 24;
+  const colW = (contentW - colGap) / 2;
+  const leftX = M;
+  const rightX = M + colW + colGap;
+  hr(y + 6); y -= 15;
+  draw("รายได้", leftX, 11, { bold: true, color: gray });
+  draw("รายการหัก", rightX, 11, { bold: true, color: gray });
+  y -= 6; hr(y + 2);
+
+  const earnings = Array.isArray(it.earnings) ? it.earnings : [];
+  const deductions = Array.isArray(it.deductions) ? it.deductions : [];
+  const rows = Math.max(earnings.length, deductions.length);
+  const topY = y;
+  let ly = topY - 15;
+  for (const e of earnings) {
+    page.drawText(String(e.label || "-"), { x: leftX, y: ly, size: 10, font, color: black });
+    const amt = thb(e.amount);
+    page.drawText(amt, { x: leftX + colW - widthOf(amt, 10), y: ly, size: 10, font, color: black });
+    ly -= 14;
+    if (e.note) {
+      page.drawText(String(e.note), { x: leftX + 10, y: ly, size: 8, font, color: gray });
+      ly -= 11;
+    }
+  }
+  let ry = topY - 15;
+  for (const d of deductions) {
+    page.drawText(String(d.label || "-"), { x: rightX, y: ry, size: 10, font, color: black });
+    const amt = thb(d.amount);
+    page.drawText(amt, { x: width - M - widthOf(amt, 10), y: ry, size: 10, font, color: red });
+    ry -= 14;
+  }
+  if (!deductions.length) {
+    page.drawText("ไม่มี", { x: rightX, y: ry, size: 10, font, color: gray });
+    ry -= 14;
+  }
+  y = Math.min(ly, ry) - 6;
+  if (rows === 0) y = topY - 30;
+
+  hr(y + 6); y -= 15;
+  draw("รวมรายได้", leftX, 11, { bold: true });
+  const grossTxt = thb(it.gross);
+  draw(grossTxt, leftX + colW - widthOf(grossTxt, 11, fontB), 11, { bold: true });
+  const deductTotal = deductions.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  draw("รวมรายการหัก", rightX, 11, { bold: true });
+  drawRight(thb(deductTotal), width - M, 11, { bold: true, color: red });
+  y -= 24;
+
+  // ยอดสุทธิ
+  page.drawRectangle({
+    x: M, y: y - 10, width: contentW, height: 34,
+    color: rgb(0.96, 0.97, 0.98),
+  });
+  draw("ยอดโอนสุทธิ", M + 12, 13, { bold: true, y: y + 4 });
+  drawRight(`${thb(it.net)} บาท`, width - M - 12, 15, { bold: true, y: y + 2 });
+  y -= 22;
+  const words = bahtText(it.net);
+  if (words) { draw(`(${words})`, M + 12, 10, { color: gray }); y -= 20; }
+  y -= 10;
+
+  // ที่มาของภาษี — พนักงานมีสิทธิ์ตรวจตัวเลขที่ถูกหักจากเงินตัวเอง
+  if (!basis.skipped) {
+    hr(y + 6); y -= 15;
+    draw("ที่มาของภาษีหัก ณ ที่จ่าย", M, 10, { bold: true, color: gray });
+    y -= 14;
+    draw(`ประมาณการเงินได้ประจำทั้งปี ${thb(basis.annual_income)} (${basis.periods || 12} งวด)`, M + 10, 9, { color: gray });
+    y -= 12;
+    draw(`หักค่าใช้จ่าย ${thb(basis.expenses)} · หักค่าลดหย่อน ${thb(basis.allowances_total)} (รวมประกันสังคม ${thb(basis.sso_allowance)})`, M + 10, 9, { color: gray });
+    y -= 12;
+    draw(`เงินได้สุทธิ ${thb(basis.net_income)} → ภาษีทั้งปี ${thb(basis.annual_tax)}`, M + 10, 9, { color: gray });
+    y -= 12;
+    if (Number(basis.occasional_income) > 0) {
+      draw(`เงินได้ที่จ่ายเป็นครั้งคราว ${thb(basis.occasional_income)} → ภาษีส่วนเพิ่ม ${thb(basis.occasional_tax)} (เก็บเฉพาะงวดนี้ ไม่เฉลี่ยทั้งปี)`, M + 10, 9, { color: gray });
+      y -= 12;
+    }
+    if (it.wht_override) {
+      draw(`ยอดภาษีถูกปรับด้วยมือ: ระบบคำนวณ ${thb(it.wht_computed)} → ใช้ ${thb(it.wht_override.amount)}`, M + 10, 9, { color: red });
+      y -= 11;
+      draw(`เหตุผล: ${it.wht_override.reason || "-"}${it.wht_override.by_name ? ` (โดย ${it.wht_override.by_name})` : ""}`, M + 10, 9, { color: red });
+      y -= 12;
+    }
+    y -= 6;
+  }
+
+  // ประกันสังคม — ส่วนของนายจ้างไม่ได้หักจากลูกจ้าง ต้องเขียนให้ชัด
+  hr(y + 6); y -= 15;
+  draw("เงินสมทบประกันสังคม", M, 10, { bold: true, color: gray });
+  y -= 14;
+  draw(`ค่าจ้างที่ใช้คำนวณ ${thb(it.sso_wage)} · ส่วนของลูกจ้าง ${thb(it.sso_employee)} (หักจากสลิปนี้) · ส่วนของนายจ้าง ${thb(it.sso_employer)} (บริษัทจ่ายสมทบ ไม่ได้หักจากคุณ)`, M + 10, 9, { color: gray });
+  y -= 24;
+
+  const foot1 = "เอกสารนี้เป็นข้อมูลส่วนบุคคล โปรดเก็บรักษาเป็นความลับ";
+  const foot2 = `${CO.legalName} • ออกโดยระบบอัตโนมัติ ไม่ต้องลงลายมือชื่อ`;
+  page.drawText(foot1, { x: M, y: 62, size: 8, font, color: gray });
+  page.drawText(foot2, { x: M, y: 50, size: 8, font, color: gray });
+
+  return Buffer.from(await pdf.save());
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf };
