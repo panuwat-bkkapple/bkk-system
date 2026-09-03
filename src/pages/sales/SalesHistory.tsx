@@ -12,12 +12,15 @@ import { ref, update, get } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useFinanceGate } from '../../hooks/useFinanceGate';
+import { ReceiptTemplate } from '../../components/receipt/ReceiptTemplate';
+import { useReceiptSettings } from '../../hooks/useReceiptSettings';
 
 export const SalesHistory = () => {
   const toast = useToast();
   const { data: sales, loading } = useDatabase('sales');
   const { hasAccess } = useAuth();
   const { guard } = useFinanceGate();
+  const { settings: receiptSettings } = useReceiptSettings();
   
   // States
   const [searchTerm, setSearchTerm] = useState('');
@@ -158,6 +161,8 @@ export const SalesHistory = () => {
   return (
     <div className="p-8 space-y-6 bg-[#F9FBFC] min-h-screen font-sans text-slate-800 print:bg-white print:p-0">
       
+      {/* print CSS ของ Z-Read เท่านั้น — ใบเสร็จขายมี CSS ของตัวเองที่
+          ReceiptTemplate (ซึ่งประกาศ @page ตามขนาดกระดาษที่ตั้งไว้ด้วย) */}
       <style>{`
          @media print {
             body * { visibility: hidden; }
@@ -285,35 +290,12 @@ export const SalesHistory = () => {
          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm print:hidden">
             <div className="flex gap-6 items-start">
                {/* Preview ใบเสร็จ */}
-               <div className="bg-white w-[80mm] min-h-[100mm] p-6 text-black font-sans shadow-2xl rounded-lg relative overflow-hidden">
-                  {selectedReceipt.status === 'VOIDED' && (
-                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-45 text-red-500 font-black text-6xl opacity-20 border-8 border-red-500 p-4 rounded-xl">VOIDED</div>
-                  )}
-                  <div className="text-center mb-6"><h2 className="text-xl font-black tracking-tight uppercase">BKK APPLE PRO</h2><p className="text-[10px] font-bold text-gray-500 mt-1">Bangkok, Thailand</p></div>
-                  <div className="text-[10px] font-mono mb-4 border-b border-dashed border-gray-300 pb-4">
-                     <div className="flex justify-between mb-1"><span>Receipt No:</span> <span className="font-bold">{selectedReceipt.receipt_no}</span></div>
-                     <div className="flex justify-between mb-1"><span>Date:</span> <span>{new Date(selectedReceipt.sold_at).toLocaleString('th-TH')}</span></div>
-                     <div className="flex justify-between mb-1"><span>Cashier:</span> <span>{selectedReceipt.cashier}</span></div>
-                     <div className="flex justify-between"><span>Customer:</span> <span>{selectedReceipt.customer_name}</span></div>
-                  </div>
-                  <div className="mb-4 border-b border-dashed border-gray-300 pb-4 z-10 relative">
-                     <div className="text-[10px] font-bold uppercase mb-2">Items</div>
-                     {selectedReceipt.items?.map((item: any, idx: number) => (
-                        <div key={idx} className="text-[10px] mb-2">
-                           <div className="flex justify-between font-bold"><span className="truncate pr-2">{item.name}</span><span>{item.qty} x {Number(item.price).toLocaleString()}</span></div>
-                           {item.type === 'DEVICE' && <div className="text-[9px] text-gray-500">IMEI/SN: {item.code}</div>}
-                           <div className="text-right mt-0.5">฿{(Number(item.price) * item.qty).toLocaleString()}</div>
-                        </div>
-                     ))}
-                  </div>
-                  <div className="text-[10px] mb-6">
-                     <div className="flex justify-between mb-1"><span>Subtotal:</span> <span>฿{Number(selectedReceipt.subtotal).toLocaleString()}</span></div>
-                     {selectedReceipt.discount > 0 && <div className="flex justify-between mb-1 text-red-500"><span>Discount:</span> <span>-฿{Number(selectedReceipt.discount).toLocaleString()}</span></div>}
-                     <div className="flex justify-between font-black text-sm mt-2 pt-2 border-t border-gray-200"><span>TOTAL:</span> <span>฿{Number(selectedReceipt.grand_total).toLocaleString()}</span></div>
-                  </div>
-                  <div className="text-[10px] mb-6 border-b border-dashed border-gray-300 pb-4"><div className="flex justify-between mb-1"><span>Pay Method:</span> <span>{selectedReceipt.payment_method}</span></div></div>
-                  <div className="text-center text-[9px] text-gray-500"><p className="font-bold text-black mb-1">Thank you for your purchase!</p></div>
-               </div>
+               <ReceiptTemplate
+                  sale={selectedReceipt}
+                  settings={receiptSettings}
+                  previewOnly
+                  className="shadow-2xl rounded-lg"
+               />
 
                {/* ปุ่มคำสั่ง */}
                <div className="bg-white p-6 rounded-[2rem] shadow-2xl w-72 flex flex-col gap-4">
@@ -336,26 +318,11 @@ export const SalesHistory = () => {
 
       {/* 🖨️ PRINT AREA: Z-READ OR RECEIPT */}
       {printMode === 'receipt' && selectedReceipt && (
-         <div className="print-area bg-white p-6 text-black font-sans">
-            <div className="text-center mb-6"><h2 className="text-xl font-black tracking-tight uppercase">BKK APPLE PRO</h2><p className="text-[10px] font-bold text-gray-500 mt-1">Bangkok, Thailand</p></div>
-            <div className="text-[10px] font-mono mb-4 border-b border-dashed border-gray-300 pb-4">
-               <div className="flex justify-between mb-1"><span>Receipt No:</span> <span className="font-bold">{selectedReceipt.receipt_no}</span></div>
-               <div className="flex justify-between mb-1"><span>Date:</span> <span>{new Date(selectedReceipt.sold_at).toLocaleString('th-TH')}</span></div>
-            </div>
-            <div className="mb-4 border-b border-dashed border-gray-300 pb-4 z-10 relative">
-               <div className="text-[10px] font-bold uppercase mb-2">Items</div>
-               {selectedReceipt.items?.map((item: any, idx: number) => (
-                  <div key={idx} className="text-[10px] mb-2"><div className="flex justify-between font-bold"><span className="truncate pr-2">{item.name}</span><span>{item.qty} x {Number(item.price).toLocaleString()}</span></div>{item.type === 'DEVICE' && <div className="text-[9px] text-gray-500">IMEI/SN: {item.code}</div>}<div className="text-right mt-0.5">฿{(Number(item.price) * item.qty).toLocaleString()}</div></div>
-               ))}
-            </div>
-            <div className="text-[10px] mb-6">
-               <div className="flex justify-between mb-1"><span>Subtotal:</span> <span>฿{Number(selectedReceipt.subtotal).toLocaleString()}</span></div>
-               {selectedReceipt.discount > 0 && <div className="flex justify-between mb-1 text-red-500"><span>Discount:</span> <span>-฿{Number(selectedReceipt.discount).toLocaleString()}</span></div>}
-               <div className="flex justify-between font-black text-sm mt-2 pt-2 border-t border-gray-200"><span>TOTAL:</span> <span>฿{Number(selectedReceipt.grand_total).toLocaleString()}</span></div>
-            </div>
-            <div className="text-[10px] mb-6 border-b border-dashed border-gray-300 pb-4"><div className="flex justify-between mb-1"><span>Pay Method:</span> <span>{selectedReceipt.payment_method}</span></div></div>
-            <div className="text-center text-[9px] text-gray-500"><p className="font-bold text-black mb-1">Thank you for your purchase!</p></div>
-         </div>
+         <ReceiptTemplate
+            sale={selectedReceipt}
+            settings={receiptSettings}
+            domId="printable-receipt"
+         />
       )}
 
       {printMode === 'zread' && (
