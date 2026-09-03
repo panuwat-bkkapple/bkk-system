@@ -75,6 +75,17 @@ const printCss = (domId: string, paper: ReceiptPaperSize) => `
   }
   body { margin: 0 !important; }
 
+  /* ดึงตัวเองกลับมาให้เห็นเสมอ — หน้าที่โฮสต์ใบเสร็จอาจมี print CSS ของตัวเอง
+     ที่สั่ง \`body * { visibility: hidden }\` อยู่ (SalesHistory มีจริง เป็นของ
+     Z-Read) แล้วซ่อนใบเสร็จไปด้วย. เคสนี้หลุดถึงมือผู้ใช้มาแล้ว: หลังเปลี่ยน
+     มาใช้ display:none เราถอด visibility:visible ที่เคยดึงกลับออกไป ผลคือ
+     พิมพ์ได้ 1 หน้า **ว่างเปล่า** (3 ก.ย. 2569)
+     — display:none คุม "พื้นที่", visibility คุม "หมึก" ต้องคุมทั้งสองแกน */
+  #${domId},
+  #${domId} * {
+    visibility: visible !important;
+  }
+
   #${domId} {
     width: 100%;
     max-width: none;

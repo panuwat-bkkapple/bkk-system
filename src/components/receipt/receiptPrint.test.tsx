@@ -61,6 +61,13 @@ const saleWith = (n: number, extra: Record<string, unknown> = {}) => ({
  * เรนเดอร์ใบเสร็จบนหน้าเปล่าแล้วทุกอย่างดูปกติ ทั้งที่ของจริงพิมพ์ออกมา 3 หน้า
  */
 const LONG_PAGE = (receipt: string) =>
+  // `<style>` ก้อนนี้คือของจริงจาก SalesHistory — เป็น print CSS ของ Z-Read ที่
+  // อยู่บนหน้าตลอดเวลา และสั่ง `body * { visibility: hidden }` ทับใบเสร็จด้วย
+  // **นี่คือรูปที่ทำให้พิมพ์ได้ 1 หน้าว่างเปล่าและหลุดถึงมือผู้ใช้** harness ที่
+  // ไม่มีสไตล์ของหน้าโฮสต์อยู่ด้วยจะเขียวทั้งที่ของจริงพัง
+  `<style>@media print{body *{visibility:hidden}` +
+  `.print-area,.print-area *{visibility:visible}` +
+  `.print-area{position:absolute;left:0;top:0;width:80mm;margin:0;padding:0}}</style>` +
   `<div class="p-8 min-h-screen"><h1>ประวัติการขาย</h1>` +
   '<div style="height:60px;border-bottom:1px solid #ddd">แถวตาราง</div>'.repeat(40) +
   `<div style="position:fixed;inset:0"><div>${receipt}</div></div></div>`;
@@ -211,6 +218,10 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
     });
 
     await page.emulateMedia({ media: 'print' });
+    const receiptVisibility = await page.evaluate(() => {
+      const el = document.getElementById('printable-receipt');
+      return el ? getComputedStyle(el).visibility : null;
+    });
     const watermark = await page.evaluate(() => {
       const el = [...document.querySelectorAll('div')].find((d) => d.textContent?.trim() === 'VOIDED');
       return el ? getComputedStyle(el).visibility : null;
@@ -222,6 +233,7 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
 
     return {
       rendered,
+      receiptVisibility,
       watermark,
       pages: pdf.getPageCount(),
       widthMm: toMm(pdf.getPage(0).getSize().width),
@@ -283,6 +295,18 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
     const r = await measure(SALE_1, A4, '', 'page');
     expect(r.rendered?.hasTotal).toBe(true);
     expect(r.pages).toBe(1);
+    // "1 หน้า" อย่างเดียวไม่พอ — หน้าว่างก็นับได้ 1 หน้า
+    expect(r.receiptVisibility).toBe('visible');
+  });
+
+  // print CSS ของหน้าโฮสต์ (Z-Read) สั่ง `body * { visibility: hidden }` ทับ
+  // ใบเสร็จด้วย เราต้องดึงตัวเองกลับมาเสมอ ไม่งั้นได้ 1 หน้าว่างเปล่า
+  printIt('ใบเสร็จต้องมองเห็นแม้หน้าโฮสต์จะสั่ง visibility:hidden ทับ', async () => {
+    for (const settings of [A4, THERMAL]) {
+      const r = await measure(SALE_1, settings, '', 'page');
+      expect(r.receiptVisibility).toBe('visible');
+      expect(r.rendered?.hasTotal).toBe(true);
+    }
   });
 
   printIt('ความร้อนฝังในหน้ายาว ก็ต้องหน้าเดียวและกว้าง 80mm', async () => {
@@ -290,6 +314,7 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
     expect(r.rendered?.hasTotal).toBe(true);
     expect(r.pages).toBe(1);
     expect(r.widthMm).toBeCloseTo(80, 0);
+    expect(r.receiptVisibility).toBe('visible');
   });
 
   printIt('บิลที่ยกเลิกต้องมีลายน้ำ VOIDED ตอนพิมพ์ ไม่ใช่แค่บนจอ', async () => {
