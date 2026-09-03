@@ -729,6 +729,15 @@ async function riderVehicleType(db, job) {
  * firebase-functions ตอน require จึงเทสจากที่นี่ไม่ได้
  */
 const { riderFeeMeta } = require("./rider-fee-meta");
+// ยอดที่ไรเดอร์เห็นตอนกดรับต้องเป็นยอดที่เขาได้ + ร่องรอยทุกครั้งที่ rider_fee เปลี่ยน
+// (pure, มีเทส offline ที่ functions/test/rider-fee-commitment.test.mjs)
+const {
+  shouldSkipForSettledFee,
+  freezeDecision,
+  frozenFeeMeta,
+  riderFeeLogEntry,
+  existingLogs: riderFeeExistingLogs,
+} = require("./rider-fee-commitment");
 
 /**
  * ค่าจ้างไรเดอร์ "ตามอัตราของคนที่ถืองานอยู่จริง"
@@ -3456,9 +3465,24 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
       // อัตราของยานพาหนะไรเดอร์ที่ส่งมอบเครื่องจริง — ตัวเลขนี้คือเงินที่
       // Finance จะจ่ายให้เขา ไม่ใช่ค่าบริการที่เก็บจากลูกค้า
       const result = await computeRiderFeeForAssignee(db, job);
+      const now = Date.now();
       const updates = {
         rider_fee: result.fee,
         rider_fee_meta: riderFeeMeta(result),
+        // ทุกการเขียน rider_fee ต้องทิ้งร่องรอย — ของเดิมเขียนยอดเงียบๆ ต่างจาก
+        // trigger เพื่อนบ้านทุกตัว ทำให้ไรเดอร์ถามแล้วไม่มีใครตอบได้จากระบบ
+        qc_logs: [
+          riderFeeLogEntry({
+            to: result.fee,
+            cause: "settled_at_handover",
+            distanceKm: result.distance_km,
+            reason: result.reason,
+            riderId: job.rider_id,
+            now,
+          }),
+          ...riderFeeExistingLogs(job),
+        ],
+        updated_at: now,
       };
       // ถ้ายังไม่มี rider_fee_status มาก่อน ตั้งเป็น Pending เพื่อเข้าคิว settlement
       if (!job.rider_fee_status) {
@@ -3514,23 +3538,61 @@ exports.onRiderAssignedRecalcEstimate = onValueWritten(
     // Only Pickup jobs pay a rider a distance fee.
     if (job.receive_method !== "Pickup") return;
 
-    // Settlement already computed (handover done, Finance may have approved it)
-    // — the estimate is now history and rewriting it would only confuse the
-    // audit trail. rider_fee is the number that matters from here on.
-    if (typeof job.rider_fee === "number" && job.rider_fee > 0) return;
+    // ยอดที่นิ่งแล้ว (ส่งมอบจริง / แอดมินตั้งเอง / ตรึงไว้ให้ไรเดอร์คนเดียวกันนี้)
+    // = ประวัติแล้ว เขียนทับมีแต่ทำให้ audit trail สับสน
+    //
+    // เดิมตัดจบด้วย `rider_fee > 0` เฉยๆ ซึ่งพอเริ่มตรึงยอดตอนกดรับจะกลายเป็นการ
+    // ตัดเคส "แอดมินเปลี่ยนตัวไรเดอร์" ทิ้งไปด้วย คนใหม่จะติดอัตราของคนเก่า
+    if (shouldSkipForSettledFee(job, after)) return;
 
     try {
       // Force rider_id to the event's `after` instead of whatever the once()
       // read: the snapshot races with concurrent writes, and the rate card must
       // follow the rider THIS event is about.
       const result = await computeRiderFeeForAssignee(db, { ...job, rider_id: after });
-      await db.ref(`jobs/${jobId}`).update({
+      const now = Date.now();
+      const meta = riderFeeMeta(result, now);
+      const updates = {
         rider_fee_estimate: result.fee,
-        rider_fee_estimate_meta: riderFeeMeta(result),
-      });
+        rider_fee_estimate_meta: meta,
+      };
+
+      // ── ตรึงยอด: เลขที่เขาเห็นตอนนี้คือเลขที่เขาจะได้ ────────────────────
+      //
+      // เขียน rider_fee ตั้งแต่ตอนกดรับ แล้ว onJobHandedOverCalcRiderFee จะข้าม
+      // ไปเองเพราะ guard `rider_fee > 0` ที่มีอยู่แล้ว — ไม่ต้องแก้ trigger นั้น
+      //
+      // ค่าที่ตรึงคือ `result.fee` ซึ่งคำนวณด้วยอัตราของยานพาหนะคนที่ถืองาน
+      // (computeRiderFeeForAssignee) จึงเป็นเลขเดียวกับที่แอปโชว์ผ่าน
+      // getRiderPayout -> fee_by_vehicle[ยานพาหนะของเขา] เป๊ะ
+      //
+      // **ไม่แตะ rider_fee_status** — ถ้าตั้ง Pending ตั้งแต่ตอนนี้ งานจะเข้าคิว
+      // จ่ายเงินตั้งแต่ก่อนไรเดอร์ทำงาน สถานะยังเป็นของ onJobHandedOverCalcRiderFee
+      // ตามเดิม (เงินออกได้เมื่อส่งมอบเครื่องแล้วเท่านั้น)
+      const decision = freezeDecision(job, after, result);
+      if (decision.freeze) {
+        updates.rider_fee = result.fee;
+        updates.rider_fee_meta = frozenFeeMeta(meta, after, now);
+        updates.qc_logs = [
+          riderFeeLogEntry({
+            from: job.rider_fee,
+            to: result.fee,
+            cause: decision.why === "reassigned" ? "frozen_reassigned" : "frozen_at_accept",
+            distanceKm: result.distance_km,
+            reason: result.reason,
+            riderId: after,
+            now,
+          }),
+          ...riderFeeExistingLogs(job),
+        ];
+        updates.updated_at = now;
+      }
+
+      await db.ref(`jobs/${jobId}`).update(updates);
       console.log(
         `[onRiderAssignedRecalcEstimate] ${jobId}: rider ${before || "none"} → ${after || "none"}, ` +
-        `estimate=฿${result.fee} (${result.rates.vehicle} rates, ${result.distance_km ?? "n/a"} km)`
+        `estimate=฿${result.fee} (${result.rates.vehicle} rates, ${result.distance_km ?? "n/a"} km)` +
+        `, freeze=${decision.freeze} (${decision.why})`
       );
     } catch (err) {
       console.error(`[onRiderAssignedRecalcEstimate] failed for ${jobId}:`, err);
