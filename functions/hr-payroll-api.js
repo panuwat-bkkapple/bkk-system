@@ -111,7 +111,13 @@ function registerHrPayroll() {
     const items = [];
     itemSnap.forEach((c) => { items.push({ id: c.key, ...c.val() }); return false; });
     items.sort((a, b) => String(a.employee_code || "").localeCompare(String(b.employee_code || "")));
-    return { run: { id: key, ...runSnap.val() }, items };
+
+    // รายการปรับเพิ่ม/ปรับลดที่ใช้ประจำ — ส่งค่า **ปัจจุบัน** ไม่ใช่ที่แช่ไว้กับรอบ
+    // เพราะมันเป็นแค่ตัวช่วยกรอกของหน้าจอ ไม่ใช่ตัวเลขที่คิดเงิน (ตัวที่คิดเงิน
+    // คือค่าที่ถูกบันทึกลงบรรทัดไปแล้ว) เพิ่มรายการใหม่ในตั้งค่าแล้วต้องใช้กับ
+    // รอบที่ค้างอยู่ได้ทันที
+    const cfg = await loadHrSettings(db);
+    return { run: { id: key, ...runSnap.val() }, items, presets: cfg.adjustment_presets };
   });
 
   // -------------------------------------------------------------------------

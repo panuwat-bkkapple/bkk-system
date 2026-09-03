@@ -22,6 +22,7 @@ import {
   resolvePayrollConfig, periodBounds, payDateOf, periodsInYear, bangkokMidnight,
   proratedBase, computeSso, progressiveTax, computeWithholding,
   buildPayrollItem, summarizeRun, DEFAULT_SSO, DEFAULT_TAX, DEFAULT_PAYROLL,
+  DEFAULT_ADJUSTMENT_PRESETS,
 } from "../hr-payroll.js";
 import { eligibleForPeriod } from "../hr-payroll-api.js";
 
@@ -303,6 +304,80 @@ const daily = (rate, input) => buildPayrollItem({
   check("เพดานลดหย่อนหลัง resolve ก็ยังไม่บีบ", c.income_tax.sso_allowance_cap >= resolvedMax * 12);
 }
 
+// ── 12c. รายการปรับเพิ่ม/ปรับลด + ต้นทุนบริษัท + ช่องทางจ่าย ──────────────
+// เคสจริงของพนักงานขาย: เงินเดือน 20,000 + คอมมิชชั่น 8,000 - หักขาดงาน 500
+// ฐานประกันสังคม = 28,000 ซึ่งเกินเพดาน 17,500 → สมทบ 875
+// ภาษี: 28,000x12 = 336,000 - 100,000 - 70,500 = 165,500
+//       → 15,500x5% = 775/ปี → 64.58/งวด
+// สุทธิ = 28,000 - 875 - 64.58 - 500 = 26,560.42
+{
+  const i = buildPayrollItem({
+    employee: { id: "s1", name: "ขาย", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1) },
+    priv: { pay: { base_salary: 20000 }, bank: { name: "กสิกรไทย", account: "131-8-79619-6" } },
+    config: CFG, period: P,
+    input: {
+      extra_earnings: [{ label: "ค่าคอมมิชชั่น", amount: 8000, sso_wage: true }],
+      extra_deductions: [{ label: "หักขาด/ลา/มาสาย", amount: 500 }],
+    },
+  });
+  eq("คอมมิชชั่นรวมในรายได้", i.gross, 28000);
+  eq("คอมมิชชั่นที่ติ๊กแล้วเข้าฐานประกันสังคม", i.sso_wage, 28000);
+  eq("ฐานเกินเพดาน → สมทบ 875", i.sso_employee, 875);
+  eq("ภาษีของพนักงานขายคนนี้ = 64.58", i.wht, 64.58);
+  eq("สุทธิหลังหักรายการปรับลด = 26,560.42", i.net, 26560.42);
+  eq("ช่องทางจ่ายมาจากการมีเลขบัญชี", i.pay_method, "transfer");
+  eq("เลขบัญชีถูก mask ในบรรทัดของรอบ", i.bank_masked, "••••6196");
+  check("ไม่เก็บเลขบัญชีเต็มไว้ในบรรทัดของรอบ",
+    !JSON.stringify(i).includes("13187961") && !JSON.stringify(i).includes("131-8-79619-6"));
+}
+{
+  const i = buildPayrollItem({
+    employee: { id: "c1", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1) },
+    priv: { pay: { base_salary: 20000 } }, config: CFG, period: P, input: {},
+  });
+  eq("ไม่มีเลขบัญชี = จ่ายเงินสด", i.pay_method, "cash");
+  eq("ไม่มีเลขบัญชี = ไม่มีเลข mask", i.bank_masked, null);
+}
+{
+  // ต้นทุนบริษัทต้องรวมเงินสมทบฝั่งนายจ้าง — ยอดโอนสุทธิไม่ใช่ต้นทุน
+  const a = monthly(20000);
+  const t = summarizeRun([a]);
+  eq("ต้นทุนบริษัท = รายได้รวม + สมทบนายจ้าง", t.employer_cost, 20000 + 875);
+  check("ต้นทุนบริษัทมากกว่ายอดโอนสุทธิเสมอ", t.employer_cost > t.net);
+  eq("แยกช่องทาง: ไม่มีบัญชี = เงินสด", t.cash, a.net);
+  eq("แยกช่องทาง: โอน = 0", t.transfer, 0);
+}
+
+// ── 12d. รายการที่ใช้ประจำ (presets) ───────────────────────────────────────
+{
+  const c = resolvePayrollConfig({});
+  check("มี presets ค่าตั้งต้น", Array.isArray(c.adjustment_presets) && c.adjustment_presets.length > 0);
+  const byLabel = Object.fromEntries(c.adjustment_presets.map((r) => [r.label, r]));
+  // ค่าล่วงเวลาและคอมมิชชั่นเป็นค่าจ้าง → เข้าฐานสมทบ · โบนัสประจำปีไม่ใช่
+  check("ค่าล่วงเวลาเข้าฐานประกันสังคมโดยค่าตั้งต้น", byLabel["ค่าล่วงเวลา"]?.sso_wage === true);
+  check("ค่าคอมมิชชั่นเข้าฐานประกันสังคมโดยค่าตั้งต้น", byLabel["ค่าคอมมิชชั่น"]?.sso_wage === true);
+  check("โบนัสไม่เข้าฐานประกันสังคมโดยค่าตั้งต้น", byLabel["โบนัส"]?.sso_wage === false);
+  check("มีรายการฝั่งปรับลดด้วย", c.adjustment_presets.some((r) => r.kind === "deduction"));
+}
+{
+  const c = resolvePayrollConfig({ adjustment_presets: [{ label: "ค่าน้ำมัน", kind: "earning", sso_wage: true }] });
+  eq("ตั้ง presets เองแล้วใช้ของตัวเอง", c.adjustment_presets.length, 1);
+  eq("presets ที่ตั้งเองถูกอ่านถูกต้อง", c.adjustment_presets[0].label, "ค่าน้ำมัน");
+}
+{
+  const c = resolvePayrollConfig({ adjustment_presets: [{ kind: "earning" }, { label: "  " }] });
+  eq("แถวที่ไม่มีชื่อถูกทิ้ง", c.adjustment_presets.length, 0);
+}
+{
+  // ยังไม่เคยตั้ง = ได้ค่าตั้งต้น · ตั้งเป็นลิสต์ว่าง = ว่างจริง
+  // ถ้าลิสต์ว่างคืนค่าตั้งต้น แปลว่า "ลบทิ้งทั้งหมด" ทำไม่ได้ รายการที่ลบไป
+  // จะโผล่กลับมาเองทุกครั้งที่โหลดหน้า
+  eq("ยังไม่เคยตั้ง = ค่าตั้งต้น",
+    resolvePayrollConfig({}).adjustment_presets.length, DEFAULT_ADJUSTMENT_PRESETS.length);
+  eq("ตั้งเป็นลิสต์ว่าง = ว่างจริง (ลบทิ้งทั้งหมดได้)",
+    resolvePayrollConfig({ adjustment_presets: [] }).adjustment_presets.length, 0);
+}
+
 // ── 13. gate ของ callable + กติกาที่อ่านจาก source ─────────────────────────
 const apiSrc = readFileSync(join(fnDir, "hr-payroll-api.js"), "utf8");
 const engineSrc = readFileSync(join(fnDir, "hr-payroll.js"), "utf8");
@@ -425,6 +500,30 @@ check("หน้าตั้งค่าไม่แตะตัวนับร�
   check("ข้อความเตือนบอกว่าจะคิดภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ",
     /คิดภาษีจากเงินที่ลูกจ้างไม่เคยได้รับ/.test(ui));
 }
+// presets ที่หน้าตั้งค่าโชว์เป็นค่าตั้งต้น ต้องตรงกับของเครื่องคิดเงิน
+{
+  const block = setSrc.slice(setSrc.indexOf("const DEFAULT_PRESETS"), setSrc.indexOf("const numOr"));
+  const missing = DEFAULT_ADJUSTMENT_PRESETS.filter((r) => !block.includes(`'${r.label}'`));
+  check(`DEFAULT_PRESETS ในหน้าตั้งค่ามีครบทุกรายการ${missing.length ? " (ขาด: " + missing.map((m) => m.label).join(", ") + ")" : ""}`,
+    missing.length === 0);
+  const ot = /label: 'ค่าล่วงเวลา'[^}]*sso_wage: true/.test(block);
+  const bonus = /label: 'โบนัส'[^}]*sso_wage: false/.test(block);
+  check("ค่าเริ่มต้น sso_wage ของหน้าตั้งค่าตรงกับเครื่องคิดเงิน", ot && bonus);
+}
+
+// หน้ารอบจ่ายต้องกรอกรายการปรับเพิ่ม/ปรับลดได้จริง ไม่ใช่มีแต่ช่องจำนวนวัน
+{
+  const ui = stripComments(uiSrc);
+  check("หน้ารอบจ่ายมีตัวแก้รายการปรับเพิ่ม/ปรับลด", /<ManualLinesEditor/.test(ui));
+  check("ตัวแก้ถูกซ่อนเมื่อรอบล็อกแล้ว", /\{!locked && \(\s*<ManualLinesEditor/.test(ui));
+  check("ส่ง extra_earnings / extra_deductions ไปที่ callable",
+    /extra_earnings:/.test(ui) && /extra_deductions:/.test(ui));
+  check("ช่อง 'เข้าฐานประกันสังคม' โชว์รายบรรทัด ไม่ได้ซ่อนไว้ในค่าตั้งต้น",
+    /เข้าฐานประกันสังคม/.test(ui));
+  check("หน้ารอบจ่ายโชว์ต้นทุนบริษัท (ไม่ใช่แค่ยอดโอน)", /ต้นทุนบริษัท/.test(ui));
+  check("หน้ารอบจ่ายแยกยอดตามช่องทางจ่าย", /แยกตามช่องทางจ่าย/.test(ui));
+}
+
 check("หน้าตั้งค่าบอกว่ารอบที่อนุมัติแล้วไม่เปลี่ยนตาม",
   /ไม่ย้อนไปแก้รอบที่อนุมัติแล้ว/.test(stripComments(setSrc)));
 

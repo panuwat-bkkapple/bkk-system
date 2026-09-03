@@ -21,7 +21,7 @@ import { ref, onValue, update } from 'firebase/database';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
-import { Settings, Save, AlertTriangle, Plus, Trash2, ArrowRight, RotateCcw } from 'lucide-react';
+import { Settings, Save, AlertTriangle, Plus, Trash2, ArrowRight, RotateCcw, ListPlus } from 'lucide-react';
 
 // ต้องตรงกับ DEFAULT_* ใน functions/hr-payroll.js — ที่นี่ใช้แค่แสดงว่า
 // "ถ้าไม่ตั้งจะได้ค่าอะไร" ไม่ได้ใช้คำนวณ ตัวคำนวณจริงอ่านค่าจาก DB เองฝั่ง server
@@ -48,6 +48,18 @@ const DEFAULT_BRACKETS = [
 ];
 
 interface Bracket { upTo: number | null; rate: number }
+interface Preset { label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean }
+
+// ต้องตรงกับ DEFAULT_ADJUSTMENT_PRESETS ใน functions/hr-payroll.js
+const DEFAULT_PRESETS: Preset[] = [
+  { label: 'ค่าล่วงเวลา', kind: 'earning', taxable: true, sso_wage: true },
+  { label: 'ค่าคอมมิชชั่น', kind: 'earning', taxable: true, sso_wage: true },
+  { label: 'โบนัส', kind: 'earning', taxable: true, sso_wage: false },
+  { label: 'เบี้ยขยัน', kind: 'earning', taxable: true, sso_wage: true },
+  { label: 'หักขาด/ลา/มาสาย', kind: 'deduction', taxable: true, sso_wage: false },
+  { label: 'หักเงินเบิกล่วงหน้า', kind: 'deduction', taxable: true, sso_wage: false },
+  { label: 'เงินหักอื่นๆ', kind: 'deduction', taxable: true, sso_wage: false },
+];
 
 const numOr = (v: unknown, d: number) => {
   const n = Number(v);
@@ -67,6 +79,7 @@ export const HrSettings = () => {
     code_prefix: 'EMP',
   });
   const [brackets, setBrackets] = useState<Bracket[]>(DEFAULT_BRACKETS);
+  const [presets, setPresets] = useState<Preset[]>(DEFAULT_PRESETS);
 
   useEffect(() => {
     const unsub = onValue(ref(db, 'settings/hr'), (snap) => {
@@ -97,6 +110,14 @@ export const HrSettings = () => {
             upTo: b.upTo == null ? null : Number(b.upTo), rate: Number(b.rate) || 0,
           }))
         : DEFAULT_BRACKETS);
+      setPresets(Array.isArray(v.adjustment_presets) && v.adjustment_presets.length
+        ? v.adjustment_presets.map((r: Partial<Preset>) => ({
+            label: String(r.label || ''),
+            kind: r.kind === 'deduction' ? 'deduction' : 'earning',
+            taxable: r.taxable !== false,
+            sso_wage: Boolean(r.sso_wage),
+          }))
+        : DEFAULT_PRESETS);
       setLoading(false);
     });
     return () => unsub();
@@ -137,6 +158,7 @@ export const HrSettings = () => {
       prev = u;
     }
     if (brackets.some((b) => b.rate < 0 || b.rate > 100)) return 'อัตราภาษีต้องอยู่ระหว่าง 0-100';
+    if (presets.some((r) => !r.label.trim())) return 'รายการปรับเพิ่ม/ปรับลดต้องมีชื่อทุกบรรทัด';
     return null;
   };
 
@@ -173,6 +195,9 @@ export const HrSettings = () => {
           brackets: brackets.map((b) => ({ upTo: b.upTo, rate: b.rate })),
         },
         employee_code_prefix: form.code_prefix.trim(),
+        adjustment_presets: presets.map((r) => ({
+          label: r.label.trim(), kind: r.kind, taxable: r.taxable, sso_wage: r.sso_wage,
+        })),
       });
       toast.success('บันทึกค่าตั้งแล้ว — รอบที่อนุมัติไปแล้วไม่เปลี่ยนตาม');
     } catch (e) {
@@ -327,6 +352,61 @@ export const HrSettings = () => {
         <button onClick={() => setBrackets((rows) => [...rows, { upTo: null, rate: 0 }])}
           className="mt-3 text-sm font-bold text-gray-600 hover:text-gray-800 flex items-center gap-1">
           <Plus size={15} /> เพิ่มขั้น
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-black text-gray-800 flex items-center gap-2"><ListPlus size={18} /> รายการปรับเพิ่ม / ปรับลด ที่ใช้ประจำ</h2>
+          <button onClick={() => setPresets(DEFAULT_PRESETS)}
+            className="text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center gap-1">
+            <RotateCcw size={13} /> คืนค่าตั้งต้น
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+          ตัวช่วยกรอกในหน้ารอบจ่าย เช่น ค่าคอมมิชชั่นของพนักงานขาย ค่าล่วงเวลา หักขาด/ลา/มาสาย —
+          ตั้งชื่อไว้ที่นี่แล้วเลือกใช้ได้ทุกเดือนโดยไม่ต้องพิมพ์ใหม่ (ชื่อที่พิมพ์ต่างกันทุกเดือนทำให้รายงานย้อนหลังรวมยอดไม่ได้)
+        </p>
+        <p className="text-xs text-gray-500 mb-3 rounded-xl bg-gray-50 p-3 leading-relaxed">
+          <b>เข้าฐานประกันสังคม</b> — ค่าล่วงเวลาและค่าคอมมิชชั่นเป็น &quot;ค่าจ้าง&quot; ตามกฎหมายประกันสังคมจึงเข้าฐานสมทบ
+          ส่วนโบนัสประจำปีโดยทั่วไปไม่ใช่ ค่าที่ตั้งตรงนี้เป็นแค่ค่าเริ่มต้น หน้ารอบจ่ายยังติ๊กแก้รายบรรทัดได้เสมอ
+          เพราะเส้นแบ่งขึ้นกับข้อเท็จจริงของรายการ ไม่ใช่ชื่อของมัน
+        </p>
+        <div className="space-y-2">
+          {presets.map((r, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <select value={r.kind}
+                onChange={(e) => setPresets((rows) => rows.map((x, idx) =>
+                  idx === i ? { ...x, kind: e.target.value as Preset['kind'] } : x))}
+                className="text-xs font-bold border border-gray-200 rounded-lg px-2 py-2 bg-white">
+                <option value="earning">ปรับเพิ่ม</option>
+                <option value="deduction">ปรับลด</option>
+              </select>
+              <input value={r.label}
+                onChange={(e) => setPresets((rows) => rows.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
+                className="flex-1 min-w-[10rem] px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+              {r.kind === 'earning' && (
+                <>
+                  <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <input type="checkbox" checked={r.taxable}
+                      onChange={(e) => setPresets((rows) => rows.map((x, idx) => (idx === i ? { ...x, taxable: e.target.checked } : x)))}
+                      className="w-3.5 h-3.5 rounded border-gray-300" /> เสียภาษี
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <input type="checkbox" checked={r.sso_wage}
+                      onChange={(e) => setPresets((rows) => rows.map((x, idx) => (idx === i ? { ...x, sso_wage: e.target.checked } : x)))}
+                      className="w-3.5 h-3.5 rounded border-gray-300" /> เข้าฐานประกันสังคม
+                  </label>
+                </>
+              )}
+              <button onClick={() => setPresets((rows) => rows.filter((_, idx) => idx !== i))}
+                className="text-gray-300 hover:text-rose-500"><Trash2 size={16} /></button>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setPresets((rows) => [...rows, { label: '', kind: 'earning', taxable: true, sso_wage: true }])}
+          className="mt-3 text-sm font-bold text-gray-600 hover:text-gray-800 flex items-center gap-1">
+          <Plus size={15} /> เพิ่มรายการ
         </button>
       </section>
 
