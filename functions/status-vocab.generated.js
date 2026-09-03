@@ -5,7 +5,7 @@
 // .github/workflows/sync-status-enum.yml). Edit the TS file, then run:
 //   npm run generate:status-vocab
 //
-// source-sha256: 929ccd37c4c05f41b02ffca4d494f8f9e3b6512c796d97d8b20a61b280a9af4f
+// source-sha256: 6e36eb6757e2f3c850ceb8bdbd14bc126ad66b34a0708b32a4103b3b9b467cc8
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -206,6 +206,17 @@ const CANCEL_CATEGORY_LABEL_TH = {
 const LEGACY_ALIAS = {
   // Casing/format aliases
   PAID: JOB_STATUS.PAID,
+  // Screaming case จาก /api/jobs/action ของ bkk-frontend-next ตอนลูกค้ากดยอมรับ
+  // ราคา — ตัว *writer* ถูกแก้ให้เขียน canonical ไปแล้ว และคอมเมนต์ที่นั้นฝาก
+  // แถวเก่าไว้กับ data migration (`runStatusMigration`)
+  //
+  // **แต่ migration ตัวนั้นอ่านสถานะด้วย normalizeStatus เอง** (`resolveCanonical`
+  // ใน functions/index.js บรรทัด 1462 คือฟังก์ชันนี้) แล้วข้ามแถวที่อ่านไม่ออก
+  // ด้วย `if (!canonical) return` — มันจึงข้ามแถวที่มันถูกเขียนขึ้นมาเพื่อแก้พอดี
+  // ตัวแก้จึงต้องเป็น alias ที่นี่ ไม่ใช่สคริปต์: alias เดียวปลดทั้งสองชั้น —
+  // engine อ่านแถวเก่าได้ (ปุ่มแอดมินกลับมาทำงาน) และ migration ก็เปลี่ยนชื่อ
+  // ให้เป็น canonical ได้จริงในรอบถัดไป
+  "PRICE ACCEPTED": JOB_STATUS.PRICE_ACCEPTED,
   "Payment Completed": JOB_STATUS.PAID,
   "Active Leads": JOB_STATUS.ACTIVE_LEAD,
   // plural → singular
