@@ -1103,6 +1103,178 @@ function modelLineMismatch(customerText, modelFullName) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Quoted-model identity guard
+// ---------------------------------------------------------------------------
+//
+// create_quote_card takes a model_id THE LLM CHOSE. Until this guard existed
+// the only thing between that choice and the customer's money was
+// modelLineMismatch above, which knows four words and no generation numbers —
+// and it was fed `customerText`, every customer utterance joined together, so
+// it also fired on models mentioned turns ago.
+//
+// LIVE BUG, ส.ค. 2569: customer typed "17 PM 256 sillver" (iPhone 17 Pro Max).
+// The matcher found nothing for that string, the LLM picked an id itself, and
+// the card shipped as "iPhone 15 256GB (มือ 1 ยังไม่แกะซีล): 19,500 บาท" — a
+// REAL catalog row for a phone the customer does not own. modelLineMismatch
+// stayed silent because "PM" is not the literal "pro max".
+//
+// Six layers, first hit wins. Fixtures + the injection matrix that proves each
+// layer is reachable ALONE live in functions/test/quoted-model-mismatch.test.mjs.
+
+// The number that means "which generation", read out of a CATALOG name.
+// Ported from bkk-frontend-next/lib/searchMatch.ts (GENERATION_RE) rather than
+// written again — that copy already carries the two lookaheads this needs and
+// has fixtures behind it. MIRROR: change one, change the other.
+//   - an intro word is REQUIRED, so a bare screen size cannot pose as a
+//     generation ('MacBook Pro 14"' -> 0, not 14)
+//   - the size lookahead kills the rest ('iPad Pro 9.7"' -> 0)
+//   - 1-2 digits only, so a four-digit year can never match
+const GENERATION_INTRO = [
+  "generation", "gen", "รุ่นที่", "series", "ซีรีส์", "ซีรีย์",
+  ...FAMILY_PATTERNS.map(([, re]) => `(?:${re.source})`),
+].join("|");
+const GENERATION_RE = new RegExp(
+  `(?:${GENERATION_INTRO})\\s*(\\d{1,2})(?!\\d)(?!\\s*(?:"|”|นิ้ว|inch))`,
+  "i"
+);
+function catalogGenerationOf(name) {
+  const m = String(name || "").toLowerCase().match(GENERATION_RE);
+  return m ? Number(m[1]) : 0;
+}
+
+// Same 3..20 window rankModels uses to separate generation from storage
+// (32..2048 are capacities, 1TB/2TB normalise below 3).
+//
+// There WAS a per-family allowlist here ("only iPhone/iPad/Watch may read a
+// bare number as a generation, because a Mac customer writing 13 means the
+// screen"). Injection testing proved it inert and it was deleted rather than
+// shipped: the comparison below needs a number from BOTH sides, and the
+// catalog side of a Mac is always 0 — 'MacBook Air 13" (ชิป M1, 2020)' has no
+// intro word touching a digit, so no Mac quote can ever reach the comparison
+// no matter what the customer typed. The screen-size lookaheads on both
+// regexes are what actually does this job, and they have fixtures.
+const BARE_GENERATION_RE = /(?:^|[^\d.])(\d{1,2})(?!\d)(?!\s*(?:"|”|นิ้ว|inch))/;
+
+// The same number read out of what the CUSTOMER typed. Deliberately looser
+// than the catalog side: catalog names are admin-authored and well formed,
+// customer text is not, and the two failure directions are not symmetric —
+// too loose costs one confirm-the-model question, too strict ships a card for
+// the wrong phone. "17 PM 256 sillver" has no intro word and must still read
+// as 17, which is the entire bug.
+function statedGenerationOf(text) {
+  const strict = catalogGenerationOf(text);
+  if (strict) return strict;
+  const m = String(text || "").toLowerCase().match(BARE_GENERATION_RE);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  return n >= 3 && n <= 20 ? n : 0;
+}
+
+// Layer 1. Did the customer ever say anything resembling this? The LLM writes
+// customer_stated_model itself, so without this the field can simply be filled
+// with the model it wants to quote. Same shape and same permissive `some` as
+// conditionAnswerUnsupported, for the same reason: one shared token is enough,
+// because blocking a real quote costs more than letting a coarse net pass.
+// Thai has no word boundaries, hence includes() rather than a token compare.
+function statedModelUnsupported(statedModel, evidenceText, sawPhoto) {
+  // A PHOTO IS EVIDENCE THIS CHECK CANNOT READ.
+  //
+  // Rule 2.4 tells the model to read the model name off the box, the receipt
+  // or the device itself, and the retail box carrying model + storage in one
+  // image is the densest input a trade-in customer ever sends. When that is
+  // where the name came from, no customer MESSAGE contains it — and blocking
+  // on that would take the photo path out of service entirely, silently.
+  // Found by running conversation shapes, not by reading the code.
+  if (sawPhoto) return false;
+  const ev = String(evidenceText || "").toLowerCase();
+  if (!ev.trim()) return false; // nothing to judge against — never block
+  const toks = String(statedModel || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9฀-๿]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (toks.length === 0) return false;
+  return !toks.some((t) => ev.includes(t));
+}
+
+/**
+ * Does the model_id the LLM passed actually match the device the customer named?
+ *
+ * @param statedModel       input.customer_stated_model — the customer's own words
+ * @param resolved          { id, name } of the row models/{model_id} points at
+ * @param catalog           loadModelsLight() output
+ * @param customerSaid      EVERY customer utterance, contact replies INCLUDED
+ * @param customerSentPhoto true when the customer attached a photo in the
+ *                          window the model can see — the name may have come
+ *                          from there, where no text check can follow it
+ * @returns null when they agree, else { kind, line?, pinned?, candidates }
+ */
+function quotedModelMismatch({ statedModel, resolved, catalog, customerSaid, customerSentPhoto }) {
+  const stated = String(statedModel || "").trim();
+  const resolvedName = String((resolved && resolved.name) || "");
+  const list = Array.isArray(catalog) ? catalog : [];
+  // No claim to check. Callers make the field required; an empty one means the
+  // model ignored the schema, which is its own kind of unverified.
+  if (!stated) return null;
+
+  const candidatesOf = () => {
+    const names = rankModels(list, stated, 3).map((m) => m.name);
+    if (resolvedName && !names.includes(resolvedName)) names.push(resolvedName);
+    return [...new Set(names)].filter(Boolean);
+  };
+  const hit = (kind, extra) => ({ kind, candidates: candidatesOf(), ...(extra || {}) });
+
+  // L1 provenance
+  if (statedModelUnsupported(stated, customerSaid, customerSentPhoto)) return hit("unsupported_stated_model");
+  // L2/L3 — reuse the matcher's own family and sub-line rules, so "MacBook"
+  // can never become an iPad and "Air" can never become a "mini" here either.
+  if (familyMismatch(stated, resolvedName)) return hit("family_mismatch");
+  if (sublineMismatch(stated, resolvedName)) return hit("subline_mismatch");
+  // L4 generation — both directions at once, which is the point: quoting the
+  // older model loses the customer, quoting the newer one loses money at the
+  // door. Silent when either side has no number: an under-specified ask
+  // ("iPhone Pro Max") is normal and must not be blocked.
+  const gStated = statedGenerationOf(stated);
+  const gResolved = catalogGenerationOf(resolvedName);
+  if (gStated && gResolved && gStated !== gResolved) {
+    return hit("generation_mismatch", { statedGeneration: gStated, resolvedGeneration: gResolved });
+  }
+  // L5 line downgrade — the original rule, now reading ONLY this card's stated
+  // model instead of the whole conversation. Kept ahead of L6 so the sibling
+  // auto-correct that has handled this case since the first Pro-Max bug stays
+  // the one that runs.
+  const line = modelLineMismatch(stated, resolvedName);
+  if (line) return hit("line_downgrade", { line });
+  // L6 identity — the strongest signal and the one that catches the reverse
+  // direction (customer says "iPhone 15", the id points at the Pro Max):
+  // compares IDS, not words. Silent when the stated text does not pin to
+  // exactly one row, which is what keeps a shorthand like "17 PM" — correct
+  // but unpinnable until the alias table lands — from being refused.
+  const pinned = exactModelPin(list, stated);
+  if (pinned && resolved && pinned.id !== resolved.id) return hit("identity_mismatch", { pinned });
+  return null;
+}
+
+// create_quote_card outcomes that are the SAME on every retry. The forced
+// quote-recovery loop below must stop on these instead of spending its three
+// rounds re-asking a question already answered — see RECOVERY_TERMINAL_ERRORS
+// at the call site.
+const MODEL_MISMATCH_ERROR = "model_identity_mismatch";
+const RECOVERY_TERMINAL_ERRORS = new Set([
+  // "this model has no first-hand price" — the answer that sent the live case
+  // looking for a model that did have one.
+  "new_price_not_available",
+  // deliberately unpriced (Offer group): the card is not the next step, a
+  // callback is.
+  "no_price_for_variant",
+  // we do not yet know WHICH device this is; forcing a card can only guess.
+  MODEL_MISMATCH_ERROR,
+  // the customer's own answer means we do not buy it (synthesised at the call
+  // site — create_quote_card returns declined_defect without an error key).
+  "declined_defect",
+]);
+
 // Detects a customer HAGGLING for a higher buy price — asking us to pay more,
 // as opposed to disclosing better device condition. Real lost-deal bug: after a
 // 10,100 quote the customer typed "เพิ่มราคานะครับ 12,000 ได้ไหม" and the AI
@@ -1376,6 +1548,7 @@ const VERIFIER_SYSTEM = [
   `5. แต่งตัวเลข SLA/จำนวนวัน-ชั่วโมงที่ไม่ยืนยัน`,
   `6. บอกให้ลูกค้าไปกดปุ่ม/เช็คราคา/อ่าน FAQ เองบนหน้าเว็บ แทนที่จะตอบให้`,
   `7. หลุดศัพท์เทคนิค/ภายในระบบกับลูกค้า เช่น "เรียก tool", "search_models", "new_price", "ระบบ error", "model_id" — ต้องเป็นภาษาคนเท่านั้น`,
+  `9. ระบุ "ชื่อรุ่น" บนใบเสนอราคา/ในคำตอบ ที่ไม่ตรงกับรุ่นที่ลูกค้าเอ่ยเอง (คนละเลขรุ่น คนละตระกูล คนละรุ่นย่อย เช่น ลูกค้าบอก iPhone 17 Pro Max แต่คำตอบพูดถึง iPhone 15) — เคสจริง: ลูกค้าพิมพ์ "17 PM" แล้วได้ใบเสนอราคา iPhone 15. ลูกค้าเขียนชื่อย่อ (PM = Pro Max) ไม่ถือว่าผิด ให้ดูที่ "เลขรุ่นและตระกูล" เป็นหลัก. corrected: ถามลูกค้ายืนยันรุ่นก่อน ห้ามยืนยันราคาของรุ่นที่ลูกค้าไม่ได้พูดถึง`,
   `8. รับปากว่า "รับซื้อ/รับแน่นอน" รุ่นที่ลูกค้าเอ่ยชื่อ หรือเริ่มถามความจุ/ถามสภาพของรุ่นนั้น "ทั้งที่ในคำตอบไม่มีราคารับซื้อของรุ่นนั้นเลย" — แปลว่ายังไม่ได้เช็คระบบจริง (บางรุ่นร้านงดรับซื้อ/ไม่มีในระบบ) ห้ามรับปากหรือไล่ถามก่อนยืนยันจากระบบ. corrected: บอกว่ากำลังเช็ครุ่นนี้ให้ อย่าเพิ่งยืนยันรับซื้อ`,
   `ถ้าผ่านทุกข้อ: {"ok":true}`,
   `ถ้าไม่ผ่าน: {"ok":false,"issue":"<สั้นๆ ว่าผิดข้อไหน>","corrected":"<คำตอบที่แก้ให้ถูกต้อง สุภาพ คงส่วนที่ถูกไว้ แก้เฉพาะจุดผิด ยึดข้อเท็จจริงที่ยืนยันแล้วเท่านั้น และ "ใช้ภาษาเดียวกับคำตอบเดิมเสมอ" (คำตอบเดิมเป็นอังกฤษ = corrected เป็นอังกฤษ ห้ามแปลกลับเป็นไทย; ไทย = ลงท้ายครับ) ถ้าแก้ไม่ได้อย่างปลอดภัยให้เว้นว่าง>"}`,
@@ -1471,12 +1644,17 @@ const TOOLS = [
           type: "object",
           description: "เฉพาะมือสอง: แผนที่ groupId -> optionId ที่ลูกค้าตอบจริง จากชุดคำถาม get_condition_questions",
         },
+        customer_stated_model: {
+          type: "string",
+          description:
+            "คำที่ลูกค้าพิมพ์บอกรุ่นของ 'เครื่องที่ใบนี้กำลังประเมิน' — ยกมาดิบๆ ตามที่ลูกค้าพิมพ์ ห้ามเรียบเรียงใหม่ ห้ามเติมคำที่ลูกค้าไม่ได้พิมพ์ และห้ามใส่ชื่อรุ่นจากความจำหรือจากผลค้นหา (ลูกค้าพิมพ์ '17 PM 256 sillver' ให้ส่ง '17 PM 256 sillver' ไม่ใช่ 'iPhone 17 Pro Max'). ลูกค้าพูดถึงหลายเครื่อง ให้ยกเฉพาะเครื่องของใบนี้",
+        },
         battery_pct: {
           type: "number",
           description: "เฉพาะมือสอง: สุขภาพแบตเตอรี่เป็นตัวเลข % ที่ลูกค้าบอก (เช่น 79) — ส่งเลขนี้มาแทนการเดาช่วงแบตเอง ระบบจะจับช่วงแบตให้ถูกต้องอัตโนมัติ (เช่น 79 = ต่ำกว่า 80%). ถ้าลูกค้าไม่ได้บอก % ไม่ต้องส่ง",
         },
       },
-      required: ["model_id", "variant_name"],
+      required: ["model_id", "variant_name", "customer_stated_model"],
     },
   },
   {
@@ -2049,6 +2227,47 @@ function offerContactAskText(en, sealedNew) {
     : "รุ่นนี้ทีมงานเสนอราคาพิเศษให้โดยตรงครับ รบกวนฝากชื่อ เบอร์โทร ความจุที่จะขาย และแจ้งว่ามีใบเสร็จหรือหลักฐานการซื้อไหมครับ เดี๋ยวทีมงานติดต่อกลับพร้อมราคาที่ดีที่สุดให้ครับ";
 }
 
+// What to SAY when the forced quote-recovery loop hits a create_quote_card
+// outcome that will be identical on every retry.
+//
+// The loop exists to stop the model narrating a quote no card backs, and it
+// tells the model "ห้ามตอบข้อความอย่างเดียว" under tool_choice "any". That is
+// the right pressure while a card is merely missing, and the WRONG pressure
+// when the tool has just said the card cannot exist — the honest answer is
+// "ออกให้ไม่ได้ครับ เพราะ...", and a model forbidden to answer in words will
+// go looking for some other row it CAN quote. That is one of the paths that
+// put an iPhone 15 card in front of a customer holding a 17 Pro Max.
+//
+// Pure so the mapping is testable without an API key. null = not terminal,
+// caller keeps its existing behaviour.
+function recoveryTerminalText(errorKey, { en, sealed, candidates } = {}) {
+  const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+  switch (errorKey) {
+    case "new_price_not_available":
+      // Exactly what Martin said one minute too late in the live case.
+      return en
+        ? "This model has no first-hand (sealed) buy price in our system yet. I can quote it as a used device right away, or have our staff confirm a first-hand price for you — which would you prefer?"
+        : "รุ่นนี้ยังไม่มีราคารับซื้อมือ 1 ในระบบครับ ผมประเมินให้แบบเครื่องมือสองได้เลย หรือจะให้เจ้าหน้าที่ยืนยันราคามือ 1 ให้ก็ได้ครับ สะดวกแบบไหนดีครับ";
+    case "no_price_for_variant":
+      return offerContactAskText(en === true, sealed === true);
+    case "declined_defect":
+      return en
+        ? "We currently buy only devices where every function works normally, so we are not able to buy one with this fault — sorry about that. If you have another device you would like valued, just say the word."
+        : "ตอนนี้เรารับซื้อเฉพาะเครื่องที่ทุกฟังก์ชันทำงานปกติครับ เครื่องที่มีอาการนี้จึงยังรับซื้อไม่ได้ ต้องขออภัยด้วยนะครับ — ถ้ามีเครื่องอื่นอยากให้ผมช่วยประเมิน บอกได้เลยครับ";
+    case MODEL_MISMATCH_ERROR:
+      if (list.length >= 2) {
+        return en
+          ? `Just to be sure I quote the right device — which model do you mean? [ตัวเลือก: ${list.join(" | ")}]`
+          : `ขอเช็ครุ่นให้ชัดก่อนออกใบเสนอราคานะครับ เครื่องที่จะขายเป็นรุ่นไหนครับ [ตัวเลือก: ${list.join(" | ")}]`;
+      }
+      return en
+        ? "Just to be sure I quote the right device — could you confirm the exact model you are selling?"
+        : "ขอเช็ครุ่นให้ชัดก่อนออกใบเสนอราคานะครับ รบกวนยืนยันรุ่นเครื่องที่จะขายอีกครั้งได้ไหมครับ";
+    default:
+      return null;
+  }
+}
+
 function priceLeakBeforeCard(text) {
   const t = String(text || "");
   if (/\d{1,3}(?:,\d{3})+\s*(?:-|–|ถึง)\s*\d{1,3}(?:,\d{3})+/.test(t)) return true;
@@ -2078,7 +2297,7 @@ function warrantyNoEffectClaim(text) {
 // probabilistic; this deterministic net backs it up. (Word-boundary on the
 // latin tokens so normal Thai text never false-positives.)
 const INTERNAL_LEAK_RE =
-  /\b(search_models|create_quote_card|get_condition_questions|check_pickup_service|get_branches|get_promotions|get_faq|check_order_status|save_customer_info|escalate_to_human|model_id|variant_name|new_price|used_price|battery_pct|tool_use|ai_state|declined_model|ambiguous_model)\b|\[คำสั่งระบบ/;
+  /\b(search_models|create_quote_card|get_condition_questions|check_pickup_service|get_branches|get_promotions|get_faq|check_order_status|save_customer_info|escalate_to_human|model_id|variant_name|customer_stated_model|new_price|used_price|battery_pct|tool_use|ai_state|declined_model|ambiguous_model)\b|\[คำสั่งระบบ/;
 function internalLeak(text) {
   return INTERNAL_LEAK_RE.test(String(text || ""));
 }
@@ -2226,7 +2445,7 @@ async function writeSystemMessage(db, convoId, text) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
-function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText, replyInEnglish }) {
+function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText, conditionEvidence, assistantText, replyInEnglish, customerSentPhoto }) {
   return async function executeTool(name, input) {
     switch (name) {
       case "search_models": {
@@ -2577,24 +2796,81 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
         let modelSnap = await db.ref(`models/${modelId}`).once("value");
         if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
         let model = modelSnap.val();
-        // Model-line guard + AUTO-CORRECT: if the customer named a more specific
-        // line (Pro Max / Plus / Ultra / mini) than the resolved model, don't
-        // just reject — the LLM re-picks the same wrong id and dead-ends to a
-        // human (real test: "16 Pro Max" -> quote failed -> escalate). Find the
-        // correct sibling ourselves and quote THAT, so the deal completes.
-        const lineMiss = modelLineMismatch(customerText, `${model.brand || ""} ${model.name || ""}`);
-        if (lineMiss) {
-          const sibling = await findSiblingModel(db, model, lineMiss);
-          if (sibling && sibling.id !== modelId) {
-            console.warn(`[chatAi] ${convoId} model-line auto-correct: "${model.name}" -> "${sibling.name}" (customer said ${lineMiss})`);
-            modelId = sibling.id;
+        // MODEL IDENTITY GUARD + AUTO-CORRECT (replaces the line-only guard).
+        //
+        // Runs BEFORE the contact gate below on purpose: rule 2.1.1 — stated in
+        // the ambiguous branch of search_models — forbids asking for a name and
+        // phone before the model is confirmed, and the gate's note does exactly
+        // that. Confirm the device first, collect contact second.
+        //
+        // Auto-correct wherever we can PROVE the right row (the deal completes,
+        // which is why the line branch below has always healed itself rather
+        // than rejecting); refuse and re-ask everywhere else, because guessing
+        // across generations or families is how a customer ends up holding a
+        // card for a phone they do not own.
+        const statedModel = String(input.customer_stated_model || "");
+        const modelMiss = quotedModelMismatch({
+          statedModel,
+          resolved: { id: modelId, name: `${model.brand || ""} ${model.name || ""}`.trim() },
+          catalog: await loadModelsLight(db),
+          // customerText, NOT conditionEvidence. The two differ by one thing:
+          // conditionEvidence drops any message carrying a phone number
+          // (looksLikeContactReply), which is right for CONDITION answers —
+          // that strip is what stopped a customer's nickname "จีน", sent with
+          // their number, from becoming "เครื่องนอก CH" and cutting 7,000 baht.
+          // It is WRONG for a model name: "ขาย iPhone 15 ครับ 0812345678" is an
+          // ordinary Thai message, and stripping it made this guard refuse a
+          // card for the model the customer had just named. Found by running
+          // real conversation shapes, not by reading the code.
+          customerSaid: customerText,
+          customerSentPhoto,
+        });
+        if (modelMiss) {
+          let corrected = null;
+          if (modelMiss.kind === "line_downgrade") {
+            corrected = await findSiblingModel(db, model, modelMiss.line);
+          } else if (modelMiss.kind === "identity_mismatch") {
+            // Only switch to the pinned row when it can actually carry this
+            // card: a delisted row or one without the asked-for capacity would
+            // just trade this error for the next one.
+            const p = modelMiss.pinned;
+            const hasVariant =
+              p && (p.variants || []).some(
+                (v) => v && String(v.name || "").trim().toLowerCase() === wantVariant.toLowerCase()
+              );
+            if (p && p.is_active !== false && hasVariant) corrected = p;
+          }
+          if (corrected && corrected.id !== modelId) {
+            console.warn(
+              `[chatAi] ${convoId} quoted-model auto-correct: "${model.name}" -> "${corrected.name}" (${modelMiss.kind}, stated="${statedModel.slice(0, 60)}")`
+            );
+            modelId = corrected.id;
             modelSnap = await db.ref(`models/${modelId}`).once("value");
             if (!modelSnap.exists()) return { error: "model_not_found", note: "เรียก search_models เพื่อหา model_id ที่ถูกต้องก่อน" };
             model = modelSnap.val();
           } else {
+            // Stable prefix — this is the only line that will tell us on
+            // production whether the guard fires at all. Do not reword.
+            console.warn(
+              `[chatAi] ${convoId} quoted-model mismatch kind=${modelMiss.kind} stated="${statedModel.slice(0, 60)}" resolved="${model.name}" model_id=${modelId}`
+            );
+            // Feed the which-model override (buildWaitingMode-era guards read
+            // this) so a refusal turns into a question with real chips instead
+            // of a canned contact ask on an unconfirmed model.
+            if (modelMiss.candidates.length >= 2) state.ambCandidates = modelMiss.candidates.slice(0, 6);
+            db.ref(`inbox/${convoId}/ai_state/last_model_mismatch`)
+              .set({ kind: modelMiss.kind, stated: statedModel.slice(0, 120), resolved: model.name || "", at: Date.now() })
+              .catch(() => {});
             return {
-              error: "model_line_mismatch",
-              note: `ลูกค้าระบุรุ่น "${lineMiss}" แต่ model_id ที่ส่งมาชี้ไปที่ "${model.name}" ซึ่งเป็นคนละรุ่น — เรียก search_models ด้วยชื่อรุ่นเต็มตามที่ลูกค้าบอก แล้วใช้ model_id ที่ตรงรุ่น "${lineMiss}" ก่อนออกการ์ด`,
+              error: MODEL_MISMATCH_ERROR,
+              mismatch_kind: modelMiss.kind,
+              candidates: modelMiss.candidates,
+              note:
+                `รุ่นที่ลูกค้าบอก ("${statedModel}") ไม่ตรงกับ model_id ที่ส่งมา ซึ่งชี้ไปที่ "${model.name}" — ` +
+                `ห้ามออกการ์ดใบนี้ และห้ามเดารุ่นแทนลูกค้าเด็ดขาด. ถามลูกค้าสั้นๆ ให้ยืนยันรุ่นก่อน` +
+                (modelMiss.candidates.length >= 2 ? ` แล้วปิดท้ายด้วยปุ่ม [ตัวเลือก: ${modelMiss.candidates.join(" | ")}]` : "") +
+                `. พอลูกค้ายืนยันแล้วค่อยเรียก search_models ด้วยชื่อเต็มของรุ่นนั้นแล้วออกการ์ดด้วย model_id ที่ตรง. ` +
+                `ถ้ารุ่นที่ลูกค้าบอกไม่มีราคาที่ต้องใช้ (เช่นไม่มีราคามือ 1) ให้บอกลูกค้าตรงๆ ตามนั้น ห้ามเปลี่ยนไปออกการ์ดของรุ่นอื่นแทน`,
             };
           }
         }
@@ -2650,8 +2926,22 @@ function makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, sta
           // customer (real test: "iPhone 15 รับซื้อเท่าไหร่" -> instant card,
           // no contact, no condition questions). Now every retry this turn is
           // refused; the NEXT customer turn passes unconditionally.
+          // The trailing question depends on which flow we are in. The canned
+          // string (contactFirstAskText) learned this in ก.ค. 2569; THIS note —
+          // the one an LLM-authored reply follows — did not, so a customer who
+          // had already said "ยังไม่แกะ" was asked about scratches anyway
+          // (live case, ส.ค. 2569, one turn before the wrong-model card). Rule
+          // 6.5: a sealed device skips every used-condition question.
+          // brandNewSealedIntent reads the WHOLE conversation, not just this
+          // turn — "ยังไม่แกะ" is usually two messages old by the time a card
+          // is attempted.
+          const gateSealed = brandNewSealedIntent(customerText);
           const gateNote =
-            "ยังออกการ์ดตอนนี้ไม่ได้ — ต้องถามลูกค้าก่อน (ห้ามเรียก create_quote_card ซ้ำในเทิร์นนี้ จะถูกปฏิเสธทุกครั้ง): เริ่มขั้นที่ 3 ของกฎข้อ 6 = ขอชื่อ+เบอร์ติดต่อแบบธรรมชาติ (ห้ามพูดว่าข้ามได้/ไม่บังคับ) พร้อมคำถามสภาพเรื่องแรกและปุ่ม [ตัวเลือก] ในข้อความเดียว แล้วถามต่อทีละเรื่อง. เทิร์นถัดไป (ให้เบอร์ → save_customer_info ก่อน) พอข้อมูลพอเรียก create_quote_card ได้เลย ระบบจะให้ผ่านแม้ลูกค้าไม่ให้เบอร์";
+            "ยังออกการ์ดตอนนี้ไม่ได้ — ต้องถามลูกค้าก่อน (ห้ามเรียก create_quote_card ซ้ำในเทิร์นนี้ จะถูกปฏิเสธทุกครั้ง): เริ่มขั้นที่ 3 ของกฎข้อ 6 = ขอชื่อ+เบอร์ติดต่อแบบธรรมชาติ (ห้ามพูดว่าข้ามได้/ไม่บังคับ) พร้อม" +
+            (gateSealed
+              ? "คำถามว่า 'มีใบเสร็จหรือหลักฐานการซื้อไหม' ในข้อความเดียว — เครื่องมือ 1 ยังไม่แกะซีล 'ห้ามถามคำถามสภาพมือสองใดๆ' (รอย แบต ประวัติซ่อม) ตามกฎข้อ 6.5"
+              : "คำถามสภาพเรื่องแรกและปุ่ม [ตัวเลือก] ในข้อความเดียว แล้วถามต่อทีละเรื่อง") +
+            ". เทิร์นถัดไป (ให้เบอร์ → save_customer_info ก่อน) พอข้อมูลพอเรียก create_quote_card ได้เลย ระบบจะให้ผ่านแม้ลูกค้าไม่ให้เบอร์";
           if (state.contactGatePromptedThisTurn) {
             return { error: "contact_required_first", note: gateNote };
           }
@@ -4191,7 +4481,12 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // 128") carries no language, so it must not flip a Thai conversation
         // to English — see preferEnglishReply.
         const replyInEnglish = preferEnglishReply(text, history);
-        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText, replyInEnglish });
+        // Same window attachCustomerImages reads, so "the model could see a
+        // photo" and "the guard knows a photo exists" cannot disagree.
+        const customerSentPhoto = history
+          .slice(-VISION_RECENT_MESSAGES)
+          .some((m) => m && m.senderRole === "customer" && typeof m.imageUrl === "string" && m.imageUrl.trim());
+        const executeTool = makeToolExecutor({ db, convoId, convo, pub, dispatchAdminPush, tag, state, assistantName, customerText, lastCustomerText: text, conditionEvidence, assistantText, replyInEnglish, customerSentPhoto });
 
         let messages = buildClaudeHistory(history);
         if (messages.length === 0) messages = [{ role: "user", content: text }];
@@ -4497,6 +4792,8 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         } else if (finalText && !state.escalated && !state.cannedFinal && !quoteOk && announcedQuote) {
           console.warn(`[${tag}] ${convoId} narrated a quote with no card — forcing quote recovery`);
           let gateBlockedInRecovery = false;
+          // Outcome that will be identical next round — see recoveryTerminalText.
+          let terminalInRecovery = null;
           try {
             // Recovery loop, not a one-shot forced call: the model may need
             // search_models / get_condition_questions first (cross-turn history
@@ -4535,6 +4832,22 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
                   // contact_prompted_at, so next turn passes).
                   gateBlockedInRecovery = true;
                 }
+                if (tu.name === "create_quote_card" && result && result.declined_defect === true) {
+                  // Returned WITHOUT an error key (it is a policy answer, not a
+                  // failure) — give it one so it reads like the others.
+                  result.error = "declined_defect";
+                }
+                if (
+                  tu.name === "create_quote_card" &&
+                  result &&
+                  RECOVERY_TERMINAL_ERRORS.has(String(result.error || ""))
+                ) {
+                  // Same shape as the gate shortcut above: the tool did not
+                  // fail, it ANSWERED — and the answer is "no card". Spending
+                  // the remaining rounds under tool_choice "any" only pushes
+                  // the model to find some other row it is allowed to quote.
+                  terminalInRecovery = result;
+                }
                 if (tu.name === "create_quote_card" && result && result.ok === true) {
                   quoteOk = true;
                 }
@@ -4545,7 +4858,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
                 });
               }
               recovery.push({ role: "user", content: results });
-              if (gateBlockedInRecovery) break;
+              if (gateBlockedInRecovery || terminalInRecovery) break;
             }
             if (quoteOk) {
               finalText = "ออกใบเสนอราคาให้แล้วครับ กดปุ่มบนการ์ดเพื่อยืนยันการขายและกรอกข้อมูลได้เลยครับ";
@@ -4559,7 +4872,23 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
             // sales flow instead of abandoning the lead to a human queue.
             finalText = contactFirstAskText(replyInEnglish, brandNewSealedIntent(text));
             state.cannedFinal = true;
-          } else if (!quoteOk) {
+          } else if (!quoteOk && terminalInRecovery) {
+            // Also not a failure: say the true thing the tool just told us,
+            // instead of the "ขอเจ้าหน้าที่ช่วยยืนยัน" dead-end below, which
+            // both explains the wrong cause and hands off a lead nobody needs
+            // to touch.
+            const terminalText = recoveryTerminalText(String(terminalInRecovery.error || ""), {
+              en: replyInEnglish === true,
+              sealed: brandNewSealedIntent(customerText),
+              candidates: terminalInRecovery.candidates,
+            });
+            if (terminalText) {
+              console.warn(`[${tag}] ${convoId} recovery terminal=${terminalInRecovery.error} — answering instead of forcing a card`);
+              finalText = terminalText;
+              state.cannedFinal = true;
+            }
+          }
+          if (!quoteOk && !state.cannedFinal) {
             finalText = "ขออภัยครับ ผมกำลังจัดทำใบเสนอราคาให้ ขอเจ้าหน้าที่ช่วยยืนยันอีกครั้งแล้วรีบแจ้งกลับนะครับ";
             state.cannedFinal = true;
             if (!state.escalated) {
@@ -4794,7 +5123,19 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         // overrides; those are safe fixed strings we must not let an LLM
         // paraphrase back into a broken promise.)
         if (finalText && !state.escalated && !state.cannedFinal) {
-          const verdict = await verifyReply({ apiKey, userText: text, reply: finalText });
+          // The verifier judges the draft against what the customer said —
+          // so it must see the message that NAMED THE DEVICE, not only the
+          // latest line. On the turn the wrong-model card shipped, the latest
+          // line was "อัญ 0906216156": a name and a phone number, carrying no
+          // model at all, so rule 9 would have had nothing to compare against.
+          const deviceNamingMsg = [...history]
+            .reverse()
+            .find((m) => m.senderRole === "customer" && familiesOf(m.text).length > 0);
+          const verifierUserText =
+            deviceNamingMsg && deviceNamingMsg.text !== text
+              ? `${deviceNamingMsg.text}\n${text}`
+              : text;
+          const verdict = await verifyReply({ apiKey, userText: verifierUserText, reply: finalText });
           if (verdict.usage) {
             db.ref(`chat_ai_usage/${ymd}`).update({
               input_tokens: ServerValue.increment(verdict.usage.input_tokens || 0),
@@ -5190,6 +5531,11 @@ module.exports = {
     batteryOptionRange,
     pickBatteryOptionId,
     modelLineMismatch,
+    quotedModelMismatch,
+    catalogGenerationOf,
+    statedGenerationOf,
+    statedModelUnsupported,
+    recoveryTerminalText,
     pickSiblingModel,
     parseTrackJobId,
     priceHaggleIntent,
