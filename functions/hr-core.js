@@ -16,6 +16,12 @@
 //      หน้าแอดมินเดิมอ่าน employees/ ได้ (ชื่อ/ตำแหน่ง) แต่ต้องไม่เห็นเงินเดือน
 // =============================================================================
 
+// ฝ่ายบุคคลกับ CEO เท่านั้น — **ไม่รวม MANAGER โดยตั้งใจ** เพราะโหนดที่ gate นี้
+// คุมมีเงินเดือนของทุกคนรวมถึงเงินเดือนของ MANAGER คนอื่น การเปิดให้ทั้งชั้น
+// บริหารอ่านได้เป็นการตัดสินใจเรื่องคน ไม่ใช่เรื่องเทคนิค และต้องมีคนสั่ง
+// ไม่ใช่ไหลมาเองจากการจัดกลุ่มเมนู
+const HR_ROLES = ["CEO", "HR"];
+
 const EMPLOYMENT_TYPES = ["monthly", "daily", "freelance"];
 const EMPLOYEE_STATUSES = ["probation", "active", "resigned", "terminated"];
 
@@ -156,6 +162,30 @@ function sanitizeEmployeePrivate(input, { partial = false } = {}) {
       ? { name: clip(b.name, 80) || null, account: clip(b.account, 40) || null, account_name: clip(b.account_name, 120) || null }
       : null;
   }
+  // ค่าลดหย่อนภาษีของคนนี้ — เข้าสูตรคิดภาษีหัก ณ ที่จ่ายในรอบเงินเดือน (P5)
+  // เก็บเป็น "จำนวน" ไม่ใช่ "จำนวนเงิน" เพราะจำนวนเงินต่อหัวเป็นอัตราที่
+  // กฎหมายกำหนดและอยู่ที่ settings/hr — เก็บเงินไว้ตรงนี้ด้วยแปลว่าอัตรา
+  // เปลี่ยนแล้วต้องไล่แก้ทุกคน
+  if (!partial || has("tax")) {
+    const t = src.tax && typeof src.tax === "object" ? src.tax : {};
+    const count = (v, label, max) => {
+      if (v == null || v === "") return 0;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > max) { errors.push(`${label} ไม่ถูกต้อง`); return 0; }
+      return Math.round(n);
+    };
+    out.tax = {
+      spouse: t.spouse === true,
+      children: count(t.children, "จำนวนบุตร", 20),
+      parents: count(t.parents, "จำนวนบิดามารดาในอุปการะ", 4),
+      other: (() => {
+        if (t.other == null || t.other === "") return 0;
+        const n = Number(t.other);
+        if (!Number.isFinite(n) || n < 0) { errors.push("ค่าลดหย่อนอื่นต้องไม่ติดลบ"); return 0; }
+        return Math.round(n * 100) / 100;
+      })(),
+    };
+  }
   if (!partial || has("pay")) {
     const p = src.pay && typeof src.pay === "object" ? src.pay : {};
     const money = (v, label) => {
@@ -265,6 +295,7 @@ function employeeActorFields(callerStaffId, staffMap, auth) {
 }
 
 module.exports = {
+  HR_ROLES,
   EMPLOYMENT_TYPES,
   EMPLOYEE_STATUSES,
   EX_EMPLOYEE_STATUSES,

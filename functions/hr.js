@@ -27,6 +27,7 @@ const { getDatabase } = require("firebase-admin/database");
 
 const { requireStaffRole } = require("./staff-accounts");
 const {
+  HR_ROLES,
   EMPLOYEE_STATUSES,
   EX_EMPLOYEE_STATUSES,
   bangkokBuddhistYear,
@@ -39,12 +40,6 @@ const {
 } = require("./hr-core");
 
 const REGION = "asia-southeast1";
-
-// ฝ่ายบุคคลกับ CEO เท่านั้น — **ไม่รวม MANAGER โดยตั้งใจ** เพราะโหนดนี้มี
-// เงินเดือนของทุกคนรวมถึงเงินเดือนของ MANAGER คนอื่น การเปิดให้ทั้งชั้นบริหาร
-// อ่านได้เป็นการตัดสินใจเรื่องคน ไม่ใช่เรื่องเทคนิค และต้องมีคนสั่ง ไม่ใช่
-// ไหลมาเองจากการจัดกลุ่มเมนู
-const HR_ROLES = ["CEO", "HR"];
 
 const nowMs = () => Date.now();
 

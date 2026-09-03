@@ -1,0 +1,451 @@
+// src/pages/hr/PayrollRuns.tsx
+//
+// รอบจ่ายเงินเดือน — เฟส P5 ของ docs/hr-system-design.md
+// ตัดรอบวันที่ 20 จ่ายวันที่ 25 (ค่าอยู่ที่ settings/hr ไม่ได้ฝังในหน้านี้)
+//
+// หน้านี้มีหน้าที่เดียวที่สำคัญกว่าอย่างอื่น: **ทำให้ตัวเลขถูกตรวจได้ก่อนเงิน
+// ออก** ทุกบรรทัดกางดูที่มาได้ทั้งฝั่งรายได้ ฝั่งหัก และฐานคิดภาษีทั้งปี
+// เพราะสิ่งที่ป้องกันการจ่ายผิดไม่ใช่ความมั่นใจในสูตร แต่คือคนที่อ่านมันก่อน
+// กดอนุมัติ
+//
+// ส่งออกเป็น CSV สองใบ (ภ.ง.ด.1 / ประกันสังคม) — **ไม่ใช่ไฟล์ e-filing ของ
+// กรมสรรพากรหรือประกันสังคม** เป็นตารางตัวเลขต่อคนสำหรับกรอก/อัปโหลดต่อ
+// การเดารูปแบบไฟล์ราชการโดยไม่มีสเปกจริงคือการส่งของที่ดูเหมือนใช้ได้แต่
+// ยื่นไม่ผ่าน ซึ่งแย่กว่าการบอกตรงๆ ว่ายังไม่มี
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from '../../api/firebase';
+import { useToast } from '../../components/ui/ToastProvider';
+import {
+  Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar,
+} from 'lucide-react';
+
+const fns = () => getFunctions(app, 'asia-southeast1');
+const call = async <T,>(name: string, data: Record<string, unknown>): Promise<T> => {
+  const fn = httpsCallable(fns(), name);
+  return (await fn(data)).data as T;
+};
+
+interface Line { label: string; amount: number; taxable?: boolean; sso_wage?: boolean; type?: string; note?: string | null }
+interface WhtBasis {
+  periods?: number; annual_income?: number; expenses?: number;
+  allowances_total?: number; sso_allowance?: number; net_income?: number; annual_tax?: number;
+  skipped?: boolean;
+}
+interface Item {
+  id: string;
+  employee_id: string | null;
+  employee_code: string | null;
+  name: string | null;
+  employment_type: string;
+  earnings: Line[];
+  deductions: Line[];
+  gross: number;
+  taxable_income: number;
+  sso_wage: number;
+  sso_employee: number;
+  sso_employer: number;
+  wht: number;
+  wht_basis: WhtBasis;
+  net: number;
+  days_worked: number | null;
+  note: string | null;
+  incomplete: string | null;
+}
+interface Totals {
+  headcount: number; gross: number; wht: number;
+  sso_employee: number; sso_employer: number; net: number; incomplete: number;
+}
+interface Run {
+  id: string;
+  period: string;
+  period_from: number;
+  period_to: number;
+  pay_date: number;
+  status: 'draft' | 'approved' | 'paid';
+  totals: Totals;
+  approved_at?: number;
+  approved_by_name?: string | null;
+  paid_at?: number;
+}
+
+const baht = (n: number | null | undefined) =>
+  typeof n === 'number' && Number.isFinite(n)
+    ? n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '-';
+
+const thaiDate = (ms?: number | null) =>
+  ms ? new Date(ms).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+
+const STATUS = {
+  draft: { label: 'ร่าง (แก้ได้)', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+  approved: { label: 'อนุมัติแล้ว (ล็อก)', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+  paid: { label: 'จ่ายแล้ว', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+};
+
+// CSV: คั่นด้วย comma และครอบด้วยเครื่องหมายคำพูดเสมอ + BOM เพื่อให้ Excel
+// ภาษาไทยเปิดแล้วไม่เป็นตัวยึกยือ
+const toCsv = (rows: (string | number)[][]) =>
+  '﻿' + rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+
+const download = (filename: string, content: string) => {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+};
+
+const thisPeriod = () => {
+  const now = new Date();
+  return { year: now.getFullYear() + 543, month: now.getMonth() + 1 };
+};
+
+export const PayrollRuns = () => {
+  const toast = useToast();
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [run, setRun] = useState<Run | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [period, setPeriod] = useState(thisPeriod);
+
+  const loadRuns = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await call<{ items: Run[] }>('adminHrPayrollList', {});
+      setRuns(res.items || []);
+      if (!selected && res.items?.length) setSelected(res.items[0].id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'โหลดรายการรอบไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, selected]);
+
+  const loadRun = useCallback(async (key: string) => {
+    try {
+      const res = await call<{ run: Run; items: Item[] }>('adminHrPayrollGet', { period: key });
+      setRun(res.run); setItems(res.items || []);
+    } catch (e) {
+      setRun(null); setItems([]);
+      toast.error(e instanceof Error ? e.message : 'โหลดรอบไม่สำเร็จ');
+    }
+  }, [toast]);
+
+  useEffect(() => { void loadRuns(); }, [loadRuns]);
+  useEffect(() => { if (selected) void loadRun(selected); }, [selected, loadRun]);
+
+  const draft = async () => {
+    setBusy(true);
+    try {
+      const res = await call<{ run: Run; count: number }>('adminHrPayrollDraft', period);
+      toast.success(`คำนวณรอบ ${res.run.period} แล้ว (${res.count} คน)`);
+      setSelected(res.run.id);
+      await loadRuns(); await loadRun(res.run.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'คำนวณรอบไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const setDays = async (item: Item, days: string) => {
+    if (!run) return;
+    setBusy(true);
+    try {
+      await call('adminHrPayrollSetItem', {
+        period: run.id, employeeId: item.employee_id, days_worked: days,
+      });
+      await loadRun(run.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const approve = async () => {
+    if (!run) return;
+    if (!window.confirm(`อนุมัติรอบ ${run.id} ยอดจ่ายสุทธิ ${baht(run.totals?.net)} บาท\n\nอนุมัติแล้วแก้ไม่ได้ ถ้าตัวเลขผิดต้องออกรอบปรับปรุง`)) return;
+    setBusy(true);
+    try {
+      await call('adminHrPayrollApprove', { period: run.id });
+      toast.success('อนุมัติรอบแล้ว');
+      await loadRuns(); await loadRun(run.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'อนุมัติไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const markPaid = async () => {
+    if (!run) return;
+    if (!window.confirm(`บันทึกว่าโอนเงินรอบ ${run.id} แล้ว\n\nระบบไม่ได้โอนให้ ปุ่มนี้บันทึกว่าคุณโอนไปแล้วเท่านั้น`)) return;
+    setBusy(true);
+    try {
+      await call('adminHrPayrollMarkPaid', { period: run.id });
+      toast.success('บันทึกว่าจ่ายแล้ว');
+      await loadRuns(); await loadRun(run.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const exportWht = () => {
+    if (!run) return;
+    const rows: (string | number)[][] = [
+      ['รหัสพนักงาน', 'ชื่อ-สกุล', 'เงินได้ที่ต้องเสียภาษี', 'ภาษีหัก ณ ที่จ่าย', 'ประมาณการเงินได้ทั้งปี', 'เงินได้สุทธิทั้งปี', 'ภาษีทั้งปี', 'จำนวนงวด'],
+      ...items.map((i) => [
+        i.employee_code || '', i.name || '', i.taxable_income, i.wht,
+        i.wht_basis?.annual_income ?? '', i.wht_basis?.net_income ?? '',
+        i.wht_basis?.annual_tax ?? '', i.wht_basis?.periods ?? '',
+      ]),
+      [], ['รวม', '', run.totals?.gross ?? '', run.totals?.wht ?? ''],
+    ];
+    download(`pnd1-${run.id}.csv`, toCsv(rows));
+  };
+
+  const exportSso = () => {
+    if (!run) return;
+    const rows: (string | number)[][] = [
+      ['รหัสพนักงาน', 'ชื่อ-สกุล', 'ค่าจ้างที่ใช้คำนวณ', 'เงินสมทบลูกจ้าง', 'เงินสมทบนายจ้าง', 'รวม'],
+      ...items.map((i) => [
+        i.employee_code || '', i.name || '', i.sso_wage, i.sso_employee, i.sso_employer,
+        Math.round((i.sso_employee + i.sso_employer) * 100) / 100,
+      ]),
+      [], ['รวม', '', '', run.totals?.sso_employee ?? '', run.totals?.sso_employer ?? '',
+        Math.round(((run.totals?.sso_employee || 0) + (run.totals?.sso_employer || 0)) * 100) / 100],
+    ];
+    download(`sso-${run.id}.csv`, toCsv(rows));
+  };
+
+  const locked = run?.status !== 'draft';
+  const incomplete = useMemo(() => items.filter((i) => i.incomplete), [items]);
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+            <Banknote className="text-rose-500" /> รอบจ่ายเงินเดือน
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">ตัดรอบวันที่ 20 จ่ายวันที่ 25 — ตั้งค่าได้ที่ settings/hr</p>
+        </div>
+        <div className="flex items-end gap-2 flex-wrap">
+          <label className="text-xs font-bold text-gray-500">
+            ปี (พ.ศ.)
+            <input type="number" value={period.year}
+              onChange={(e) => setPeriod((p) => ({ ...p, year: Number(e.target.value) }))}
+              className="mt-1 block w-24 px-2 py-2 rounded-xl border border-gray-200 text-sm" />
+          </label>
+          <label className="text-xs font-bold text-gray-500">
+            เดือน
+            <select value={period.month}
+              onChange={(e) => setPeriod((p) => ({ ...p, month: Number(e.target.value) }))}
+              className="mt-1 block px-2 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+          <button onClick={() => void draft()} disabled={busy}
+            className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-50 flex items-center gap-2">
+            <RefreshCw size={16} className={busy ? 'animate-spin' : ''} /> คำนวณรอบนี้
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-bold flex items-center gap-2"><AlertTriangle size={16} /> ตรวจตัวเลขก่อนอนุมัติทุกครั้ง</p>
+        <p className="mt-1 leading-relaxed">
+          อัตราภาษีและประกันสังคมที่ระบบใช้เป็น <b>ค่าตั้งต้น</b> ที่แก้ได้ที่ <code>settings/hr</code> —
+          ควรตรวจกับกรมสรรพากรและสำนักงานประกันสังคมก่อนยื่นจริงรอบแรก
+          รอบที่อนุมัติแล้วจะ <b>แช่อัตราที่ใช้ตอนนั้นไว้</b> ตัวเลขบนสลิปเก่าจึงไม่เปลี่ยนตามการแก้ค่าในภายหลัง
+        </p>
+      </div>
+
+      {runs.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {runs.map((r) => (
+            <button key={r.id} onClick={() => setSelected(r.id)}
+              className={`px-3 py-1.5 rounded-xl text-sm font-bold border ${selected === r.id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
+              {r.id}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-center text-gray-400 py-12 font-bold">กำลังโหลด...</p>
+      ) : !run ? (
+        <div className="text-center py-12 text-gray-400">
+          <Banknote size={40} className="mx-auto mb-3 opacity-40" />
+          <p className="font-bold">ยังไม่มีรอบจ่าย</p>
+          <p className="text-sm mt-2">เลือกเดือนแล้วกด &quot;คำนวณรอบนี้&quot;</p>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-black text-lg text-gray-800">งวด {run.id}</h2>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${STATUS[run.status].cls}`}>
+                    {STATUS[run.status].label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                  <Calendar size={13} />
+                  {thaiDate(run.period_from)} - {thaiDate(run.period_to)} · จ่าย {thaiDate(run.pay_date)}
+                </p>
+                {run.approved_at && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    อนุมัติ {thaiDate(run.approved_at)}{run.approved_by_name ? ` โดย ${run.approved_by_name}` : ''}
+                    {run.paid_at ? ` · จ่าย ${thaiDate(run.paid_at)}` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={exportWht} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
+                  <Download size={15} /> ภ.ง.ด.1 (CSV)
+                </button>
+                <button onClick={exportSso} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
+                  <Download size={15} /> ประกันสังคม (CSV)
+                </button>
+                {run.status === 'draft' && (
+                  <button onClick={() => void approve()} disabled={busy || incomplete.length > 0}
+                    className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold disabled:opacity-40 flex items-center gap-2">
+                    <CheckCircle2 size={15} /> อนุมัติรอบ
+                  </button>
+                )}
+                {run.status === 'approved' && (
+                  <button onClick={() => void markPaid()} disabled={busy}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">
+                    บันทึกว่าโอนแล้ว
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
+              {[
+                ['พนักงาน', `${run.totals?.headcount ?? 0} คน`],
+                ['รวมรายได้', baht(run.totals?.gross)],
+                ['ภาษีหัก ณ ที่จ่าย', baht(run.totals?.wht)],
+                ['ประกันสังคม (ลูกจ้าง/นายจ้าง)', `${baht(run.totals?.sso_employee)} / ${baht(run.totals?.sso_employer)}`],
+                ['ยอดโอนสุทธิ', baht(run.totals?.net)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-gray-50 p-3">
+                  <p className="text-[11px] font-bold text-gray-400">{label}</p>
+                  <p className="font-black text-gray-800 mt-0.5">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {incomplete.length > 0 && (
+              <p className="mt-4 text-sm font-bold text-rose-700 flex items-center gap-2">
+                <AlertTriangle size={15} /> ยังกรอกไม่ครบ {incomplete.length} คน — อนุมัติไม่ได้จนกว่าจะครบ
+              </p>
+            )}
+            {locked && (
+              <p className="mt-4 text-xs text-gray-400 flex items-center gap-1">
+                <Lock size={12} /> รอบนี้ล็อกแล้ว การแก้ไขต้องออกรอบปรับปรุง
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            {items.map((item) => {
+              const open = expanded === item.id;
+              return (
+                <div key={item.id} className={`rounded-2xl border bg-white ${item.incomplete ? 'border-rose-300' : 'border-gray-200'}`}>
+                  <button onClick={() => setExpanded(open ? null : item.id)}
+                    className="w-full flex items-center justify-between gap-3 p-4 text-left">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {open ? <ChevronDown size={16} className="text-gray-400 shrink-0" /> : <ChevronRight size={16} className="text-gray-400 shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-800 truncate">
+                          {item.name}
+                          <span className="text-xs font-mono text-gray-400 ml-2">{item.employee_code}</span>
+                        </p>
+                        {item.incomplete && <p className="text-xs font-bold text-rose-600 mt-0.5">{item.incomplete}</p>}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-black text-gray-800">{baht(item.net)}</p>
+                      <p className="text-[11px] text-gray-400">
+                        รายได้ {baht(item.gross)} · หัก {baht(item.gross - item.net)}
+                      </p>
+                    </div>
+                  </button>
+
+                  {open && (
+                    <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
+                      {item.employment_type === 'daily' && (
+                        <label className="block text-xs font-bold text-gray-500">
+                          จำนวนวันทำงานในงวดนี้
+                          <input type="number" min={0} max={31} disabled={locked || busy}
+                            defaultValue={item.days_worked ?? ''}
+                            onBlur={(e) => { if (e.target.value !== String(item.days_worked ?? '')) void setDays(item, e.target.value); }}
+                            className="mt-1 block w-32 px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50" />
+                        </label>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs font-black text-gray-400 uppercase mb-2">รายได้</p>
+                          {item.earnings.map((l, idx) => (
+                            <div key={idx} className="flex justify-between text-sm py-1 border-b border-gray-50">
+                              <span className="text-gray-600">
+                                {l.label}
+                                {l.note && <span className="text-xs text-gray-400 ml-1">({l.note})</span>}
+                                {l.taxable === false && <span className="text-[10px] text-gray-400 ml-1">ไม่เสียภาษี</span>}
+                              </span>
+                              <span className="font-bold text-gray-800">{baht(l.amount)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-sm pt-2 font-black">
+                            <span>รวมรายได้</span><span>{baht(item.gross)}</span>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-gray-400 uppercase mb-2">รายการหัก</p>
+                          {item.deductions.length === 0 && <p className="text-sm text-gray-400">ไม่มี</p>}
+                          {item.deductions.map((l, idx) => (
+                            <div key={idx} className="flex justify-between text-sm py-1 border-b border-gray-50">
+                              <span className="text-gray-600">{l.label}</span>
+                              <span className="font-bold text-rose-600">-{baht(l.amount)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-sm pt-2 font-black">
+                            <span>ยอดโอนสุทธิ</span><span>{baht(item.net)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ที่มาของภาษี — ตัวเลขที่อธิบายตัวเองไม่ได้คือตัวเลขที่ไม่มีใครกล้าตรวจ */}
+                      {!item.wht_basis?.skipped && (
+                        <div className="rounded-xl bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
+                          <p className="font-black text-gray-500">ที่มาของภาษีหัก ณ ที่จ่าย</p>
+                          <p>ประมาณการเงินได้ทั้งปี {baht(item.wht_basis?.annual_income)} ({item.wht_basis?.periods} งวด)</p>
+                          <p>หักค่าใช้จ่าย {baht(item.wht_basis?.expenses)} · หักค่าลดหย่อน {baht(item.wht_basis?.allowances_total)} (รวมประกันสังคม {baht(item.wht_basis?.sso_allowance)})</p>
+                          <p>เงินได้สุทธิ {baht(item.wht_basis?.net_income)} → ภาษีทั้งปี {baht(item.wht_basis?.annual_tax)} → ต่องวด {baht(item.wht)}</p>
+                          <p className="text-gray-400">
+                            ค่าจ้างที่ใช้คิดประกันสังคม {baht(item.sso_wage)} (ลูกจ้าง {baht(item.sso_employee)} / นายจ้าง {baht(item.sso_employer)})
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-gray-400 leading-relaxed">
+            ไฟล์ CSV ที่ส่งออกเป็น <b>ตารางตัวเลขต่อคน</b> สำหรับใช้กรอกหรืออัปโหลดต่อ
+            ไม่ใช่ไฟล์ e-filing ของกรมสรรพากรหรือประกันสังคมโดยตรง ·
+            ไรเดอร์และผู้รับจ้างอิสระไม่อยู่ในรอบนี้ เพราะถูกจ่ายผ่านกระเป๋าเงินและหัก 3% ตอนถอนอยู่แล้ว
+          </p>
+        </>
+      )}
+    </div>
+  );
+};

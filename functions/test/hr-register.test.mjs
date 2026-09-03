@@ -214,10 +214,15 @@ for (const name of CALLABLES) {
 
 // MANAGER ต้องไม่อยู่ใน HR_ROLES — โหนดนี้มีเงินเดือนของทุกคนรวมถึงของ
 // MANAGER คนอื่น การเปิดให้ทั้งชั้นบริหารเป็นการตัดสินใจเรื่องคน ต้องมีคนสั่ง
+// HR_ROLES อยู่ที่ hr-core.js เพราะทั้ง hr.js และ hr-payroll-api.js ใช้ร่วมกัน —
+// gate เดียวกันต้องมีสำเนาเดียว ไม่งั้นวันหนึ่งสองไฟล์จะนิยาม "ใครเป็น HR"
+// ไม่ตรงกัน แล้วรอบเงินเดือนจะเปิดกว้างกว่าทะเบียนพนักงานโดยไม่มีใครเห็น
 {
-  const m = hrSrc.match(/const HR_ROLES = (\[[^\]]*\])/);
+  const m = coreSrc.match(/const HR_ROLES = (\[[^\]]*\])/);
   check("HR_ROLES = CEO/HR เท่านั้น (ไม่มี MANAGER)",
     !!m && JSON.parse(m[1].replace(/'/g, '"')).sort().join(",") === "CEO,HR");
+  check("hr.js ไม่ประกาศ HR_ROLES ของตัวเอง (สำเนาเดียว)",
+    !/const HR_ROLES = \[/.test(hrSrc));
 }
 
 // ── 9. ห้าม log ข้อมูลอ่อนไหว ──────────────────────────────────────────────

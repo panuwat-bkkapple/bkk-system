@@ -6799,6 +6799,14 @@ Object.assign(exports, require("./search-analytics").registerSearchAnalytics());
 Object.assign(exports, require("./hr").registerHr());
 
 // =============================================================================
+// รอบจ่ายเงินเดือน (P5) — ตัดรอบ 20 จ่าย 25 (ค่าอยู่ที่ settings/hr)
+// รอบที่อนุมัติแล้วแช่อัตราภาษี/ประกันสังคมที่ใช้ตอนนั้นไว้กับตัวรอบ เพื่อให้
+// สลิปที่ส่งไปแล้วยังอธิบายตัวเองได้แม้กฎหมายเปลี่ยน (logic อยู่ hr-payroll.js
+// ซึ่งเป็นกติกาล้วน + hr-payroll-api.js ซึ่งเป็น callable)
+// =============================================================================
+Object.assign(exports, require("./hr-payroll-api").registerHrPayroll());
+
+// =============================================================================
 // Ops Dashboard (/ops) — หลอดงบวัน + สุขภาพคำตอบ + cache/latency + สถานะ flag
 // ในหน้าเดียว (CEO/MANAGER). อ่านจาก chat_ai_usage + search_overview_archive
 // + settings ที่มีอยู่แล้วเท่านั้น — logic อยู่ ops-dashboard.js ซึ่งเป็น

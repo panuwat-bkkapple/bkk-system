@@ -15,6 +15,7 @@ describe('hrScope', () => {
   it('HR ที่อยู่ในขอบเขตไม่ถูกพาไปไหน', () => {
     expect(hrScopeRedirect('HR', '/employees')).toBeNull();
     expect(hrScopeRedirect('HR', '/employees/abc123')).toBeNull();
+    expect(hrScopeRedirect('HR', '/payroll')).toBeNull();
   });
 
   it('role อื่นไม่ถูกแตะเลย — ฟังก์ชันนี้ไม่ใช่ที่รวมกติกาสิทธิ์ของทั้งระบบ', () => {
