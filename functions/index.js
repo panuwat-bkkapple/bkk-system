@@ -6898,6 +6898,13 @@ Object.assign(exports, require("./hr-payroll-api").registerHrPayroll());
 Object.assign(exports, require("./hr-tax-api").registerHrTax());
 
 // =============================================================================
+// ปฏิทินกำหนดยื่นแบบ (/tax-filings) — ภ.ง.ด.1/3, ประกันสังคม, ภ.พ.30, ภ.ง.ด.1ก
+// รวมยอดจาก payroll_runs/wht_certificates/accounting_documents ที่มีอยู่แล้ว
+// ไม่คิดเลขใหม่ และกดว่า "ยื่นแล้ว" ได้ (ตัวเตือนที่รับทราบไม่ได้ = ตัวที่ถูกเมิน)
+// =============================================================================
+Object.assign(exports, require("./tax-filing-api").registerTaxFiling());
+
+// =============================================================================
 // Ops Dashboard (/ops) — หลอดงบวัน + สุขภาพคำตอบ + cache/latency + สถานะ flag
 // ในหน้าเดียว (CEO/MANAGER). อ่านจาก chat_ai_usage + search_overview_archive
 // + settings ที่มีอยู่แล้วเท่านั้น — logic อยู่ ops-dashboard.js ซึ่งเป็น
