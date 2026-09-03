@@ -58,6 +58,7 @@ const ChatKnowledgeGraph = lazy(() => import('./pages/admin/ChatKnowledgeGraph')
 const AiProfileSettings = lazy(() => import('./pages/admin/AiProfileSettings'));
 const StoreSettings = lazy(() => import('./pages/admin/StoreSettings'));
 const BusinessHoursSettings = lazy(() => import('./pages/admin/BusinessHoursSettings'));
+const ReceiptSettings = lazy(() => import('./pages/admin/ReceiptSettings'));
 const MembershipSettings = lazy(() => import('./pages/admin/MembershipSettings'));
 const CustomerOfferSettings = lazy(() => import('./pages/admin/CustomerOfferSettings'));
 const NotificationSettings = lazy(() => import('./pages/admin/NotificationSettings'));
@@ -210,6 +211,7 @@ export default function App() {
                 <Route path="/ai-profile" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <AiProfileSettings /> : <Navigate to="/" replace />} />
                 <Route path="/store-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <StoreSettings /> : <Navigate to="/" replace />} />
                 <Route path="/business-hours" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BusinessHoursSettings /> : <Navigate to="/" replace />} />
+                <Route path="/settings/receipt" element={currentUser?.role === 'CEO' ? <ReceiptSettings /> : <Navigate to="/" replace />} />
                 <Route path="/admin/branches" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <BranchManager /> : <Navigate to="/" replace />} />
                 <Route path="/dealer-settings" element={currentUser?.role === 'CEO' ? <DealerSettings /> : <Navigate to="/" replace />} />
               </Route>
