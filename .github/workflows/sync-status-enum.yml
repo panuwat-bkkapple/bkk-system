@@ -29,8 +29,10 @@ on:
     paths:
       - 'src/types/job-statuses.ts'
       - '.github/workflows/sync-status-enum.yml'
+  # ไม่มี `branches:` โดยตั้งใจ (เหตุผลเต็มอยู่ใน ci.yml) — ตัวกรองนั้นดูที่ base
+  # ของ PR ทำให้ stacked PR ไม่มีด่านรันเลย ส่วน `paths:` ยังอยู่เพราะมันดูที่
+  # ไฟล์ที่เปลี่ยน ไม่ใช่ที่ base
   pull_request:
-    branches: [main]
     paths:
       - 'src/types/job-statuses.ts'
       - '.github/workflows/sync-status-enum.yml'

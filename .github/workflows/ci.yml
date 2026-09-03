@@ -16,11 +16,26 @@ name: CI
 # will exist after merging, which is precisely what a local run on a stale base
 # cannot promise (see the pre-push hook and the branch-base rule in CLAUDE.md).
 
+# **`pull_request` ไม่มี `branches:` โดยตั้งใจ ห้ามใส่กลับ** — เดิมกรองไว้ว่า
+# `branches: [main]` ซึ่งกรองตาม **base** ของ PR ไม่ใช่ตาม head. ผลคือ PR ที่ตั้ง
+# base เป็น branch อื่น (stacked PR ซึ่งเป็นรูปปกติของงานที่ต้องเรียง engine ก่อน
+# client) **ไม่มี CI รันเลยแม้แต่ครั้งเดียว** และไม่มีอะไรบอกว่ามันไม่ได้รัน
+# หน้า PR ขึ้นว่างเปล่า ซึ่งอ่านผ่านๆ แล้วเหมือน "ยังไม่ถึงคิว" ไม่ใช่ "ไม่มีด่าน"
+#
+# เคสจริง 3 ก.ย. 2569: #661 (ขยาย from-list ของ status engine) merge เข้า main
+# ไปโดยที่ CI ไม่เคยรันบนมันสักรอบ เพราะ base เป็น branch ของ PR ก่อนหน้า
+#
+# การ retarget base มาเป็น main ทีหลังก็ไม่ช่วย: มันยิง event `pull_request`
+# action `edited` ซึ่งไม่อยู่ใน activity types เริ่มต้น (opened / synchronize /
+# reopened) จึงไม่สร้าง run ใหม่ — และไม่มี `workflow_dispatch` ให้กดมือด้วย
+#
+# `workflow_dispatch` เพิ่มเข้ามาเป็นทางออกฉุกเฉิน สำหรับตอนที่ต้องรันด่านบน
+# branch ที่ event ไม่ยิงให้ ไม่ใช่ทางหลัก
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   admin-app:
