@@ -33,11 +33,21 @@ export interface ReceiptTemplateProps {
 
 const money = (v: unknown) => Number(v || 0).toLocaleString();
 
+// `size: 80mm auto` ใช้ไม่ได้ — CSS ห้ามผสม <length> กับ `auto` ในค่าเดียวกัน
+// เบราว์เซอร์จึงทิ้งทั้งบรรทัดแล้วตกไปใช้กระดาษเริ่มต้น. วัดจริงด้วย Chromium
+// (headless, preferCSSPageSize) 3 ก.ย. 2569:
+//   size: 80mm auto     -> 215.9 x 279.4 mm (Letter — ค่าถูกทิ้ง)
+//   size: 80mm          -> 80 x 80 mm (สี่เหลี่ยมจัตุรัส ตัดหน้าใหม่ทุก 80mm)
+//   size: 80mm 297mm    -> 80 x 297 mm ✓
+// จึงต้องระบุสองความยาวเสมอ ความสูงเป็นเพดานของกล่องหน้า ไม่ใช่ความยาวที่ป้อนจริง
+// (เครื่องพิมพ์ม้วนตัดตามเนื้อ) — **ห้ามแก้กลับเป็น `auto`**
 const paperCss = (paper: ReceiptPaperSize) =>
-  paper === 'thermal80' ? 'size: 80mm auto; margin: 4mm;' : 'size: A4 portrait; margin: 15mm;';
+  paper === 'thermal80' ? 'size: 80mm 297mm; margin: 4mm;' : 'size: A4 portrait; margin: 15mm;';
 
-// ความกว้างตอนพิมพ์: กระดาษความร้อนตรึงที่ 80mm, A4 ปล่อยเต็มกรอบที่ @page
-// เว้นขอบให้แล้ว. min-height ถูกล้างทิ้งตรงนี้โดยตั้งใจ — ใบเสร็จต้องสูงเท่าเนื้อ
+// ความกว้างตอนพิมพ์ปล่อย 100% ทั้งสองแบบ — `@page` เป็นเจ้าของขนาดกระดาษ
+// ที่เดียว. ตรึง 80mm ไว้ที่ตัวกล่องไม่ได้ เพราะพื้นที่พิมพ์จริงของกระดาษ
+// 80mm หักขอบ 4mm สองข้างเหลือ 72mm — เนื้อจะล้นออกไป 8mm
+// min-height ถูกล้างทิ้งตรงนี้โดยตั้งใจ — ใบเสร็จต้องสูงเท่าเนื้อ
 const printCss = (domId: string, paper: ReceiptPaperSize) => `
 @media print {
   @page { ${paperCss(paper)} }
@@ -47,7 +57,7 @@ const printCss = (domId: string, paper: ReceiptPaperSize) => `
     position: absolute;
     left: 0;
     top: 0;
-    width: ${paper === 'thermal80' ? '80mm' : '100%'};
+    width: 100%;
     max-width: none;
     min-height: 0;
     margin: 0;
