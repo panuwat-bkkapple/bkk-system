@@ -434,24 +434,100 @@ check("availableEvents is derived from the same table, not a second list", () =>
   assert.ok(!events.includes("payment_confirmed"));
 });
 
+check("แอดมินกด Mark Arrived แทนไรเดอร์ที่ลืมกดได้ทุกจุดของขา logistics", () => {
+  // เคสจริง: ไรเดอร์ลืมกด "ออกเดินทาง"/"รับงาน" แล้วไปถึงบ้านลูกค้า แอดมินแก้ให้
+  // จากหน้าจอ ปิดทางนี้ = งานเดินต่อไม่ได้เลยและไม่มีที่ไหนแก้ได้
+  for (const status of ["Rider Assigned", "Rider Accepted", "Rider En Route"]) {
+    const out = decideTransition({ job: job({ status }), event: "rider_arrived", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Rider Arrived");
+  }
+});
+
+check("อนุมัติจ่ายเงินได้จาก Being Inspected — สาย Store-in/Mail-in ไม่มีขั้น QC Review คั่น", () => {
+  for (const status of ["Being Inspected", "Pending QC", "QC Review", "Discrepancy Reported"]) {
+    const out = decideTransition({ job: job({ status }), event: "payout_started", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Payout Processing");
+  }
+});
+
+check("แอดมินยืนยันรับมอบแทนไรเดอร์ที่ไม่ได้กดเดินทางกลับ", () => {
+  // ขั้นนี้เป็นตัวที่ทำให้ onJobHandedOverCalcRiderFee คำนวณค่าวิ่ง — ปิดทางนี้
+  // = ไรเดอร์ไม่ได้ค่ารอบเพราะลืมกดปุ่มเดียว
+  for (const status of ["Paid", "Waiting For Handover", "Rider Returning"]) {
+    const out = decideTransition({ job: job({ status }), event: "rider_return_arrived", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Pending QC");
+  }
+});
+
+check("re-broadcast งานที่อยู่ในคิวอยู่แล้วได้ และงานที่เปลี่ยนวิธีรับมาเป็น Pickup ก็ได้", () => {
+  for (const status of ["Active Lead", "Waiting Drop-off", "Awaiting Shipping"]) {
+    const out = decideTransition({ job: job({ status }), event: "broadcast_to_riders", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, true, `${status} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Active Lead");
+  }
+});
+
+check("การขยายไม่ได้เปิดให้ถอยเครื่องที่ขายแล้วกลับเข้าแล็บ", () => {
+  // ปุ่ม Send to QC LAB ไปถึงสถานะพวกนี้ได้จริงวันนี้ (hasBeenPaid ครอบสถานะขาย
+  // จบไปด้วย) แต่เป็นเงื่อนไขปุ่มที่หลวม ไม่ใช่ฟีเจอร์ — from-list จึงไม่รับ
+  for (const status of ["Sold", "Completed", "Ready To Sell"]) {
+    const out = decideTransition({ job: job({ status }), event: "sent_to_lab", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, false, `${status} ควรถูกปฏิเสธแต่ผ่าน`);
+    assert.equal(out.code, "illegal_from");
+  }
+});
+
+check("การขยายไม่ได้ทำให้ไรเดอร์ได้สิทธิ์ของแอดมินติดมือไปด้วย", () => {
+  // from-list กว้างขึ้นแต่ actors ต้องไม่ขยับ — ไรเดอร์ต้องยังอนุมัติจ่ายเงิน
+  // และ re-broadcast ไม่ได้
+  for (const event of ["payout_started", "broadcast_to_riders", "sent_to_lab"]) {
+    const out = decideTransition({ job: job({ status: "Pending QC" }), event, actor: ACTOR.RIDER });
+    assert.equal(out.ok, false, `${event} ควรปฏิเสธไรเดอร์แต่ผ่าน`);
+  }
+});
+
+check("การขยายไม่ได้พาสิทธิ์จ่ายเงินย้อนเข้าไปในงานที่จ่ายแล้ว", () => {
+  // payout_started รับจาก Pending QC ได้แล้ว และ Pending QC เป็นสถานะ "หลังจ่าย"
+  // ของสาย Pickup — งานที่มี paid_at ต้องไม่ถูกส่งเข้ารอบจ่ายเงินซ้ำ
+  const out = decideTransition({
+    job: job({ status: "Pending QC", paid_at: 1_700_000_000_000 }),
+    event: "payout_started",
+    actor: ACTOR.FINANCE,
+  });
+  assert.equal(out.ok, false, "งานที่จ่ายเงินแล้วต้องถูกปฏิเสธ");
+});
+
 check("from-list ของ event ที่ปุ่มแอดมินเรียก ถูกตรึงไว้ — ขยายต้องตั้งใจ", () => {
-  // ปุ่มบน PricingSidebar โผล่ในสถานะที่ **กว้างกว่า** from-list พวกนี้ (ปุ่ม
-  // "ไรเดอร์ถึงแล้ว" ขึ้นตั้งแต่งานยังอยู่ Rider Assigned, ปุ่ม Approve ขึ้น
-  // ตั้งแต่ Being Inspected) การย้ายปุ่มพวกนั้นมาใช้ event จึงติดอยู่ที่คำถาม
-  // ว่า override ไหนของแอดมินถูกต้อง ซึ่งเป็นการตัดสินใจเชิงธุรกิจ
+  // ค่าชุดนี้ถูกขยายรอบหนึ่งแล้ว (P2-i) ให้ตรงกับสถานะที่ปุ่มบน PricingSidebar
+  // ไปถึงได้จริง — เจ้าของงานเคาะว่าคงพฤติกรรมเดิมไว้ ไม่ให้ปุ่มแอดมินพัง
   //
-  // เทสนี้ไม่ได้บอกว่าค่าพวกนี้ถูก — มันบอกว่าถ้าใครขยาย ต้องขยายที่นี่ด้วย
-  // และจะมองเห็นใน diff แทนที่จะไหลเข้ามาพร้อมการย้ายปุ่มสักตัว
+  // เทสนี้ไม่ได้บอกว่าค่าพวกนี้ถูกในเชิงธุรกิจ — มันบอกว่าถ้าใครขยายอีก ต้อง
+  // ขยายที่นี่ด้วย และจะมองเห็นใน diff แทนที่จะไหลเข้ามาพร้อมการย้ายปุ่มสักตัว
+  // (ตัวที่ยังรู้ว่าหลวมคือ inspection_started จาก Rider Assigned/Accepted และ
+  // payout_started จาก Being Inspected — ทางแก้คือรัดเงื่อนไข *ปุ่ม* ไม่ใช่
+  // หด from-list ซึ่งจะทำให้ปุ่มพังโดยไม่มีใครแก้ปุ่ม)
   const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
   const pinned = {
     intake_queued_for_qc: ["Parcel Received", "Drop-off Received", "Parcel In Transit"],
     dropoff_received: ["Waiting Drop-off", "Appointment Set", "New Lead", "Following Up"],
-    inspection_started: ["Rider Arrived", "Drop-off Received", "Parcel Received", "Waiting Drop-off"],
-    broadcast_to_riders: ["New Lead", "Following Up", "Appointment Set"],
-    rider_arrived: ["Rider En Route"],
-    payout_started: ["Price Accepted", "QC Review", "Negotiation", "Revised Offer"],
-    rider_return_arrived: ["Rider Returning"],
-    sent_to_lab: ["Pending QC", "In Stock"],
+    inspection_started: [
+      "Rider Arrived", "Drop-off Received", "Parcel Received", "Waiting Drop-off",
+      "Appointment Set", "Rider Assigned", "Rider Accepted", "Rider En Route",
+    ],
+    broadcast_to_riders: [
+      "New Lead", "Following Up", "Appointment Set",
+      "Active Lead", "Waiting Drop-off", "Awaiting Shipping",
+    ],
+    rider_arrived: ["Rider En Route", "Rider Assigned", "Rider Accepted"],
+    payout_started: [
+      "Price Accepted", "QC Review", "Negotiation", "Revised Offer",
+      "Being Inspected", "Pending QC", "Discrepancy Reported",
+    ],
+    rider_return_arrived: ["Rider Returning", "Paid", "Waiting For Handover"],
+    sent_to_lab: ["Pending QC", "In Stock", "Paid", "Waiting For Handover"],
   };
   for (const [event, from] of Object.entries(pinned)) {
     assert.deepEqual(TRANSITIONS[event].from, from, `from-list ของ ${event} เปลี่ยน`);
