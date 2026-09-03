@@ -43,6 +43,8 @@ const printStyleOf = (settings: ReceiptSettings): string => {
 const sizeValueOf = (css: string): string =>
   (/@page\s*\{[^}]*?size:\s*([^;}]+)/.exec(css)?.[1] ?? '').trim();
 
+/** ชื่อรุ่นจริงจากบิลที่เจ้าของงานพิมพ์ออกมาแล้วเห็นว่าถูกตัดทิ้งบนสลิป 80mm */
+const LONG_NAME = 'MacBook Air 15" (ชิป M4, 2025) M4 | 16GB | 256GB';
 const ITEM = { name: 'iPhone 15 Pro Max 256GB', qty: 1, price: 38900, type: 'DEVICE', code: '356789012345678' };
 const SALE_1 = {
   receipt_no: 'REC-000123', sold_at: 1756900000000, cashier: 'Admin (Main Store)',
@@ -218,6 +220,17 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
     });
 
     await page.emulateMedia({ media: 'print' });
+    // ชื่อรุ่นถูกตัดทิ้งหรือเปล่า — เทียบ "ข้อความกับกล่องของตัวมันเอง"
+    // (คนละคู่กับ assertion ที่ลบไปตอน #653 ซึ่งเทียบกล่องกับหน้ากระดาษแล้วไปไม่ถึงบั๊ก)
+    const nameClipped = await page.evaluate(() => {
+      const el = document.getElementById('printable-receipt');
+      const name = el?.querySelector('.font-bold.break-words, table tbody tr td .font-bold');
+      if (!name) return null;
+      return {
+        text: name.textContent ?? '',
+        clipped: name.scrollWidth > name.clientWidth + 1,
+      };
+    });
     const receiptVisibility = await page.evaluate(() => {
       const el = document.getElementById('printable-receipt');
       return el ? getComputedStyle(el).visibility : null;
@@ -233,6 +246,7 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
 
     return {
       rendered,
+      nameClipped,
       receiptVisibility,
       watermark,
       pages: pdf.getPageCount(),
@@ -316,6 +330,16 @@ describe('พิมพ์ใบเสร็จเป็น PDF จริง', ()
     expect(r.widthMm).toBeCloseTo(80, 0);
     expect(r.receiptVisibility).toBe('visible');
   });
+
+  // เจ้าของงานพิมพ์บิลจริงแล้วเห็นว่าสลิป 80mm ตัดชื่อรุ่นทิ้งเป็น `... M4 | 16…`
+  // ขณะที่ A4 โชว์เต็ม — ลูกค้าที่ถือสลิปไปเคลมประกันอ่านไม่ออกว่าซื้อความจุเท่าไร
+  for (const [label, settings] of [['ความร้อน', THERMAL], ['A4', A4]] as const) {
+    printIt(`${label}: ชื่อรุ่นยาวต้องขึ้นครบ ไม่ถูกตัดทิ้ง`, async () => {
+      const r = await measure({ ...SALE_1, items: [{ ...ITEM, name: LONG_NAME }] }, settings);
+      expect(r.nameClipped?.text).toBe(LONG_NAME);
+      expect(r.nameClipped?.clipped).toBe(false);
+    });
+  }
 
   printIt('บิลที่ยกเลิกต้องมีลายน้ำ VOIDED ตอนพิมพ์ ไม่ใช่แค่บนจอ', async () => {
     const r = await measure({ ...SALE_1, status: 'VOIDED' }, A4);

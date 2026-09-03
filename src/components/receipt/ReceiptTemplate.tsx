@@ -148,14 +148,18 @@ const ThermalBody: React.FC<BodyProps> = ({ sale, items, settings, footerLines, 
         <div className="font-bold uppercase mb-2" style={{ fontSize: '0.85em' }}>Items</div>
         {items.map((item, idx) => (
           <div key={idx} className="mb-2" style={{ fontSize: '0.85em' }}>
-            <div className="flex justify-between font-bold">
-              <span className="truncate pr-2">{item.name}</span>
-              <span>{Number(item.qty) || 0} x {money(item.price)}</span>
-            </div>
+            {/* ชื่อรุ่นอยู่บรรทัดของตัวเองและ **ตัดบรรทัด ไม่ตัดทิ้ง** — ของเดิมใช้
+                `truncate` แล้วชื่อยาวโดนตัดเป็น `MacBook Air 15" (ชิป M4, 2025) M4 | 16…`
+                ลูกค้าที่ถือสลิปไปเคลมประกันจึงอ่านไม่ออกว่าซื้อความจุเท่าไร.
+                บนกระดาษม้วน ความยาวกระดาษไม่ใช่ของหายาก ข้อมูลเป็น */}
+            <div className="font-bold break-words">{item.name}</div>
             {imeiOf(item, settings.showImei) && (
               <div className="text-gray-500" style={{ fontSize: '0.8em' }}>IMEI/SN: {imeiOf(item, settings.showImei)}</div>
             )}
-            <div className="text-right mt-0.5">฿{money(lineTotal(item))}</div>
+            <div className="flex justify-between mt-0.5">
+              <span>{Number(item.qty) || 0} x {money(item.price)}</span>
+              <span>฿{money(lineTotal(item))}</span>
+            </div>
           </div>
         ))}
       </div>
