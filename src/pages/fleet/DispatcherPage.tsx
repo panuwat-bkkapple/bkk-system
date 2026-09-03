@@ -6,10 +6,12 @@ import {
   Users, Zap, Clock, Battery,
   Map as MapIcon, GripVertical, Box, Phone, X, MessageSquare, MapPin
 } from 'lucide-react';
-import { ref, update, onValue, set } from 'firebase/database';
+import { ref, onValue, set } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { AdminChatBox } from '../../components/Fleet/AdminChatBox';
 import { hasUnreadFrom } from '../../utils/jobChats';
+import { JOB_EVENT } from '../../utils/jobTransitions';
+import { runJobTransition } from '../../utils/runJobTransition';
 import { useToast } from '../../components/ui/ToastProvider';
 import { JOB_STATUS } from '../../types/job-statuses';
 import { jobPin, riderPin } from '../../utils/dispatchPins';
@@ -129,23 +131,27 @@ export const DispatcherPage = () => {
     [unassignedJobs],
   );
 
+  // rider_id กับ assigned_at ไปใน patch ของ transaction เดียวกับสถานะ ไม่ใช่
+  // write ที่สอง — งานที่มีสถานะ Rider Assigned แต่ยังไม่มี rider_id คืองาน
+  // ที่หายไปจากทั้งสองคิว: ไม่อยู่ในคิวว่างให้ใครรับ และไม่มีใครถืออยู่
   const handleAssignJob = async (riderId: string, jobId: string) => {
-    try {
-      await update(ref(db, `jobs/${jobId}`), { status: JOB_STATUS.RIDER_ASSIGNED, rider_id: riderId, assigned_at: Date.now() });
-      setSelectedJobId(null);
-    } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
+    const res = await runJobTransition(jobId, JOB_EVENT.RIDER_ASSIGNED, {
+      patch: { rider_id: riderId, assigned_at: Date.now() },
+    });
+    if (!res.ok) { toast.error(res.message); return; }
+    setSelectedJobId(null);
   };
 
+  // ดึงงานกลับเข้าคิว — engine เป็นคนล้าง rider_id/assigned_at ผ่าน `clears`
+  // ของ rider_unassigned ไคลเอนต์จึงไม่ต้องจำว่ามีฟิลด์อะไรต้องล้างบ้าง
+  //
+  // **ไม่ใช่ rider_withdrew** ถึงจะดูคล้ายกัน: ตัวนั้นลง Following Up เพราะ
+  // ไรเดอร์รับปากลูกค้าไว้แล้วหายไป ต้องมีคนโทรบอก ส่วนแอดมินสับเปลี่ยนคนเอง
+  // ไม่มีอะไรต้องอธิบาย งานกลับเข้าคิวแย่งงานตรงๆ
   const handleUnassignJob = async (jobId: string) => {
-    if (window.confirm('ต้องการดึงงานนี้กลับเข้าคิว (Unassign) ใช่หรือไม่?')) {
-      try {
-        await update(ref(db, `jobs/${jobId}`), {
-          status: JOB_STATUS.ACTIVE_LEAD,
-          rider_id: null,
-          assigned_at: null
-        });
-      } catch (e) { toast.error('เกิดข้อผิดพลาด: ' + e); }
-    }
+    if (!window.confirm('ต้องการดึงงานนี้กลับเข้าคิว (Unassign) ใช่หรือไม่?')) return;
+    const res = await runJobTransition(jobId, JOB_EVENT.RIDER_UNASSIGNED);
+    if (!res.ok) toast.error(res.message);
   };
 
   const toggleDispatchMode = async () => {
