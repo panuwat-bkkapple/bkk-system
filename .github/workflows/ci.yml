@@ -61,7 +61,19 @@ jobs:
       # --noEmit locally and then failed the deploy build in this very PR.
       - name: Type check
         run: npx tsc -b
+
+      # ด่านผลพิมพ์ต้องมีเบราว์เซอร์จริง เพราะมันวัดจาก PDF ที่ Chromium พ่นออกมา
+      # ไม่ใช่จากสตริง CSS. ติดตั้งเฉพาะ chromium (ไม่เอา firefox/webkit) —
+      # ~25 วินาที แลกกับบั๊กที่ไม่มีด่านอื่นในระบบมองเห็นได้เลย
+      - name: Install Chromium for print checks
+        run: npx playwright install --with-deps chromium
+
+      # REQUIRE_PRINT_CHECKS=1 ทำให้ "ข้ามเพราะไม่มีเบราว์เซอร์" กลายเป็นสอบตก
+      # แทนที่จะเงียบ — บนเครื่อง dev ที่ไม่มี Chromium เทสชุดนี้ข้ามได้ แต่ใน CI
+      # ห้ามข้าม (ด่านที่ skip ตัวเองเงียบๆ คือด่านที่ไม่มีใครรู้ว่ามันว่าง)
       - name: Test
+        env:
+          REQUIRE_PRINT_CHECKS: '1'
         run: npm test
 
       # functions/ is plain JS and cannot import the canonical TS enum, so its
