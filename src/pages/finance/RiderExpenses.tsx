@@ -9,14 +9,14 @@
 // ดีไซน์เต็ม: bkk-rider-app docs/reports/2026-09-02-rider-expense-claim-design.md
 
 import { useMemo, useState } from 'react';
-import { httpsCallable } from 'firebase/functions';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   ReceiptText, CheckCircle2, XCircle, Loader2, ExternalLink, AlertTriangle,
   Clock, ShieldAlert, Search,
 } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
-import { functions } from '../../api/firebase';
+import { app } from '../../api/firebase';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { useToast } from '../../components/ui/ToastProvider';
 import { canReviewAdjustments } from '../../utils/adjustments';
@@ -94,7 +94,10 @@ export const RiderExpenses = () => {
   const review = async (id: string, approve: boolean, rejectReason?: string) => {
     setBusyId(id);
     try {
-      await httpsCallable(functions, 'adminReviewExpense')({
+      // repo นี้ไม่มี export `functions` ส่วนกลาง — ทุก call site สร้าง instance
+      // เองพร้อม region (ดู DiagnosStartPanel / useFinanceGate) region ต้องตรงกับ
+      // ฝั่ง functions ไม่งั้น callable หา endpoint ไม่เจอ
+      await httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminReviewExpense')({
         id,
         approve,
         reason: rejectReason || '',
