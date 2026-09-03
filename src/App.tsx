@@ -31,6 +31,7 @@ const EmployeeRegister = lazy(() => import('./pages/hr/EmployeeRegister').then(m
 const PayrollRuns = lazy(() => import('./pages/hr/PayrollRuns').then(m => ({ default: m.PayrollRuns })));
 const HrSettings = lazy(() => import('./pages/hr/HrSettings').then(m => ({ default: m.HrSettings })));
 const TaxYear = lazy(() => import('./pages/hr/TaxYear').then(m => ({ default: m.TaxYear })));
+const Recruitment = lazy(() => import('./pages/hr/Recruitment').then(m => ({ default: m.Recruitment })));
 const TaxFilings = lazy(() => import('./pages/admin/TaxFilings').then(m => ({ default: m.TaxFilings })));
 const SettingsHub = lazy(() => import('./pages/settings/SettingsHub').then(m => ({ default: m.SettingsHub })));
 const WarrantyClaims = lazy(() => import('./pages/crm/WarrantyClaims').then(m => ({ default: m.WarrantyClaims })));
@@ -204,6 +205,7 @@ export default function App() {
                   มีเงินเดือนของทุกคน การเปิดให้ทั้งชั้นบริหารเป็นการตัดสินใจ
                   เรื่องคน ไม่ใช่ผลพลอยได้จากการจัดเมนู (ดู HR_ROLES ใน functions/hr.js) */}
               <Route path="/employees" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <EmployeeRegister /> : <Navigate to="/" replace />} />
+              <Route path="/employees/recruitment" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <Recruitment /> : <Navigate to="/" replace />} />
               <Route path="/payroll" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <PayrollRuns /> : <Navigate to="/" replace />} />
               <Route path="/payroll/tax-year" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <TaxYear /> : <Navigate to="/" replace />} />
               <Route path="/hr-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <HrSettings /> : <Navigate to="/" replace />} />

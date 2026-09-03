@@ -7,7 +7,7 @@ import {
   ShoppingCart, Store, Headphones, Receipt, ShieldCheck,
   User, Users, ShieldAlert, Activity, ReceiptText, ScanLine, Map, ArrowRight,
   Ticket, MessageSquareQuote, MessageSquare, UserCheck, Inbox, CalendarDays, FileSpreadsheet, BookOpen, HandCoins,
-  Search, FileText, CalendarClock
+  Search, FileText, CalendarClock, Briefcase
 } from 'lucide-react';
 import { ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -184,6 +184,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
               {!isCollapsed && <p className="text-[10px] font-black text-gray-400 uppercase px-4 mb-2 tracking-widest">ฝ่ายบุคคล (HR)</p>}
               <div className="space-y-1">
                 <NavButton collapsed={isCollapsed} to="/employees" icon={<Users size={18} />} label="ทะเบียนพนักงาน" />
+                <NavButton collapsed={isCollapsed} to="/employees/recruitment" icon={<Briefcase size={18} />} label="ใบสมัครงาน" />
                 <NavButton collapsed={isCollapsed} to="/payroll" icon={<Banknote size={18} />} label="รอบจ่ายเงินเดือน" />
                 <NavButton collapsed={isCollapsed} to="/payroll/tax-year" icon={<FileText size={18} />} label="เอกสารภาษีรายปี" />
                 <NavButton collapsed={isCollapsed} to="/hr-settings" icon={<Settings size={18} />} label="ตั้งค่าเงินเดือน/ภาษี" />
