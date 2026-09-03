@@ -54,6 +54,9 @@ export const JOB_EVENT = {
   // ย้อนสถานะปลายทางขายที่กดผิดกลับมา Pending QC — ไม่ใช่ sale_voided ซึ่งพูดถึง
   // การยกเลิกการขายที่มีความหมายทางบัญชี
   SALE_REVERTED_TO_QC: 'sale_reverted_to_qc',
+
+  // P2-l — หน้าคลัง (Inventory)
+  PUSHED_TO_POS: 'pushed_to_pos',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];

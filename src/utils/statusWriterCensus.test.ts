@@ -18,13 +18,14 @@
 // แดงเพราะเพิ่มขึ้น = ไปแก้ที่ตัวเขียนใหม่ ให้เรียก runJobTransition
 // แดงเพราะลดลง = ย้ายสำเร็จ ลดเลขข้างล่างพร้อมกับ PR นั้น
 import { describe, it, expect } from 'vitest';
+import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
  * 108 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
  *
- * P2-k: 112 -> 108 มาจากการ **ลบโค้ดตาย** 4 ฟังก์ชันใน TradeInDashboard ไม่ใช่
+ * P2-l: 108 -> 106 (Inventory ย้าย 2 จุด) · P2-k: 112 -> 108 มาจากการ **ลบโค้ดตาย** 4 ฟังก์ชันใน TradeInDashboard ไม่ใช่
  * การย้าย writer — ตัวเลขลดเท่ากันแต่คนละเรื่อง อย่าอ่านรวมกับความคืบหน้าของ
  * การย้าย. **ตัวนับนี้นับ *ทุก* การเขียน `jobs/{id}` ตรง ไม่ใช่แค่ที่มี
  * `status:`** เพราะการเขียนโหนดนี้ตรงข้าม engine ไม่ว่าฟิลด์ไหนก็เลี่ยง
@@ -35,7 +36,9 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 108;
+const MAX_DIRECT_JOB_WRITES = 106;
+
+const require = createRequire(import.meta.url);
 
 const SRC = resolve(__dirname, '..');
 
@@ -90,6 +93,27 @@ describe('สำมะโนการเขียนโหนดงานตร�
     );
     expect(sidebar).not.toContain('handleUpdateStatus');
     expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
+  });
+
+  it('Inventory: ปุ่มขึ้นหน้าร้านกับขายแล้วยิง event เหลือฟอร์มแก้ราคาที่รอ enum', () => {
+    // ปุ่มสองตัวนี้ตรงกับ from-list ของ engine เป๊ะอยู่แล้ว (pushed_to_pos รับ
+    // เฉพาะ In Stock ซึ่งเป็นเงื่อนไขที่ปุ่ม render อยู่ · sold รับ Ready To Sell)
+    // จึงย้ายได้โดยไม่ต้องแตะ engine เลย
+    const page = readFileSync(resolve(SRC, 'pages/inventory/Inventory.tsx'), 'utf8');
+    expect(page).toContain('JOB_EVENT.PUSHED_TO_POS');
+    expect(page).toContain('JOB_EVENT.SOLD');
+    // ฟอร์มแก้ราคายังเขียนตรง เพราะ dropdown มี 'Reserved' ที่ normalizeStatus
+    // อ่านไม่ออก — เหลือ update() ตรงได้ใบเดียวในไฟล์นี้
+    const writes = page.match(/update\(ref\(db, `jobs\/\$\{[^}]+\}`\)/g) || [];
+    expect(writes.length).toBe(1);
+  });
+
+  it("'Reserved' ยังอ่านไม่ออก — ห้ามย้ายฟอร์มแก้ราคาก่อนปิดเรื่องนี้", () => {
+    // ด่านนี้ไม่ได้ตรวจโค้ดของเรา มันตรึง **ข้อเท็จจริงที่ทำให้เราหยุด** ไว้
+    // ถ้าวันหนึ่งมีคนเพิ่ม Reserved เข้า enum/alias เทสนี้จะแดง ซึ่งคือสัญญาณให้
+    // กลับมาย้าย handleSavePricing ไม่ใช่สัญญาณว่าอะไรพัง
+    const vocab = require(resolve(__dirname, '../../functions/status-vocab.generated.js'));
+    expect(vocab.normalizeStatus('Reserved')).toBeNull();
   });
 
   it('TradeInDashboard: สี่ฟังก์ชันที่ไม่มีใครเรียกต้องไม่กลับมา', () => {

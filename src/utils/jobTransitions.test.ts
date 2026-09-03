@@ -48,6 +48,7 @@ describe('JOB_EVENT', () => {
       [JOB_EVENT.SOLD]: 'Sold',
       [JOB_EVENT.BROADCAST_RECALLED]: 'Following Up',
       [JOB_EVENT.SALE_REVERTED_TO_QC]: 'Pending QC',
+      [JOB_EVENT.PUSHED_TO_POS]: 'Ready To Sell',
     };
 
     // ทุกตัวใน JOB_EVENT ต้องอยู่ในตารางนี้ — เพิ่ม event แล้วลืมปักปลายทาง
@@ -56,6 +57,18 @@ describe('JOB_EVENT', () => {
       expect(expected[event], `${event} ยังไม่ได้ปักปลายทางไว้ในเทสนี้`).toBeDefined();
       expect(engine.TRANSITIONS[event]?.to, event).toBe(expected[event]);
     }
+  });
+
+  it('ไม่มีสองชื่อใน JOB_EVENT ที่ชี้ไป event เดียวกัน', () => {
+    // **ด่านนี้เพิ่มเพราะ injection เขียวอีกตัว**: เปลี่ยน PUSHED_TO_POS ให้ชี้
+    // 'intake_qc_passed' แล้วเทสผ่านหมด เพราะการปักปลายทางคีย์ด้วย *ค่า* ของ
+    // event ไม่ใช่ชื่อ — พอสองชื่อชี้ค่าเดียวกัน ค่านั้นถูกปักอยู่แล้ว การสลับ
+    // จึงหลบอยู่ใต้รายการที่ถูกปักไว้
+    //
+    // ผลถ้าหลุดจริง: ปุ่ม "ส่งขึ้นหน้าร้าน (POS)" จะพาเครื่องไป In Stock แทน
+    // Ready to Sell — เครื่องไม่ขึ้นหน้าร้าน และปุ่มก็ยังขึ้นอยู่ที่เดิม
+    const values = Object.values(JOB_EVENT);
+    expect(new Set(values).size, `ชื่อซ้ำค่า: ${values.join(', ')}`).toBe(values.length);
   });
 
   it('event ที่วิ่งสวนทางกันต้องไม่ชี้ไปที่เดียวกัน', () => {
