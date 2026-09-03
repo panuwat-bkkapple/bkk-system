@@ -86,6 +86,43 @@ describe('สำมะโนการเขียนโหนดงานตร�
     expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
   });
 
+  it('MobileTicketDetail: ตาราง quick actions ยิง event 23 ใบ เหลือ legacy 2 ใบ', () => {
+    // เลขในไฟล์ census ไม่ขยับใน PR นี้ เพราะ `handleUpdateStatus` ยังอยู่ให้ 2 ปุ่ม
+    // ที่รอเจ้าของงานเคาะ — **ตัวเลขที่นิ่งจึงไม่ใช่สัญญาณว่าไม่มีความคืบหน้า
+    // และไม่ใช่เหตุผลให้ลดเพดานเอง** ด่านนี้คือตัวที่นับความคืบหน้าจริงแทน
+    //
+    // นับใบในตาราง ไม่ใช่เช็คว่า "มี handleTransition อยู่ไหม" เพราะแบบหลังเขียว
+    // ได้ทั้งที่ปุ่มถูกย้อนกลับไปแล้วทุกใบ (บทเรียนจาก P2-h ที่ injection เขียว)
+    const page = readFileSync(resolve(SRC, 'pages/mobile/MobileTicketDetail.tsx'), 'utf8');
+    const moved = page.match(/event: JOB_EVENT\./g) || [];
+    // จับเฉพาะ "ใบ" จริงในตาราง — `legacyStatus: JOB_STATUS.X` หรือ `: 'X'`
+    // ไม่ใช่คำว่า legacyStatus ที่ปรากฏในนิยาม type ข้างล่างไฟล์
+    const legacy = page.match(/legacyStatus: (?:JOB_STATUS\.|')/g) || [];
+    // 23 = จำนวน "ใบ" ในตาราง ไม่ใช่จำนวนปลายทางที่ต่างกัน (14) — ปลายทาง
+    // เดียวโผล่ได้หลายใบ เช่น broadcast อยู่ใน 3 ใบ (ส่งครั้งแรก + re-broadcast
+    // สองจุด) นับใบเพราะใบคือสิ่งที่คนกด
+    expect(moved.length).toBe(23);
+    expect(legacy.length).toBe(2);
+  });
+
+  it('MobileTicketDetail: handleUpdateStatus เหลือ call site เดียว คือทางถอยของ dispatcher', () => {
+    // ถ้ามีคนเรียกมันตรงๆ จากปุ่มใหม่ ตัวเลขนี้จะขยับ — และนั่นคือการเพิ่มหนี้
+    // ไม่ใช่การแก้บั๊ก
+    const page = readFileSync(resolve(SRC, 'pages/mobile/MobileTicketDetail.tsx'), 'utf8');
+    const calls = page.match(/handleUpdateStatus\(/g) || [];
+    expect(calls.length).toBe(1);
+  });
+
+  it('MobileTicketDetail: ผลพลอยได้ตอนเข้าคลังผูกกับปลายทางที่ engine ตอบ', () => {
+    // งานที่ขายพ่วงอุปกรณ์เสริมต้องแตกเป็น stock รายชิ้นตอนเข้าคลัง — เดิมผูกกับ
+    // สถานะที่ไคลเอนต์เพิ่งเขียนเอง ถ้าย้ายมา event แล้วลืมต่อสายนี้ อุปกรณ์เสริม
+    // จะไม่เข้าสต๊อกโดยไม่มี error อะไรเลย (เงียบแบบเดียวกับเคส qc_logs)
+    const page = readFileSync(resolve(SRC, 'pages/mobile/MobileTicketDetail.tsx'), 'utf8');
+    const handler = page.slice(page.indexOf('const handleTransition'), page.indexOf('const handleUpdateStatus'));
+    expect(handler).toContain("res.to === 'In Stock'");
+    expect(handler).toContain('unpackAccessoryItemsToStock');
+  });
+
   it('B2CWorkspacePage ไม่มีตัวเขียนสถานะแบบไคลเอนต์เลือกปลายทางเหลืออยู่', () => {
     // ตัวฟังก์ชันถูกลบ ไม่ใช่แค่ไม่มีคนเรียก — ฟังก์ชันที่ยังอยู่คือฟังก์ชันที่
     // PR หน้าจะหยิบมาใช้เพราะมันสะดวกกว่าการหา event ที่ถูก
