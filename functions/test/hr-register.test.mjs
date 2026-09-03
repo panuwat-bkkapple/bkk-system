@@ -135,7 +135,15 @@ check("ข้ามปีตามเวลาไทยไม่ใช่ UTC",
 // ทะเบียนบอกว่าพ้นสภาพได้ แต่การปิดบัญชีจริงเป็นงานของ P3 ระหว่างนั้นระบบ
 // **ต้องบอกว่าบัญชียังเปิดอยู่** ไม่ใช่โชว์คำว่าพ้นสภาพแล้วปล่อยให้เข้าใจว่าปิดแล้ว
 const STAFF = { s1: { name: "A", status: "ACTIVE", role: "STAFF" }, s2: { name: "B", status: "INACTIVE", role: "STAFF" } };
-const RIDERS = { r1: { name: "R", approval_status: "approved" }, r2: { name: "R2", approval_status: "blocked" } };
+// **ค่าจริงของ approval_status คือ Active / Pending / Rejected / Suspended**
+// fixture ชุดนี้เคยเขียนว่า "approved"/"blocked" ซึ่งไม่มีอยู่ในระบบเลย — และ
+// โค้ดที่มันทดสอบก็เทียบกับ "approved" เหมือนกัน เทสจึงเขียวเพราะทั้งสองฝั่ง
+// ตกลงกันเองบนค่าที่ไม่มีจริง ผลคือธง stale_access ไม่เคยเตือนเรื่องบัญชี
+// ไรเดอร์ที่ยังเปิดอยู่สักครั้งนับตั้งแต่ P1 (เจอตอนทำ P3 ก.ย. 2569)
+//
+// บทเรียน: fixture ที่แต่งค่าขึ้นเองพิสูจน์ได้แค่ว่าโค้ดเห็นด้วยกับ fixture
+// ค่าที่ใส่ในเทสต้องเป็นค่าที่ระบบผลิตออกมาจริงเท่านั้น
+const RIDERS = { r1: { name: "R", approval_status: "Active" }, r2: { name: "R2", approval_status: "Suspended" } };
 {
   const a = accessSummary({ status: "terminated", links: { staff_id: "s1" } }, STAFF, RIDERS);
   check("พ้นสภาพแต่บัญชีแอดมินยัง ACTIVE = stale_access", a.stale_access === true && a.open === true);
@@ -146,7 +154,7 @@ const RIDERS = { r1: { name: "R", approval_status: "approved" }, r2: { name: "R2
 }
 {
   const a = accessSummary({ status: "terminated", links: { rider_id: "r1" } }, STAFF, RIDERS);
-  check("พ้นสภาพแต่ไรเดอร์ยัง approved = stale_access", a.stale_access === true);
+  check("พ้นสภาพแต่ไรเดอร์ยัง Active = stale_access", a.stale_access === true);
 }
 {
   const a = accessSummary({ status: "terminated", links: { rider_id: "r2" } }, STAFF, RIDERS);

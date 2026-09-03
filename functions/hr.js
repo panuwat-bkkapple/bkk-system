@@ -25,7 +25,8 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { getDatabase } = require("firebase-admin/database");
 
-const { requireStaffRole } = require("./staff-accounts");
+const { requireStaffRole, suspendStaffAccount } = require("./staff-accounts");
+const { suspendRiderAccount } = require("./rider-accounts");
 const {
   HR_ROLES,
   EMPLOYEE_STATUSES,
@@ -35,6 +36,7 @@ const {
   sanitizeEmployeePublic,
   sanitizeEmployeePrivate,
   accessSummary,
+  planAccountClosure,
   unlinkedAccounts,
   employeeActorFields,
 } = require("./hr-core");
@@ -291,11 +293,18 @@ function registerHr() {
   });
 
   // -------------------------------------------------------------------------
-  // adminHrEmployeeSetStatus — เปลี่ยนสถานะการจ้าง
+  // adminHrEmployeeSetStatus — เปลี่ยนสถานะการจ้าง + ปิดการเข้าถึง (P3)
   //
-  // **ไม่ปิดบัญชีให้** และต้องพูดออกมาตรงๆ ว่าไม่ปิด: คืน `access` กลับไปให้
-  // หน้าเว็บโชว์ว่าบัญชีไหนยังเปิดอยู่ ระบบที่เขียนว่า "พ้นสภาพ" แล้วเงียบ
-  // เรื่องบัญชีที่ยังใช้ได้ คือระบบที่ตอบผิดโดยไม่มีใครเห็น
+  // **พ้นสภาพ = ปิดบัญชีให้อัตโนมัติ** (ข้อ 7 ของโจทย์) ด้วยกลไกเดียวกับที่
+  // /staff และ /riders ใช้ ไม่ใช่สำเนาที่สอง — `suspendStaffAccount` และ
+  // `suspendRiderAccount` ถูกแยกออกมาจากสองไฟล์นั้นเพื่อการนี้
+  //
+  // **ปิดอัตโนมัติ แต่เปิดคืนต้องทำด้วยมือเสมอ** — การแก้สถานะกลับเป็น active
+  // คือการแก้ข้อมูล ไม่ใช่การอนุมัติให้คนกลับเข้าระบบ ระบบที่คืนสิทธิ์ให้เป็น
+  // ผลข้างเคียงของการแก้ข้อมูลคือระบบที่ให้สิทธิ์โดยไม่มีใครตั้งใจ
+  //
+  // ยังคืน `access` กลับไปเหมือนเดิม — ปิดสำเร็จก็ต้องพิสูจน์ได้จากสถานะจริง
+  // ไม่ใช่เชื่อเพราะเราบอกว่าปิดแล้ว
   // -------------------------------------------------------------------------
   const adminHrEmployeeSetStatus = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
@@ -317,12 +326,70 @@ function registerHr() {
       throw new HttpsError("invalid-argument", "การพ้นสภาพต้องระบุเหตุผล");
     }
 
+    // ── ปิดการเข้าถึง ──────────────────────────────────────────────────────
+    // ตรวจก่อนเขียนอะไรทั้งสิ้น: ปฏิเสธแล้วต้องไม่เหลือร่องรอย เพราะการบันทึก
+    // ว่า "พ้นสภาพ" ไว้โดยบัญชียังเปิด แล้วบอกให้ไปตามคนอื่นมากดต่อ คือสภาพ
+    // ครึ่งๆ กลางๆ ที่งานนี้มีไว้กำจัด
+    const { staffMap: preStaff, ridersMap: preRiders } = await loadRegistry(db);
+    let closure = null;
+    if (leaving) {
+      const plan = planAccountClosure({
+        employee: existing, staffMap: preStaff, ridersMap: preRiders,
+        callerRole: (preStaff[callerStaffId] || {}).role, callerStaffId,
+      });
+      if (plan.refuse) throw new HttpsError("failed-precondition", plan.refuse.message);
+      closure = plan;
+    }
+
     await db.ref(`employees/${employeeId}`).update({
       status,
       terminated_at: leaving ? at : null,
       terminate_reason: leaving ? reason : null,
       updated_at: at,
     });
+
+    // ปิดบัญชีหลังบันทึกสถานะ — ถ้าการปิดล้มกลางทาง (Auth ล่ม) ข้อเท็จจริงว่า
+    // คนนี้พ้นสภาพแล้วยังถูกบันทึกไว้ และธง `stale_access` จะบอกหน้าเว็บเองว่า
+    // ยังมีบัญชีเปิดค้างอยู่ ตรงข้ามกับการปิดก่อนแล้วบันทึกไม่สำเร็จ ซึ่งได้คน
+    // ที่ถูกล็อกออกจากระบบโดยไม่มีบันทึกว่าทำไม
+    const closed = { staff: null, rider: null, errors: [] };
+    if (closure) {
+      if (closure.staff && closure.staff.close) {
+        try {
+          await suspendStaffAccount(db, {
+            staffId: closure.staff.id, existing: preStaff[closure.staff.id] || {},
+            action: "terminated",
+            reason: reason || "พ้นสภาพพนักงาน",
+            actor: employeeActorFields(callerStaffId, preStaff, request.auth),
+          });
+          closed.staff = "closed";
+        } catch (e) {
+          closed.errors.push(`ปิดบัญชีพนักงานไม่สำเร็จ: ${(e && e.message) || e}`);
+        }
+      } else if (closure.staff) {
+        closed.staff = `skipped:${closure.staff.skip}`;
+      }
+
+      if (closure.rider && closure.rider.close) {
+        try {
+          await suspendRiderAccount(db, {
+            riderId: closure.rider.id, before: preRiders[closure.rider.id] || {},
+            reason: reason || "พ้นสภาพพนักงาน",
+            actor: {
+              by_staff_id: callerStaffId || null,
+              by_uid: request.auth && request.auth.uid,
+              by_name: (preStaff[callerStaffId] || {}).name || null,
+              by_role: String((preStaff[callerStaffId] || {}).role || "").toUpperCase() || null,
+            },
+          });
+          closed.rider = "closed";
+        } catch (e) {
+          closed.errors.push(`ระงับบัญชีไรเดอร์ไม่สำเร็จ: ${(e && e.message) || e}`);
+        }
+      } else if (closure.rider) {
+        closed.rider = `skipped:${closure.rider.skip}`;
+      }
+    }
 
     await recordEmployeeEvent(db, {
       employee_id: employeeId,
@@ -337,8 +404,11 @@ function registerHr() {
 
     const { staffMap: freshStaff, ridersMap } = await loadRegistry(db);
     const access = accessSummary({ ...existing, status, links: existing.links }, freshStaff, ridersMap);
-    console.log(`[hr] employee ${employeeId} status ${existing.status} -> ${status} (access still open: ${access.open})`);
-    return { ok: true, access };
+    console.log(
+      `[hr] employee ${employeeId} status ${existing.status} -> ${status}` +
+      ` (closed staff=${closed.staff || "-"} rider=${closed.rider || "-"}; access still open: ${access.open})`
+    );
+    return { ok: true, access, closed, nothing_to_close: Boolean(closure && closure.nothing_to_close) };
   });
 
   // -------------------------------------------------------------------------

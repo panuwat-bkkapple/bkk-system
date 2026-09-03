@@ -63,6 +63,40 @@ async function setAuthDisabled(uid, disabled) {
   }
 }
 
+// ระงับบัญชีไรเดอร์ — ปิด Auth + revoke token + เขียนธงทั้งสองตัว
+//
+// แยกออกมาเพื่อให้ P3 (การพ้นสภาพจากทะเบียน HR) ใช้กลไกเดียวกันเป๊ะ ไม่ใช่
+// ก๊อปไปเขียนใหม่ — จุดที่สำเนาจะพลาดคือ **เขียน `approval_status` ตัวเดียว
+// แล้วลืม `status`** ซึ่งเป็นธงที่แอปไรเดอร์อ่าน ผลคือหน้าแอดมินขึ้นว่าระงับแล้ว
+// ขณะที่แอปยังเห็นว่าใช้งานได้
+//
+// ปิดบัญชีก่อนเขียนธงเสมอ — ปิดไม่สำเร็จต้องยังไม่มีอะไรใน DB ประกาศว่าระงับแล้ว
+async function suspendRiderAccount(db, { riderId, before, reason, actor }) {
+  const target = ACTIONS.suspend;
+  const hadAuthAccount = await setAuthDisabled(riderId, true);
+  await db.ref(`riders/${riderId}`).update({
+    ...target,
+    suspend_reason: reason || null,
+    suspended_at: Date.now(),
+  });
+  await recordTransition(db, {
+    rider_id: riderId,
+    action: "suspend",
+    from: {
+      approval_status: effectiveApprovalStatus(before || {}),
+      status: String((before || {}).status || ""),
+    },
+    to: { approval_status: target.approval_status, status: target.status },
+    reason: reason || null,
+    at: Date.now(),
+    ...(actor || {}),
+    auth_login_blocked: true,
+    auth_account_found: hadAuthAccount,
+  });
+  console.log(`[rider-accounts] suspend rider ${riderId}` + (hadAuthAccount ? "" : " — ไม่มีบัญชี Auth ให้ปิด"));
+  return { hadAuthAccount };
+}
+
 // ประวัติการเปลี่ยนสถานะ — เขียนตั้งแต่วันแรกแม้ยังไม่มีหน้าไหนอ่าน เพราะ
 // เป็นข้อมูลที่ backfill ย้อนหลังไม่ได้ ("ใครกดอนุมัติคนนี้เมื่อไหร่" ไม่มี
 // ที่ไหนเก็บอยู่เลยวันนี้)
@@ -176,4 +210,4 @@ function registerRiderAccounts() {
   return { adminRiderSetStatus };
 }
 
-module.exports = { registerRiderAccounts, effectiveApprovalStatus, ACTIONS, BLOCKS_LOGIN };
+module.exports = { registerRiderAccounts, effectiveApprovalStatus, ACTIONS, BLOCKS_LOGIN, suspendRiderAccount };
