@@ -14,6 +14,8 @@ const path = require("path");
 const { PDFDocument, rgb } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
 const { companyOf, bahtText, serviceFeeBreakdown } = require("./email");
+// กฎการตัดบรรทัดภาษาไทย — pure มี unit test ห้ามก๊อปกฎมาไว้ที่นี่
+const { wrapText } = require("./hr-documents");
 
 const FONT_DIR = path.join(__dirname, "assets", "fonts");
 let _regular = null;
@@ -1314,4 +1316,295 @@ async function buildEmployeeWhtCertificatePdf({ employee, priv, cert, company })
   return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf };
+// ---------------------------------------------------------------------------
+// เอกสารบุคคล — โครงร่วมของหน้ากระดาษ
+//
+// สี่เอกสาร (สัญญาจ้าง · รับรองเงินเดือน · หนังสือเตือน · ผ่านทดลองงาน) ใช้หัว
+// กระดาษ ฟอนต์ และบล็อกลายเซ็นชุดเดียวกัน — แยกเป็นตัวช่วยเพื่อไม่ให้มีสี่สำเนา
+// ของ "หัวจดหมายบริษัท" ที่วันหนึ่งจะเพี้ยนจากกัน (บทเรียนใบเสร็จ POS)
+//
+// **ทุกฉบับพิมพ์ลงกระดาษเพื่อเซ็นจริง** ไม่ใช่เอกสารอิเล็กทรอนิกส์ที่มีผลเอง
+// จึงต้องมีเส้นเซ็นและวันที่ให้เขียนเสมอ
+// ---------------------------------------------------------------------------
+function hrDocPage(pdf, font, fontB, company) {
+  let page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 56;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.82, 0.84, 0.86);
+  const CO = { ...companyOf({}), ...(company || {}) };
+
+  const st = { y: height - M, page, width, height, M, contentW, black, gray, lineColor, CO };
+
+  // **ขอบล่างที่เนื้อหาห้ามข้าม** — pdf-lib วาดข้อความที่ y ติดลบโดยไม่ error
+  // และหน้าก็ยังนับเป็นหนึ่งหน้าเหมือนเดิม ข้อความหายไปเงียบสนิท ซึ่งเป็น
+  // กับดักตระกูลเดียวกับ "หน้าว่างก็นับได้ 1 หน้า" ในบทเรียนใบเสร็จ
+  const BOTTOM = 150;
+  st.newPage = () => {
+    page = pdf.addPage([595.28, 841.89]);
+    st.page = page;
+    st.y = height - M;
+    return page;
+  };
+  /** พื้นที่ไม่พอสำหรับ n บรรทัดขนาด size → ขึ้นหน้าใหม่ */
+  st.ensure = (needH) => { if (st.y - needH < BOTTOM) st.newPage(); };
+
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  st.widthOf = widthOf;
+  st.draw = (t, x, size, opts = {}) => {
+    const f = opts.bold ? fontB : font;
+    page.drawText(String(t == null ? "" : t), {
+      x, y: opts.y != null ? opts.y : st.y, size, font: f, color: opts.color || black,
+    });
+  };
+  st.center = (t, size, opts = {}) =>
+    st.draw(t, (width - widthOf(t, size, opts.bold ? fontB : font)) / 2, size, opts);
+  st.right = (t, rightX, size, opts = {}) =>
+    st.draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  st.hr = (yy) => page.drawLine({
+    start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor,
+  });
+  // กฎการตัดบรรทัดภาษาไทยอยู่ที่ `hr-documents.js` (pure มี unit test) —
+  // ตัวนี้แค่ผูกตัววัดความกว้างของฟอนต์เข้าไป **ห้ามก๊อปกฎมาไว้ที่นี่**
+  st.wrap = (t, size, maxW, bold) =>
+    wrapText(t, maxW, (x) => widthOf(x, size, bold ? fontB : font));
+
+  st.para = (t, size, opts = {}) => {
+    const x = st.M + (opts.indent || 0);
+    const lineH = opts.lineH || size + 6;
+    for (const ln of st.wrap(t, size, contentW - (opts.indent || 0), opts.bold)) {
+      st.ensure(lineH);
+      st.draw(ln, x, size, opts);
+      st.y -= lineH;
+    }
+  };
+
+  // หัวกระดาษ — ชื่อนิติบุคคลก่อนเสมอ ไม่ใช่ชื่อทางการค้า เอกสารจ้างงานเป็น
+  // สัญญาระหว่างลูกจ้างกับ "นิติบุคคล" ที่จดทะเบียน
+  st.center(CO.legalName, 14, { bold: true });
+  st.y -= 15;
+  for (const ln of st.wrap(CO.address, 9, contentW)) { st.center(ln, 9, { color: gray }); st.y -= 11; }
+  st.center(`เลขประจำตัวผู้เสียภาษี ${CO.taxId}`, 9, { color: gray });
+  st.y -= 16;
+  st.hr(st.y + 4);
+  st.y -= 20;
+  return st;
+}
+
+/** บล็อกลายเซ็นสองฝ่าย (สัญญา) หรือฝ่ายเดียว (จดหมาย) */
+function hrSignatures(st, font, pairs) {
+  // ต้องการที่อย่างน้อย 60pt ใต้เนื้อหา ไม่งั้นเส้นเซ็นไปทับย่อหน้าสุดท้าย
+  if (st.y - 60 < 130) st.newPage();
+  const gapY = Math.max(st.y - 30, 130);
+  const colW = st.contentW / pairs.length;
+  pairs.forEach((label, i) => {
+    const cx = st.M + colW * i + colW / 2;
+    st.page.drawLine({
+      start: { x: cx - 78, y: gapY }, end: { x: cx + 78, y: gapY },
+      thickness: 0.8, color: st.lineColor,
+    });
+    const w = st.widthOf(label, 9, font);
+    st.page.drawText(label, { x: cx - w / 2, y: gapY - 14, size: 9, font, color: st.black });
+    const d = "(                    /                    /                    )";
+    const dw = st.widthOf(d, 8, font);
+    st.page.drawText(d, { x: cx - dw / 2, y: gapY - 28, size: 8, font, color: st.gray });
+  });
+  return gapY;
+}
+
+// ---------------------------------------------------------------------------
+// สัญญาจ้างแรงงาน
+//
+// **เงื่อนไขทุกข้อมาจาก `doc.terms` ที่ freeze ไว้ตอนออกเอกสาร ไม่ได้อ่านสด**
+// สัญญาที่เซ็นไปแล้วต้องอธิบายตัวเองได้แม้ค่าใน settings จะถูกแก้พรุ่งนี้
+// (รูปเดียวกับ payroll_runs.config และใบกำกับภาษี)
+// ---------------------------------------------------------------------------
+async function buildEmploymentContractPdf({ employee, priv, doc, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+  const st = hrDocPage(pdf, font, fontB, company);
+
+  const emp = employee || {};
+  const pv = priv || {};
+  const t = doc.terms || {};
+  const pay = doc.pay || {};
+
+  st.center("สัญญาจ้างแรงงาน", 16, { bold: true });
+  st.y -= 20;
+  st.right(`เลขที่ ${doc.number || "-"}`, st.width - st.M, 9, { color: st.gray });
+  st.y -= 16;
+
+  st.para(`ทำที่ ${st.CO.legalName} เมื่อวันที่ ${formatDate(doc.issued_at) || "-"}`, 10);
+  st.y -= 6;
+  st.para(
+    `สัญญาฉบับนี้ทำขึ้นระหว่าง ${st.CO.legalName} เลขประจำตัวผู้เสียภาษี ${st.CO.taxId} ` +
+    `ซึ่งต่อไปในสัญญานี้เรียกว่า "นายจ้าง" ฝ่ายหนึ่ง กับ ${emp.name || "-"} ` +
+    `เลขประจำตัวประชาชน ${pv.national_id || "-"} อยู่บ้านเลขที่ ${pv.address || "-"} ` +
+    `ซึ่งต่อไปในสัญญานี้เรียกว่า "ลูกจ้าง" อีกฝ่ายหนึ่ง โดยทั้งสองฝ่ายตกลงกันดังนี้`, 10);
+  st.y -= 8;
+
+  const clauses = [
+    ["ตำแหน่งและหน้าที่",
+      `นายจ้างตกลงจ้าง และลูกจ้างตกลงเข้าทำงานในตำแหน่ง ${emp.position || "-"}` +
+      `${emp.department ? ` แผนก${emp.department}` : ""}` +
+      `${emp.branch ? ` ประจำที่ ${emp.branch}` : ""} ` +
+      `โดยปฏิบัติหน้าที่ตามที่ได้รับมอบหมายด้วยความซื่อสัตย์สุจริต`],
+    ["วันเริ่มงานและระยะเวลาจ้าง",
+      `เริ่มทำงานตั้งแต่วันที่ ${formatDate(emp.hired_at) || "-"} เป็นต้นไป ` +
+      (doc.fixed_term_end
+        ? `โดยเป็นสัญญาจ้างที่มีกำหนดระยะเวลา สิ้นสุดวันที่ ${formatDate(doc.fixed_term_end)}`
+        : "โดยเป็นสัญญาจ้างที่ไม่มีกำหนดระยะเวลา")],
+    ["การทดลองงาน",
+      t.probation_days > 0
+        ? `ลูกจ้างต้องผ่านการทดลองงานเป็นระยะเวลา ${t.probation_days} วัน ` +
+          `นับแต่วันเริ่มงาน ครบกำหนดวันที่ ${formatDate(doc.probation_end) || "-"}` +
+          (t.probation_note ? ` ${t.probation_note}` : "")
+        : "ไม่มีการทดลองงาน"],
+    ["ค่าจ้างและการจ่ายค่าจ้าง",
+      pay.amount
+        ? `นายจ้างตกลงจ่ายค่าจ้างให้ลูกจ้างในอัตรา ${thb(pay.amount)} ${pay.unit} ` +
+          `โดยจ่ายเป็น${pay.period} ตามรอบการจ่ายค่าจ้างของนายจ้าง และหักภาษี ณ ที่จ่าย ` +
+          `กับเงินสมทบประกันสังคมตามที่กฎหมายกำหนด`
+        : "ค่าจ้างเป็นไปตามที่ทั้งสองฝ่ายตกลงกัน"],
+    ["เวลาทำงานและวันหยุด",
+      `ทำงานสัปดาห์ละ ${t.work_days_per_week} วัน วันละ ${t.work_hours_per_day} ชั่วโมง ` +
+      `ระหว่างเวลา ${t.work_start} ถึง ${t.work_end} น. ` +
+      `โดยมีวันหยุดประจำสัปดาห์คือวัน${t.weekly_holiday} ` +
+      `ทั้งนี้ วันหยุดตามประเพณี วันหยุดพักผ่อนประจำปี และวันลา เป็นไปตามระเบียบของนายจ้างและที่กฎหมายกำหนด`],
+    ["การเลิกสัญญา",
+      `ฝ่ายใดประสงค์จะเลิกสัญญา ต้องบอกกล่าวเป็นหนังสือให้อีกฝ่ายทราบล่วงหน้าไม่น้อยกว่า ` +
+      `${t.notice_days} วัน เว้นแต่กรณีที่กฎหมายกำหนดให้เลิกจ้างได้ทันที`],
+  ];
+  if (t.benefits) clauses.push(["สวัสดิการ", t.benefits]);
+  if (t.extra_clauses) clauses.push(["ข้อตกลงอื่น", t.extra_clauses]);
+  clauses.push(["ความเข้าใจร่วมกัน",
+    "ทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว จึงลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน " +
+    "และต่างเก็บไว้ฝ่ายละหนึ่งฉบับ"]);
+
+  clauses.forEach(([title, body], i) => {
+    st.para(`ข้อ ${i + 1}. ${title}`, 10, { bold: true });
+    st.para(body, 10, { indent: 14 });
+    st.y -= 5;
+  });
+
+  hrSignatures(st, font, ["ลงชื่อ ผู้ว่าจ้าง", "ลงชื่อ ลูกจ้าง", "ลงชื่อ พยาน"]);
+  st.page.drawText(`${st.CO.legalName} • เอกสารนี้เป็นข้อมูลส่วนบุคคล โปรดเก็บรักษาเป็นความลับ`,
+    { x: st.M, y: 46, size: 8, font, color: st.gray });
+  return Buffer.from(await pdf.save());
+}
+
+// ---------------------------------------------------------------------------
+// จดหมายบุคคลสามชนิด — รับรองเงินเดือน / หนังสือเตือน / ผ่านทดลองงาน
+//
+// ใช้ตัวเดียวกันเพราะโครงเหมือนกันหมด (หัวบริษัท → เรื่อง → เนื้อความ → ลงชื่อ)
+// ต่างกันแค่ **ถ้อยคำ** ซึ่งประกอบไว้ที่ `hrLetterBody` — สามฟังก์ชันที่วาด
+// เหมือนกันแต่คนละสำเนา คือของที่จะเพี้ยนจากกันทีละจุด
+// ---------------------------------------------------------------------------
+function hrLetterBody({ type, employee, priv, doc, company }) {
+  const emp = employee || {};
+  const t = doc.terms || {};
+  const pay = doc.pay || {};
+  const co = { ...companyOf({}), ...(company || {}) };
+  const who = `${emp.name || "-"}${emp.employee_code ? ` (รหัสพนักงาน ${emp.employee_code})` : ""}`;
+  const role = `${emp.position ? `ตำแหน่ง${emp.position}` : ""}${emp.department ? ` แผนก${emp.department}` : ""}`.trim();
+
+  if (type === "salary_certificate") {
+    return {
+      title: "หนังสือรับรองเงินเดือน",
+      subject: null,
+      paras: [
+        `${co.legalName} ขอรับรองว่า ${who} ${role ? `${role} ` : ""}` +
+        `เป็นพนักงานของบริษัท โดยเริ่มปฏิบัติงานตั้งแต่วันที่ ${formatDate(emp.hired_at) || "-"} ` +
+        `และปัจจุบันยังคงปฏิบัติงานอยู่`,
+        pay.amount
+          ? `ได้รับค่าจ้างในอัตรา ${thb(pay.amount)} ${pay.unit} (${bahtText(pay.amount) || "-"})`
+          : "อัตราค่าจ้างเป็นไปตามที่บริษัทกำหนด",
+        // เอกสารนี้เปิดเผยเงินเดือน — ระบุวัตถุประสงค์ไว้เพื่อให้ชัดว่าออกให้ใคร
+        // ใช้ทำอะไร ไม่ใช่เอกสารที่แจกได้ทั่วไป
+        `หนังสือฉบับนี้ออกให้เพื่อ${doc.purpose || "ใช้เป็นหลักฐานตามที่ผู้ถือเอกสารร้องขอ"} เท่านั้น`,
+        "ออกให้ ณ วันที่ที่ระบุข้างต้น เพื่อเป็นหลักฐาน",
+      ],
+      signers: ["ลงชื่อ ผู้มีอำนาจลงนาม"],
+    };
+  }
+
+  if (type === "warning") {
+    return {
+      title: "หนังสือเตือน",
+      subject: `เรื่อง ${doc.subject || "การกระทำที่ไม่เป็นไปตามระเบียบของบริษัท"}`,
+      paras: [
+        `เรียน ${who}${role ? ` ${role}` : ""}`,
+        `ตามที่บริษัทตรวจพบว่าท่านได้${doc.incident || "-"}` +
+        `${doc.incident_at ? ` เมื่อวันที่ ${formatDate(doc.incident_at)}` : ""} ` +
+        `ซึ่งไม่เป็นไปตามระเบียบข้อบังคับเกี่ยวกับการทำงานของบริษัทนั้น`,
+        `บริษัทจึงมีหนังสือฉบับนี้เพื่อเตือนให้ท่านแก้ไขและปรับปรุงการปฏิบัติงาน ` +
+        `และขอให้ท่านปฏิบัติตามระเบียบข้อบังคับของบริษัทโดยเคร่งครัดต่อไป`,
+        // ข้อความนี้คือสาระของหนังสือเตือน ไม่ใช่คำขู่ — ถ้าไม่เขียน เอกสารจะ
+        // ใช้อ้างอิงตอนพิจารณาโทษครั้งถัดไปไม่ได้
+        `หากท่านกระทำผิดซ้ำในเรื่องเดียวกันอีก บริษัทจำเป็นต้องพิจารณาดำเนินการตามระเบียบ ` +
+        `ข้อบังคับเกี่ยวกับการทำงานและตามที่กฎหมายกำหนดต่อไป`,
+        doc.expires_at
+          ? `หนังสือเตือนฉบับนี้มีผลถึงวันที่ ${formatDate(doc.expires_at)}`
+          : "",
+      ].filter(Boolean),
+      signers: ["ลงชื่อ ผู้มีอำนาจลงนาม", "ลงชื่อ ผู้รับหนังสือ"],
+    };
+  }
+
+  // probation_pass
+  return {
+    title: "หนังสือแจ้งผลการทดลองงาน",
+    subject: "เรื่อง แจ้งผลการทดลองงาน",
+    paras: [
+      `เรียน ${who}${role ? ` ${role}` : ""}`,
+      `ตามที่ท่านได้เข้าปฏิบัติงานกับ${co.legalName} ตั้งแต่วันที่ ${formatDate(emp.hired_at) || "-"} ` +
+      `และอยู่ในระหว่างการทดลองงานเป็นระยะเวลา ${t.probation_days || "-"} วัน ` +
+      `ซึ่งครบกำหนดเมื่อวันที่ ${formatDate(doc.probation_end) || "-"} นั้น`,
+      `บริษัทได้พิจารณาผลการปฏิบัติงานของท่านแล้ว เห็นว่าท่าน**ผ่านการทดลองงาน** ` +
+      `และให้บรรจุเป็นพนักงานตั้งแต่วันที่ ${formatDate(doc.effective_at) || formatDate(doc.probation_end) || "-"} เป็นต้นไป`,
+      doc.note || "",
+      "จึงเรียนมาเพื่อทราบ",
+    ].filter(Boolean),
+    signers: ["ลงชื่อ ผู้มีอำนาจลงนาม"],
+  };
+}
+
+async function buildHrLetterPdf({ type, employee, priv, doc, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+  const st = hrDocPage(pdf, font, fontB, company);
+  const body = hrLetterBody({ type, employee, priv, doc, company });
+
+  st.right(`เลขที่ ${doc.number || "-"}`, st.width - st.M, 9, { color: st.gray });
+  st.y -= 12;
+  st.right(`วันที่ ${formatDate(doc.issued_at) || "-"}`, st.width - st.M, 10);
+  st.y -= 22;
+
+  st.center(body.title, 15, { bold: true });
+  st.y -= 22;
+  if (body.subject) { st.para(body.subject, 10, { bold: true }); st.y -= 6; }
+
+  for (const para of body.paras) {
+    // `**...**` ในถ้อยคำหมายถึงส่วนที่ต้องเน้น — วาดทั้งย่อหน้าเป็นตัวหนา
+    // แทนการผสมกลางบรรทัด (ผสมฟอนต์กลางบรรทัดในภาษาไทยทำให้ระยะห่างเพี้ยน)
+    const boldPara = para.includes("**");
+    st.para(para.replace(/\*\*/g, ""), 10, { indent: 14, bold: boldPara });
+    st.y -= 7;
+  }
+
+  hrSignatures(st, font, body.signers);
+  st.page.drawText(`${st.CO.legalName} • เอกสารนี้เป็นข้อมูลส่วนบุคคล โปรดเก็บรักษาเป็นความลับ`,
+    { x: st.M, y: 46, size: 8, font, color: st.gray });
+  return Buffer.from(await pdf.save());
+}
+
+module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf,
+  buildEmploymentContractPdf, buildHrLetterPdf, hrLetterBody };

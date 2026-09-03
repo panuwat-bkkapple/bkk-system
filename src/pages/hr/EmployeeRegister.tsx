@@ -20,6 +20,7 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus, Pencil, Receipt,
+  FileText, Printer, Ban, AlertTriangle,
 } from 'lucide-react';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -135,6 +136,8 @@ export const EmployeeRegister = () => {
         .some((v) => String(v || '').toLowerCase().includes(q))
     );
   }, [items, query]);
+
+  const [docsFor, setDocsFor] = useState<EmployeeRow | null>(null);
 
   const staleCount = items.filter((e) => e.access?.stale_access).length;
 
@@ -292,6 +295,10 @@ export const EmployeeRegister = () => {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0 items-start">
+                    <button onClick={() => setDocsFor(row)} disabled={busy}
+                      className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                      <FileText size={13} /> เอกสาร
+                    </button>
                     <button onClick={() => setFormFor({ mode: 'edit', row })} disabled={busy}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                       <Pencil size={13} /> แก้ไข
@@ -347,6 +354,211 @@ export const EmployeeRegister = () => {
           onSaved={async () => { setFormFor(null); await load(); }}
         />
       )}
+
+      {docsFor && (
+        <DocumentsModal employee={docsFor} onClose={() => setDocsFor(null)} />
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// เอกสารบุคคล — ออก / พิมพ์ซ้ำ / ยกเลิก
+//
+// **ออกแล้วพิมพ์ซ้ำได้ฉบับเดิมเป๊ะ** เลขที่ วันที่ และเงื่อนไขทั้งชุดถูกบันทึก
+// ไว้กับเอกสารตอนออก การพิมพ์ซ้ำอ่านจากตรงนั้น ไม่ใช่จากค่า settings วันนี้ —
+// สัญญาที่เซ็นไปแล้วต้องอธิบายตัวเองได้แม้เงื่อนไขมาตรฐานจะถูกแก้พรุ่งนี้
+//
+// **ยกเลิกแล้วไม่ลบแถว** เลขที่ที่หายไปจากลำดับคืออธิบายไม่ได้ตอนถูกตรวจ
+// ---------------------------------------------------------------------------
+interface HrDoc {
+  id: string; type: string; number: string; issued_at: number;
+  status?: string; void_reason?: string; expires_at?: number | null;
+  subject?: string | null; purpose?: string | null; by_name?: string | null;
+}
+interface DocsResult {
+  documents: HrDoc[];
+  active_warnings: number;
+  probation_end: number | null;
+  availability: Record<string, { label: string; missing: string[] }>;
+}
+
+const DocumentsModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
+  const toast = useToast();
+  const [data, setData] = useState<DocsResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [type, setType] = useState('contract');
+  const [extra, setExtra] = useState({ purpose: '', subject: '', incident: '', note: '' });
+
+  const load = useCallback(async () => {
+    try {
+      setData(await call<DocsResult>('adminHrDocumentList', { employeeId: employee.id }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'โหลดเอกสารไม่สำเร็จ');
+    }
+  }, [employee.id, toast]);
+  useEffect(() => { void load(); }, [load]);
+
+  const save = (filename: string, base64: string) => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  const issue = async () => {
+    setBusy(true);
+    try {
+      const res = await call<{ filename: string; base64: string; number: string }>(
+        'adminHrDocumentIssue',
+        {
+          employeeId: employee.id, type,
+          purpose: extra.purpose || null,
+          subject: extra.subject || null,
+          incident: extra.incident || null,
+          note: extra.note || null,
+        }
+      );
+      save(res.filename, res.base64);
+      toast.success(`ออกเอกสารเลขที่ ${res.number} แล้ว`);
+      setExtra({ purpose: '', subject: '', incident: '', note: '' });
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ออกเอกสารไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const reprint = async (doc: HrDoc) => {
+    setBusy(true);
+    try {
+      const res = await call<{ filename: string; base64: string; voided: boolean }>(
+        'adminHrDocumentPrint', { employeeId: employee.id, documentId: doc.id }
+      );
+      save(res.filename, res.base64);
+      if (res.voided) toast.error('เอกสารฉบับนี้ถูกยกเลิกไปแล้ว — พิมพ์ได้เพื่ออ้างอิงเท่านั้น');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'พิมพ์ไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const voidDoc = async (doc: HrDoc) => {
+    const reason = window.prompt(`เหตุผลที่ยกเลิก ${doc.number}:`);
+    if (!reason) return;
+    setBusy(true);
+    try {
+      await call('adminHrDocumentVoid', { employeeId: employee.id, documentId: doc.id, reason });
+      toast.success('ยกเลิกเอกสารแล้ว');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ยกเลิกไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const avail = data?.availability?.[type];
+  const missing = avail?.missing || [];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-black text-gray-800">เอกสารบุคคล — {employee.name}</h2>
+            <p className="text-xs text-gray-400">{employee.employee_code}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {/* หนังสือเตือนที่ยังมีผล — ตัวเลขที่ต้องรู้ก่อนออกใบถัดไป ใบที่หมดอายุ
+            แล้วใช้อ้างอิงตอนพิจารณาโทษไม่ได้ */}
+        {Boolean(data?.active_warnings) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-900 flex gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            <p>คนนี้มี<b>หนังสือเตือนที่ยังมีผลอยู่ {data?.active_warnings} ฉบับ</b> (ใบที่เกินอายุแล้วไม่ถูกนับ)</p>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-gray-200 p-4 space-y-3">
+          <p className="text-xs font-black text-gray-500">ออกเอกสารใหม่</p>
+          <select value={type} onChange={(e) => setType(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white font-bold text-gray-700">
+            {Object.entries(data?.availability || {}).map(([id, a]) => (
+              <option key={id} value={id}>{a.label}</option>
+            ))}
+          </select>
+
+          {type === 'salary_certificate' && (
+            <input value={extra.purpose} onChange={(e) => setExtra((x) => ({ ...x, purpose: e.target.value }))}
+              placeholder="ออกให้เพื่อ… (เช่น ยื่นประกอบการขอสินเชื่อกับธนาคาร)"
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+          )}
+          {type === 'warning' && (
+            <>
+              <input value={extra.subject} onChange={(e) => setExtra((x) => ({ ...x, subject: e.target.value }))}
+                placeholder="เรื่อง (เช่น มาปฏิบัติงานสายเกินกำหนด)"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+              <textarea rows={3} value={extra.incident} onChange={(e) => setExtra((x) => ({ ...x, incident: e.target.value }))}
+                placeholder="เหตุที่เตือน — เขียนให้ชัดว่าทำอะไร เมื่อไหร่ (จำเป็น)"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+            </>
+          )}
+          {type === 'probation_pass' && (
+            <input value={extra.note} onChange={(e) => setExtra((x) => ({ ...x, note: e.target.value }))}
+              placeholder="หมายเหตุเพิ่มเติม (ไม่บังคับ)"
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+          )}
+
+          {/* บอกก่อนกด ไม่ใช่ให้กดแล้วค่อยรู้ว่าออกไม่ได้ */}
+          {missing.length > 0 && (
+            <p className="text-[12px] text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+              ออกไม่ได้ — ยังไม่ได้กรอก: <b>{missing.join(' · ')}</b> (แก้ที่ปุ่ม &quot;แก้ไข&quot;)
+            </p>
+          )}
+          <button onClick={() => void issue()}
+            disabled={busy || missing.length > 0 || (type === 'warning' && !extra.incident.trim())}
+            className="w-full px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+            <Printer size={15} /> ออกเอกสารและดาวน์โหลด PDF
+          </button>
+          <p className="text-[11px] text-gray-400">
+            เงื่อนไขที่พิมพ์ลงเอกสารมาจากหน้า <b>ตั้งค่าเงินเดือน/ภาษี</b> และถูกบันทึกไว้กับเอกสารตอนออก —
+            แก้ค่าตั้งทีหลังจะไม่เปลี่ยนเอกสารที่ออกไปแล้ว
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs font-black text-gray-500 mb-2">เอกสารที่เคยออก</p>
+          {!data?.documents.length && <p className="text-sm text-gray-400">ยังไม่เคยออกเอกสารให้คนนี้</p>}
+          <div className="space-y-1.5">
+            {data?.documents.map((d) => (
+              <div key={d.id} className="flex items-center gap-2 flex-wrap border border-gray-100 rounded-xl px-3 py-2">
+                <div className="flex-1 min-w-[180px]">
+                  <p className="text-sm font-bold text-gray-800">
+                    {data.availability[d.type]?.label || d.type}
+                    {d.status === 'void' && <span className="ml-2 text-[11px] text-rose-600">ยกเลิกแล้ว</span>}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {d.number} · {thaiDate(d.issued_at)}{d.by_name ? ` · โดย ${d.by_name}` : ''}
+                    {d.expires_at ? ` · มีผลถึง ${thaiDate(d.expires_at)}` : ''}
+                    {d.void_reason ? ` · เหตุผล: ${d.void_reason}` : ''}
+                  </p>
+                </div>
+                <button onClick={() => void reprint(d)} disabled={busy}
+                  className="text-xs font-bold border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  พิมพ์ซ้ำ
+                </button>
+                {d.status !== 'void' && (
+                  <button onClick={() => void voidDoc(d)} disabled={busy}
+                    className="text-xs font-bold border border-rose-200 rounded-lg px-2.5 py-1.5 bg-white text-rose-600 hover:bg-rose-50 disabled:opacity-50 flex items-center gap-1">
+                    <Ban size={12} /> ยกเลิก
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
