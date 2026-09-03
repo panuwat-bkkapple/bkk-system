@@ -21,6 +21,13 @@
 - **วิธีเช็ค:** ดูว่า `git diff --stat` ไม่มีคำว่า `Bin` หรือรัน `python3 -c "print(open(F,'rb').read().count(b'\\x00'))"` ต้องได้ 0 ทุกไฟล์ที่แก้
 - **เสี่ยงสุดตอนไหน:** เขียนไฟล์ผ่าน heredoc/สคริปต์ที่มี escape ซ้อนกันหลายชั้น ไม่ใช่ตอนพิมพ์ในเอดิเตอร์
 
+## Injection test — วินัยอยู่ที่ `bkk-frontend-next/CLAUDE.md` ไม่ได้ก๊อปมาไว้ที่นี่
+
+- **อ่านที่นั่นก่อนลงมือ:** หัวข้อ "Injection test — วิธีพิสูจน์ว่าด่านของเราไม่ว่าง" ใน `bkk-frontend-next/CLAUDE.md` — วิธีทำ + กับดัก 6 ข้อ + ขั้นตอนบังคับ (commit checkpoint ก่อนเริ่มเสมอ) **ไม่ก๊อปเนื้อมาที่นี่โดยตั้งใจ** เพราะสองสำเนาของกฎเดียวกันคือของที่ drift ซึ่งเป็นสิ่งที่กฎในไฟล์นั้นเตือนไว้เอง
+- **แต่ injection ส่วนใหญ่รันที่รีโปนี้** — เทสออฟไลน์อยู่ `functions/test/*.test.mjs` รันด้วย `node functions/test/<ชื่อ>.test.mjs` ไม่ต้องใช้ API key ไม่ต้องมี Firebase. CI (`ci.yml` job "Cloud Functions") วนด้วย glob **ไฟล์เทสใหม่จึงถูกหยิบไปรันเองโดยไม่ต้องแก้ workflow**
+- **ตัวอย่างที่เขียนตารางผล injection ไว้ในหัวไฟล์แล้ว ใช้เป็นแบบได้:** `functions/test/search-models.test.mjs` — 8 ตัว รวมข้อที่ **ไม่มีอะไรจับได้** พร้อมเหตุผลว่าทำไมจึงบันทึกไว้ตรงๆ แทนที่จะแต่ง fixture ให้ดูเหมือนมีด่าน
+- **กับดักที่เป็นของรีโปนี้โดยเฉพาะ — จำนวน seam ลอกจากฝั่งเว็บไม่ได้:** กฎเดียวกันฝั่ง `bkk-frontend-next` มักต้องการ seam เดียว เพราะ `rankQueryTokens` normalize ก่อน tokenize แล้วทุกกฎปลายทางตัดสินด้วย token ชุดนั้น. ฝั่งนี้กฎเดียวกันมักต้องหลาย seam เพราะมี**ทางเข้าที่อยู่เหนือจุด normalize** หลายทาง (`rankQueryTokens`, `normalizeForPin`, `modelLineMismatch`) — เคสจริง 1 ก.ย. 2569: `expandLineShorthand` ฝั่งเว็บถอด 3 ใน 4 seam ออกแล้วเทสยังเขียว แต่ฝั่งนี้ถอด seam ไหนก็แดง. **mirror ต้อง mirror *กฎ* ไม่ใช่ *จำนวนจุดที่เรียกกฎ*** — ลอกจำนวนมาเมื่อไหร่ได้สำเนาที่ไม่มีวันถูกเรียกฟรีๆ ทันที
+
 ## Project Overview
 - **Project:** BKK System (Admin Panel สำหรับธุรกิจ Trade-in มือถือ)
 - **Stack:** Vite + React 19 + TypeScript + Firebase (Realtime DB, Auth, Storage, FCM)

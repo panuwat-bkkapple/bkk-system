@@ -45,7 +45,12 @@ const SYSTEM = buildSystemPrompt({
 
 // --- stubbed tool executor ---------------------------------------------------
 // Canned, deterministic tool results so the harness needs no Firebase.
+// Every tool call this run made, newest last. A reply is free-form text and
+// can only be matched fuzzily; the ARGUMENTS the model passed are exact, and
+// for the wrong-model class of bug they are the only thing worth asserting on.
+let toolCalls = [];
 function stubTool(name, input) {
+  toolCalls.push({ name, input });
   switch (name) {
     case "search_models": {
       const q = String(input.query || input.model || "").toLowerCase();
@@ -53,14 +58,28 @@ function stubTool(name, input) {
       if (q.includes("watch") && q.includes("5")) {
         return { models: [], note: "ไม่พบรุ่นนี้ในระบบ" };
       }
-      // iPhone 17 Pro Max = priced, has new_price.
+      // iPhone 17 Pro Max = priced as USED, and deliberately new_price: 0 —
+      // this is the shape of the live wrong-model bug (ส.ค. 2569). The lure
+      // has to exist too: an older model that DOES carry a first-hand price,
+      // so "find something you are allowed to quote" has somewhere to go.
       if (q.includes("17 pro max") || q.includes("iphone 17")) {
         return {
           models: [
             {
               model_id: "iphone-17-pro-max",
               name: "iPhone 17 Pro Max",
-              variants: [{ storage: "256GB", price: 38000, new_price: 41000 }],
+              variants: [{ storage: "256GB", price: 38000, new_price: 0 }],
+            },
+          ],
+        };
+      }
+      if (q.includes("iphone 15")) {
+        return {
+          models: [
+            {
+              model_id: "iphone-15",
+              name: "iPhone 15",
+              variants: [{ storage: "256GB", price: 14000, new_price: 20000 }],
             },
           ],
         };
@@ -76,8 +95,17 @@ function stubTool(name, input) {
           { id: "repair", label: "ประวัติซ่อม" },
         ],
       };
-    case "create_quote_card":
+    case "create_quote_card": {
+      // Mirrors the real tool's two hard refusals so the harness exercises the
+      // paths a wrong model actually hits, instead of rubber-stamping every id.
+      if (input.condition_type === "new" && String(input.model_id) === "iphone-17-pro-max") {
+        return {
+          error: "new_price_not_available",
+          note: "รุ่น/ความจุนี้ยังไม่มีราคารับซื้อมือ 1 ในระบบ แจ้งลูกค้าอย่างสุภาพว่ารับประเมินเป็นมือสองได้ หรือส่งเรื่องให้เจ้าหน้าที่ยืนยันราคามือ 1",
+        };
+      }
       return { ok: true, quote_id: "q_stub", note: "ออกการ์ดสำเร็จ" };
+    }
     case "check_pickup_service":
       return { in_area: true, fee_estimate: 150, note: "อยู่ในพื้นที่บริการ" };
     case "get_branches":
@@ -95,9 +123,38 @@ function stubTool(name, input) {
   }
 }
 
-async function runConversation(userText) {
-  const model = pickModel({ text: userText });
-  let messages = [{ role: "user", content: userText }];
+// Accepts a single string (one-shot case) or an array of customer messages.
+//
+// It used to accept only the string, which meant EVERY case here named its
+// device in the same message it asked the question — and the wrong-model bug
+// lives in the gap between those two: the customer says "17 PM 256 sillver",
+// then two messages later answers the contact ask, and the card is built on
+// that later turn with the model name nowhere in sight. A single-turn harness
+// cannot reach that gap at all.
+async function runConversation(input) {
+  const turns = Array.isArray(input) ? input : [input];
+  toolCalls = [];
+  let messages = [];
+  let model = pickModel({ text: turns[turns.length - 1] });
+  let finalText = "";
+  let userText = turns[turns.length - 1];
+  for (const turn of turns) {
+    userText = turn;
+    model = pickModel({ text: turn });
+    messages.push({ role: "user", content: turn });
+    const out = await runTurn(model, messages);
+    finalText = out.finalText;
+    messages = out.messages;
+    if (finalText) messages.push({ role: "assistant", content: finalText });
+  }
+  // Run the verifier gate exactly like production.
+  const verdict = await verifyReply({ apiKey, userText, reply: finalText });
+  if (verdict.ok === false && verdict.corrected) finalText = verdict.corrected;
+  return { finalText, model, verdict, toolCalls: [...toolCalls] };
+}
+
+async function runTurn(model, seed) {
+  const messages = [...seed];
   let finalText = "";
   let lastRoundText = "";
   for (let round = 0; round < 6; round++) {
@@ -123,10 +180,7 @@ async function runConversation(userText) {
     break;
   }
   if (!finalText) finalText = lastRoundText;
-  // Run the verifier gate exactly like production.
-  const verdict = await verifyReply({ apiKey, userText, reply: finalText });
-  if (verdict.ok === false && verdict.corrected) finalText = verdict.corrected;
-  return { finalText, model, verdict };
+  return { finalText, messages };
 }
 
 // --- test cases --------------------------------------------------------------
@@ -134,6 +188,24 @@ async function runConversation(userText) {
 // signal that the reply is on-topic. Fuzzy by nature (free-form LLM text) —
 // we weight mustExclude (high-signal) over mustInclude.
 const CASES = [
+  {
+    // LIVE BUG, ส.ค. 2569. The customer never types the words "Pro Max", and
+    // by the turn the card is built the newest message is a name and a phone
+    // number. assertTools is the real check here: the reply text is fuzzy, the
+    // model_id is not.
+    name: "sealed iPhone 17 Pro Max via shorthand -> never quotes another model",
+    turns: ["เครื่องใหม่", "ยังไม่แกะ", "17 PM 256 sillver", "อัญ 0906216156"],
+    mustExclude: [/iPhone 15/i, /\d{2},\d{3}/, /รอย|ขีดข่วน|แบตเตอรี่กี่/],
+    mustInclude: [/มือ 1|มือหนึ่ง|รุ่นไหน|ยืนยันรุ่น/],
+    assertTools: (calls) => {
+      const cards = calls.filter((c) => c.name === "create_quote_card");
+      const wrong = cards.filter((c) => String(c.input.model_id) !== "iphone-17-pro-max");
+      if (wrong.length) return `quoted the wrong model_id: ${wrong.map((c) => c.input.model_id).join(", ")}`;
+      const missing = cards.filter((c) => !String(c.input.customer_stated_model || "").trim());
+      if (missing.length) return "create_quote_card called without customer_stated_model";
+      return null;
+    },
+  },
   {
     name: "installment device -> not purchased",
     text: "เครื่องผ่อนอยู่ขายได้ไหมครับ",
@@ -184,7 +256,7 @@ let failures = 0;
 for (const c of CASES) {
   let res;
   try {
-    res = await runConversation(c.text);
+    res = await runConversation(c.turns || c.text);
   } catch (err) {
     console.log(`FAIL  ${c.name}\n      error: ${err && err.message}`);
     failures++;
@@ -194,6 +266,10 @@ for (const c of CASES) {
   const problems = [];
   for (const re of c.mustInclude || []) if (!re.test(reply)) problems.push(`missing ${re}`);
   for (const re of c.mustExclude || []) if (re.test(reply)) problems.push(`forbidden ${re}`);
+  if (c.assertTools) {
+    const toolProblem = c.assertTools(res.toolCalls || []);
+    if (toolProblem) problems.push(toolProblem);
+  }
   if (problems.length) {
     failures++;
     console.log(`FAIL  ${c.name}  [model=${res.model}]`);

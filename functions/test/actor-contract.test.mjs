@@ -76,9 +76,28 @@ const VALID_ROLES = (staffSrc.match(/const VALID_ROLES = \[([^\]]*)\]/) || [])[1
   .filter(Boolean);
 
 check("อ่าน VALID_ROLES จาก staff-accounts.js ได้", Array.isArray(VALID_ROLES) && VALID_ROLES.length > 0);
+
+// HR เป็นข้อยกเว้นที่ตั้งใจ ไม่ใช่ช่องที่ลืมปิด (ก.ย. 2569 —
+// docs/hr-system-design.md ข้อ 7.1): ฝ่ายบุคคลไม่ควรเปลี่ยนสถานะงานและไม่ควร
+// เรียกเอนด์พอยต์ SICKW ที่จ่ายเงินจริงต่อการเรียกหนึ่งครั้ง การที่ resolveActor
+// คืน null ให้ HR คือสิ่งที่บังคับข้อนั้น
+//
+// เขียนเป็นสองข้อแยกกันโดยตั้งใจ: ข้อแรกกันการเพิ่ม role ใหม่แล้วลืม map
+// (ซึ่งยังเป็นความผิดพลาดที่พบบ่อยกว่า) ข้อที่สองกันคนที่มาอ่านแล้วเห็นว่า
+// "ขาดไป" แล้วเติมให้ครบตาราง
+const ACTORLESS_ROLES = ["HR"];
 check(
-  "ROLE_TO_ACTOR ครอบทุก role ใน VALID_ROLES",
-  Array.isArray(VALID_ROLES) && VALID_ROLES.every((r) => ROLE_TO_ACTOR[r])
+  "ROLE_TO_ACTOR ครอบทุก role ใน VALID_ROLES ยกเว้นที่ประกาศไว้ว่าไม่มี actor",
+  Array.isArray(VALID_ROLES) &&
+    VALID_ROLES.filter((r) => !ACTORLESS_ROLES.includes(r)).every((r) => ROLE_TO_ACTOR[r])
+);
+check(
+  "HR ต้องไม่ถูก map เข้า ROLE_TO_ACTOR (ห้ามเติมให้ครบตาราง)",
+  !ROLE_TO_ACTOR.HR
+);
+check(
+  "HR อยู่ใน VALID_ROLES จริง — ข้อยกเว้นข้างบนจึงไม่ใช่ข้อยกเว้นของ role ที่ไม่มีอยู่",
+  Array.isArray(VALID_ROLES) && VALID_ROLES.includes("HR")
 );
 
 // ── 2. ปลายทางทุกเส้นต้องเป็น ACTOR จริงของ engine ──────────────────────────
@@ -121,6 +140,7 @@ const db = fakeDb({
     "-Nstaff1": { email: "boss@bkkapple.com", name: "สมชาย", role: "CEO", status: "ACTIVE", uid: "uid-ceo" },
     "-Nstaff2": { email: "fin@bkkapple.com", name: "สมหญิง", role: "FINANCE", status: "ACTIVE", uid: "uid-fin" },
     "-Nstaff3": { email: "old@bkkapple.com", name: "เก่า", role: "QC", status: "ACTIVE", uid: "uid-qc" },
+    "-Nstaff4": { email: "hr@bkkapple.com", name: "ฝ่ายบุคคล", role: "HR", status: "ACTIVE", uid: "uid-hr" },
   },
   riders: {
     "uid-rider-ok": { name: "ไรเดอร์ดี", approval_status: "Active" },
@@ -136,6 +156,7 @@ for (const [label, auth] of [
   ["ceo", authOf("uid-ceo", "boss@bkkapple.com")],
   ["finance", authOf("uid-fin", "fin@bkkapple.com")],
   ["deprecated", authOf("uid-qc", "old@bkkapple.com")],
+  ["hr", authOf("uid-hr", "hr@bkkapple.com")],
   ["rider", authOf("uid-rider-ok")],
   ["riderSuspended", authOf("uid-rider-susp")],
   ["riderNew", authOf("uid-rider-new")],
@@ -146,6 +167,10 @@ for (const [label, auth] of [
 check("ไม่มี auth → null", results.none === null);
 check("ลูกค้า anonymous (ไม่มี record ที่ไหนเลย) → null", results.anon === null);
 check("staff role ที่เลิกใช้ → null", results.deprecated === null);
+// HR มี staff record ที่ ACTIVE จริงและ lookupStaffByAuth เจอ — ตัวที่ทำให้เป็น
+// null คือการไม่มีใน ROLE_TO_ACTOR เท่านั้น นี่คือเทสที่พิสูจน์ว่าด่านนั้น
+// ทำงานจริงตลอดเส้น ไม่ใช่แค่ตารางว่าง
+check("HR (มี staff record ACTIVE) → null — ถูกกันด้วยการไม่มี actor", results.hr === null);
 
 check("CEO → actor admin_manager", results.ceo?.actor === ACTOR.ADMIN_MANAGER);
 check("CEO → standing active", results.ceo?.standing === STANDING.ACTIVE);

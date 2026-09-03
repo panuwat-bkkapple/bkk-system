@@ -67,8 +67,8 @@ export enum PaymentMethod {
 }
 
 /**
- * บทบาทผู้ใช้งาน — role ที่ route guard ทั้งระบบรู้จักมีแค่ 4 ค่า:
- * CEO / MANAGER / STAFF / FINANCE (ดู App.tsx, settingsNav, AdminLayout,
+ * บทบาทผู้ใช้งาน — role ที่ route guard ทั้งระบบรู้จักมี 5 ค่า:
+ * CEO / MANAGER / STAFF / FINANCE / HR (ดู App.tsx, settingsNav, AdminLayout,
  * canReviewAdjustments, functions/staffIdsByRoles)
  */
 export enum UserRole {
@@ -76,6 +76,11 @@ export enum UserRole {
   MANAGER = 'MANAGER',
   FINANCE = 'FINANCE',
   STAFF = 'STAFF',
+  /**
+   * ฝ่ายบุคคล (ก.ย. 2569) — ขอบเขตแคบที่สุดในบรรดา role ทั้งหมด: เห็นเฉพาะ
+   * หน้าของ HR ตาม `hrScope.ts` ไม่ใช่ "STAFF + หน้า HR"
+   */
+  HR = 'HR',
   /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
   CASHIER = 'CASHIER',
   /** @deprecated ค่าเก่า — ไม่มี route ไหนรู้จัก record เดิมใน DB ต้องแก้เป็น role ใหม่ผ่านหน้า /staff */
