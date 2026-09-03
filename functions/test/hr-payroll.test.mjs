@@ -1,0 +1,344 @@
+// ---------------------------------------------------------------------------
+// เครื่องคิดเงินเดือน (P5) — ตัวเลขที่ผิดที่นี่คือเงินที่คนได้ไม่ครบ
+//
+//   node functions/test/hr-payroll.test.mjs
+//
+// ทุกตัวเลขที่ assert คำนวณด้วยมือจากกติกาที่เขียนไว้ในหัวไฟล์ hr-payroll.js
+// ไม่ใช่คัดลอกจากผลที่โค้ดคืนมา (เทสที่เอาผลลัพธ์ของโค้ดมาเป็นความคาดหวังคือ
+// เทสที่เห็นด้วยกับตัวเองเสมอ ไม่ว่าโค้ดจะถูกหรือผิด)
+//
+// การคิดที่ยกมาเป็นตัวอย่างหลัก — เงินเดือน 60,000 โสด ไม่มีลดหย่อนอื่น:
+//   ทั้งปี 720,000 · ค่าใช้จ่าย 50% = 360,000 แต่ติดเพดาน 100,000
+//   ลดหย่อน = ส่วนตัว 60,000 + ประกันสังคมทั้งปี 750x12 = 9,000 → 69,000
+//   เงินได้สุทธิ = 720,000 - 100,000 - 69,000 = 551,000
+//   ภาษี = 150,000 ยกเว้น + 150,000x5% (7,500) + 200,000x10% (20,000)
+//        + 51,000x15% (7,650) = 35,150 → ต่อเดือน 2,929.166... = 2,929.17
+// ---------------------------------------------------------------------------
+
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import {
+  resolvePayrollConfig, periodBounds, payDateOf, periodsInYear, bangkokMidnight,
+  proratedBase, computeSso, progressiveTax, computeWithholding,
+  buildPayrollItem, summarizeRun, DEFAULT_SSO,
+} from "../hr-payroll.js";
+import { eligibleForPeriod } from "../hr-payroll-api.js";
+
+const fnDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = join(fnDir, "..");
+
+let failures = 0;
+const check = (label, cond) => {
+  if (cond) console.log(`PASS  ${label}`);
+  else { failures++; console.log(`FAIL  ${label}`); }
+};
+const eq = (label, got, want) => {
+  const ok = got === want;
+  if (!ok) console.log(`      got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  check(label, ok);
+};
+
+const CFG = resolvePayrollConfig({});
+const utc = (ms) => new Date(ms + 7 * 3600 * 1000).toISOString().slice(0, 16);
+
+// ── 1. ช่วงงวด: ตัด 20 จ่าย 25 ─────────────────────────────────────────────
+{
+  const p = periodBounds(2026, 9, 20);
+  eq("งวด ก.ย. เริ่ม 21 ส.ค. 00:00 เวลาไทย", utc(p.from), "2026-08-21T00:00");
+  eq("งวด ก.ย. จบ 20 ก.ย. 23:59 เวลาไทย", utc(p.to), "2026-09-20T23:59");
+  eq("จ่าย 25 ก.ย.", utc(payDateOf(2026, 9, 25)), "2026-09-25T00:00");
+}
+{
+  // ข้ามปี — งวดมกราคมต้องย้อนไปเดือน 12 ของปีก่อน
+  const p = periodBounds(2026, 1, 20);
+  eq("งวด ม.ค. ย้อนไป 21 ธ.ค. ปีก่อน", utc(p.from), "2025-12-21T00:00");
+}
+{
+  // ตัดรอบวันที่ 31 ต้องถูกบีบให้ไม่เกิน 28 ไม่งั้นเดือน ก.พ. จะได้วันที่ไม่มีจริง
+  const p = periodBounds(2026, 3, 31);
+  eq("วันตัดรอบเกิน 28 ถูกบีบลง", utc(p.to), "2026-03-28T23:59");
+}
+
+// ── 2. จำนวนงวดที่ใช้ประมาณการภาษี ─────────────────────────────────────────
+eq("เข้างานปีก่อน = 12 งวด", periodsInYear(2026, 9, bangkokMidnight(2024, 1, 1)), 12);
+eq("เข้างาน ก.ย. ปีนี้ = 4 งวด (ก.ย.-ธ.ค.)", periodsInYear(2026, 9, bangkokMidnight(2026, 9, 1)), 4);
+eq("เข้างาน ม.ค. ปีนี้ = 12 งวด", periodsInYear(2026, 9, bangkokMidnight(2026, 1, 15)), 12);
+eq("ไม่รู้วันเข้างาน = 12 งวด", periodsInYear(2026, 9, null), 12);
+
+// ── 3. ภาษีขั้นบันได — คิดมือทีละขั้น ──────────────────────────────────────
+eq("เงินได้สุทธิ 150,000 = ยกเว้นทั้งหมด", progressiveTax(150000, CFG.income_tax.brackets), 0);
+eq("200,000 → 50,000x5% = 2,500", progressiveTax(200000, CFG.income_tax.brackets), 2500);
+// 150k@0 + 150k@5%=7,500 + 200k@10%=20,000 + 51k@15%=7,650
+eq("551,000 → 35,150", progressiveTax(551000, CFG.income_tax.brackets), 35150);
+// เพิ่มขั้น 20% และ 25%: 7,500+20,000+37,500(250k@15%)+50,000(250k@20%)+250,000(1M@25%)
+eq("2,000,000 → 365,000", progressiveTax(2000000, CFG.income_tax.brackets), 365000);
+eq("ติดลบ/ศูนย์ = 0", progressiveTax(-5, CFG.income_tax.brackets), 0);
+
+// ── 4. ประกันสังคม — เพดานและพื้น ──────────────────────────────────────────
+eq("15,000 ขึ้นไป = 750", computeSso(15000, CFG.social_security).employee, 750);
+eq("เกินเพดานยังคง 750", computeSso(90000, CFG.social_security).employee, 750);
+eq("10,000 = 500", computeSso(10000, CFG.social_security).employee, 500);
+eq("ต่ำกว่าพื้น 1,650 ถูกยกขึ้นเป็นพื้น = 82.5", computeSso(1000, CFG.social_security).employee, 82.5);
+eq("นายจ้างสมทบเท่าลูกจ้าง", computeSso(15000, CFG.social_security).employer, 750);
+eq("ค่าจ้าง 0 = ไม่สมทบ", computeSso(0, CFG.social_security).employee, 0);
+check("ปิดประกันสังคมได้", computeSso(15000, { ...DEFAULT_SSO, enabled: false }).skipped === true);
+
+// ── 5. ภาษีหัก ณ ที่จ่ายต่องวด — เคสหลักที่คิดมือไว้ในหัวไฟล์ ─────────────
+{
+  const r = computeWithholding({
+    periodIncome: 60000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: CFG.income_tax,
+  });
+  eq("60,000/เดือน → ภาษีทั้งปี 35,150", r.basis.annual_tax, 35150);
+  eq("60,000/เดือน → หักต่องวด 2,929.17", r.amount, 2929.17);
+  eq("ค่าใช้จ่ายติดเพดาน 100,000", r.basis.expenses, 100000);
+  eq("ลดหย่อนรวม 69,000", r.basis.allowances_total, 69000);
+}
+{
+  // 25,000/เดือน = 300,000/ปี → 300,000-100,000(50%)-69,000 = 131,000 < 150,000
+  const r = computeWithholding({ periodIncome: 25000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: CFG.income_tax });
+  eq("25,000/เดือน ไม่ถึงเกณฑ์เสียภาษี", r.amount, 0);
+  eq("ค่าใช้จ่าย 50% ของ 300,000 = 150,000 แต่ติดเพดาน 100,000", r.basis.expenses, 100000);
+}
+{
+  // ลดหย่อนคู่สมรส 60,000 + บุตร 2 คน 60,000 → รวม 189,000
+  // สุทธิ = 720,000-100,000-189,000 = 431,000
+  // ภาษี = 7,500 + 131,000x10% = 13,100 → 20,600 → ต่องวด 1,716.67
+  const r = computeWithholding({
+    periodIncome: 60000, periods: 12, ssoPerPeriod: 750,
+    allowances: { spouse: true, children: 2 }, tax: CFG.income_tax,
+  });
+  eq("มีคู่สมรส+บุตร 2 → ลดหย่อน 189,000", r.basis.allowances_total, 189000);
+  eq("มีคู่สมรส+บุตร 2 → หักต่องวด 1,716.67", r.amount, 1716.67);
+}
+{
+  // เพดานลดหย่อนประกันสังคม 9,000 ต้องกันไม่ให้เกินแม้สมทบสูงกว่า
+  const r = computeWithholding({ periodIncome: 60000, periods: 12, ssoPerPeriod: 5000, allowances: {}, tax: CFG.income_tax });
+  eq("ลดหย่อนประกันสังคมติดเพดาน 9,000", r.basis.sso_allowance, 9000);
+}
+{
+  const r = computeWithholding({ periodIncome: 60000, periods: 12, ssoPerPeriod: 750, allowances: {}, tax: { ...CFG.income_tax, enabled: false } });
+  eq("ปิดการหักภาษีได้", r.amount, 0);
+}
+
+// ── 6. คิดตามสัดส่วนวันที่อยู่จริง ─────────────────────────────────────────
+{
+  const p = periodBounds(2026, 9, 20); // 21 ส.ค. - 20 ก.ย. = 31 วัน
+  const full = proratedBase({ baseSalary: 30000, from: p.from, to: p.to, divisor: 30 });
+  eq("อยู่ทั้งงวด = เงินเดือนเต็ม", full.amount, 30000);
+  check("อยู่ทั้งงวดติดธง full", full.full === true);
+
+  // เข้างาน 1 ก.ย. → อยู่ 1-20 ก.ย. = 20 วัน → 30,000/30x20 = 20,000
+  const mid = proratedBase({ baseSalary: 30000, from: p.from, to: p.to, hiredAt: bangkokMidnight(2026, 9, 1), divisor: 30 });
+  eq("เข้างาน 1 ก.ย. = 20 วัน", mid.days, 20);
+  eq("เข้างานกลางงวด ได้ 20,000", mid.amount, 20000);
+
+  // ลาออก 31 ส.ค. → อยู่ 21-31 ส.ค. = 11 วัน → 30,000/30x11 = 11,000
+  const out = proratedBase({ baseSalary: 30000, from: p.from, to: p.to, terminatedAt: bangkokMidnight(2026, 8, 31), divisor: 30 });
+  eq("ลาออกกลางงวด = 11 วัน", out.days, 11);
+  eq("ลาออกกลางงวด ได้ 11,000", out.amount, 11000);
+
+  // เข้างานหลังงวดจบ = ไม่ได้เงินงวดนี้
+  const later = proratedBase({ baseSalary: 30000, from: p.from, to: p.to, hiredAt: bangkokMidnight(2026, 10, 1), divisor: 30 });
+  eq("เข้างานหลังงวดจบ = 0", later.amount, 0);
+
+  // ตัวหารเป็นค่าตั้ง ไม่ใช่จำนวนวันของเดือน
+  const d31 = proratedBase({ baseSalary: 30000, from: p.from, to: p.to, hiredAt: bangkokMidnight(2026, 9, 1), divisor: 31 });
+  check("ตัวหารเปลี่ยนแล้วยอดเปลี่ยน (ไม่ได้ฝัง 30 ไว้ในสูตร)", d31.amount !== 20000);
+}
+
+// ── 7. หนึ่งบรรทัดของรอบ ───────────────────────────────────────────────────
+const P = { ...periodBounds(2026, 9, 20), periods: 12 };
+const monthly = (base, priv, emp, input) => buildPayrollItem({
+  employee: { id: "e1", name: "A", employee_code: "EMP-2569-0001", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1), ...(emp || {}) },
+  priv: { pay: { base_salary: base, allowances: [] }, ...(priv || {}) },
+  config: CFG, period: P, input: input || {},
+});
+{
+  const i = monthly(60000);
+  eq("บรรทัดเงินเดือน 60,000 → รายได้รวม", i.gross, 60000);
+  eq("บรรทัดเงินเดือน 60,000 → ประกันสังคม 750", i.sso_employee, 750);
+  eq("บรรทัดเงินเดือน 60,000 → ภาษี 2,929.17", i.wht, 2929.17);
+  eq("บรรทัดเงินเดือน 60,000 → สุทธิ 56,320.83", i.net, 56320.83);
+  check("ไม่มีธง incomplete", i.incomplete === null);
+}
+{
+  // เบี้ยเลี้ยงประจำเข้าทั้งฐานภาษีและฐานประกันสังคม
+  const i = monthly(14000, { pay: { base_salary: 14000, allowances: [{ label: "ค่าเดินทาง", amount: 2000, taxable: true, recurring: true }] } });
+  eq("เบี้ยเลี้ยงประจำรวมในรายได้", i.gross, 16000);
+  eq("เบี้ยเลี้ยงประจำเข้าฐานประกันสังคม (16,000 เกินเพดาน → 750)", i.sso_employee, 750);
+}
+{
+  // เบี้ยเลี้ยงที่ไม่เสียภาษี ต้องไม่เข้าฐานภาษีแต่ยังอยู่ในรายได้รวม
+  const i = monthly(60000, { pay: { base_salary: 60000, allowances: [{ label: "ค่ารักษาพยาบาล", amount: 5000, taxable: false, recurring: true }] } });
+  eq("รายได้รวมมีเบี้ยเลี้ยงที่ไม่เสียภาษีด้วย", i.gross, 65000);
+  eq("ฐานภาษีไม่รวมรายการที่ taxable=false", i.taxable_income, 60000);
+}
+{
+  // รายการครั้งเดียว (โบนัส) ไม่เข้าฐานประกันสังคมโดยอัตโนมัติ
+  const i = monthly(10000, null, null, { extra_earnings: [{ label: "โบนัส", amount: 50000 }] });
+  eq("โบนัสอยู่ในรายได้รวม", i.gross, 60000);
+  eq("โบนัสไม่เข้าฐานประกันสังคมโดยอัตโนมัติ", i.sso_wage, 10000);
+  eq("ฐานประกันสังคม 10,000 → สมทบ 500", i.sso_employee, 500);
+}
+{
+  const i = monthly(10000, null, null, { extra_earnings: [{ label: "ค่าล่วงเวลา", amount: 5000, sso_wage: true }] });
+  eq("ติ๊กให้เข้าฐานประกันสังคมได้", i.sso_wage, 15000);
+}
+{
+  // 30,000/เดือน → ปีละ 360,000 - 100,000 - 69,000 = 191,000
+  // ภาษี = 41,000x5% = 2,050 → ต่องวด 170.83
+  const i = monthly(30000, null, null, { extra_deductions: [{ label: "เบิกล่วงหน้า", amount: 3000 }] });
+  eq("ภาษีของ 30,000/เดือน = 170.83", i.wht, 170.83);
+  eq("รายการหักเพิ่มลดยอดสุทธิ", i.net, 30000 - 750 - 170.83 - 3000);
+}
+{
+  const i = monthly(0);
+  check("ยังไม่ตั้งเงินเดือน = incomplete", i.incomplete === "ยังไม่ได้ตั้งเงินเดือน");
+}
+
+// ── 8. รายวัน ──────────────────────────────────────────────────────────────
+const daily = (rate, input) => buildPayrollItem({
+  employee: { id: "d1", name: "D", employment_type: "daily" },
+  priv: { pay: { daily_rate: rate } }, config: CFG, period: P, input: input || {},
+});
+{
+  const i = daily(500);
+  check("รายวันที่ยังไม่กรอกวัน = incomplete", i.incomplete === "ต้องกรอกจำนวนวันทำงาน");
+  eq("รายวันที่ยังไม่กรอกวัน รายได้เป็น 0 ไม่ใช่เดา", i.gross, 0);
+}
+{
+  const i = daily(500, { days_worked: 22 });
+  eq("500 x 22 วัน = 11,000", i.gross, 11000);
+  eq("ฐานประกันสังคม 11,000 → 550", i.sso_employee, 550);
+  check("กรอกวันแล้วหายจาก incomplete", i.incomplete === null);
+}
+{
+  const i = daily(0, { days_worked: 10 });
+  check("ยังไม่ตั้งค่าแรงรายวัน = incomplete", i.incomplete === "ยังไม่ได้ตั้งค่าแรงรายวัน");
+}
+
+// ── 9. ฟรีแลนซ์/ไรเดอร์ต้องไม่เข้ารอบเงินเดือน ─────────────────────────────
+// เขาถูกจ่ายผ่านกระเป๋าเงินและหัก 3% ตอนถอนอยู่แล้ว การใส่เข้ามาที่นี่คือจ่ายซ้ำ
+{
+  const i = buildPayrollItem({
+    employee: { id: "r1", employment_type: "freelance" },
+    priv: { pay: { base_salary: 30000 } }, config: CFG, period: P, input: {},
+  });
+  eq("ฟรีแลนซ์ถูกข้าม", i.skipped, "freelance");
+  eq("ฟรีแลนซ์ไม่มียอดใดๆ", i.gross, 0);
+}
+
+// ── 10. คนที่พ้นสภาพกลางงวดยังต้องได้เงินของวันที่ทำจริง ───────────────────
+{
+  const p = periodBounds(2026, 9, 20);
+  const gone = { status: "resigned", terminated_at: bangkokMidnight(2026, 9, 5), employment_type: "monthly" };
+  check("ลาออกกลางงวด ยังอยู่ในรอบ", eligibleForPeriod(gone, p) === true);
+  const long = { status: "resigned", terminated_at: bangkokMidnight(2026, 5, 1), employment_type: "monthly" };
+  check("ลาออกก่อนงวดเริ่ม ไม่อยู่ในรอบ", eligibleForPeriod(long, p) === false);
+  const future = { status: "active", hired_at: bangkokMidnight(2026, 12, 1), employment_type: "monthly" };
+  check("ยังไม่ถึงวันเริ่มงาน ไม่อยู่ในรอบ", eligibleForPeriod(future, p) === false);
+  check("ฟรีแลนซ์ไม่อยู่ในรอบ", eligibleForPeriod({ status: "active", employment_type: "freelance" }, p) === false);
+  check("พนักงานปกติอยู่ในรอบ", eligibleForPeriod({ status: "active", employment_type: "monthly" }, p) === true);
+}
+
+// ── 11. ยอดรวมของรอบ ───────────────────────────────────────────────────────
+{
+  const a = monthly(60000);
+  const b = daily(500, { days_worked: 22 });
+  const c = daily(500); // incomplete
+  const t = summarizeRun([a, b, c, { skipped: "freelance" }]);
+  eq("นับเฉพาะคนที่อยู่ในรอบ", t.headcount, 3);
+  eq("รวมรายได้", t.gross, 71000);
+  eq("นับจำนวนคนที่กรอกไม่ครบ", t.incomplete, 1);
+  eq("รวมสมทบนายจ้าง", t.sso_employer, 750 + 550);
+}
+
+// ── 12. ค่าที่ตั้งครึ่งเดียวต้องไม่ทำให้ฟิลด์อื่นเป็นศูนย์ ─────────────────
+// เพดานค่าใช้จ่ายที่กลายเป็น 0 = หักภาษีเกินจริงทุกคนแบบเงียบๆ
+{
+  const c = resolvePayrollConfig({ social_security: { rate_percent: 3 } });
+  eq("ตั้งแค่อัตรา สปส. — เพดานยังเป็นค่าตั้งต้น", c.social_security.wage_ceiling, 15000);
+  eq("อัตราที่ตั้งถูกใช้จริง", c.social_security.rate_percent, 3);
+  eq("ค่าใช้จ่ายเหมายังเป็นค่าตั้งต้น", c.income_tax.expense_cap, 100000);
+  eq("ขั้นบันไดยังครบ", c.income_tax.brackets.length, 8);
+}
+{
+  const c = resolvePayrollConfig({ payroll: { cutoff_day: 15 } });
+  eq("ตั้งแค่วันตัดรอบ — วันจ่ายยังเป็นค่าตั้งต้น", c.payroll.pay_day, 25);
+  eq("วันตัดรอบที่ตั้งถูกใช้จริง", c.payroll.cutoff_day, 15);
+}
+{
+  const c = resolvePayrollConfig({ income_tax: { brackets: [{ upTo: null, rate: 10 }] } });
+  eq("ขั้นบันไดที่ตั้งเองถูกใช้จริง", progressiveTax(100000, c.income_tax.brackets), 10000);
+}
+
+// ── 13. gate ของ callable + กติกาที่อ่านจาก source ─────────────────────────
+const apiSrc = readFileSync(join(fnDir, "hr-payroll-api.js"), "utf8");
+const engineSrc = readFileSync(join(fnDir, "hr-payroll.js"), "utf8");
+const uiSrc = readFileSync(join(root, "src/pages/hr/PayrollRuns.tsx"), "utf8");
+
+for (const name of [
+  "adminHrPayrollList", "adminHrPayrollGet", "adminHrPayrollDraft",
+  "adminHrPayrollSetItem", "adminHrPayrollApprove", "adminHrPayrollMarkPaid",
+]) {
+  const start = apiSrc.indexOf(`const ${name} = onCall`);
+  const next = apiSrc.indexOf("\n  const admin", start + 1);
+  const body = start === -1 ? null : apiSrc.slice(start, next === -1 ? apiSrc.length : next);
+  check(`${name} มี gate requireStaffRole(..., HR_ROLES)`,
+    !!body && /requireStaffRole\(db, request\.auth, HR_ROLES\)/.test(body));
+}
+
+// รอบที่อนุมัติแล้วต้องแก้ไม่ได้ทุกทาง — นี่คือกติกาข้อ 2 ของไฟล์
+for (const name of ["adminHrPayrollDraft", "adminHrPayrollSetItem", "adminHrPayrollApprove"]) {
+  const start = apiSrc.indexOf(`const ${name} = onCall`);
+  const next = apiSrc.indexOf("\n  const admin", start + 1);
+  const body = apiSrc.slice(start, next === -1 ? apiSrc.length : next);
+  check(`${name} ปฏิเสธรอบที่ไม่ใช่ draft`, /status !== "draft"|status && \w+\.status !== "draft"/.test(body));
+}
+check("อนุมัติไม่ได้ถ้ายังมีบรรทัดที่กรอกไม่ครบ",
+  /const blocked = items\.filter\(\(i\) => i && i\.incomplete\);/.test(apiSrc) && /blocked\.length/.test(apiSrc));
+check("บันทึกว่าจ่ายแล้วได้เฉพาะรอบที่อนุมัติแล้ว",
+  /status !== "approved"/.test(apiSrc));
+check("รอบคีย์ด้วยงวด ไม่ใช่ push id (กันสองใบของงวดเดียวกัน)",
+  /payroll_runs\/\$\{p\.key\}/.test(apiSrc) && !/ref\("payroll_runs"\)\.push\(\)/.test(apiSrc));
+check("รอบแช่ config ที่ใช้คำนวณไว้กับตัวเอง",
+  /config,\n\s+drafted_at/.test(apiSrc));
+check("แก้บรรทัดเดียวใช้ config ที่แช่ไว้ ไม่ใช่ settings ปัจจุบัน",
+  /const config = run\.config \|\| await loadHrSettings\(db\)/.test(apiSrc));
+check("การคำนวณใหม่เก็บสิ่งที่ HR กรอกเองไว้",
+  /const carryInput = \(existing\)/.test(apiSrc) && /carryInput\(prevItems\[id\]\)/.test(apiSrc));
+
+// ── 14. เครื่องคิดเงินต้องไม่มี I/O และไม่มีอัตราฝังในสูตร ────────────────
+check("hr-payroll.js ไม่ import firebase อะไรเลย", !/require\(["']firebase/.test(engineSrc));
+{
+  // ตัวเลขกฎหมายต้องอยู่ในบล็อกค่าตั้งต้นเท่านั้น ไม่ใช่กระจายในสูตร
+  const afterDefaults = engineSrc.slice(engineSrc.indexOf("const round2"));
+  const leaked = ["150000", "300000", "60000", "9000", "15000", "1650"].filter((n) => afterDefaults.includes(n));
+  check("ไม่มีอัตราตามกฎหมายฝังอยู่ในสูตร (มีแต่ในบล็อกค่าตั้งต้น)", leaked.length === 0);
+}
+
+// ── 15. หน้าเว็บต้องไม่อ้างเกินจริง ────────────────────────────────────────
+// CSV ที่ส่งออกไม่ใช่ไฟล์ e-filing และปุ่ม "จ่ายแล้ว" ไม่ได้โอนเงินให้
+//
+// **ต้องตัดคอมเมนต์ออกก่อนค้นเสมอ** — รอบแรกเทสข้อนี้เขียวทั้งที่ลบข้อความ
+// เตือนบนหน้าจอไปแล้ว เพราะประโยคเดียวกันยังอยู่ในคอมเมนต์หัวไฟล์ ซึ่งไม่มี
+// ลูกค้าคนไหนอ่าน เทสที่ค้นทั้งไฟล์จึงพิสูจน์แค่ว่า "เคยมีคนเขียนคำนี้ไว้"
+// ไม่ได้พิสูจน์ว่าคำนั้นยังขึ้นบนจอ
+const stripComments = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, " ")
+  .split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n");
+const uiText = stripComments(uiSrc);
+
+check("หน้าเว็บบอกว่า CSV ไม่ใช่ไฟล์ e-filing", /ไม่ใช่ไฟล์ e-filing/.test(uiText));
+check("หน้าเว็บบอกว่าระบบไม่ได้โอนเงินให้", /ระบบไม่ได้โอนให้/.test(uiText));
+check("หน้าเว็บบอกว่าอัตราเป็นค่าตั้งต้นที่ต้องตรวจก่อนยื่นจริง",
+  /ค่าตั้งต้น/.test(uiText) && /ก่อนยื่นจริง/.test(uiText));
+check("หน้าเว็บกางที่มาของภาษีให้ตรวจได้", /ที่มาของภาษีหัก ณ ที่จ่าย/.test(uiText));
+// พิสูจน์ว่าตัวตัดคอมเมนต์ทำงานจริง ไม่ใช่ฟังก์ชันที่คืนค่าเดิม
+check("ตัวตัดคอมเมนต์ตัดได้จริง",
+  stripComments("a\n// x\n/* y */b").indexOf("x") === -1 && stripComments("a\n// x\nb").includes("a"));
+check("ปุ่มอนุมัติถูกปิดเมื่อยังกรอกไม่ครบ", /disabled=\{busy \|\| incomplete\.length > 0\}/.test(uiSrc));
+
+console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILED`);
+process.exit(failures === 0 ? 0 : 1);
