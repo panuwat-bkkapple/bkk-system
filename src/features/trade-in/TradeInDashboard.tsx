@@ -217,111 +217,15 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
     }
   };
 
-  // 🌟 ทำความสะอาดฟังก์ชัน (ไม่ต้องพึ่งพาระบบ Modal เก่าแล้ว)
-  const handleUpdateStatus = async (id: string, newStatus: string, logMsg: string, extraData: any = {}) => {
-    const job = (jobs as any[]).find(j => j.id === id);
-    const updatedLogs = [
-      { action: newStatus, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: logMsg },
-      ...(job?.qc_logs || [])
-    ];
-
-    let cancelReason = extraData.cancel_reason || '';
-
-    if (!cancelReason && (newStatus === 'Closed (Lost)' || newStatus === 'Cancelled' || newStatus === 'Returned')) {
-      cancelReason = prompt(`ระบุเหตุผลสำหรับสถานะ ${newStatus}:`) || 'ไม่ระบุเหตุผล';
-      updatedLogs[0].details = `${logMsg} (เหตุผล: ${cancelReason})`;
-    } else if (cancelReason) {
-      updatedLogs[0].details = `${logMsg} (เหตุผล: ${cancelReason})`;
-    }
-
-    try {
-      await withRetry(() => update(ref(db, `jobs/${id}`), {
-        status: newStatus,
-        qc_logs: updatedLogs,
-        cancel_reason: cancelReason || null,
-        updated_at: Date.now(),
-        ...extraData
-      }));
-    } catch (error) {
-      console.error('Status update failed:', error);
-      toast.error('บันทึกสถานะล้มเหลว กรุณาลองใหม่อีกครั้ง');
-    }
-  };
-
-  const handleReviseOffer = async (job: any, price: string, reason: string, targetStatus: string = 'Revised Offer') => {
-    if (!price || !reason) { toast.warning('กรุณาระบุราคาและเหตุผลให้ครบถ้วน'); return; }
-    const actionLabel = targetStatus === 'Payout Processing' ? 'Deal Closed (Negotiated)' : 'Revised Offer';
-    if (!confirm(`ยืนยันการตั้งราคาใหม่ที่ ${price} บาท?`)) return;
-
-    // ช่องกรอกของหน้านี้คือ "ยอดสุทธิที่จะโอนให้ลูกค้า" — แต่ฟิลด์ canonical ที่ทุก
-    // คนอ่านเป็น "ฐาน" (final_price/price) คือ **ราคาเครื่องก่อนหักค่าบริการ/ก่อนบวก
-    // คูปอง**: finance (TradeInPayouts.getNetPayout) และ cloud function
-    // (recomputeCustomerPickupFee) คิดยอดโอนสดจาก `final_price − ค่าบริการ + คูปอง
-    // + adjustments` ทุกครั้ง. เดิมโค้ดนี้เขียน final_price = ยอดสุทธิ ทำให้พอ
-    // finance คิดซ้ำ ยอดที่โอนจริง = สุทธิ + คูปอง − ค่าบริการ ≠ ยอดที่ลูกค้ากดยอมรับ
-    // จึงต้องถอดสูตรกลับเป็นราคาเครื่องก่อนเขียน
-    const newNetPayout = Number(price);
-    // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
-    const grossPickupFee = job.receive_method === 'Pickup' ? Number(job.pickup_fee || 0) : 0;
-    const riderFeeDiscount = job.receive_method === 'Pickup' ? Number(job.rider_fee_discount || 0) : 0;
-    const pickupFee = Math.max(0, grossPickupFee - riderFeeDiscount);
-    const couponValue = sumAppliedCoupons(job);
-    const adjustmentsSum = sumAppliedAdjustments(job);
-    const newBasePrice = Math.max(0, newNetPayout + pickupFee - couponValue - adjustmentsSum);
-
-    const updatedLogs = [
-      { action: actionLabel, by: currentUser?.name || 'Admin', timestamp: Date.now(), details: `${reason} - ราคาเครื่อง: ฿${newBasePrice.toLocaleString()} (ยอดโอนสุทธิ: ฿${newNetPayout.toLocaleString()})` },
-      ...(job.qc_logs || [])
-    ];
-
-    try {
-      await withRetry(() => update(ref(db, `jobs/${job.id}`), {
-        status: targetStatus,
-        net_payout: newNetPayout,
-        final_price: newBasePrice,
-        negotiated_price: newNetPayout,
-        revised_price: newNetPayout,
-        // original_price = ราคาที่ลูกค้าประเมินตอนสั่งขาย (immutable) — หน้า track
-        // ใช้เทียบ "ราคาที่คุณประเมิน vs ราคาประเมินจริง" ห้ามทับด้วยราคาใหม่
-        price: newBasePrice,
-        revise_reason: reason,
-        qc_logs: updatedLogs,
-        updated_at: Date.now()
-      }));
-    } catch (error) {
-      console.error('Revise offer failed:', error);
-      toast.error('บันทึกราคาล้มเหลว กรุณาลองใหม่อีกครั้ง');
-    }
-  };
-
-  const handleClaimTicket = async (job: any) => {
-    const updatedLogs = [{ action: 'Claimed Ticket', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: 'แอดมินรับผิดชอบเคส' }, ...(job?.qc_logs || [])];
-    const nextStatus = job.status === 'New Lead' ? 'Following Up' : job.status;
-    try {
-      await withRetry(() => update(ref(db, `jobs/${job.id}`), {
-        agent_name: currentUser?.name || 'Admin',
-        agent_id: currentUser?.id || 'admin_1',
-        // Firebase UID — used by amendment notifications to push the assigned
-        // admin specifically (falls back to broadcast if missing on legacy jobs).
-        ...(currentUser?.uid ? { agent_uid: currentUser.uid } : {}),
-        qc_logs: updatedLogs,
-        status: nextStatus,
-        is_read: true
-      }));
-    } catch (error) {
-      console.error('Claim ticket failed:', error);
-      toast.error('รับเคสล้มเหลว กรุณาลองใหม่อีกครั้ง');
-    }
-  };
-
-  const handleSaveNotes = async (id: string, notes: string) => {
-    if (!notes.trim()) return;
-    const job = (jobs as any[]).find(j => j.id === id);
-    if (!job) return;
-
-    const updatedLogs = [{ action: 'Sales Note Added', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: notes }, ...(job.qc_logs || [])];
-    await update(ref(db, `jobs/${id}`), { qc_logs: updatedLogs });
-  };
+  // `handleUpdateStatus` / `handleReviseOffer` / `handleClaimTicket` /
+  // `handleSaveNotes` ถูกลบทิ้งใน P2-k — **ทั้งสี่ตัวไม่มีใครเรียกเลย** ไม่ใน
+  // ไฟล์นี้ ไม่ได้ส่งเป็น prop ไปไหน (eslint รายงานว่า assigned but never used
+  // ทั้งสี่ตัว) ตัวจริงที่หน้าจอใช้อยู่คือชื่อเดียวกันใน B2CWorkspacePage,
+  // MobileTicketDetail และ PricingSidebar ซึ่งย้ายมา engine แล้ว
+  //
+  // ไม่ได้ย้ายมันมาเป็น event เพราะการย้ายโค้ดที่ไม่มีทางถูกเรียกคือการเพิ่มหนี้
+  // ให้คนอ่านรอบหน้า (กฎ "ด่านที่ไปไม่ถึง ให้ลบ ไม่ใช่ ship" ใน CLAUDE.md) —
+  // และมันเคยเป็นตัวเขียนสถานะที่ไม่ผ่าน engine 3 จุดในสำมะโน
 
   const handleRowClick = async (job: any) => {
     // 1. อัปเดตสถานะการอ่าน
