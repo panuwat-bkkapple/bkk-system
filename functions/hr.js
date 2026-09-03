@@ -82,6 +82,49 @@ async function allocateEmployeeCode(db) {
   return formatEmployeeCode(prefix, year, res.snapshot.val());
 }
 
+/**
+ * สร้างแฟ้มพนักงานหนึ่งใบ — ทางเดียวที่แฟ้มพนักงานเกิดขึ้นได้
+ *
+ * แยกออกมาเพราะสายรับสมัครงาน (`hr-recruitment-api.js`) ต้องสร้างแฟ้มตอนกดจ้าง
+ * ด้วย **สำเนาที่สองของการสร้างแฟ้มคือทางที่ของบางอย่างจะหายไป** และตัวที่หาย
+ * เงียบที่สุดคือ `employees_private` (แฟ้มที่ไม่มีโหนดนี้จะเข้ารอบเงินเดือนแล้ว
+ * ขึ้นว่า "ยังไม่ได้ตั้งเงินเดือน" ซึ่งถูก) กับ `employee_code` ที่ต้องมาจาก
+ * ตัวนับ transaction ตัวเดียว ไม่งั้นรหัสซ้ำ
+ */
+async function createEmployeeRecord(db, { pub, priv, links, status, actor }) {
+  const at = nowMs();
+  const code = await allocateEmployeeCode(db);
+  const ref = db.ref("employees").push();
+  const employeeId = ref.key;
+
+  await ref.set({
+    ...pub,
+    employee_code: code,
+    status: EMPLOYEE_STATUSES.includes(String(status || "").toLowerCase())
+      ? String(status).toLowerCase()
+      : "active",
+    links: links || {},
+    created_at: at,
+    updated_at: at,
+  });
+  await db.ref(`employees_private/${employeeId}`).set({ ...(priv || {}), updated_at: at });
+
+  await recordEmployeeEvent(db, {
+    employee_id: employeeId,
+    action: "hired",
+    from: null,
+    to: { status: "active", employment_type: pub.employment_type },
+    reason: null,
+    at,
+    ...(actor || {}),
+  });
+
+  // ห้าม log เลขบัตร/เงินเดือน — log ของ Cloud Run เก็บนานกว่าและมีคนอ่าน
+  // ได้กว้างกว่าตัวข้อมูลเอง
+  console.log(`[hr] employee created ${employeeId} code=${code}`);
+  return { employeeId, code, at };
+}
+
 function assertNoErrors(errors) {
   if (errors && errors.length) {
     throw new HttpsError("invalid-argument", errors.join(" · "));
@@ -179,36 +222,10 @@ function registerHr() {
       if (!r.exists()) throw new HttpsError("not-found", "ไม่พบบัญชีไรเดอร์ที่จะผูก");
     }
 
-    const at = nowMs();
-    const code = await allocateEmployeeCode(db);
-    const ref = db.ref("employees").push();
-    const employeeId = ref.key;
-
-    await ref.set({
-      ...pub.value,
-      employee_code: code,
-      status: EMPLOYEE_STATUSES.includes(String(data.status || "").toLowerCase())
-        ? String(data.status).toLowerCase()
-        : "active",
-      links,
-      created_at: at,
-      updated_at: at,
+    const { employeeId, code } = await createEmployeeRecord(db, {
+      pub: pub.value, priv: priv.value, links, status: data.status,
+      actor: employeeActorFields(callerStaffId, staffMap, request.auth),
     });
-    await db.ref(`employees_private/${employeeId}`).set({ ...priv.value, updated_at: at });
-
-    await recordEmployeeEvent(db, {
-      employee_id: employeeId,
-      action: "hired",
-      from: null,
-      to: { status: "active", employment_type: pub.value.employment_type },
-      reason: null,
-      at,
-      ...employeeActorFields(callerStaffId, staffMap, request.auth),
-    });
-
-    // ห้าม log เลขบัตร/เงินเดือน — log ของ Cloud Run เก็บนานกว่าและมีคนอ่าน
-    // ได้กว้างกว่าตัวข้อมูลเอง
-    console.log(`[hr] employee created ${employeeId} code=${code}`);
     return { ok: true, employeeId, employeeCode: code };
   });
 
@@ -486,4 +503,8 @@ function registerHr() {
   };
 }
 
-module.exports = { registerHr, HR_ROLES };
+module.exports = {
+  registerHr, HR_ROLES,
+  // ใช้ร่วมกับสายรับสมัครงาน — ห้ามก๊อปไปเขียนใหม่
+  createEmployeeRecord, allocateEmployeeCode, recordEmployeeEvent, loadRegistry,
+};
