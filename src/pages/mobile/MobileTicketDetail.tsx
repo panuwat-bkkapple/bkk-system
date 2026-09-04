@@ -36,7 +36,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, JOB_STATUS, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -554,6 +554,21 @@ export const MobileTicketDetail = () => {
   //
   // engine เขียน qc_logs ให้เองแล้ว จึงไม่ส่ง makeLog ไป (`reason` ไปโผล่ในแถวนั้น)
   const handleTransition = async (event: JobEvent, details: string) => {
+    // **ด่านสิทธิ์จ่ายเงินออก ย้ายมาจาก handleUpdateStatus ที่ถูกลบ** — ตัวเดิม
+    // ตรวจจาก *สถานะปลายทาง* ('Paid'/'PAID') ซึ่งเป็นรูปที่ต้องจำสองสะกด ตอนนี้
+    // ตรวจจาก **event** ซึ่งมีค่าเดียวและตรงกับสิ่งที่ปุ่มตั้งใจทำ
+    //
+    // ลบไปเฉยๆ = ปุ่ม "จ่ายเงินแล้ว" เปิดให้ทุก role กดได้ เพราะ route
+    // /mobile/finance กับหน้านี้ไม่มี role guard — engine กัน actor ที่ไม่ใช่
+    // แอดมิน/finance ได้ก็จริง แต่ `job_mark_paid` เป็นด่านของ *ร้าน* ที่บันทึก
+    // audit ทั้งตอนผ่านและตอนถูกปฏิเสธ ซึ่ง engine ไม่ได้ทำแทน
+    if (event === JOB_EVENT.ADMIN_MARKED_PAID) {
+      const gate = guard('job_mark_paid', {
+        refId: job.id,
+        amount: Number(job.net_payout || job.final_price || 0),
+      });
+      if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
+    }
     const res = await runJobTransition(job.id, event, { reason: details });
     if (!res.ok) { toast.error(res.message); return; }
     toast.success(`อัพเดทเป็น ${res.to}`);
@@ -567,28 +582,10 @@ export const MobileTicketDetail = () => {
     }
   };
 
-  // ตัวเขียนเดิม (ไคลเอนต์เลือกปลายทางเอง) — **เหลือไว้ให้ 2 ปุ่มที่รอเจ้าของงาน
-  // เคาะเท่านั้น ห้ามเพิ่ม call site ใหม่** เหตุผลเต็มอยู่ที่ type QuickAction
-  const handleUpdateStatus = async (newStatus: string, details: string) => {
-    // ปุ่ม "จ่ายเงินแล้ว (Paid)" คือทางลัดที่ประกาศว่าเงินออกแล้วโดยไม่ผ่านหน้า
-    // finance และไม่สร้างแถว transactions — จึงต้องผ่านด่านเดียวกับการโอนจริง
-    if (newStatus === 'Paid' || newStatus === 'PAID') {
-      const gate = guard('job_mark_paid', { refId: job.id, amount: Number(job.net_payout || job.final_price || 0) });
-      if (!gate.allowed) { toast.error(gate.message || 'ไม่มีสิทธิ์จ่ายเงินออก'); return; }
-    }
-    await update(ref(db, `jobs/${job.id}`), {
-      status: newStatus,
-      qc_logs: [makeLog(newStatus, details), ...(job.qc_logs || [])],
-      updated_at: Date.now()
-    });
-    toast.success(`อัพเดทเป็น ${newStatus}`);
-    // งานที่ขายพ่วงอุปกรณ์เสริม — เข้าคลังแล้วแตกเป็น stock รายชิ้น (ref -A1..)
-    // แบบเดียวกับ B2B unpack. idempotent ผ่าน accessories_unpacked_at
-    if (newStatus === 'In Stock') {
-      const unpacked = await unpackAccessoryItemsToStock(job, currentUser?.name || 'Admin');
-      if (unpacked > 0) toast.success(`แตกอุปกรณ์เสริม ${unpacked} ชิ้นเข้าสต๊อกแล้ว`);
-    }
-  };
+  // `handleUpdateStatus` ถูกลบทิ้งใน P2-o — ปุ่มทั้ง 25 ใบส่ง event ครบแล้ว
+  // **ห้ามสร้างตัวใหม่ในรูปนั้นอีก** ไคลเอนต์ที่เลือกสถานะปลายทางเองคือรูปที่
+  // status engine มีไว้กำจัด. ด่านสิทธิ์จ่ายเงิน (`guard('job_mark_paid')`) ย้าย
+  // ไปอยู่ใน handleTransition แล้ว เพราะมันผูกกับ event ไม่ใช่กับสถานะ
 
   // Save the Mail-in parcel tracking number. Mirrors the desktop
   // CustomerInfoCard.handleSaveTracking, with one deliberate difference: it
@@ -1717,8 +1714,7 @@ export const MobileTicketDetail = () => {
                   key={i}
                   onClick={() => {
                     if (action.confirm && !confirm(action.confirm)) return;
-                    if (action.event) handleTransition(action.event, action.log);
-                    else handleUpdateStatus(action.legacyStatus, action.log);
+                    handleTransition(action.event, action.log);
                   }}
                   className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${action.style}`}
                 >
@@ -2178,36 +2174,24 @@ const getConditionIcon = (text: string) => {
 /**
  * ปุ่มหนึ่งใบในตาราง quick actions
  *
- * `event` คือรูปที่ถูก: ปุ่มบอกว่า "เกิดอะไรขึ้น" แล้ว engine ตัดสินปลายทาง
+ * ทุกใบส่ง **event** ไม่ใช่สถานะปลายทาง — ปลายทางเป็นเรื่องของ `TRANSITIONS`
+ * ใน functions/status-engine.js ที่เดียว
  *
- * `legacyStatus` คือรูปเดิมที่ไคลเอนต์เลือกปลายทางเอง — **เหลือไว้ 2 ใบเท่านั้น
- * และห้ามเพิ่มใบที่สาม** ทั้งสองใบรอการตัดสินใจเชิงธุรกิจ ไม่ใช่รอเวลาว่าง:
- *
- * 1. "จ่ายเงินแล้ว (Paid)" ที่ Payout Processing — ปุ่มนี้ประกาศว่าเงินออกแล้ว
- *    โดยข้ามหน้า finance และ **ไม่สร้างแถว `transactions`** ส่วน engine มองการ
- *    จ่ายเงินเป็นสองขั้นและขั้นที่ประทับ `paid_at` เป็นของ finance เท่านั้น
- *    (`payment_confirmed`) จะย้ายได้ต้องเคาะก่อนว่า "เงินออกได้โดยไม่มีแถวบัญชี
- *    ไหม" ซึ่งเป็นคำถามทางบัญชี ไม่ใช่คำถามเรื่องสถานะ
- * 2. "เริ่มดำเนินการ (Active Lead)" ของ Store-in/Mail-in — `broadcast_to_riders`
- *    เป็น Pickup-only โดยออกแบบ (Active Lead = คิวแย่งงานของไรเดอร์) แต่ปุ่มนี้
- *    ขึ้นกับงานที่ไม่มีไรเดอร์เกี่ยวข้องเลย จะย้ายได้ต้องเคาะว่าจะให้ Mail-in
- *    เข้าคิวไรเดอร์ หรือเลิกใช้ Active Lead เป็นสถานะกลางของสองวิธีนั้น
+ * เคยมีอีกรูป (`legacyStatus`) สำหรับสองใบที่รอการตัดสินใจ — ปิดไปแล้วใน P2-o
+ * **ห้ามเพิ่มกลับ** ถ้าเจอปุ่มใหม่ที่ไม่มี event รองรับ ให้เพิ่ม event ที่ engine
+ * ไม่ใช่เปิดทางให้ไคลเอนต์เลือกปลายทางเองอีก
  */
 type QuickAction = {
   label: string;
   log: string;
   style: string;
   confirm?: string;
-} & (
-  | { event: JobEvent; legacyStatus?: never }
-  | { legacyStatus: string; event?: never }
-);
+  event: JobEvent;
+};
 
 function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: string, job?: any) {
   if (isCancelled) return [];
 
-  // สองรูป: `event` = ย้ายมา engine แล้ว · `legacyStatus` = ยังเขียนสถานะเอง
-  // เพราะรอเจ้าของงานเคาะ (เหลือ 2 ตัว ดู PENDING_DECISION ในไฟล์นี้)
   const actions: QuickAction[] = [];
   const isPickup = receiveMethod === 'Pickup';
   const isMailIn = receiveMethod === 'Mail-in';
@@ -2283,8 +2267,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         // instead of forcing a detour through Active Leads.
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
-        // PENDING_DECISION 2/2 — ดูหัวข้อ QuickAction ด้านล่างไฟล์
-        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', legacyStatus: JOB_STATUS.ACTIVE_LEAD, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
+        actions.push({ label: 'เริ่มดำเนินการ (Active Lead)', event: JOB_EVENT.PROCESSING_STARTED, log: 'เริ่มดำเนินการ', style: 'bg-orange-500 text-white' });
       }
       break;
     // Mail-in logistics. `Parcel In Transit` is what the customer's own
@@ -2404,8 +2387,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       actions.push({ label: 'ตกลงราคา → Payout', event: JOB_EVENT.PAYOUT_STARTED, log: 'ลูกค้าตกลงราคา เริ่มจ่ายเงิน', style: 'bg-emerald-500 text-white' });
       break;
     case 'Payout Processing':
-      // PENDING_DECISION 1/2 — ดูหัวข้อ QuickAction ด้านล่างไฟล์
-      actions.push({ label: 'จ่ายเงินแล้ว (Paid)', legacyStatus: 'Paid', log: 'โอนเงินให้ลูกค้าเรียบร้อย', style: 'bg-green-600 text-white' });
+      actions.push({ label: 'จ่ายเงินแล้ว (Paid)', event: JOB_EVENT.ADMIN_MARKED_PAID, log: 'โอนเงินให้ลูกค้าเรียบร้อย', style: 'bg-green-600 text-white' });
       break;
     case 'Paid':
     case 'PAID':
