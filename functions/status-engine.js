@@ -138,6 +138,23 @@ const TRANSITIONS = {
     actors: [ACTOR.ADMIN_STAFF],
     methods: [RECEIVE_METHOD.PICKUP],
   },
+  // ปุ่ม "เริ่มดำเนินการ (Active Lead)" ของสาย Store-in/Mail-in
+  //
+  // **คนละ event กับ broadcast_to_riders โดยตั้งใจ ทั้งที่ปลายทางเดียวกัน** —
+  // ตัวนั้นแปลว่า "ไรเดอร์เห็นงานนี้ได้แล้ว" ซึ่งเป็นความจริงเฉพาะสาย Pickup
+  // ยืมมาใช้กับ Mail-in จะทำให้ qc_logs กับ status_history เล่าเรื่องที่ไม่เกิดขึ้น
+  //
+  // ตรวจแล้วว่าการที่งาน Mail-in/Store-in ไปนั่งที่ Active Lead ไม่ทำให้มันโผล่
+  // ในคิวไรเดอร์: `useRiderData.ts` กรอง `receive_method !== PICKUP` ทิ้ง
+  // **ก่อนดูสถานะด้วยซ้ำ** — Active Lead ของสองวิธีนั้นจึงเป็นแค่ "เริ่มดำเนินการ
+  // แล้ว" ไม่ใช่คิวแย่งงาน
+  processing_started: {
+    from: [S.APPOINTMENT_SET, S.WAITING_DROP_OFF, S.AWAITING_SHIPPING],
+    to: S.ACTIVE_LEAD,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    methods: [RECEIVE_METHOD.STORE_IN, RECEIVE_METHOD.MAIL_IN],
+  },
   rider_assigned: {
     from: [S.ACTIVE_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET],
     to: S.RIDER_ASSIGNED,
@@ -391,6 +408,36 @@ const TRANSITIONS = {
     custody: "=",
     actors: [ACTOR.FINANCE],
     stampsPaid: true,
+  },
+  // ปุ่ม "จ่ายเงินแล้ว (Paid)" บน MobileTicketDetail — ทางลัดที่ประกาศว่าเงินออก
+  // แล้วโดยข้ามหน้า finance และ **ไม่สร้างแถว `transactions`**
+  //
+  // **การมี event นี้ไม่ได้แปลว่าเรารับรองว่าทางนั้นถูกต้องทางบัญชี** — คำถามว่า
+  // "เงินออกได้โดยไม่มีแถว ledger ไหม" ยังเปิดอยู่เหมือนเดิม สิ่งที่ event นี้
+  // เปลี่ยนคือ *ใครคุมทางนั้น*: วันนี้ไคลเอนต์เขียน 'Paid' ทับสถานะอะไรก็ได้ที่
+  // ปุ่ม render อยู่ ไม่มี from-list ไม่มี status_version ไม่มี status_history
+  // ผ่าน engine แล้วมันแคบลงทั้งสามอย่าง — **การย้ายนี้จึงรัดเข้า ไม่ได้เปิดออก**
+  //
+  // ถ้าวันหนึ่งเจ้าของงานเคาะว่าเงินต้องออกทาง finance เท่านั้น แก้ที่ actors
+  // บรรทัดเดียว (ตัด ADMIN_STAFF ออก) แล้วปุ่มจะถูกปฏิเสธด้วย wrong_actor
+  // พร้อมข้อความไทย ไม่ต้องรื้ออะไรอีก
+  //
+  // **ไม่ตั้ง `stampsPaid` โดยตั้งใจ และครั้งแรกผมตั้งไว้ผิด** — registry ของ
+  // side effect บังคับว่า event ที่ประทับ `paid_at` ได้มี **ตัวเดียว** คือ
+  // `payment_confirmed` (เทส "every named side effect is owned by a real event,
+  // exactly once" ใน status-apply.test.mjs จับได้ทันที) การเพิ่มตัวที่สองคือการ
+  // เปิดประตูที่สองไปหาเวลาที่ฝ่ายบัญชีอ่าน ซึ่งเป็นสิ่งที่ registry มีไว้กัน
+  //
+  // `paid_at` ของทางนี้จึงยังมาจาก trigger `onJobStatusChanged` เหมือนเดิม —
+  // คอมเมนต์ที่นั่นเขียนไว้ตรงตัวว่ามีไว้เพราะ "ปุ่มมือถือเขียนแค่สถานะ" และมัน
+  // write-once อยู่แล้ว **พฤติกรรมจึงเท่าเดิมเป๊ะ ไม่ใช่การถอยหลัง**
+  admin_marked_paid: {
+    from: [S.PAYOUT_PROCESSING],
+    to: S.PAID,
+    // ไม่แตะแกน custody โดยตั้งใจ — event นี้พูดเรื่องเงินอย่างเดียว ไม่ได้บอก
+    // ว่าเครื่องอยู่กับใคร (ต่างจาก payment_handover_done ที่เป็นการส่งมอบจริง)
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF, ACTOR.FINANCE],
   },
   payment_handover_done: {
     from: [S.WAITING_FOR_HANDOVER],
