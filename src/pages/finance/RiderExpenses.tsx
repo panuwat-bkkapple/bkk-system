@@ -257,6 +257,9 @@ export const RiderExpenses = () => {
             const actions = expenseActionsFor(status, { isOps, isFinance });
             // ธงเพดานบังคับที่ขั้นของฝ่ายบัญชีทั้งสองขั้น (server ก็เช็คซ้ำ)
             const ceoBlocked = needsCeo && !isCeo && (status === 'approved' || status === 'finance_approved');
+            const voucher = r.petty_cash_voucher && typeof r.petty_cash_voucher === 'object'
+              ? (r.petty_cash_voucher as { url?: string; number?: string })
+              : null;
             const history = r.history && typeof r.history === 'object'
               ? Object.values(r.history as Record<string, Record<string, unknown>>)
                   .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
@@ -418,6 +421,23 @@ export const RiderExpenses = () => {
                         แถวกระเป๋า {String(r.paid_tx_id)} · แถวบัญชี {String(r.expense_doc_id || '-')}
                       </div>
                     ) : null}
+                    {/* ใบสำคัญเงินสดย่อย — ออกโดย trigger หลังจ่าย (best-effort)
+                        จ่ายแล้วแต่ยังไม่มีลิงก์ = กำลังสร้าง หรือสร้างไม่สำเร็จ
+                        (ดู accounting_documents status void) */}
+                    {status === 'paid' && (
+                      voucher?.url ? (
+                        <a
+                          href={String(voucher.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-emerald-700 font-bold"
+                        >
+                          <FileCheck2 size={12} /> ใบสำคัญเงินสดย่อย {String(voucher.number || '')}
+                        </a>
+                      ) : (
+                        <div className="text-gray-400">ใบสำคัญเงินสดย่อย: กำลังออกเอกสาร...</div>
+                      )
+                    )}
                   </div>
                 )}
 

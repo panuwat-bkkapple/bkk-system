@@ -197,4 +197,4 @@ function registerRiderWhtIssue() {
   return { onRiderWhtWithheld };
 }
 
-module.exports = { registerRiderWhtIssue, allocateWhtNumber, bangkokYM };
+module.exports = { registerRiderWhtIssue, allocateWhtNumber, bangkokYM, archivePdf };
