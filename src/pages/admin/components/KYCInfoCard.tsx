@@ -10,6 +10,8 @@ import { db, auth, storage } from '@/api/firebase';
 import type { Job, KYCRecord } from '@/types/domain';
 import { KYC_AMLO_THRESHOLD, KYC_FALLBACK_REASON_LABEL_TH } from '@/types/domain';
 import { useToast } from '../../../components/ui/ToastProvider';
+import { JOB_STATUS } from '../../../types/job-statuses';
+import { statusIs } from '../../../utils/statusCompare';
 
 interface KYCInfoCardProps {
   job: Job;
@@ -225,7 +227,7 @@ export const KYCInfoCard: React.FC<KYCInfoCardProps> = ({ job, onCaptureKyc, sta
 
   // ── Empty state ─────────────────────────────────────────────────────
   if (!kyc) {
-    const expectedSoon = isPickup && ['Rider Arrived', 'Arrived', 'Being Inspected', 'QC Review'].includes(job.status);
+    const expectedSoon = isPickup && statusIs(job, JOB_STATUS.RIDER_ARRIVED, JOB_STATUS.BEING_INSPECTED, JOB_STATUS.QC_REVIEW);
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-4">
