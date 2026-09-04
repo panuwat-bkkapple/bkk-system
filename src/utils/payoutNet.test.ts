@@ -7,9 +7,8 @@
 // โอนเงินที่กดไม่ผ่านโดยไม่มีใครรู้ว่าทำไม
 //
 // INJECTION (วัดจริง 4 ก.ย. 2569 — เขียนหลังรัน):
-//   getNetPayout ไม่หัก rider_fee_discount                     → แดง __
-//   getNetPayout ใช้ net_payout ที่เก็บไว้แทนคิดสด               → แดง __
-//   effectiveCustomerPickupFee ไม่ดูคูปองส่งฟรี (TS)             → แดง __
+//   getNetPayout ไม่หัก rider_fee_discount                     → แดง 4 (parity 3 + เลขจริง 1)
+//   getNetPayout อ่าน net_payout ที่เก็บไว้ก่อนคิดสด              → แดง 1
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { getNetPayout } from './payoutNet';

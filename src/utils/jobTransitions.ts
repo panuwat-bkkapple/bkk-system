@@ -148,6 +148,14 @@ export function transitionErrorMessage(code: string | null | undefined, fallback
       return 'มีคนแก้ไขงานนี้พร้อมกัน กรุณาลองใหม่';
     case 'unreadable_status':
       return 'สถานะปัจจุบันของงานนี้อ่านไม่ออก — แจ้งทีมพัฒนา';
+    // confirmPayoutTransfer (functions/payout-transfer.js) — สองรหัสที่ server ใส่
+    // ตัวเลข/ชื่อฟิลด์ไว้ในข้อความของมันเอง ตรงนี้คือ fallback เมื่อข้อความนั้นหาย
+    case 'amount_changed':
+      return 'ยอดโอนสุทธิเปลี่ยนไประหว่างที่หน้านี้เปิดค้าง — รีเฟรชแล้วตรวจยอดใหม่ก่อนโอน';
+    case 'not_finance':
+      return 'บัญชีนี้ไม่มีสิทธิ์จ่ายเงินออก — ให้ CEO เปิดสิทธิ์ให้ที่หน้าจัดการพนักงาน';
+    case 'invalid_input':
+      return 'ข้อมูลการโอนไม่ครบถ้วน (สลิป / วันเวลา / บัญชี)';
     default:
       return fallback || 'เปลี่ยนสถานะไม่สำเร็จ กรุณาลองใหม่';
   }

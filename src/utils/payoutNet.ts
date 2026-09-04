@@ -19,9 +19,12 @@ export interface PayoutJobLike {
   rider_fee_discount?: unknown;
 }
 
-/** MIRROR ของ `netPayoutOf` ใน functions/payout-ledger.js — แก้ต้องแก้ทั้งคู่ */
-export function getNetPayout(job: PayoutJobLike | null | undefined): number {
-  const j = job ?? {};
+/**
+ * MIRROR ของ `netPayoutOf` ใน functions/payout-ledger.js — แก้ต้องแก้ทั้งคู่
+ * รับ unknown เหมือน sumAppliedCoupons: จอส่งแถวงานรูปต่างกัน (any / type เฉพาะจอ)
+ */
+export function getNetPayout(job: unknown): number {
+  const j = (job ?? {}) as PayoutJobLike;
   const base = Number(j.final_price || j.price || 0);
   // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
   const pickup = j.receive_method === 'Pickup';
