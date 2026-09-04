@@ -29,7 +29,7 @@ const { requireStaffRole, suspendStaffAccount } = require("./staff-accounts");
 const { suspendRiderAccount } = require("./rider-accounts");
 const { ssoRegistrationState, ssoStateMessage } = require("./hr-compliance");
 const {
-  HR_ROLES,
+  HR_ROLES, splitThaiName,
   EMPLOYEE_STATUSES,
   EX_EMPLOYEE_STATUSES,
   bangkokBuddhistYear,
@@ -184,12 +184,18 @@ function registerHr() {
     const items = Object.entries(employees).map(([id, e]) => {
       const priv = privateMap[id] || null;
       const sso = ssoRegistrationState({ employee: { id, ...e }, priv: priv || {}, now });
+      // **ข้อเสนอการแยกชื่อ ไม่ใช่การแยกจริง** — ส่งไปให้ฟอร์มเติมค่าเริ่มต้น
+      // เท่านั้น คนต้องเห็นแล้วกดบันทึกเอง เพราะชื่อ/นามสกุลไปโผล่บนแบบยื่นภาษี
+      // การเดาผิดแล้วบันทึกเงียบๆ คือการยื่นผิดโดยไม่มีใครรู้
+      const split = Boolean(e.first_name && e.last_name);
       return {
         id,
         ...e,
         access: accessSummary(e, staffMap, ridersMap),
         private: priv,
         sso: { state: sso.state, days_left: sso.daysLeft ?? null, message: ssoStateMessage(sso) },
+        name_split: split,
+        name_suggestion: split ? null : splitThaiName(e.name),
       };
     });
     items.sort((a, b) => String(a.employee_code || "").localeCompare(String(b.employee_code || "")));

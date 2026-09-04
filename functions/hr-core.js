@@ -74,6 +74,61 @@ function formatEmployeeCode(prefix, year, seq) {
 // employee_code / status / links / terminated_at เป็นของ server ทั้งหมด
 // เพราะแต่ละตัวมีกติกาของตัวเอง (ตัวนับ, การเปลี่ยนสถานะต้องมีประวัติ,
 // การผูกบัญชีต้องตรวจว่าไม่ถูกคนอื่นจองไว้)
+// ── ชื่อ: คำนำหน้า / ชื่อ / นามสกุล ────────────────────────────────────────
+//
+// **ทะเบียนเก็บ `name` เป็นช่องเดียวมาตั้งแต่ต้น และมีคนอ่านมันเยอะมาก** —
+// สัญญาจ้าง, สลิปเงินเดือน, 50 ทวิ, ภ.ง.ด.1ก, บรรทัดในรอบจ่าย, ข้อความเตือน
+// ตอนผูกบัญชีซ้ำ การเปลี่ยนไปเก็บเป็นสามช่องแล้วทิ้ง `name` = ไล่แก้คนอ่านทุกตัว
+// พร้อมกัน ซึ่งเป็นรูปเดียวกับบั๊ก `status_history` ที่ทำให้ไทม์ไลน์แอดมินหาย
+// ไปหนึ่งชั่วโมง (ดู "ย้าย writer: ถามว่าใครอ่านของเดิม" ใน CLAUDE.md)
+//
+// จึง **เพิ่มสามช่อง แล้วให้ `name` เป็นผลลัพธ์ที่ประกอบจากสองในสามช่องนั้น**
+// คนอ่านเดิมไม่ต้องรู้เรื่องอะไรเลย ส่วนแบบยื่นภาษี (ภ.ง.ด.1) ที่ต้องการชื่อกับ
+// นามสกุลแยกช่องก็หยิบไปใช้ได้ตรงๆ
+//
+// **คำนำหน้าไม่อยู่ใน `name`** เพราะเอกสารทุกใบวันนี้พิมพ์ `name` ต่อจากคำที่
+// ระบุความสัมพันธ์อยู่แล้ว ("กับ สมชาย ใจดี") การยัดคำนำหน้าเข้าไปทำให้ข้อความ
+// เดิมทั้งหมดอ่านแปลกโดยไม่ได้เพิ่มความถูกต้องอะไร
+
+/** คำนำหน้าที่พบบ่อย — เป็น **ตัวช่วยพิมพ์** ไม่ใช่ allowlist */
+const COMMON_TITLES = ["นาย", "นาง", "นางสาว"];
+
+/**
+ * เดาการแยกชื่อจากช่องเดียว — **ผลลัพธ์เป็นข้อเสนอ ไม่ใช่ข้อสรุป**
+ *
+ * ใช้เติมค่าเริ่มต้นให้ฟอร์มเท่านั้น **ห้ามเอาไปเขียนลงฐานข้อมูลอัตโนมัติ** —
+ * ชื่อกับนามสกุลจะไปโผล่บนแบบยื่นภาษี การเดาผิดแล้วบันทึกเงียบๆ คือการยื่นผิด
+ * โดยไม่มีใครรู้ คนต้องเห็นและกดบันทึกเอง
+ *
+ * ภาษาไทยไม่มีกฎที่แน่นอนว่าชื่อกี่คำ — ตัวนี้จึงรับเฉพาะรูปที่ชัดเจนจริงๆ:
+ * "ชื่อ นามสกุล" และ "คำนำหน้า ชื่อ นามสกุล" (ติดกันหรือเว้นวรรคก็ได้)
+ * นอกนั้นคืน `confident: false` แล้วปล่อยให้คนกรอกเอง
+ */
+function splitThaiName(full) {
+  const raw = str(full).replace(/\s+/g, " ");
+  if (!raw) return { title: null, first_name: null, last_name: null, confident: false };
+
+  // **เรียงจากยาวไปสั้นก่อนเทียบ** — ไม่งั้น "นางสาว" จะถูกตัดเป็น "นาง" แล้ว
+  // เหลือ "สาว" ไปติดหัวชื่อ
+  const byLength = [...COMMON_TITLES].sort((a, b) => b.length - a.length);
+  const hit = byLength.find((x) => raw.startsWith(x));
+  const title = hit || null;
+  const rest = hit ? raw.slice(hit.length).trim() : raw;
+
+  const parts = rest.split(" ").filter(Boolean);
+  if (parts.length === 2) {
+    return { title, first_name: parts[0], last_name: parts[1], confident: true };
+  }
+  // คำเดียว = ไม่รู้ว่าเป็นชื่อหรือนามสกุล · เกินสองคำ = ชื่อกลาง/นามสกุลหลายคำ
+  // ทั้งสองแบบเดาแล้วผิดได้จริง จึงคืนสิ่งที่แน่ใจ (คำนำหน้า) แล้วบอกว่าไม่มั่นใจ
+  return {
+    title,
+    first_name: parts.length === 1 ? parts[0] : null,
+    last_name: null,
+    confident: false,
+  };
+}
+
 function sanitizeEmployeePublic(input, { partial = false } = {}) {
   const src = input && typeof input === "object" ? input : {};
   const out = {};
@@ -81,9 +136,30 @@ function sanitizeEmployeePublic(input, { partial = false } = {}) {
 
   const has = (k) => Object.prototype.hasOwnProperty.call(src, k);
 
-  if (!partial || has("name")) {
-    const name = clip(src.name, 120);
+  // ── ชื่อ ──────────────────────────────────────────────────────────────────
+  // **`name` เป็นผลลัพธ์เมื่อมีชื่อ+นามสกุล ไม่ใช่ช่องอิสระ** — มีที่เดียวที่
+  // เขียนความจริงเรื่องชื่อ ไม่งั้นสองช่องจะเล่าคนละเรื่องแล้วไม่มีใครรู้ว่า
+  // เอกสารใบไหนอ่านช่องไหน
+  //
+  // ยังรับ `name` เดี่ยวๆ ต่อไป เพราะสายกดจ้างจากใบสมัคร
+  // (`hr-recruitment-api`) ส่งมาแค่ชื่อเต็มที่ผู้สมัครกรอก — บังคับให้แยกตรงนั้น
+  // แปลว่าต้องเดาแทนผู้สมัคร ซึ่งเป็นการเดาที่ไปโผล่บนแบบยื่นภาษี
+  const nameKeys = ["name", "title", "first_name", "last_name"];
+  if (!partial || nameKeys.some(has)) {
+    const title = clip(src.title, 40);
+    const first = clip(src.first_name, 60);
+    const last = clip(src.last_name, 60);
+    out.title = title || null;
+    out.first_name = first || null;
+    out.last_name = last || null;
+
+    const composed = first && last ? `${first} ${last}` : "";
+    const name = composed || clip(src.name, 120);
     if (!name) errors.push("ต้องระบุชื่อ-สกุลพนักงาน");
+    // มีชื่อแต่ไม่มีนามสกุล = แยกไม่ครบ ซึ่งใช้ยื่นภาษีไม่ได้ — บอกตรงนี้ดีกว่า
+    // ให้ไปรู้ตอนออกแบบยื่นแล้วชื่อขาด
+    if (first && !last) errors.push("กรอกชื่อแล้วต้องกรอกนามสกุลด้วย");
+    if (last && !first) errors.push("กรอกนามสกุลแล้วต้องกรอกชื่อด้วย");
     out.name = name;
   }
   for (const [key, max] of [["nickname", 60], ["position", 120], ["department", 120], ["branch", 120]]) {
@@ -393,6 +469,7 @@ function employeeActorFields(callerStaffId, staffMap, auth) {
 
 module.exports = {
   HR_ROLES,
+  COMMON_TITLES, splitThaiName,
   EMPLOYMENT_TYPES,
   EMPLOYEE_STATUSES,
   EX_EMPLOYEE_STATUSES,
