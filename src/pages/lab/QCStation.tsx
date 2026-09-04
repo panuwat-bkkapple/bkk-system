@@ -20,6 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import {
    MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
    validateQcSubmit, submitQcStation, saveQcPhotosOnly,
+   selectQcTodoList, selectQcDoneList,
 } from '../../utils/qcStation';
 
 const SUPERVISORS = QC_SUPERVISORS;
@@ -65,14 +66,11 @@ export const QCStation = () => {
          j.stock_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
          j.qc_txn_id?.toLowerCase().includes(searchTerm.toLowerCase())
       );
+      // To Do / Done ตัดสินใน utils/qcStation.ts (normalizeStatus ทั้งสองฝั่ง —
+      // รับทั้ง 'Sent To QC Lab' ที่ engine เขียนและ 'Sent to QC Lab' แถวเก่า)
       return {
-         // ✅ TO DO: เพิ่มสถานะ 'Sent to QC Lab' เข้าไปให้ระบบดึงงานมาโชว์
-         todoList: filtered.filter(j => [
-            'Sent to QC Lab'        // สำหรับงานไรเดอร์ที่จ่ายเงินแล้ว และส่งมาล้างข้อมูล
-         ].includes(j.status)),
-
-         // ✅ DONE: งานที่ตรวจ QC เสร็จแล้ว (มีเลข qc_txn_id)
-         doneList: filtered.filter(j => !!j.qc_txn_id).sort((a, b) => (b.qc_date || 0) - (a.qc_date || 0))
+         todoList: selectQcTodoList(filtered),
+         doneList: selectQcDoneList(filtered),
       };
    }, [jobs, searchTerm]);
 

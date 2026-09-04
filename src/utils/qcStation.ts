@@ -7,12 +7,32 @@ import { db } from '../api/firebase';
 import { uploadImageToFirebase } from './uploadImage';
 import { unpackAccessoryItemsToStock } from './accessoryItems';
 import { getSickwGateStatus } from './sickwApi';
+import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
 
 export const MAX_QC_PHOTOS = 8;
 export const QC_SUPERVISORS = ['Head QC - Somchai', 'Head QC - Wichai'];
 
 // สถานะที่ถือว่าเป็นงานรอตรวจของแผนก QC (ปุ่ม submit โชว์เฉพาะกลุ่มนี้)
 export const QC_SUBMITTABLE_STATUSES = ['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'];
+
+type QcJobLike = { status?: string | null; receive_method?: string | null; qc_txn_id?: string | null; qc_date?: number | null };
+
+// งานที่รอแผนก QC Lab ตรวจ (แท็บ To Do ของ /qc-station และ /mobile/qc)
+//
+// เทียบผ่าน normalizeStatus ทั้งสองฝั่ง ไม่ใช่ string literal — status engine
+// เขียน canonical 'Sent To QC Lab' (JOB_STATUS.SENT_TO_QC_LAB) ตั้งแต่ปุ่มส่งเข้า
+// แล็บย้ายไป transitionJob (#662/#667) ส่วนแถวเก่าใน DB ยังสะกด 'Sent to QC Lab'
+// ถาวร. การเทียบ ['Sent to QC Lab'].includes(j.status) แบบเดิมจึงมองไม่เห็นงาน
+// ที่ engine เพิ่งเขียนเลยสักใบ (To Do ขึ้น 0 — ดู
+// docs/reports/2026-09-04-qc-station-todo-empty-survey.md)
+export const isAwaitingQcLab = (job: QcJobLike | null | undefined): boolean =>
+   normalizeStatus(job?.status, job?.receive_method) === JOB_STATUS.SENT_TO_QC_LAB;
+
+export const selectQcTodoList = <T extends QcJobLike>(jobs: T[]): T[] => jobs.filter(isAwaitingQcLab);
+
+// แท็บ Done = งานที่ผ่านสถานีแล้ว (มีเลข qc_txn_id) เรียงล่าสุดก่อน — ไม่เทียบสถานะ
+export const selectQcDoneList = <T extends QcJobLike>(jobs: T[]): T[] =>
+   jobs.filter((j) => !!j.qc_txn_id).sort((a, b) => (b.qc_date || 0) - (a.qc_date || 0));
 
 export interface QcFormState {
    screen_touch: boolean; screen_display: boolean; truetone: boolean; faceid: boolean;
