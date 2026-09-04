@@ -13,6 +13,12 @@
 //   4. put SITE_VISIT_GRADING into b2b_grading_started's from-list -> no-op test
 //   5. point b2b_final_quote_sent's from at SITE_VISIT_GRADING only -> Auditor
 //      Assigned rows can no longer move forward
+//   (4 Sep 2026, finance writer moved onto the engine — measured, not guessed)
+//   6. delete the b2b_payment_confirmed row            -> 6 red here, 1 in
+//      status-engine.test.mjs (pinned from-list)
+//   7. give b2b_payment_confirmed stampsPaid           -> 1 red here, 1 in
+//      status-apply.test.mjs ("exactly once")
+//   8. drop jobTypes from b2b_payment_confirmed        -> 2 red
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -69,6 +75,63 @@ check("the whole corporate line, from web lead to lot closed", () => {
     ["b2b_submitted_to_finance", admin],
   ]);
   assert.equal(end.status, "Pending Finance Approval");
+});
+
+// ── Finance pays the lot (writer moved onto the engine 4 Sep 2026) ──────────
+
+check("finance confirms the lot payment: Pending Finance Approval -> Paid -> unpack", () => {
+  // The two rows that used to be a deliberate gap: confirmPayoutTransfer now
+  // drives the first, unpackB2BLot the second. Same lot, same actor line.
+  const end = walk(lot("Pending Finance Approval"), [
+    ["b2b_payment_confirmed", ACTOR.FINANCE],
+    ["b2b_unpacked_to_stock", admin],
+  ]);
+  assert.equal(end.status, "Completed");
+});
+
+check("b2b_payment_confirmed lands on canonical Paid, not the legacy 'Payment Completed'", () => {
+  const out = decideTransition({ job: lot("Pending Finance Approval"), event: "b2b_payment_confirmed", actor: ACTOR.FINANCE });
+  assert.ok(out.ok, out.code);
+  assert.equal(out.to, "Paid");
+  // Readers that still compare the old spelling get it through normalizeStatus.
+  assert.equal(normalizeStatus("Payment Completed"), out.to);
+});
+
+check("b2b_payment_confirmed does not claim the paid_at stamp — the registry gives it to one event", () => {
+  // The B2B leg gets paid_at from onAdminJobStatusNotify on entry to Paid, the
+  // same way admin_marked_paid does. A second stampsPaid row would be caught by
+  // status-apply.test.mjs; this pins the reason from this side.
+  const out = decideTransition({ job: lot("Pending Finance Approval"), event: "b2b_payment_confirmed", actor: ACTOR.FINANCE });
+  assert.equal(out.stamps.paid, false);
+});
+
+check("only finance may confirm a lot payment; staff and managers are refused", () => {
+  for (const actor of [ACTOR.ADMIN_STAFF, ACTOR.ADMIN_MANAGER, ACTOR.RIDER]) {
+    const out = decideTransition({ job: lot("Pending Finance Approval"), event: "b2b_payment_confirmed", actor });
+    assert.equal(out.ok, false, `${actor} must not confirm payment`);
+    assert.equal(out.code, "wrong_actor");
+  }
+});
+
+check("a retail job cannot take the corporate payment event, and a lot cannot take the retail one", () => {
+  const retail = decideTransition({
+    job: { status: "Pending Finance Approval", receive_method: "Pickup" },
+    event: "b2b_payment_confirmed",
+    actor: ACTOR.FINANCE,
+  });
+  assert.equal(retail.code, "wrong_job_type");
+  // The lot sits at a status the retail row does not list — illegal_from, so
+  // confirmPayoutTransfer choosing the event by job.type is what makes it work.
+  const corp = decideTransition({ job: lot("Pending Finance Approval"), event: "payment_confirmed", actor: ACTOR.FINANCE });
+  assert.equal(corp.ok, false);
+  assert.equal(corp.code, "illegal_from");
+});
+
+check("a lot cannot be paid twice — Paid is not in the from-list", () => {
+  for (const status of ["Paid", "Payment Completed", "PAID"]) {
+    const out = decideTransition({ job: lot(status), event: "b2b_payment_confirmed", actor: ACTOR.FINANCE });
+    assert.equal(out.code, "illegal_from", `${status} accepted a second payment`);
+  }
 });
 
 check("a deal created from the corporate web form walks the same line", () => {

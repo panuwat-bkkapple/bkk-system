@@ -462,8 +462,15 @@ const TRANSITIONS = {
   },
   // The one event that stamps paid_at. Everything downstream reads that field
   // instead of guessing from the status or scanning qc_logs.
+  //
+  // PRICE_ACCEPTED อยู่ใน from-list เพราะหน้าจ่ายเงิน (TradeInPayouts /
+  // MobileFinancePage) ดึงงานที่ลูกค้ากดยอมรับราคาจากเว็บมาโอนตรงโดยไม่ผ่านปุ่ม
+  // "ผ่าน QC -> Payout" — ทางนั้นมีคนใช้จริงมาตลอด (คอมเมนต์ในหน้านั้นเขียนว่า
+  // "ดึง Price Accepted ของลูกค้ามาโชว์ด้วย") ตอน writer ย้ายมา engine (4 ก.ย.
+  // 2569 — confirmPayoutTransfer) from-list จึงต้องรับมันตามกฎ "ขยายได้ ห้ามหด"
+  // ไม่งั้นงานทั้งกลุ่มจ่ายเงินไม่ได้ทันทีที่ deploy
   payment_confirmed: {
-    from: [S.PAYOUT_PROCESSING],
+    from: [S.PAYOUT_PROCESSING, S.PRICE_ACCEPTED],
     to: S.WAITING_FOR_HANDOVER,
     custody: "=",
     actors: [ACTOR.FINANCE],
@@ -780,15 +787,29 @@ const TRANSITIONS = {
     jobTypes: B2B_JOB_TYPES,
   },
 
-  // THE GAP BETWEEN THE TWO ROWS ABOVE AND BELOW IS DELIBERATE.
-  // Pending Finance Approval -> Paid has no event, because the write that
-  // makes it is `payoutTransfer` (src/utils/payoutTransfer.ts), which sets
-  // the status and the DEBIT/CREDIT ledger rows in ONE multi-path update.
-  // Splitting that so the status half could go through the engine would put
-  // money movement and its ledger entry in two writes that can half-succeed —
-  // the reason that file documents for staying off the engine. The from-list
-  // below reads "Paid" because the legacy value that write produces for the
-  // B2B branch is "Payment Completed", which normalizeStatus reads as Paid.
+  // บัญชีโอนเงินค่าล็อตให้บริษัทลูกค้าแล้ว — ขา B2B ของ payment_confirmed
+  //
+  // เดิมช่องระหว่าง Pending Finance Approval กับ Paid **จงใจไม่มี event** เพราะ
+  // ตัวเขียนคือ `payoutTransfer` ฝั่งไคลเอนต์ที่เขียนสถานะกับแถว ledger ใน
+  // multi-path update ก้อนเดียว (สะกดเก่า "Payment Completed"). 4 ก.ย. 2569
+  // ก้อนนั้นย้ายขึ้นมาเป็น callable `confirmPayoutTransfer` (./payout-transfer.js)
+  // ซึ่งเรียก applyTransition แล้วค่อยเขียน ledger — ลำดับและการกู้คืนอยู่ที่หัว
+  // ไฟล์นั้น. แถวนี้จึงเกิดขึ้นเพื่อให้ขานั้นมี from-list / status_version /
+  // status_history เหมือนขาขายปลีก
+  //
+  // **ไม่ตั้ง stampsPaid โดยตั้งใจ** — registry ให้สิทธิ์ประทับ paid_at กับ
+  // `payment_confirmed` ตัวเดียว (เทส "exactly once" ใน status-apply.test.mjs)
+  // ปลายทางเป็น Paid ซึ่งอยู่ใน PAID_STATUSES ของ trigger onAdminJobStatusNotify
+  // paid_at ของขานี้จึงถูกประทับโดย trigger ตัวเดียวกับ admin_marked_paid
+  // (write-once เหมือนกัน) ส่วน transferred_at มาใน patch ของ transaction เดียวกัน
+  b2b_payment_confirmed: {
+    from: [B.PENDING_FINANCE_APPROVAL],
+    to: S.PAID,
+    custody: "=",
+    actors: [ACTOR.FINANCE],
+    jobTypes: B2B_JOB_TYPES,
+  },
+
 
   // Closing the lot: the deal ends and its devices are re-created as one
   // child job per unit, each entering the retail inventory flow at Pending QC.
