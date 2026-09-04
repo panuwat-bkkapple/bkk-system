@@ -32,6 +32,7 @@ const { getDatabase } = require("firebase-admin/database");
 const { lookupStaffByAuth } = require("./sickw-core");
 const { riderStanding, STANDING } = require("./actor");
 const { summarizeRiderPushCoverage } = require("./rider-push-coverage");
+const { ssoRegistrationState, SSO_REGISTER_DAYS } = require("./hr-compliance");
 
 const REGION = "asia-southeast1";
 const HEALTH_PATH = "system_health";
@@ -580,6 +581,68 @@ function buildProbes(db) {
           };
         }
         return { status: "ok", message: `เอกสารเก่าสุดอายุ ${ageDays} วัน (เพดาน ${RETENTION_DAYS})` };
+      },
+    },
+
+    {
+      id: "sso_registration",
+      label: "ขึ้นทะเบียนประกันสังคมพนักงานใหม่",
+      // **ตัวจับกำหนดที่ไม่มีใครนั่งนับให้** — ม.34 พ.ร.บ.ประกันสังคม กำหนดให้
+      // นายจ้างยื่นขึ้นทะเบียนผู้ประกันตนภายใน 30 วันนับแต่วันที่ลูกจ้างเข้าทำงาน
+      // เลยกำหนดแล้วมีเบี้ยปรับ และไม่มีอะไรในระบบส่งเสียงเลย: รอบจ่ายเงินเดือน
+      // หักเงินสมทบได้ตามปกติทั้งที่ยังไม่ขึ้นทะเบียน = เงินถูกหักจากลูกจ้างไว้
+      // แต่เขายังไม่มีสิทธิ์ใช้
+      //
+      // ตระกูลเดียวกับ `search_analytics_ttl`: ตรวจ **ผลลัพธ์** (มีใครเลย
+      // กำหนดไหม) ไม่ใช่ตรวจว่ามีใครตั้งเตือนไว้หรือยัง
+      //
+      // **ไม่ใส่ชื่อคนลงข้อความแจ้งเตือน** — ใช้รหัสพนักงานแทน (กฎเดียวกับ
+      // `order_reconciliation` ที่ไม่ใส่ชื่อ/เบอร์ลูกค้า) รายละเอียดดูที่หน้า
+      // ทะเบียนพนักงานซึ่ง gate สิทธิ์ไว้แล้ว
+      run: async () => {
+        const [empSnap, privSnap] = await Promise.all([
+          db.ref("employees").once("value"),
+          db.ref("employees_private").once("value"),
+        ]);
+        const employees = empSnap.val() || {};
+        const privs = privSnap.val() || {};
+        if (!Object.keys(employees).length) {
+          return { status: "skip", message: "ยังไม่มีพนักงานในทะเบียน" };
+        }
+
+        const now = Date.now();
+        const overdue = [];
+        const dueSoon = [];
+        const unknown = [];
+        for (const [id, e] of Object.entries(employees)) {
+          const st = ssoRegistrationState({ employee: { id, ...(e || {}) }, priv: privs[id] || {}, now });
+          const code = (e && e.employee_code) || id;
+          if (st.state === "overdue") overdue.push(`${code} (เกิน ${Math.abs(st.daysLeft)} วัน)`);
+          else if (st.state === "due_soon") dueSoon.push(`${code} (เหลือ ${st.daysLeft} วัน)`);
+          else if (st.state === "unknown") unknown.push(code);
+        }
+
+        const brief = (list) => list.slice(0, 5).join(" · ") + (list.length > 5 ? ` และอีก ${list.length - 5} คน` : "");
+        if (overdue.length) {
+          return {
+            status: "fail",
+            message: `เลยกำหนดยื่น สปส.1-03 (${SSO_REGISTER_DAYS} วัน) แล้ว ${overdue.length} คน: ${brief(overdue)}`,
+            meta: { overdue: overdue.length, due_soon: dueSoon.length, unknown: unknown.length },
+          };
+        }
+        if (dueSoon.length || unknown.length) {
+          const parts = [];
+          if (dueSoon.length) parts.push(`ใกล้ครบกำหนด ${dueSoon.length} คน: ${brief(dueSoon)}`);
+          // ไม่มีวันเริ่มงาน = คำนวณกำหนดไม่ได้ **ไม่ใช่ว่าไม่มีปัญหา** — คนคนนั้น
+          // อาจเข้าทำงานมาแล้วครึ่งปี การเงียบให้เขาคือการเดาไปทางที่สบายกว่า
+          if (unknown.length) parts.push(`ไม่มีวันเริ่มงานให้คำนวณกำหนด ${unknown.length} คน: ${brief(unknown)}`);
+          return {
+            status: "warn",
+            message: parts.join(" · "),
+            meta: { overdue: 0, due_soon: dueSoon.length, unknown: unknown.length },
+          };
+        }
+        return { status: "ok", message: "ทุกคนขึ้นทะเบียนแล้ว หรือยังอยู่ในกำหนด" };
       },
     },
 

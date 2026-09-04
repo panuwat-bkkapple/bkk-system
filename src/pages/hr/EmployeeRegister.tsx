@@ -26,6 +26,8 @@ import {
 import { EmployeeTimeline, TimelineHeading } from './EmployeeTimeline';
 import type { TimelineEvent } from './employeeTimeline';
 import { EmployeeFilesPanel, FilesSummary } from './EmployeeFiles';
+import { SsoBadge } from './SsoBadge';
+import type { SsoState } from './SsoBadge';
 import type { ChecklistRow, FileRow } from './employeeFiles';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
@@ -75,13 +77,14 @@ interface EmployeePrivate {
   social_security_no?: string | null;
   emergency_contact?: { name?: string | null; relation?: string | null; phone?: string | null } | null;
   bank?: { name?: string | null; account?: string | null; account_name?: string | null } | null;
-  pay?: { base_salary?: number | null; daily_rate?: number | null } | null;
+  pay?: { base_salary?: number | null; daily_rate?: number | null; pay_method?: string | null } | null;
   /** ค่าลดหย่อนภาษี — เก็บเป็นจำนวน ไม่ใช่จำนวนเงิน (อัตราต่อหัวอยู่ที่ settings/hr) */
   tax?: { spouse?: boolean; children?: number; parents?: number; other?: number } | null;
 }
 
 interface EmployeeRow {
   id: string;
+  sso?: SsoState | null;
   employee_code?: string;
   name?: string;
   nickname?: string | null;
@@ -302,6 +305,7 @@ export const EmployeeRegister = () => {
                         {row.links?.rider_id ? ' บัญชีไรเดอร์' : ''}
                         {!row.links?.staff_id && !row.links?.rider_id ? 'ยังไม่ผูกบัญชี' : ''}
                       </span>
+                      <SsoBadge sso={row.sso} />
                     </div>
                     {row.access?.stale_access && (
                       <p className="mt-2 text-xs font-bold text-rose-700 flex items-center gap-1">
@@ -694,6 +698,7 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
     bank_name: priv.bank?.name || '',
     bank_account: priv.bank?.account || '',
     bank_account_name: priv.bank?.account_name || '',
+    pay_method: priv.pay?.pay_method === 'cash' ? 'cash' : 'transfer',
     tax_spouse: priv.tax?.spouse ? '1' : '',
     tax_children: priv.tax?.children != null ? String(priv.tax.children) : '',
     tax_parents: priv.tax?.parents != null ? String(priv.tax.parents) : '',
@@ -718,7 +723,11 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
         ? { name: form.emg_name, relation: form.emg_relation, phone: form.emg_phone }
         : null,
       bank: { name: form.bank_name, account: form.bank_account, account_name: form.bank_account_name },
-      pay: { base_salary: form.base_salary || null, daily_rate: form.daily_rate || null },
+      pay: {
+        base_salary: form.base_salary || null,
+        daily_rate: form.daily_rate || null,
+        pay_method: form.pay_method,
+      },
       tax: {
         spouse: form.tax_spouse === '1',
         children: form.tax_children || 0,
@@ -805,6 +814,19 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
             {field('bank_name', 'ธนาคาร')}
             {field('bank_account', 'เลขบัญชี')}
             {field('bank_account_name', 'ชื่อบัญชี')}
+            <label className="block">
+              <span className="text-xs font-bold text-gray-500">ช่องทางจ่ายเงินเดือน</span>
+              <select value={form.pay_method} onChange={(e) => set('pay_method', e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                <option value="transfer">โอนเข้าบัญชี</option>
+                <option value="cash">เงินสด</option>
+              </select>
+              {/* ตั้งเป็นโอนแล้วไม่มีเลขบัญชี = อนุมัติรอบจ่ายไม่ได้ ซึ่งตั้งใจ
+                  ให้ดังตรงนี้แทนที่จะไปเงียบแล้วตายตอนโอนจริง */}
+              <span className="text-[11px] text-gray-400 mt-1 block">
+                เลือก &quot;โอนเข้าบัญชี&quot; แล้วต้องมีเลขบัญชี ไม่งั้นอนุมัติรอบจ่ายไม่ได้
+              </span>
+            </label>
             {field('birth_date', 'วันเกิด', 'date')}
             {field('line', 'Line ID')}
             {field('social_security_no', 'เลขประกันสังคม')}

@@ -27,6 +27,7 @@ const { getDatabase } = require("firebase-admin/database");
 
 const { requireStaffRole, suspendStaffAccount } = require("./staff-accounts");
 const { suspendRiderAccount } = require("./rider-accounts");
+const { ssoRegistrationState, ssoStateMessage } = require("./hr-compliance");
 const {
   HR_ROLES,
   EMPLOYEE_STATUSES,
@@ -176,12 +177,21 @@ function registerHr() {
     const privSnap = await db.ref("employees_private").once("value");
     const privateMap = privSnap.exists() ? privSnap.val() : {};
 
-    const items = Object.entries(employees).map(([id, e]) => ({
-      id,
-      ...e,
-      access: accessSummary(e, staffMap, ridersMap),
-      private: privateMap[id] || null,
-    }));
+    // **สถานะ ปกส. คิดฝั่ง server ไม่ใช่ให้หน้าเว็บคิดเอง** — กฎเรื่องกำหนด
+    // 30 วันเป็นกติกาเดียวที่ probe ใน /system-health กับรอบจ่ายเงินเดือนก็ใช้
+    // ถ้าให้ UI คิดเองจะได้สำเนาที่สามที่ drift โดยไม่มีใครรู้ว่าฝั่งไหนถูก
+    const now = nowMs();
+    const items = Object.entries(employees).map(([id, e]) => {
+      const priv = privateMap[id] || null;
+      const sso = ssoRegistrationState({ employee: { id, ...e }, priv: priv || {}, now });
+      return {
+        id,
+        ...e,
+        access: accessSummary(e, staffMap, ridersMap),
+        private: priv,
+        sso: { state: sso.state, days_left: sso.daysLeft ?? null, message: ssoStateMessage(sso) },
+      };
+    });
     items.sort((a, b) => String(a.employee_code || "").localeCompare(String(b.employee_code || "")));
 
     return {

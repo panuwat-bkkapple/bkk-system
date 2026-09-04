@@ -53,6 +53,9 @@ interface Item {
   days_worked: number | null;
   note: string | null;
   incomplete: string | null;
+  /** เรื่องที่ต้องตาม แต่ไม่ได้ทำให้สลิปใบนี้ผิด — **ไม่กันการอนุมัติ**
+   *  (เช่น ยังไม่ขึ้นทะเบียนประกันสังคมเกิน 30 วัน) ดูเหตุผลที่ hr-compliance.js */
+  warnings?: string[] | null;
   pay_method?: 'transfer' | 'cash';
   bank_name?: string | null;
   bank_masked?: string | null;
@@ -64,7 +67,7 @@ interface Item {
 }
 interface Totals {
   headcount: number; gross: number; wht: number;
-  sso_employee: number; sso_employer: number; net: number; incomplete: number;
+  sso_employee: number; sso_employer: number; net: number; incomplete: number; warned?: number;
   employer_cost?: number; transfer?: number; cash?: number;
 }
 interface Preset { id: string | null; label: string; kind: 'earning' | 'deduction'; taxable: boolean; sso_wage: boolean; occasional?: boolean }
@@ -241,6 +244,7 @@ export const PayrollRuns = () => {
 
   const locked = run?.status !== 'draft';
   const incomplete = useMemo(() => items.filter((i) => i.incomplete), [items]);
+  const warned = useMemo(() => items.filter((i) => (i.warnings || []).length > 0), [items]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -366,9 +370,17 @@ export const PayrollRuns = () => {
                 <AlertTriangle size={15} /> ยังกรอกไม่ครบ {incomplete.length} คน — อนุมัติไม่ได้จนกว่าจะครบ
               </p>
             )}
+            {/* **เตือน ไม่กัน** — การหักเงินสมทบตั้งแต่เดือนแรกถูกต้องอยู่แล้ว
+                ถ้ากันไว้ ทั้งบริษัทจะจ่ายเงินเดือนไม่ได้เพราะคนใหม่หนึ่งคน
+                สิ่งที่ต้องไม่เกิดคือความเงียบ ไม่ใช่การจ่ายเงิน */}
+            {warned.length > 0 && (
+              <p className="mt-2 text-sm font-bold text-amber-700 flex items-center gap-2">
+                <AlertTriangle size={15} /> มี {warned.length} คนที่ต้องตามเรื่องประกันสังคม — อนุมัติได้ แต่อย่าปล่อยไว้
+              </p>
+            )}
             <p className="mt-4 text-xs text-gray-500">
               แยกตามช่องทางจ่าย — โอน {baht(run.totals?.transfer)} · เงินสด {baht(run.totals?.cash)}
-              <span className="text-gray-400"> (คนที่ยังไม่กรอกเลขบัญชีจะนับเป็นเงินสด)</span>
+              <span className="text-gray-400"> (ตามช่องทางที่ตั้งไว้ในแฟ้มพนักงาน ไม่ได้เดาจากการมีเลขบัญชี)</span>
             </p>
             {locked && (
               <p className="mt-2 text-xs text-gray-400 flex items-center gap-1">
@@ -392,6 +404,9 @@ export const PayrollRuns = () => {
                           <span className="text-xs font-mono text-gray-400 ml-2">{item.employee_code}</span>
                         </p>
                         {item.incomplete && <p className="text-xs font-bold text-rose-600 mt-0.5">{item.incomplete}</p>}
+                        {(item.warnings || []).map((w) => (
+                          <p key={w} className="text-xs font-bold text-amber-700 mt-0.5">{w}</p>
+                        ))}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
