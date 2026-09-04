@@ -5,7 +5,7 @@
 // → เคส canonical แดง (isInventoryStock / isReadyToSell ของ 'Ready To Sell')
 import { describe, it, expect } from 'vitest';
 import { JOB_STATUS } from '../types/job-statuses';
-import { isInventoryStock, isInStock, isReadyToSell, isReserved, inventoryStatusOf } from './inventoryStatus';
+import { isInventoryStock, isInStock, isReadyToSell, isReserved, inventoryStatusOf, selectPosStock } from './inventoryStatus';
 
 describe('inventory status compare', () => {
    it('lists both spellings of Ready To Sell, In Stock, and raw Reserved', () => {
@@ -30,5 +30,20 @@ describe('inventory status compare', () => {
       expect(inventoryStatusOf({ status: 'Reserved' })).toBe('Reserved');
       expect(inventoryStatusOf({ status: '' })).toBeNull();
       expect(inventoryStatusOf(null)).toBeNull();
+   });
+});
+
+// POS (#711 commit 2): เครื่องที่ Push to POS หลัง #674 สะกด 'Ready To Sell' ต้องขายได้
+// injection ที่ต้องแดง: selectPosStock กลับเป็น jobs.filter(j => j.status === 'Ready to Sell')
+describe('POS stock list', () => {
+   it('sells devices under both spellings of Ready To Sell and nothing else', () => {
+      const jobs = [
+         { id: 'engine-pos', status: JOB_STATUS.READY_TO_SELL },
+         { id: 'legacy-pos', status: 'Ready to Sell' },
+         { id: 'stock', status: JOB_STATUS.IN_STOCK },
+         { id: 'reserved', status: 'Reserved' },
+         { id: 'sold', status: JOB_STATUS.SOLD },
+      ];
+      expect(selectPosStock(jobs).map((j) => j.id)).toEqual(['engine-pos', 'legacy-pos']);
    });
 });

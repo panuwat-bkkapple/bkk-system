@@ -33,3 +33,8 @@ export const isInventoryStock = (job: StatusJob): boolean => {
 export const isInStock = (job: StatusJob): boolean => inventoryStatusOf(job) === JOB_STATUS.IN_STOCK;
 export const isReadyToSell = (job: StatusJob): boolean => inventoryStatusOf(job) === JOB_STATUS.READY_TO_SELL;
 export const isReserved = (job: StatusJob): boolean => inventoryStatusOf(job) === RESERVED_STATUS;
+
+// รายการเครื่องบน /sales (POS) = เครื่องที่ขึ้นหน้าร้านแล้ว — เทียบผ่าน isReadyToSell
+// เดิม POS.tsx กรอง j.status === 'Ready to Sell' สะกดเดียว จึงไม่เห็นเครื่องที่ engine
+// เขียน 'Ready To Sell' ตั้งแต่ #674 (ขายหน้าร้านไม่ได้ทั้งที่ Push to POS แล้ว)
+export const selectPosStock = <T extends StatusJob>(jobs: T[]): T[] => jobs.filter(isReadyToSell);
