@@ -356,6 +356,24 @@ check("custody answers what status could not: same status, two holders", () => {
   assert.equal(pickup.to, mailIn.to);
 });
 
+check("finance can pay straight from Price Accepted — the finance page has always listed those jobs", () => {
+  // TradeInPayouts / MobileFinancePage pull 'price accepted' rows into the
+  // payout list next to 'payout processing'. When the writer moved onto the
+  // engine the from-list had to widen to match, or every job a customer
+  // accepted on the web would be refused with illegal_from at the bank step.
+  for (const status of ["Payout Processing", "Price Accepted"]) {
+    const out = decideTransition({ job: job({ status }), event: "payment_confirmed", actor: ACTOR.FINANCE });
+    assert.equal(out.ok, true, `${status} refused: ${out.code}`);
+    assert.equal(out.to, "Waiting For Handover");
+    assert.equal(out.stamps.paid, true);
+  }
+  // And nowhere earlier: an inspection that has not concluded is not payable.
+  for (const status of ["Being Inspected", "QC Review", "Negotiation", "Pending QC"]) {
+    const out = decideTransition({ job: job({ status }), event: "payment_confirmed", actor: ACTOR.FINANCE });
+    assert.equal(out.code, "illegal_from", `${status} must not be payable directly`);
+  }
+});
+
 check("paid_at is stamped by exactly one event", () => {
   const out = decideTransition({
     job: job({ status: "Payout Processing" }),
@@ -688,6 +706,8 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
     sold: ["Ready To Sell", "In Stock", "Pending QC"],
     broadcast_recalled: ["Active Lead"],
     admin_marked_paid: ["Payout Processing"],
+    payment_confirmed: ["Payout Processing", "Price Accepted"],
+    b2b_payment_confirmed: ["Pending Finance Approval"],
     processing_started: ["Appointment Set", "Waiting Drop-off", "Awaiting Shipping"],
     sale_reverted_to_qc: ["Sold", "In Stock", "Ready To Sell", "Sent To QC Lab"],
   };

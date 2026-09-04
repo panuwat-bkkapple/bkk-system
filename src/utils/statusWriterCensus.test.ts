@@ -19,7 +19,7 @@
 // แดงเพราะลดลง = ย้ายสำเร็จ ลดเลขข้างล่างพร้อมกับ PR นั้น
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
@@ -57,7 +57,7 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 88;
+const MAX_DIRECT_JOB_WRITES = 77; // 88 -> 77: payoutTransfer.ts (10 path-form) ย้ายขึ้น server 4 ก.ย. 2569
 
 const require = createRequire(import.meta.url);
 
@@ -116,31 +116,35 @@ describe('สำมะโนการเขียนโหนดงานตร�
     expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
   });
 
-  it('จอจ่ายเงินสองจอเรียก builder ตัวเดียว ไม่ประกอบก้อนเขียนเอง', () => {
-    // เดิมสองไฟล์นี้ถือสำเนาคนละชุด เหมือนกัน 88% ตรงกันเป๊ะ 53 บรรทัด — ซึ่งเป็น
-    // รูปที่ CLAUDE.md เตือน: กฎที่มีสองสำเนาคือกฎที่วันหนึ่งจะไม่ตรงกัน และตัวที่
-    // ต่างจะเป็นตัวที่ไม่มีใครเปิดดู
+  it('จอจ่ายเงินสองจอเรียก confirmPayoutTransfer ตัวเดียว ไม่ประกอบก้อนเขียนเอง', () => {
+    // เดิมสองไฟล์นี้ถือสำเนาคนละชุด เหมือนกัน 88% ตรงกันเป๊ะ 53 บรรทัด (P2-n รวมเป็น
+    // buildPayoutUpdates) และ 4 ก.ย. 2569 ก้อนนั้นย้ายขึ้น server ทั้งก้อน
+    // (functions/payout-transfer.js) — จอเหลือแค่อัปโหลดสลิปแล้วเรียก callable
     //
-    // ด่านนี้จับ "ประกอบเอง" ไม่ใช่แค่ "เรียก builder ไหม" เพราะแบบหลังเขียวได้
+    // ด่านนี้จับ "ประกอบเอง" ไม่ใช่แค่ "เรียก callable ไหม" เพราะแบบหลังเขียวได้
     // ทั้งที่มีคนก๊อปก้อนเดิมกลับมาวางข้างๆ
     for (const f of [
       'pages/finance/components/TradeInPayouts.tsx',
       'pages/mobile/MobileFinancePage.tsx',
     ]) {
       const page = readFileSync(resolve(SRC, f), 'utf8');
-      expect(page, f).toContain('buildPayoutUpdates(');
+      expect(page, f).toContain('confirmPayoutTransfer(');
+      expect(page, f).toContain('expectedNetPayout: getNetPayout(');
       expect(page, `${f} ยังประกอบก้อนเขียนเอง`).not.toContain('/paid_at`]');
       expect(page, `${f} ยังเขียนแถว ledger เอง`).not.toContain("type: 'DEBIT'");
+      expect(page, `${f} ยังเขียนโหนดงานตรง`).not.toContain('update(ref(db)');
+      expect(page, `${f} ยังคิดยอดเอง`).not.toContain('const getNetPayout');
     }
   });
 
-  it('payoutTransfer ยังไม่ย้ายไป engine และเหตุผลถูกจดไว้', () => {
-    // ตรึง **เหตุผลที่หยุด** ไม่ใช่ตรึงโค้ด: ก้อนนี้เขียนสถานะกับแถว ledger ใน
-    // update() ก้อนเดียวแบบ atomic การแยกสถานะไป transitionJob ทำลายข้อนั้น
-    // ถ้าวันหนึ่งมีคนย้ายจริง ต้องมาลบเทสนี้พร้อมกัน = มีจังหวะให้อ่านเหตุผลก่อน
-    const util = readFileSync(resolve(SRC, 'utils/payoutTransfer.ts'), 'utf8');
-    expect(util).toContain('atomic');
-    expect(util).not.toContain('runJobTransition');
+  it('payoutTransfer ย้ายไป engine แล้ว — writer ไคลเอนต์ตัวเก่าห้ามกลับมา', () => {
+    // เคยเป็น "ยังไม่ย้าย และเหตุผลถูกจดไว้" (atomic update ก้อนเดียว) — เหตุผลนั้น
+    // ถูกตอบด้วยการยกทั้งก้อนขึ้น Cloud Function (transition ก่อน ledger; ดูหัว
+    // functions/payout-transfer.js) ไม่ใช่ด้วยการแยกครึ่งฝั่งไคลเอนต์
+    expect(existsSync(resolve(SRC, 'utils/payoutTransfer.ts'))).toBe(false);
+    const client = readFileSync(resolve(SRC, 'utils/confirmPayoutTransfer.ts'), 'utf8');
+    expect(client).toContain("'confirmPayoutTransfer'");
+    expect(client).not.toContain('update(ref(');
   });
 
   it('Inventory: ปุ่มขึ้นหน้าร้านกับขายแล้วยิง event เหลือฟอร์มแก้ราคาที่รอ enum', () => {
@@ -252,8 +256,9 @@ describe('สำมะโนการเขียนโหนดงานตร�
     const names = perFile.map(([f]) => f);
     expect(names.some((f) => f.endsWith('B2CWorkspacePage.tsx'))).toBe(true);
     expect(names.some((f) => f.endsWith('MobileTicketDetail.tsx'))).toBe(true);
-    // นับได้ทั้งสองรูป ไม่ใช่แค่รูปเดียว — รูป multi-path (`updates[...] = `)
-    // ย้ายจาก TradeInPayouts ไปอยู่ที่ payoutTransfer.ts ใน P2-n แล้ว
-    expect(names.some((f) => f.endsWith('payoutTransfer.ts'))).toBe(true);
+    // รูป multi-path (`updates[...] = `) เคยถูกนับที่ payoutTransfer.ts — ไฟล์นั้น
+    // ย้ายขึ้น server แล้ว (4 ก.ย. 2569) จึงไม่เหลือให้นับ; regex PATH_FORM ยังอยู่
+    // เพื่อกันคนเขียนรูปนั้นกลับมา
+    expect(names.some((f) => f.endsWith('payoutTransfer.ts'))).toBe(false);
   });
 });

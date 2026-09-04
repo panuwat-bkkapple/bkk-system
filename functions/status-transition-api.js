@@ -58,6 +58,12 @@ const CODE_TO_HTTPS = {
   already_paid: "failed-precondition",
   not_paid: "failed-precondition",
   write_contended: "aborted",
+  // confirmPayoutTransfer (./payout-transfer.js) — refusals its guard adds on top
+  // of the engine's: the on-screen amount no longer matches the row, the caller
+  // did not pass the finance gate, or the request itself was malformed.
+  amount_changed: "failed-precondition",
+  not_finance: "permission-denied",
+  invalid_input: "invalid-argument",
 };
 
 function httpsErrorFor(result) {
@@ -146,3 +152,7 @@ exports.transitionJob = onCall({ region: REGION }, async (request) => {
 // Exported for the offline suite: the parts worth testing are the mappings and
 // the guard, not the onCall plumbing.
 exports.__test__ = { actorForRole, riderOwnershipGuard, CODE_TO_HTTPS };
+// Shared with the other callables that speak engine result codes to a client
+// (./payout-transfer.js) so "you may not" vs "try again" stays one table.
+exports.httpsErrorFor = httpsErrorFor;
+exports.CODE_TO_HTTPS = CODE_TO_HTTPS;

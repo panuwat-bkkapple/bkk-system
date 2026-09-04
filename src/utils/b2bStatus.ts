@@ -4,7 +4,8 @@
 // เคสจริง 4 ก.ย. 2569 (P1 ในรายงาน status-literal survey): ล็อต B2B ที่จ่ายเงินแล้ว
 // มีสองสะกดอยู่พร้อมกันบน production —
 //   - 'Paid'              จาก engine (P3-a #690 สาย B2B เข้า canonical enum)
-//   - 'Payment Completed' จาก payoutTransfer.ts (writer ที่ยังไม่ผ่าน engine โดยตั้งใจ)
+//   - 'Payment Completed' จาก payoutTransfer.ts (writer ไคลเอนต์ตัวเก่า — ย้ายขึ้น engine
+//     เป็น confirmPayoutTransfer 4 ก.ย. 2569 ซึ่งเขียน 'Paid'; แถวที่มันเขียนไว้ยังอยู่)
 // reader ที่เทียบ 'Payment Completed' สะกดเดียว (B2BAuditorTool lockedStatuses,
 // TradeInDashboard แท็บ Logistics + ป้าย) จึงมองไม่เห็นใบที่ engine เขียน — ผลที่
 // อันตรายที่สุดคือ **ล็อตที่จ่ายเงินแล้วยังแก้เกรด/ราคาได้** เพราะไม่ถูกล็อก
@@ -24,7 +25,7 @@ export const B2B_LOCKED_STATUSES: ReadonlySet<string> = new Set([
 ]);
 export const isB2BLotLocked = (job: StatusJob): boolean => inSet(job, B2B_LOCKED_STATUSES);
 
-/** ล็อตจ่ายเงินแล้ว — ทั้ง 'Paid' (engine) และ 'Payment Completed' / 'PAID' (แถวเก่า + payoutTransfer) */
+/** ล็อตจ่ายเงินแล้ว — ทั้ง 'Paid' (engine รวม confirmPayoutTransfer) และ 'Payment Completed' / 'PAID' (แถวเก่า) */
 export const isB2BPaid = (job: StatusJob): boolean => canonicalStatusOf(job) === JOB_STATUS.PAID;
 
 // สามแท็บของ TradeInDashboard ฝั่ง B2B

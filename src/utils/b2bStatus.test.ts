@@ -1,7 +1,7 @@
 // ด่านของสาย B2B (P1 ในรายงาน status-literal survey 4 ก.ย. 2569)
 //
 // ล็อตที่จ่ายเงินแล้วต้องล็อกภายใต้ทั้งสองสะกด — 'Paid' (engine, P3-a #690) และ
-// 'Payment Completed' (payoutTransfer.ts ซึ่งยังไม่ผ่าน engine โดยตั้งใจ) + 'PAID'
+// 'Payment Completed' (แถวที่ payoutTransfer.ts เขียนไว้ก่อนย้ายขึ้น engine 4 ก.ย. 2569) + 'PAID'
 //
 // injection ที่ต้องแดง: canonicalStatusOf คืนค่าดิบเสมอ (ตัด normalize) → เคส 'Paid'
 // กับ 'PAID' แดงทั้ง lock / logistics / isB2BPaid

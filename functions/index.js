@@ -3044,54 +3044,10 @@ exports.onPickupScheduleRescheduled = onValueUpdated(
 // namespace reason as the other triggers.
 // =============================================================================
 
-// Sum of admin/rider ad-hoc price adjustments that are currently APPLIED (a
-// negative amount deducts, positive adds). Proposals still `pending` or
-// `rejected` are ignored so they never move the payout until approved. Stored at
-// jobs/{id}/adjustments (array or push-keyed object). Mirrored verbatim in
-// bkk-frontend-next/functions/src/index.ts and the three clients — keep in sync.
-function sumAppliedAdjustments(job) {
-  const raw = job && job.adjustments;
-  const list = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === "object" ? Object.values(raw) : []);
-  return list.reduce((sum, a) => {
-    if (!a || a.status !== "applied") return sum;
-    const amt = Number(a.amount);
-    return Number.isFinite(amt) ? sum + amt : sum;
-  }, 0);
-}
-
-// คูปองบนงาน — รูปแบบหลายใบ
-//
-// งานหนึ่งใบถือคูปองได้หนึ่งใบต่อหนึ่ง bucket (คูปองที่ผูกกับสินค้าได้ทุกเครื่อง +
-// คูปองรีวิว 1 ใบ + คูปองโปรโมชั่นระดับออเดอร์ 1 ใบ) เก็บที่
-// jobs/{id}/applied_coupons ส่วนงานเก่าและ Manual Top-up ของแอดมินยังเป็น object
-// เดี่ยว jobs/{id}/applied_coupon เหมือนเดิม. ตอนสร้างงานเรายังเขียน
-// `applied_coupon` ให้เป็นใบที่มูลค่าสูงสุดด้วย เพื่อให้ UI ที่ยังไม่ย้ายโชว์ได้
-// **จึงห้ามบวกทั้งสองรูปแบบ** (จะนับซ้ำ) — array มาก่อนเสมอ
-//
-// MIRROR 4 ที่ (ต้อง sync): bkk-frontend-next/functions/src/index.ts,
-// bkk-frontend-next/app/utils/jobPricing.ts, bkk-system/src/utils/adjustments.ts,
-// bkk-rider-app/src/utils/adjustments.ts
-function listAppliedCoupons(job) {
-  const raw = job && job.applied_coupons;
-  const list = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === "object" ? Object.values(raw) : []);
-  const present = list.filter(Boolean);
-  if (present.length > 0) return present;
-  return (job && job.applied_coupon) ? [job.applied_coupon] : [];
-}
-
-// เงินที่คูปองบวกเข้ายอดโอน — คูปองชนิด `service` (ส่งฟรี) ไม่มีตัวเงิน
-// มันไปล้างค่าบริการรับเครื่องแทน
-function sumAppliedCoupons(job) {
-  return listAppliedCoupons(job).reduce((sum, c) => {
-    if (!c || c.type === "service") return sum;
-    const v = Number(c.actual_value != null ? c.actual_value : c.value);
-    return Number.isFinite(v) ? sum + v : sum;
-  }, 0);
-}
+// ตัวรวมเงินบนงาน (adjustments ที่ applied + คูปองทุกใบ) ย้ายไป ./job-money.js
+// เพื่อให้ callable ที่ต้องคิดยอดโอนฝั่ง server (confirmPayoutTransfer) ใช้ตัว
+// เดียวกับ trigger ในไฟล์นี้ — สำเนายังนับเป็นตัวเดิมของ MIRROR 4 ที่ ไม่ได้เพิ่ม
+const { sumAppliedAdjustments, listAppliedCoupons, sumAppliedCoupons } = require("./job-money");
 
 exports.onReceiveMethodChanged = onValueUpdated(
   {
@@ -6619,6 +6575,14 @@ exports.transitionJob = statusTransitionApi.transitionJob;
 // ./b2b-unpack.js
 const b2bUnpack = require("./b2b-unpack");
 exports.unpackB2BLot = b2bUnpack.unpackB2BLot;
+
+// ฝ่ายบัญชีโอนเงินให้ลูกค้าแล้ว: transition ผ่าน engine แล้วเขียนแถว ledger
+//
+// writer สถานะตัวสุดท้ายที่ย้ายจากไคลเอนต์ (src/utils/payoutTransfer.ts เดิม) —
+// ลำดับ transition → ledger และเหตุผลที่ไม่ใช่ update() ก้อนเดียวอยู่ที่หัว
+// ./payout-transfer.js
+const payoutTransfer = require("./payout-transfer");
+exports.confirmPayoutTransfer = payoutTransfer.confirmPayoutTransfer;
 
 // =============================================================================
 // Staff account lifecycle — per-employee Firebase Auth accounts, CEO-gated.

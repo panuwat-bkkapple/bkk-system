@@ -8,7 +8,7 @@ import { uploadImageToFirebase } from './uploadImage';
 import { unpackAccessoryItemsToStock } from './accessoryItems';
 import { getSickwGateStatus } from './sickwApi';
 import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
-import { actionIs } from './statusCompare';
+import { jobWasPaid } from './paidTrail';
 
 export const MAX_QC_PHOTOS = 8;
 export const QC_SUPERVISORS = ['Head QC - Somchai', 'Head QC - Wichai'];
@@ -153,9 +153,12 @@ export const validateQcSubmit = (qcForm: QcFormState, liveJob: any): string | nu
 };
 
 // งานนี้เคยจ่ายเงินลูกค้าไปแล้วหรือยัง — ถ้าเคยแล้วห้ามส่งกลับ QC Review (วนลูป)
-export const PAID_LOG_ACTIONS = [JOB_STATUS.PAYOUT_PROCESSING, JOB_STATUS.PAID, 'Deal Closed (Negotiated)'] as const;
-export const isJobAlreadyPaid = (job: any): boolean =>
-   !!job?.qc_logs?.some((log: any) => actionIs(log?.action, ...PAID_LOG_ACTIONS));
+//
+// อ่าน paid_at ก่อน แล้วค่อยดู qc_logs (utils/paidTrail.ts — ตั้งแต่ writer จ่ายเงินย้ายไป
+// engine ไทม์ไลน์ของ B2C มี 'Waiting For Handover' ไม่ใช่ 'Paid') สองตัวนี้คือ action
+// เพิ่มเฉพาะสถานี: เริ่มจ่ายแล้ว / ปิดดีลด้วยการเจรจา
+export const PAID_LOG_ACTIONS = [JOB_STATUS.PAYOUT_PROCESSING, 'Deal Closed (Negotiated)'] as const;
+export const isJobAlreadyPaid = (job: any): boolean => jobWasPaid(job, PAID_LOG_ACTIONS);
 
 // อัปโหลดไฟล์รูปเข้า Storage แล้วคืน URL ชุดที่รวมรูปเดิม (เพดาน MAX_QC_PHOTOS)
 const uploadQcPhotoFiles = async (

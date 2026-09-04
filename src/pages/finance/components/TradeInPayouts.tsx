@@ -1,17 +1,13 @@
 // src/pages/finance/components/TradeInPayouts.tsx
 import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
-import { useAuth } from '../../../hooks/useAuth';
 import { useFinanceGate } from '../../../hooks/useFinanceGate';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage';
 import { Search, CheckCircle2, X, Copy, Check, Smartphone, Upload, FileText, Loader2, Clock, AlertTriangle } from 'lucide-react';
-import { ref, update, push, child, get } from 'firebase/database';
-import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
-import { sumAppliedAdjustments, sumAppliedCoupons } from '../../../utils/adjustments';
-import { buildLogisticsRevenueTx } from '../../../utils/logisticsRevenue';
-import { buildPayoutUpdates } from '../../../utils/payoutTransfer';
+import { getNetPayout } from '../../../utils/payoutNet';
+import { confirmPayoutTransfer } from '../../../utils/confirmPayoutTransfer';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -22,7 +18,6 @@ const toDateTimeLocal = (ms: number) => {
 
 export const TradeInPayouts = () => {
   const toast = useToast();
-  const { currentUser } = useAuth();
   const { guard } = useFinanceGate();
   const { data: jobs, loading } = useDatabase('jobs');
   
@@ -40,17 +35,7 @@ export const TradeInPayouts = () => {
   const [editBankAccount, setEditBankAccount] = useState('');
   const [editBankHolder, setEditBankHolder] = useState('');
 
-  // คำนวณยอดโอนสุทธิจาก final_price ทุกครั้ง — ไม่ใช้ net_payout ที่เก็บใน DB เพราะบาง path
-  // (เช่น Internal QC เก่า) อัปเดต final_price โดยไม่ sync net_payout ทำให้ค่าค้าง
-  const getNetPayout = (tx: any) => {
-    const base = Number(tx.final_price || tx.price || 0);
-    // Effective fee = gross pickup_fee minus the absorbed rider-fee discount.
-    const grossFee = tx.receive_method === 'Pickup' ? Number(tx.pickup_fee || 0) : 0;
-    const riderFeeDiscount = tx.receive_method === 'Pickup' ? Number(tx.rider_fee_discount || 0) : 0;
-    const pickupFee = Math.max(0, grossFee - riderFeeDiscount);
-    const coupon = sumAppliedCoupons(tx);
-    return Math.max(0, base - pickupFee + coupon + sumAppliedAdjustments(tx));
-  };
+  // ยอดโอนสุทธิ = utils/payoutNet.ts (ตัวเดียวกับจอมือถือ และ mirror กับ server)
 
   // ยอดที่ "ตกลงกับลูกค้า" ไว้ — หน้า track โชว์ net_payout ส่วนการเจรจาเก็บที่
   // revised_price. ถ้ามันไม่ตรงกับยอดที่กำลังจะโอน (getNetPayout คิดสดจาก
@@ -125,37 +110,23 @@ export const TradeInPayouts = () => {
     setIsUploading(true);
     try {
       const now = Date.now();
-      const isB2B = selectedTx.type === 'B2B Trade-in';
       const slipUrl = await uploadImageToFirebase(slipFile, `slips/tradein/${selectedTx.id}_${now}`, { opaqueFilename: true });
 
-      // 🌟 ใช้ยอดสุทธิที่คิดสดจาก final_price
-      const actualTransferAmount = getNetPayout(selectedTx);
-
-      // ก้อนเขียนทั้งหมดอยู่ที่ `utils/payoutTransfer.ts` ที่เดียว — จอนี้กับ
-      // MobileFinancePage เคยถือสำเนาคนละชุด (เหมือนกัน 88% ตรงกันเป๊ะ 53 บรรทัด)
-      const debitKey = push(child(ref(db), 'transactions')).key as string;
-      const revenueTx = buildLogisticsRevenueTx(selectedTx, transferredAt);
-      const creditKey = revenueTx ? (push(child(ref(db), 'transactions')).key as string) : null;
-
-      const updates = buildPayoutUpdates({
-        job: selectedTx,
+      // สถานะ + แถว ledger เขียนฝั่ง server (utils/confirmPayoutTransfer → callable →
+      // status engine → ledger) ยอดที่ส่งไปคือเลขที่จอนี้แสดงอยู่ — server คิดจากแถว
+      // จริงในธุรกรรมแล้วปฏิเสธถ้าไม่ตรง ไม่ใช่โอนตามเลขเก่า
+      const result = await confirmPayoutTransfer({
+        jobId: selectedTx.id,
         slipUrl,
         transferredAt,
-        transferredAtLabel: formatDate(transferredAt),
-        now,
         bank: { name: editBankName, account: editBankAccount, holder: editBankHolder },
-        byName: currentUser?.name || 'Finance',
-        netPayout: actualTransferAmount,
-        debitKey,
-        revenueTx,
-        creditKey,
+        expectedNetPayout: getNetPayout(selectedTx),
       });
 
-      await update(ref(db), updates);
-
-      // ✅ Post-payment verification: ตรวจสอบว่า transaction ถูกสร้างจริง
-      const verifySnapshot = await get(ref(db, `transactions/${debitKey}`));
-      if (!verifySnapshot.exists()) {
+      if (!result.ok) { toast.error(result.message); return; }
+      if (!result.ledgerWritten) {
+        // สถานะเปลี่ยนแล้ว (เงินออกแล้ว) แต่แถวบัญชีลงไม่สำเร็จ — ตัวนับ orphan ของ
+        // หน้า Finance เห็นงานนี้ และแท็บซ่อมสร้างแถวให้ได้ ห้ามกดโอนซ้ำ
         toast.warning('⚠️ โอนเงินสำเร็จแต่ Transaction อาจไม่ถูกบันทึก — กรุณาตรวจสอบที่แท็บ "ซ่อม Transaction"');
       } else {
         toast.success('บันทึกการโอนเงินพร้อมสลิปสำเร็จ!');
