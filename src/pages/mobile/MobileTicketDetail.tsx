@@ -36,7 +36,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS, JOB_STATUS, normalizeStatus } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -318,14 +318,22 @@ export const MobileTicketDetail = () => {
   // pill should stay highlighted. qc_logs.action stores the canonical
   // status name in nearly all transitions, so a Set lookup against the
   // PIPELINE catches each step the job has ever touched.
+  //
+  // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง: engine เขียน canonical ('Sent To QC Lab')
+  // ทั้งใน status และ qc_logs.action ขณะที่ PIPELINE กับ log เก่ายังถือสะกดเดิม —
+  // เก็บทั้งค่าดิบและค่า canonical ไว้ในเซ็ต แล้ว normalize ฝั่งลิสต์ตอนถามด้วย
+  const canonicalOf = (s: string) => normalizeStatus(s, job.receive_method) ?? s;
   const reachedStatuses = new Set<string>();
-  if (job.status) reachedStatuses.add(job.status);
-  for (const log of (job.qc_logs || [])) {
-    if (log && typeof log.action === 'string') reachedStatuses.add(log.action);
-  }
+  const reach = (s: unknown) => {
+    if (typeof s !== 'string' || !s) return;
+    reachedStatuses.add(s);
+    reachedStatuses.add(canonicalOf(s));
+  };
+  reach(job.status);
+  for (const log of (job.qc_logs || [])) reach(log?.action);
   let currentStepIdx = -1;
   PIPELINE.forEach((step, idx) => {
-    if (step.statuses.some((s) => reachedStatuses.has(s))) {
+    if (step.statuses.some((s) => reachedStatuses.has(s) || reachedStatuses.has(canonicalOf(s)))) {
       currentStepIdx = Math.max(currentStepIdx, idx);
     }
   });
