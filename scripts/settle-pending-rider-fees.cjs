@@ -92,6 +92,7 @@ async function main() {
         amount: j.fee,
         type: 'CREDIT',
         category: 'JOB_PAYOUT',
+        taxable: true, // ค่ารอบ = เงินได้ (WALLET_CREDIT_TAXABLE)
         description: `ค่าเที่ยวงาน ${j.model} (${j.ref_no}) [Backfill Settle]`,
         timestamp: now,
         ref_job_id: j.id,

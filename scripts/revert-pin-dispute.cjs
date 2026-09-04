@@ -76,6 +76,8 @@ function planRevert(jobId, job, txKey, now) {
         amount: Math.abs(delta),
         type: delta < 0 ? 'CREDIT' : 'DEBIT',
         category: 'ADJUSTMENT',
+        // ธงเฉพาะแถวเงินเข้า — แถวเงินออกไม่มีความหมายเรื่องเงินได้
+        ...(delta < 0 ? { taxable: true } : {}),
         description: `ย้อนการปรับค่ารอบ (หมุดลูกค้าถูกต้อง) ${job.model || 'งาน'} (${job.ref_no || job.OID || jobId})`,
         timestamp: now,
         ref_job_id: jobId,

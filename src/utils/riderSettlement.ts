@@ -14,6 +14,8 @@
 // จึงไม่ใช่เรื่องการแสดงผล แต่คือการจ่ายเงินจากตัวเลขที่ไม่มีใครคำนวณ
 //
 // คืน null เมื่อยังไม่มีค่ารอบ — คนเรียกต้องตัดสินใจว่าจะทำอย่างไร ห้ามเดา
+import { walletCreditTaxable } from './transactionLogger';
+
 export const settledRiderFee = (job: any): number | null => {
   const fee = Number(job?.rider_fee);
   return Number.isFinite(fee) && fee > 0 ? fee : null;
@@ -71,6 +73,8 @@ export function buildRiderFeeApproval(input: RiderFeeApprovalInput): Record<stri
     amount: fee,
     type: 'CREDIT',
     category: 'JOB_PAYOUT',
+    // ค่ารอบเป็นเงินได้ — ธงนี้คือสิ่งที่ตัวแยกฐานภาษีตอนถอนอ่าน ไม่ใช่ชื่อหมวด
+    taxable: walletCreditTaxable('JOB_PAYOUT'),
     description: `ค่าเที่ยวงาน ${job.model || 'Unknown'} (${job.ref_no || '-'})${note ? ` ${note}` : ''}`,
     timestamp: now,
     ref_job_id: job.id,

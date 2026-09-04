@@ -84,8 +84,11 @@ function settlementDelta(feeBefore, feeAfter, settled) {
   // แต่ไรเดอร์กดสามสถานะรวดตอนขากลับ ค่ารอบเลยถูกคิดใหม่จากจุดที่เช็คอิน)
   return {
     delta,
+    // taxable: ปรับปรุงค่ารอบ = ค่ารอบที่คิดใหม่ ยังเป็นเงินได้ (ตาราง
+    // WALLET_CREDIT_TAXABLE ใน src/utils/transactionLogger.ts) — ธงบนแถวคือ
+    // สิ่งที่ตัวแยกฐานภาษีตอนถอนอ่าน
     ledger: delta > 0
-      ? { type: "CREDIT", category: "ADJUSTMENT", amount: delta }
+      ? { type: "CREDIT", category: "ADJUSTMENT", amount: delta, taxable: true }
       : { type: "DEBIT", category: "ADJUSTMENT", amount: Math.abs(delta) },
   };
 }

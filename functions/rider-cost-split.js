@@ -1,7 +1,11 @@
 "use strict";
 
 /**
- * แยก "ค่าจ้าง" ออกจาก "เงินคืนค่าทดรอง" ในยอดถอนหนึ่งครั้ง — pure ทั้งไฟล์
+ * แยกยอดถอนหนึ่งครั้งเป็น "เงินได้" กับ "ไม่ใช่เงินได้" — pure ทั้งไฟล์
+ *
+ * (ชื่อไฟล์และหัวข้อข้างล่างพูดถึง "ค่าจ้าง vs เงินคืน" ซึ่งเป็นเคสแรกที่ทำให้
+ * ต้องแยก ตั้งแต่ 4 ก.ย. 2569 กองไม่ใช่เงินได้รวมเครดิตบริษัทเติมให้กับเงินฝาก
+ * ของไรเดอร์ด้วย และการจำแนกอ่านจากธง `taxable` บนแถว — ดู creditIsTaxable)
  *
  * ===================================================================
  * ทำไมต้องแยก และมันคือบั๊กที่กำลังจะเกิดถ้าไม่แยก
@@ -39,11 +43,32 @@
  * เขียนคนละที่ คือสิ่งที่ CLAUDE.md ทั้งไฟล์เตือนไว้
  */
 
-/** หมวดที่เป็น "เงินคืนค่าทดรอง" — เคยลงบัญชีตอนอนุมัติแล้ว
- *  MIRROR ของ RIDER_WALLET_CATEGORIES: bkk-rider-app/src/utils/walletLedger.ts */
-const REIMBURSEMENT_CATEGORIES = new Set(["EXPENSE_REIMBURSEMENT"]);
+/**
+ * "แถวเงินเข้านี้เป็นเงินได้ไหม" — อ่าน**ธงบนแถว**ก่อน ชื่อหมวดเป็นแค่ fallback
+ *
+ * ตั้งแต่ 4 ก.ย. 2569 ทุกแถว CREDIT ถูกประทับ `taxable` ตอนเขียน (ตารางกลาง
+ * `WALLET_CREDIT_TAXABLE` ใน `src/utils/transactionLogger.ts`) ตัวแยกจึงไม่ต้อง
+ * รู้จักชื่อหมวดอีก — หมวดใหม่ในอนาคตแค่ประกาศธงตอนเขียนก็ถูกแยกถูกทันที
+ *
+ * fallback ตามหมวดมีไว้ให้**แถวเก่าที่เกิดก่อนมีธง**เท่านั้น: เงินคืนค่าทดรอง
+ * (`EXPENSE_REIMBURSEMENT`) เป็นหมวดเดียวที่เคยเขียนแบบไม่ใช่เงินได้ก่อนหน้านั้น
+ * ส่วนหมวดที่ไม่รู้จัก = เงินได้ (ทิศหักเกิน ซึ่งคืนได้ ไม่ใช่หักขาดที่ต้องไล่เก็บ)
+ *
+ * MIRROR ของตารางกลางฝั่ง TS — แก้ต้องแก้ทั้งคู่ (parity test ตรึงไว้)
+ */
+const NON_TAXABLE_CREDIT_CATEGORIES = new Set([
+  "EXPENSE_REIMBURSEMENT",
+  "COMPANY_ADVANCE",
+  "RIDER_DEPOSIT",
+]);
 
-/** หมวดที่เป็นเงินเข้ากระเป๋าและ **ยังไม่เคย** ลงบัญชี = ค่าจ้าง/โบนัส/ปรับยอด */
+function creditIsTaxable(row) {
+  if (row && typeof row.taxable === "boolean") return row.taxable;
+  return !NON_TAXABLE_CREDIT_CATEGORIES.has(String(row && row.category));
+}
+
+/** หมวดที่ยังคงไว้ให้ผู้อ่านเดิม (rider-fee-expense) — ความหมายเดิม: เงินเข้าที่ยัง
+ *  ไม่เคยลงบัญชี = ค่าจ้าง. ตอนนี้เท่ากับ "แถวที่ taxable" ทุกหมวดพอดี */
 const LABOUR_CREDIT_CATEGORIES = new Set(["JOB_PAYOUT", "BONUS", "ADJUSTMENT"]);
 
 const num = (v) => {
@@ -61,7 +86,9 @@ const round2 = (n) => Math.round(n * 100) / 100;
  * @param {Array} rows  แถวใน /transactions ของไรเดอร์คนนี้ **ทุกแถว**
  *                      (query ตาม index rider_id — ห้ามกวาดทั้ง node)
  * @param {string} txId id ของแถวถอนที่กำลังพิจารณา
- * @returns {{labour: number, reimbursed: number, gross: number}|null}
+ * @returns {{gross, taxable, exempt, labour, reimbursed}|null}
+ *          taxable = ส่วนที่ดึงจากกองเงินได้ (ฐานภาษี + ค่าใช้จ่ายบริษัท)
+ *          exempt  = ส่วนที่ดึงจากกองไม่ใช่เงินได้ (ออกก่อนเสมอ)
  *          `null` = ไม่ใช่แถวถอน หรือหาไม่เจอ
  */
 function splitWithdrawal(rows, txId) {
@@ -81,28 +108,34 @@ function splitWithdrawal(rows, txId) {
     return t === at && String(r.id) < String(txId);
   });
 
+  // กองเงินที่ไม่ใช่เงินได้ (เงินคืน / เครดิตบริษัท / เงินฝาก) — ถูกดึงออกก่อนเสมอ
   let pool = 0;
   for (const r of before) {
-    if (r.type === "CREDIT" && REIMBURSEMENT_CATEGORIES.has(String(r.category))) {
+    if (r.type === "CREDIT" && !creditIsTaxable(r)) {
       pool += num(r.amount);
     }
     if (r.type === "DEBIT" && r.category === "WITHDRAWAL") {
-      // การถอนที่ผ่านมากินเงินคืนไปเท่าไร — ถ้าแถวเก่ามีฟิลด์บันทึกไว้แล้วใช้
+      // การถอนที่ผ่านมากินกองนี้ไปเท่าไร — ถ้าแถวเก่ามีฟิลด์บันทึกไว้แล้วใช้
       // ค่านั้น (ตัวเลขที่ลงบัญชีไปแล้วห้ามคำนวณใหม่ให้ต่างจากเดิม)
       // ไม่มี = คิดด้วยกฎเดียวกันแบบ FIFO
-      const recorded = r.reimbursed_part;
+      const recorded = r.exempt_part != null ? r.exempt_part : r.reimbursed_part;
       pool -= recorded == null ? Math.min(num(r.amount), Math.max(pool, 0)) : num(recorded);
     }
   }
   pool = Math.max(0, pool);
 
   const gross = num(target.amount);
-  const reimbursed = round2(Math.min(gross, pool));
-  return { gross: round2(gross), reimbursed, labour: round2(gross - reimbursed) };
+  const exempt = round2(Math.min(gross, pool));
+  const taxable = round2(gross - exempt);
+  // `reimbursed`/`labour` = ชื่อเดิมของสองก้อนนี้ (ก่อนมีเครดิตบริษัท/เงินฝาก)
+  // คงไว้ให้ผู้อ่านเดิม — ความหมายทางบัญชียังตรง: labour = ส่วนที่บริษัทลง
+  // เป็นค่าใช้จ่ายตอนถอน ซึ่งคือส่วนที่เป็นเงินได้ของไรเดอร์พอดี
+  return { gross: round2(gross), exempt, taxable, reimbursed: exempt, labour: taxable };
 }
 
 module.exports = {
   splitWithdrawal,
-  REIMBURSEMENT_CATEGORIES,
+  creditIsTaxable,
+  NON_TAXABLE_CREDIT_CATEGORIES,
   LABOUR_CREDIT_CATEGORIES,
 };

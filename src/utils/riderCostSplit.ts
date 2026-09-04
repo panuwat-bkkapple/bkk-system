@@ -1,4 +1,4 @@
-// แยก "ค่าจ้าง" ออกจาก "เงินคืนค่าทดรอง" ในยอดถอนหนึ่งครั้ง — ฝั่งหน้าจอ
+// แยกยอดถอนเป็น "เงินได้" กับ "ไม่ใช่เงินได้" (อ่านธง taxable บนแถว) — ฝั่งหน้าจอ
 //
 // **MIRROR ของ `functions/rider-cost-split.js` ซึ่งเป็นตัวจริง** (ลงบัญชีค่าจ้าง
 // ตอนถอน + ฐานภาษี ณ ที่จ่ายบนหนังสือรับรอง) functions เป็น JS import TS ไม่ได้
@@ -20,17 +20,39 @@ export interface LedgerRow {
   amount?: number | string;
   timestamp?: number | string;
   created_at?: number | string;
+  /** แถว CREDIT: เป็นเงินได้ไหม — ประทับตอนเขียนจาก WALLET_CREDIT_TAXABLE */
+  taxable?: boolean | null;
+  exempt_part?: number | string | null;
   reimbursed_part?: number | string | null;
+  /** ป้ายเดิมก่อนถูกแก้ (relabel-pin-dispute-tx.cjs) — ตัวแยกไม่อ่าน แค่รับรู้ว่ามี */
+  category_was?: string | null;
 }
 
 export interface WithdrawalSplit {
   gross: number;
+  /** ส่วนที่ดึงจากกองเงินได้ = ฐานภาษี (และค่าใช้จ่ายบริษัทตอนถอน) */
+  taxable: number;
+  /** ส่วนที่ดึงจากกองไม่ใช่เงินได้ — ออกก่อนเสมอ */
+  exempt: number;
+  /** ชื่อเดิม = exempt (คงไว้ให้ผู้อ่านเดิม) */
   reimbursed: number;
+  /** ชื่อเดิม = taxable (คงไว้ให้ผู้อ่านเดิม) */
   labour: number;
 }
 
-/** MIRROR ของ REIMBURSEMENT_CATEGORIES ฝั่ง functions */
-export const REIMBURSEMENT_CATEGORIES: ReadonlySet<string> = new Set(['EXPENSE_REIMBURSEMENT']);
+/** fallback สำหรับแถวเก่าที่ไม่มีธง — MIRROR ของ NON_TAXABLE_CREDIT_CATEGORIES ฝั่ง functions
+ *  (ตารางกลางตัวจริงคือ WALLET_CREDIT_TAXABLE ใน transactionLogger.ts) */
+export const NON_TAXABLE_CREDIT_CATEGORIES: ReadonlySet<string> = new Set([
+  'EXPENSE_REIMBURSEMENT',
+  'COMPANY_ADVANCE',
+  'RIDER_DEPOSIT',
+]);
+
+/** ธงบนแถวก่อน หมวดเป็น fallback หมวดไม่รู้จัก = เงินได้ (ทิศหักเกิน) */
+export function creditIsTaxable(row: LedgerRow | null | undefined): boolean {
+  if (row && typeof row.taxable === 'boolean') return row.taxable;
+  return !NON_TAXABLE_CREDIT_CATEGORIES.has(String(row?.category));
+}
 
 const num = (v: unknown): number => {
   if (typeof v !== 'number' && typeof v !== 'string') return 0;
@@ -57,19 +79,20 @@ export function splitWithdrawal(rows: readonly (LedgerRow | null | undefined)[],
 
   let pool = 0;
   for (const r of before) {
-    if (r.type === 'CREDIT' && REIMBURSEMENT_CATEGORIES.has(String(r.category))) {
+    if (r.type === 'CREDIT' && !creditIsTaxable(r)) {
       pool += num(r.amount);
     }
     if (r.type === 'DEBIT' && r.category === 'WITHDRAWAL') {
-      const recorded = r.reimbursed_part;
+      const recorded = r.exempt_part != null ? r.exempt_part : r.reimbursed_part;
       pool -= recorded == null ? Math.min(num(r.amount), Math.max(pool, 0)) : num(recorded);
     }
   }
   pool = Math.max(0, pool);
 
   const gross = num(target.amount);
-  const reimbursed = round2(Math.min(gross, pool));
-  return { gross: round2(gross), reimbursed, labour: round2(gross - reimbursed) };
+  const exempt = round2(Math.min(gross, pool));
+  const taxable = round2(gross - exempt);
+  return { gross: round2(gross), exempt, taxable, reimbursed: exempt, labour: taxable };
 }
 
 /**
@@ -84,5 +107,6 @@ export function splitPendingWithdrawal(rows: readonly LedgerRow[], amount: numbe
     [...rows, { id: PENDING_ID, type: 'DEBIT', category: 'WITHDRAWAL', amount, timestamp: now }],
     PENDING_ID,
   );
-  return split || { gross: round2(num(amount)), reimbursed: 0, labour: round2(num(amount)) };
+  const g = round2(num(amount));
+  return split || { gross: g, exempt: 0, taxable: g, reimbursed: 0, labour: g };
 }
