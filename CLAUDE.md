@@ -147,6 +147,38 @@
 - **B2B Unpacked:** child items สร้างด้วย status `"Pending QC"`
 - **Notification triggers ต้องครอบคลุมทั้งค่าใหม่และ legacy (New Lead, Active Lead, Active Leads, New B2B Lead)**
 
+## Status engine — ทุกการเปลี่ยนสถานะงานต้องผ่าน `transitionJob` (ก.ย. 2569)
+
+> ก่อนหน้านี้ทุกหน้าจอเขียน `update(ref(db, 'jobs/'+id), { status: X })` เอง ไม่มีตารางบอกว่าสถานะไหนไปสถานะไหนได้ และ RTDB rules ไม่ตรวจฟิลด์นี้เลย — ไรเดอร์เขียน `"Paid"` ทับ `"New Lead"` ได้ สิ่งเดียวที่กันอยู่คือ "ไม่มีปุ่มให้กด" ซึ่ง React tree ที่ค้าง แท็บที่สอง หรือการเรียก callable ตรงๆ เดินผ่านได้หมด
+
+- **ไฟล์ที่เป็นเจ้าของกติกา:** `functions/status-engine.js` (ตาราง `TRANSITIONS` + `decideTransition` — pure ไม่มี I/O) · `functions/status-apply.js` (`applyTransition` — transaction + `status_version` + `status_history` + mirror ลง `qc_logs`) · `functions/status-transition-api.js` (callable `transitionJob` — role มาจาก auth token ไม่ใช่จาก body)
+- **ฝั่งไคลเอนต์มีประตูเดียว: `src/utils/runJobTransition.ts`** (คืนผลลัพธ์ **ไม่ throw**) และคำศัพท์อยู่ที่ `src/utils/jobTransitions.ts` (`JOB_EVENT` + `transitionErrorMessage`) — **ห้าม `httpsCallable('transitionJob')` ตรงที่อื่น**
+- **ปุ่มส่ง "สิ่งที่เกิดขึ้น" ไม่ใช่ "สถานะที่อยากได้"** — ปลายทางเป็นเรื่องของตาราง ที่เดียว ถ้าเห็นโค้ดรูป `handleUpdateStatus(สถานะ, รายละเอียด)` นั่นคือรูปเก่า **ห้ามสร้างใหม่**
+- **สามแกน ไม่ใช่แกนเดียว:** `status` (อยู่ตรงไหนของ flow) · `custody` (ใครถือเครื่องอยู่) · `paid_at` (ประทับครั้งเดียว โดย event เดียว ตาม `SIDE_EFFECT_OWNER`)
+- **ฟิลด์ของ engine ห้ามส่งมาใน `patch`** (`ENGINE_OWNED`: status, custody, status_version, status_history, paid_at, refunded_at, **qc_logs**) — ส่งมาจะโดน `patch_conflict`. อยากได้ข้อความในไทม์ไลน์ให้ส่ง `reason` engine เขียนแถวให้เอง
+- **แก้ from-list ให้ "ขยาย" เสมอ ห้ามหด** — ปุ่มที่วันนี้กดได้ต้องกดได้ต่อไป ถ้าเงื่อนไขปุ่มหลวมเกินไป **ให้ไปรัดที่ปุ่ม ไม่ใช่หด from-list** (หดแล้วปุ่มพังเงียบๆ โดยไม่มีใครแก้ปุ่ม)
+- **สองสาย ใช้สถานะร่วมกัน 5 ตัว** (Following Up, Negotiation, Paid, In Stock, Completed) — แถวของสาย B2B จึงมี `jobTypes` เป็นตัวกั้น **opt-in รายแถว**: แถวขายปลีกไม่มีและห้ามใส่ เพราะงานเก่าบน production ไม่มีฟิลด์ `type` เลย บังคับเมื่อไหร่พังทันที
+- **`methods` ใช้กับสาย B2B ไม่ได้** — ล็อตแม่ไม่มี `receive_method` ที่ enum รู้จัก (ฟอร์มเว็บองค์กรเขียน `Corporate Pickup`, ดีลที่แอดมินสร้างไม่เขียนอะไรเลย, งานลูกเป็น `Corporate Bulk`)
+- **ตัวที่ยังไม่ผ่าน engine และเป็นการตัดสินใจ ไม่ใช่การลืม:**
+  - `payoutTransfer` (`src/utils/payoutTransfer.ts`) — เขียนสถานะ + แถว ledger DEBIT/CREDIT ใน multi-path update ก้อนเดียว แยกครึ่งให้ผ่าน engine = เงินกับบัญชีอยู่คนละ write ที่สำเร็จครึ่งเดียวได้
+  - `unpack_to_stock` ใน `B2BManager` — เขียนสถานะงานแม่ + **สร้างงานลูกรายเครื่อง** ในก้อนเดียวกัน (ล็อตที่ปิดแล้วแต่เครื่องไม่โผล่ที่ไหนเลย แย่กว่าไม่ทำทั้งคู่). event `b2b_unpacked_to_stock` มีในตารางแล้วแต่**ยังไม่มีผู้เรียก** — ปลดล็อกได้เมื่อการสร้างงานลูกย้ายไปฝั่ง server
+  - `Reserved` (dropdown หน้าคลัง) — **ไม่มีคู่ canonical ให้ alias ไปหา** map ไป In Stock จะกลืนความหมายที่หน้าคลังใช้จริง ทางแก้คือเพิ่มเข้า enum = แก้ 3 repo พร้อมกัน **เป็นการตัดสินใจที่ยังไม่เคาะ**
+- **`src/utils/statusWriterCensus.test.ts` คือราวกันตก** — นับ *ทุก* การเขียน `jobs/{id}` ตรง (ไม่ใช่แค่ที่มี `status:`) เพดานลดได้ ขึ้นไม่ได้. **ตัวเลขที่ไม่ขยับไม่ได้แปลว่าไม่มีความคืบหน้า** — ปุ่มที่เรียกผ่าน prop หรือผ่านฟังก์ชันกลางไม่ถูกนับ (P2-h ย้าย 3 จุดแล้วเลขนิ่ง, P3-c ย้าย 12 ปุ่มแล้วเลขขยับ 3)
+
+## บทเรียน: การผูก "ปุ่ม -> event" ที่อยู่ใน onClick คือของที่เทสมองไม่เห็น (4 ก.ย. 2569)
+
+- **เคสจริง (P3-c):** injection สลับ event ของปุ่ม "จ่ายงานให้ผู้ตรวจ" ไปเป็นของ "ส่ง Pre-Quote" — **คนละสถานะปลายทาง เทสเขียวหมด** และ injection อีกตัวที่ทำให้ปุ่มยกเลิกลืมเขียน `cancelled_at` ก็เขียวเหมือนกัน
+- **ทางแก้ไม่ใช่เขียนเทสสแกน source ให้ผ่านๆ แต่คือทำให้มันเป็นข้อมูล** — ย้ายการผูกไปเป็นตาราง (`B2B_ACTION_EVENT` ใน `b2bActions.ts`) และย้ายการสร้าง patch ไปเป็นฟังก์ชัน (`buildCancelPatch`) แล้วเทสเทียบกับตาราง `TRANSITIONS` จริง — injection ทั้งสองแดงทันที (รูปเดียวกับ `getQuickActions` ของ `MobileTicketDetail`)
+- **กฎที่ได้: ถ้า injection จับไม่ได้เพราะ "โค้ดอยู่ในที่ที่เทสเข้าไม่ถึง" คำตอบคือย้ายโค้ด ไม่ใช่ยอมรับว่าจับไม่ได้**
+- **และ regex ของเทสโครงสร้างโกหกได้สองทาง — เจอทั้งคู่ในรอบเดียว:** `/status:\s*'/` แมตช์หางของ `finance_status:` และแมตช์**คอมเมนต์**ที่พูดถึงโค้ดเก่า วิธีแก้คือใส่ boundary + ตัดบรรทัดคอมเมนต์ทิ้งก่อนสแกน **ไม่ใช่ผ่อน assert ให้ผ่าน** (ผ่อนเมื่อไหร่มันเลิกจับตัวเขียนจริงไปพร้อมกัน)
+
+## บทเรียน: "ส่งสถานะเดิมกลับเข้าไปเพื่อให้ได้แถว log" คือตัวเขียนทับที่ไม่มีใครนับ (4 ก.ย. 2569)
+
+- **รูปที่ต้องจำ:** `onUpdateStatus(job.id, job.status, 'ข้อความ')` — เจตนาคืออยากได้แถวใน `qc_logs` เท่านั้น แต่มันเขียน `status` ด้วยค่าที่อ่านมาจาก React tree **ถ้าอีกหน้าจอเพิ่งเลื่อนสถานะไป การกด "บันทึกโน้ต" จะย้อนสถานะกลับเงียบๆ**
+- **ทางแก้: `src/utils/jobActivityLog.ts`** — เขียน `qc_logs` (+ patch อื่น) โดยไม่แตะสถานะ และ **throw ถ้ามีใครใส่ `status` มาใน patch** เพื่อไม่ให้มันกลายเป็นทางลัดเขียนสถานะทางที่สอง
+- **ห้ามทำให้เป็น transition** — engine ไม่มี event ที่ปลายทางเท่าต้นทาง และไม่ควรมี: `status_history` ที่มีแถว "ไม่มีอะไรเกิดขึ้น" คือไทม์ไลน์ที่อ่านยากขึ้นโดยไม่ได้ข้อมูลเพิ่ม
+- **ผลพลอยได้ที่ใหญ่กว่าที่ตั้งใจ:** ตอนย้ายปุ่มยกเลิกของ B2B มาที่ engine พบว่ามันไม่เคยเขียน `cancelled_at` / `cancelled_by` / `cancel_category` เลยสักตัว — งาน B2B ที่ยกเลิกจึงหลุดจาก soft-close ทั้งหมด (`finalizeCancelledJobs` ไม่ปิดเป็น Closed (Lost), คำนวณกำหนดเปิดใหม่ไม่ได้) **ค้างที่ Cancelled ตลอดกาลโดยไม่มีใครเห็น** — `requires` ของ engine ปิดรูนี้ให้ฟรีตอนย้าย
+
 ## Cloud Functions (Push Notification Triggers)
 - **`onNewTicketCreated`** — trigger เมื่อสร้าง job ใหม่ → ส่ง push ให้ admin ทุกคน
 - **`onChatMessageCreated`** — trigger เมื่อมีแชทใหม่ → ส่ง push ให้ admin หรือ rider
