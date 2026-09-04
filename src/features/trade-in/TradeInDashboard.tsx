@@ -3,7 +3,8 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
 import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap, History } from 'lucide-react';
 import { ref, update, push } from 'firebase/database';
-import { JOB_STATUS } from '@/types/job-statuses';
+import { JOB_STATUS, normalizeStatus } from '@/types/job-statuses';
+import { isB2BSales, isB2BLogistics, isB2BClosed } from '@/utils/b2bStatus';
 import { jobListPhaseOf } from '@/utils/jobListPhase';
 import { db } from '@/api/firebase';
 import { useToast } from '@/components/ui/ToastProvider';
@@ -110,13 +111,10 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
       } 
       // 🏢 ตัวกรองสำหรับ B2B
       else {
-        const isB2BSales = ['New B2B Lead', 'Following Up', 'Pre-Quote Sent', 'Pre-Quote Accepted', 'Site Visit & Grading', 'Final Quote Sent', 'Final Quote Accepted', 'Negotiation'].includes(j.status);
-        const isB2BLogistics = ['PO Issued', 'Waiting for Invoice/Tax Inv.', 'Pending Finance Approval', 'Payment Completed'].includes(j.status);
-        const isB2BClosed = ['In Stock', 'Completed', 'Cancelled', 'Closed (Lost)'].includes(j.status);
-
-        if (filterPhase === 'Sales' && !isB2BSales) return false;
-        if (filterPhase === 'Logistics' && !isB2BLogistics) return false;
-        if (filterPhase === 'Closed' && !isB2BClosed) return false;
+        // utils/b2bStatus.ts — normalizeStatus ทั้งสองฝั่ง (ล็อตที่จ่ายแล้วมีทั้ง 'Paid' และ 'Payment Completed')
+        if (filterPhase === 'Sales' && !isB2BSales(j)) return false;
+        if (filterPhase === 'Logistics' && !isB2BLogistics(j)) return false;
+        if (filterPhase === 'Closed' && !isB2BClosed(j)) return false;
       }
 
       return true;
@@ -241,10 +239,11 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
 
   // 🎨 B2B Status UI Helper
   const getB2BStatusBadge = (status: string) => {
-    switch (status) {
+    // เทียบบน canonical: 'Payment Completed' / 'PAID' / 'Paid' ขึ้นป้าย PAID เดียวกัน
+    switch (normalizeStatus(status) ?? status) {
       case 'New B2B Lead': return <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><AlertCircle size={12}/> NEW LEAD</span>;
       case 'PO Issued': return <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><FileText size={12}/> PO ISSUED</span>;
-      case 'Payment Completed': return <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><CheckCircle2 size={12}/> PAID</span>;
+      case JOB_STATUS.PAID: return <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><CheckCircle2 size={12}/> PAID</span>;
       case 'In Stock': return <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><CheckCircle2 size={12}/> COMPLETED</span>;
       default: return <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-[10px] font-black tracking-widest flex items-center gap-1 w-fit"><Clock size={12}/> {status}</span>;
     }
