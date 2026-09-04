@@ -15,6 +15,8 @@ import {
   ArrowLeft, Bike, Loader2, MapPin, CheckCircle2, XCircle, Clock,
   ChevronDown, ChevronRight, AlertTriangle, Phone, Mail, ExternalLink,
 } from 'lucide-react';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface Rider {
   id: string;
@@ -86,9 +88,8 @@ function jobOutcome(job: Job, riderId: string): { label: string; color: string; 
   )) {
     return { label: 'ลูกค้ายกเลิก', color: 'text-rose-600 bg-rose-50 border-rose-200', icon: <XCircle size={14} /> };
   }
-  // Both spellings on purpose: writers emit the lowercase-particle forms,
-  // the enum canonicalized to Title Case — matching one alone misses jobs.
-  if (['Paid', 'Payment Completed', 'Sent To QC Lab', 'Sent to QC Lab', 'Ready To Sell', 'Ready to Sell', 'Sold', 'In Stock', 'Completed'].includes(job.status || '')) {
+  // normalizeStatus ทั้งสองฝั่ง (statusIs) — สองสะกดของ Paid / Sent To QC Lab / Ready To Sell ตกที่ canonical เดียว
+  if (statusIs(job, JOB_STATUS.PAID, JOB_STATUS.SENT_TO_QC_LAB, JOB_STATUS.READY_TO_SELL, JOB_STATUS.SOLD, JOB_STATUS.IN_STOCK, JOB_STATUS.COMPLETED)) {
     return { label: 'สำเร็จ', color: 'text-emerald-600 bg-emerald-50 border-emerald-200', icon: <CheckCircle2 size={14} /> };
   }
   return { label: job.status || 'ไม่ทราบ', color: 'text-blue-600 bg-blue-50 border-blue-200', icon: <Clock size={14} /> };
