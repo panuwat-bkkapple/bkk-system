@@ -56,11 +56,19 @@ interface EmployeeAccess {
   stale_access: boolean;
 }
 
+// ต้องมีครบทุกฟิลด์ที่ `sanitizeEmployeePrivate` (functions/hr-core.js) รับ —
+// ฟิลด์ที่ไม่ได้ประกาศที่นี่คือฟิลด์ที่ฟอร์มกรอกไม่ได้ ซึ่งเป็นที่มาของบั๊ก
+// "ออกสัญญาจ้างไม่ได้เพราะไม่มีที่อยู่ และไม่มีช่องให้กรอกที่อยู่"
 interface EmployeePrivate {
   national_id?: string | null;
+  birth_date?: number | null;
   phone?: string | null;
   email?: string | null;
+  line?: string | null;
   address?: string | null;
+  tax_id?: string | null;
+  social_security_no?: string | null;
+  emergency_contact?: { name?: string | null; relation?: string | null; phone?: string | null } | null;
   bank?: { name?: string | null; account?: string | null; account_name?: string | null } | null;
   pay?: { base_salary?: number | null; daily_rate?: number | null } | null;
   /** ค่าลดหย่อนภาษี — เก็บเป็นจำนวน ไม่ใช่จำนวนเงิน (อัตราต่อหัวอยู่ที่ settings/hr) */
@@ -590,8 +598,18 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
       ? new Date(existing.hired_at).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10),
     national_id: priv.national_id || '',
+    birth_date: priv.birth_date ? new Date(priv.birth_date).toISOString().slice(0, 10) : '',
     phone: priv.phone || '',
     email: priv.email || '',
+    line: priv.line || '',
+    // ที่อยู่เป็นฟิลด์บังคับของสัญญาจ้าง (DOC_TYPES.contract.needs) — ไม่มีช่อง
+    // กรอกอยู่พักหนึ่งจึงออกสัญญาไม่ได้เลยและไม่มีทางแก้จากหน้าจอ
+    address: priv.address || '',
+    social_security_no: priv.social_security_no || '',
+    tax_id: priv.tax_id || '',
+    emg_name: priv.emergency_contact?.name || '',
+    emg_relation: priv.emergency_contact?.relation || '',
+    emg_phone: priv.emergency_contact?.phone || '',
     base_salary: priv.pay?.base_salary != null ? String(priv.pay.base_salary) : '',
     daily_rate: priv.pay?.daily_rate != null ? String(priv.pay.daily_rate) : '',
     bank_name: priv.bank?.name || '',
@@ -613,6 +631,13 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
     },
     private: {
       national_id: form.national_id, phone: form.phone, email: form.email,
+      birth_date: form.birth_date ? new Date(form.birth_date).getTime() : null,
+      address: form.address, line: form.line,
+      social_security_no: form.social_security_no, tax_id: form.tax_id,
+      // ส่ง null เมื่อไม่ได้กรอกอะไรเลย ไม่ใช่ object ที่ทุกช่องว่าง
+      emergency_contact: (form.emg_name || form.emg_relation || form.emg_phone)
+        ? { name: form.emg_name, relation: form.emg_relation, phone: form.emg_phone }
+        : null,
       bank: { name: form.bank_name, account: form.bank_account, account_name: form.bank_account_name },
       pay: { base_salary: form.base_salary || null, daily_rate: form.daily_rate || null },
       tax: {
@@ -648,6 +673,16 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
       <input type={type} value={(form as Record<string, string>)[key]}
         onChange={(e) => set(key, e.target.value)}
         className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-200" />
+    </label>
+  );
+
+  const area = (key: string, label: string, hint?: string) => (
+    <label className="block sm:col-span-2">
+      <span className="text-xs font-bold text-gray-500">{label}</span>
+      <textarea rows={2} value={(form as Record<string, string>)[key]}
+        onChange={(e) => set(key, e.target.value)}
+        className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-rose-200" />
+      {hint && <span className="block mt-0.5 text-[11px] text-gray-400">{hint}</span>}
     </label>
   );
 
@@ -691,6 +726,24 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
             {field('bank_name', 'ธนาคาร')}
             {field('bank_account', 'เลขบัญชี')}
             {field('bank_account_name', 'ชื่อบัญชี')}
+            {field('birth_date', 'วันเกิด', 'date')}
+            {field('line', 'Line ID')}
+            {field('social_security_no', 'เลขประกันสังคม')}
+            {field('tax_id', 'เลขผู้เสียภาษี (ถ้าไม่ใช่เลขบัตร)')}
+            {/* ช่องเต็มความกว้างต้องอยู่ท้ายสุด ไม่งั้นมันตัดแถวแล้วเหลือช่องว่าง
+                ข้างช่องก่อนหน้า (เห็นจากการเรนเดอร์จริง) */}
+            {area('address', 'ที่อยู่', 'ใช้บนสัญญาจ้าง — ไม่กรอกจะออกสัญญาไม่ได้')}
+          </div>
+
+          {/* ผู้ติดต่อฉุกเฉิน — ไม่เข้าเอกสารหรือสูตรเงินใดๆ แต่เป็นสิ่งที่ต้อง
+              หาให้เจอในนาทีที่ต้องใช้ ไม่ใช่ตอนมีเวลานั่งค้น */}
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="font-bold text-sm text-gray-700">ผู้ติดต่อกรณีฉุกเฉิน</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              {field('emg_name', 'ชื่อ')}
+              {field('emg_relation', 'ความสัมพันธ์')}
+              {field('emg_phone', 'เบอร์โทร')}
+            </div>
           </div>
 
           {/* ค่าลดหย่อน — ไม่กรอกแปลว่าคิดให้เฉพาะลดหย่อนส่วนตัวกับประกันสังคม
