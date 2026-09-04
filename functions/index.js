@@ -731,6 +731,9 @@ async function riderVehicleType(db, job) {
  * firebase-functions ตอน require จึงเทสจากที่นี่ไม่ได้
  */
 const { riderFeeMeta } = require("./rider-fee-meta");
+// สถานะที่ทำให้ onJobHandedOverCalcRiderFee คิดค่ารอบ — normalize ทั้งสองสะกด
+// (pure, มีเทส offline ที่ functions/test/rider-fee-trigger.test.mjs)
+const { isFeeTriggerStatus, isSafetyNetEntry } = require("./rider-fee-trigger");
 // ยอดที่ไรเดอร์เห็นตอนกดรับต้องเป็นยอดที่เขาได้ + ร่องรอยทุกครั้งที่ rider_fee เปลี่ยน
 // (pure, มีเทส offline ที่ functions/test/rider-fee-commitment.test.mjs)
 const {
@@ -3424,8 +3427,12 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     // Safety-net triggers: if a Pickup job skips the handover step (e.g. admin
     // jumps it straight to QC Lab / In Stock), still compute the fee below so
     // the rider is never left unpaid by a status skip.
-    const FEE_TRIGGER_STATUSES = ["Pending QC", "Sent to QC Lab", "In Stock"];
-    if (!FEE_TRIGGER_STATUSES.includes(after)) return;
+    //
+    // เทียบผ่าน normalizeStatus (./rider-fee-trigger.js) ไม่ใช่ literal — ลิสต์เดิม
+    // สะกด 'Sent to QC Lab' ตัวเดียว ตาข่ายจึงไม่เคยจับ 'Sent To QC Lab' ที่ engine
+    // เขียน (ดูหัวไฟล์นั้น). สถานะสามตัวนี้ไม่ขึ้นกับ receive_method จึงตัดสินได้
+    // ก่อนอ่านงาน เหมือนเดิม
+    if (!isFeeTriggerStatus(after)) return;
 
     const jobId = event.params.jobId;
     const db = getDatabase();
@@ -3440,7 +3447,7 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     // Safety-net path (entered via a non-"Pending QC" trigger): only fire for a
     // Pickup job that skipped handover and still has an unpaid, rider-assigned
     // fee. Everything else (Store-in/Mail-in, no rider, already paid) is a no-op.
-    if (after !== "Pending QC") {
+    if (isSafetyNetEntry(after, job.receive_method)) {
       if (job.receive_method !== "Pickup") return;
       if (!job.rider_id) return;
       if (typeof job.rider_fee === "number" && job.rider_fee > 0) return;

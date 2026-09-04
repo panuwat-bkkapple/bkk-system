@@ -34,10 +34,7 @@ const CANONICAL_CEILING = 28; // วัดจริง 4 ก.ย. 2569 (ก่�
 /**
  * ไฟล์ที่ยังถือ literal สะกดเก่าโดยรอ PR ที่แยกไว้ — จำนวนเป๊ะ ถอดออกเมื่อ PR นั้น merge
  */
-const LEGACY_EXEMPTIONS = {
-  // onJobHandedOverCalcRiderFee FEE_TRIGGER_STATUSES — #716 (HUMAN-GATED รอรายชื่อจ่ายย้อนหลัง)
-  "index.js": { count: 1, reason: "#716 rider-fee safety net" },
-};
+const LEGACY_EXEMPTIONS = {};
 
 // เจ้าของคำศัพท์ — literal ในนี้คือคำจำกัดความ ไม่ใช่การเทียบ
 const SKIP_FILES = new Set(["status-vocab.generated.js", "status-match.js"]);
@@ -107,7 +104,7 @@ function check(name, fn) {
 console.log("status-literal-census");
 console.log(`  [census] legacy=${legacyHits.length} canonical=${canonicalHits.length} files=${files.length}`);
 
-check("LEGACY = ผลรวมของ exemption เป๊ะ (วันนี้ = #716) — ถอด exemption เมื่อ merge แล้วต้องเป็น 0", () => {
+check("LEGACY = ผลรวมของ exemption เป๊ะ (วันนี้ = 0 ไม่มี exemption) — เว้นไฟล์รอ PR ได้แต่ต้องถอดเมื่อ merge", () => {
   const perFile = {};
   for (const h of legacyHits) { const f = h.split(":")[0]; perFile[f] = (perFile[f] || 0) + 1; }
   const expected = Object.fromEntries(Object.entries(LEGACY_EXEMPTIONS).map(([f, e]) => [f, e.count]));
