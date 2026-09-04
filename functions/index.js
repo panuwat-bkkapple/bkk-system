@@ -761,14 +761,10 @@ async function computeRiderFeeForAssignee(db, job) {
 // Archive System: ย้ายงานที่จบแล้วไป jobs_archived เพื่อลด load
 // =============================================================================
 
-const TERMINAL_STATUSES = [
-  "Completed",
-  "Sold",
-  "Cancelled",
-  "Closed (Lost)",
-  "Returned",
-  "Withdrawal Completed",
-];
+// สถานะจบงานอยู่ที่ ./terminal-statuses.js (pure, มีเทส) — ลิสต์ literal เดิมมี
+// "Returned" สะกดเก่าตัวเดียว งานที่ engine เขียน 'Return Confirmed' จึงไม่เคย
+// ถูก archive และ amendment บนงานนั้นไม่เคยถูกปิด (ดูหัวไฟล์นั้น)
+const { TERMINAL_QUERY_STATUSES, isTerminalStatus } = require("./terminal-statuses");
 const ARCHIVE_THRESHOLD_DAYS = 90;
 
 /**
@@ -798,7 +794,7 @@ async function fetchJobsByStatuses(db, statuses) {
  */
 async function runArchive() {
   const db = getDatabase();
-  const jobs = await fetchJobsByStatuses(db, TERMINAL_STATUSES);
+  const jobs = await fetchJobsByStatuses(db, TERMINAL_QUERY_STATUSES);
   if (jobs.size === 0) return { archived: 0 };
 
   const now = Date.now();
@@ -5021,8 +5017,9 @@ exports.expireApprovedAmendments = onSchedule(
 // with `failed-precondition`.
 //
 // This trigger watches /jobs/{jobId}/status. When it transitions INTO
-// any TERMINAL_STATUSES value (Cancelled / Completed / Sold / Closed /
-// Returned / Withdrawal Completed), we sweep open amendments on that
+// any terminal status (isTerminalStatus in ./terminal-statuses.js: Cancelled /
+// Completed / Sold / Closed (Lost) / Return Confirmed in both spellings /
+// Withdrawal Completed), we sweep open amendments on that
 // job and flip them to `cancelled`. Idempotent — no-op if there are
 // no open amendments.
 
@@ -5036,10 +5033,10 @@ exports.onJobTerminalCancelAmendments = onValueUpdated(
     const before = event.data.before.val();
     const after = event.data.after.val();
     if (before === after) return;
-    if (!TERMINAL_STATUSES.includes(after)) return;
+    if (!isTerminalStatus(after)) return;
     // Only fire on the transition INTO terminal — not subsequent edits
     // while already terminal.
-    if (TERMINAL_STATUSES.includes(before)) return;
+    if (isTerminalStatus(before)) return;
 
     const jobId = event.params.jobId;
     const db = getDatabase();
