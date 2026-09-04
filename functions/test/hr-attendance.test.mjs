@@ -33,6 +33,14 @@
 //   | callable รับเวลาจาก client                                | แดง 2 |
 //   | ไม่ใช้ transaction ตอนเขียน                                | แดง 1 |
 //   | กวาดโหนด `attendance` ทั้งก้อน                            | แดง 2 |
+//   | callable ของเจ้าตัวไม่มีด่าน (ใครก็เรียกได้)                | แดง 2 |
+//   | callable ของฝ่ายบุคคลใช้ด่านของพนักงานแทน                  | แดง 2 |
+//   | ลบ `employeeMe` (แอปไม่มีทางตรวจตัวตนก่อนขอ GPS)           | แดง 1 |
+//
+// **ด่าน "ทุก callable มีด่าน" มีรูตอนเขียนครั้งแรก และ injection เป็นตัวจับได้**
+// — มันตัด body ด้วยหน้าต่างความยาวคงที่ 900 ตัวอักษร ซึ่งกินเข้าไปในฟังก์ชัน
+// ถัดไป ด่านของ*เพื่อนบ้าน*จึงทำให้ตัวที่ถูกถอดด่านผ่านหน้าไปเฉยๆ แก้เป็นตัด
+// ที่ callable ตัวถัดไป (รูปเดียวกับการนับวงเล็บใน audit-log-writers)
 //
 // **แถว "callable รับเวลาจาก client" เคยเขียว** — ด่านเดิมเขียนว่า `d.now`
 // อย่างเดียว ส่วน injection เขียน `(request.data || {}).now` ซึ่งเดินผ่านหน้า
@@ -333,15 +341,21 @@ const FAR = { lat: 13.8000, lng: 100.6000, accuracy_m: 12 };
     const rows = [];
     for (const f of files) {
       const src = strip(read(f));
-      for (const m of src.matchAll(/const (\w+) = onCall\(/g)) {
-        const body = src.slice(m.index, m.index + 900);
+      // **ตัดท้ายที่ callable ตัวถัดไป ไม่ใช่ที่ความยาวคงที่** — หน้าต่าง 900
+      // ตัวอักษรกินเข้าไปในฟังก์ชันถัดไป แล้วด่านของ *เพื่อนบ้าน* ก็ทำให้ตัวที่
+      // ไม่มีด่านผ่านไปได้ (injection ที่ถอดด่านของ `employeeShiftChangeList`
+      // เขียวสนิทเพราะเหตุนี้ — ด่านที่เขียนมากันเรื่องนี้มีรูเอง)
+      const starts = [...src.matchAll(/const (\w+) = onCall\(/g)];
+      starts.forEach((m, idx) => {
+        const end = idx + 1 < starts.length ? starts[idx + 1].index : src.length;
+        const body = src.slice(m.index, end);
         rows.push({
           file: f,
           name: m[1],
           employeeGate: body.includes("requireEmployeeCaller("),
           staffGate: body.includes("requireStaffRole("),
         });
-      }
+      });
     }
     check(`มี callable ให้ตรวจจริง (พบ ${rows.length})`, rows.length >= 15);
 
