@@ -82,9 +82,23 @@ interface EmployeePrivate {
   tax?: { spouse?: boolean; children?: number; parents?: number; other?: number } | null;
 }
 
+/** ข้อเสนอการแยกชื่อจาก server — **ข้อเสนอ ไม่ใช่ข้อสรุป** ใช้เติมค่าเริ่มต้น
+ *  ให้ฟอร์มเท่านั้น คนต้องเห็นแล้วกดบันทึกเอง (ชื่อไปโผล่บนแบบยื่นภาษี) */
+interface NameSuggestion {
+  title?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  confident?: boolean;
+}
+
 interface EmployeeRow {
   id: string;
   sso?: SsoState | null;
+  title?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  name_split?: boolean;
+  name_suggestion?: NameSuggestion | null;
   employee_code?: string;
   name?: string;
   nickname?: string | null;
@@ -670,8 +684,13 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const editing = Boolean(existing);
   const priv = existing?.private || {};
+  // เติมค่าเริ่มต้นจากข้อเสนอของ server เมื่อแฟ้มนี้ยังไม่ได้แยกชื่อ —
+  // ข้อเสนอไม่ถูกบันทึกจนกว่าจะกดบันทึก
+  const nameHint = existing?.name_suggestion || {};
   const [form, setForm] = useState({
-    name: existing?.name || '',
+    title: existing?.title || nameHint.title || '',
+    first_name: existing?.first_name || nameHint.first_name || '',
+    last_name: existing?.last_name || nameHint.last_name || '',
     nickname: existing?.nickname || '',
     position: existing?.position || '',
     department: existing?.department || '',
@@ -708,7 +727,8 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
 
   const payload = () => ({
     profile: {
-      name: form.name, nickname: form.nickname, position: form.position,
+      title: form.title, first_name: form.first_name, last_name: form.last_name,
+      nickname: form.nickname, position: form.position,
       department: form.department, branch: form.branch,
       employment_type: form.employment_type,
       hired_at: form.hired_at ? new Date(form.hired_at).getTime() : null,
@@ -793,7 +813,21 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {field('name', 'ชื่อ-สกุล *')}
+            {/* **แยกสามช่องเพราะแบบยื่นภาษี (ภ.ง.ด.1) ต้องการชื่อกับนามสกุลแยกกัน**
+                — server ประกอบ `name` ให้เองจากสองช่องนี้ เอกสารเดิมทุกใบจึงยัง
+                อ่านช่องเดิมได้เหมือนเดิม (คำนำหน้าไม่อยู่ใน `name`) */}
+            <label className="block">
+              <span className="text-xs font-bold text-gray-500">คำนำหน้า</span>
+              <input list="hr-title-list" value={form.title} onChange={(e) => set('title', e.target.value)}
+                placeholder="นาย / นาง / นางสาว"
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+              {/* datalist ไม่ใช่ dropdown ปิด — ยศทหาร/ดร. ยังพิมพ์เองได้ */}
+              <datalist id="hr-title-list">
+                <option value="นาย" /><option value="นาง" /><option value="นางสาว" />
+              </datalist>
+            </label>
+            {field('first_name', 'ชื่อ *')}
+            {field('last_name', 'นามสกุล *')}
             {field('nickname', 'ชื่อเล่น')}
             {field('position', 'ตำแหน่ง')}
             {field('department', 'ฝ่าย')}
@@ -876,7 +910,10 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600">ยกเลิก</button>
-          <button onClick={() => void submit()} disabled={saving || !form.name.trim()}
+          {/* ต้องมีทั้งชื่อและนามสกุล — server ปฏิเสธถ้ามีข้างเดียวอยู่แล้ว
+              (ใช้ยื่นภาษีไม่ได้) กันตั้งแต่ปุ่มจะได้ไม่ต้องกดแล้วเจอ error */}
+          <button onClick={() => void submit()}
+            disabled={saving || !form.first_name.trim() || !form.last_name.trim()}
             className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold disabled:opacity-50">
             {saving ? 'กำลังบันทึก...' : editing ? 'บันทึกการแก้ไข' : 'บันทึก'}
           </button>
