@@ -17,6 +17,8 @@ import {
   Bike, TrendingUp, TrendingDown, AlertTriangle, MapPin, Loader2,
   CheckCircle2, XCircle, Activity, ArrowUpDown,
 } from 'lucide-react';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIn } from '../../utils/statusCompare';
 
 interface AutoReviewFlag {
   flagged_at?: number;
@@ -74,26 +76,22 @@ interface RiderStats {
   acceptanceRate: number | null;       // acceptedFromOffers / offered
 }
 
-// Both spellings of the handover/QC-lab/ready statuses are listed on
-// purpose: the enum canonicalized to Title Case ('Waiting For Handover',
-// 'Sent To QC Lab', 'Ready To Sell') but every live writer still emits the
-// lowercase-particle forms — matching only the enum spelling made these
-// buckets silently never match (จับได้จาก survey ส.ค. 2569).
-const ACTIVE_STATUSES = new Set([
-  'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
-  'Accepted', 'Heading to Customer', 'Arrived', // legacy
-  'Being Inspected', 'QC Review', 'Negotiation', 'Revised Offer',
-  'Price Accepted', 'Payout Processing',
-  'Waiting For Handover', 'Waiting for Handover',
-  'Rider Returning', 'In-Transit', // legacy returning
-  'Pending QC',
+// canonical เท่านั้น — เทียบผ่าน statusIn ซึ่ง normalize ฝั่งงาน (ส.ค. 2569 เคยต้อง
+// list ทั้งสองสะกดเพราะเทียบค่าดิบ; ตั้งแต่ sweep ก.ย. 2569 สะกดเก่าตกที่ canonical เอง)
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
+  JOB_STATUS.RIDER_ASSIGNED, JOB_STATUS.RIDER_ACCEPTED, JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_ARRIVED,
+  JOB_STATUS.BEING_INSPECTED, JOB_STATUS.QC_REVIEW, JOB_STATUS.NEGOTIATION, JOB_STATUS.REVISED_OFFER,
+  JOB_STATUS.PRICE_ACCEPTED, JOB_STATUS.PAYOUT_PROCESSING,
+  JOB_STATUS.WAITING_FOR_HANDOVER,
+  JOB_STATUS.RIDER_RETURNING,
+  JOB_STATUS.PENDING_QC,
 ]);
 
-const COMPLETED_STATUSES = new Set([
-  'Paid', 'Payment Completed',
-  'Sent To QC Lab', 'Sent to QC Lab',
-  'Ready To Sell', 'Ready to Sell',
-  'Sold', 'In Stock', 'Completed',
+const COMPLETED_STATUSES: ReadonlySet<string> = new Set([
+  JOB_STATUS.PAID,
+  JOB_STATUS.SENT_TO_QC_LAB,
+  JOB_STATUS.READY_TO_SELL,
+  JOB_STATUS.SOLD, JOB_STATUS.IN_STOCK, JOB_STATUS.COMPLETED,
 ]);
 
 // A cancelled job that was the CUSTOMER's decision, not the rider's.
@@ -210,11 +208,11 @@ export const RiderPerformance: React.FC = () => {
 
           if (job.rider_id !== rider.id) continue;
 
-          if (job.status && COMPLETED_STATUSES.has(job.status)) {
+          if (statusIn(job, COMPLETED_STATUSES)) {
             s.completed += 1;
           } else if (isCustomerCancelled(job)) {
             s.customerCancelled += 1;
-          } else if (job.status && ACTIVE_STATUSES.has(job.status)) {
+          } else if (statusIn(job, ACTIVE_STATUSES)) {
             s.active += 1;
           }
 
