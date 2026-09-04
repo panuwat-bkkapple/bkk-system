@@ -78,7 +78,7 @@ function buildFeeExpense({ txId, split, riderId, riderName, now }) {
     category: EXPENSE_CATEGORY,
     note:
       split.reimbursed > 0
-        ? `จากการถอนเงิน ${split.gross.toLocaleString("th-TH")} บาท (หักส่วนที่เป็นเงินคืนค่าทดรอง ${split.reimbursed.toLocaleString("th-TH")} บาท ซึ่งลงบัญชีไปแล้วตอนอนุมัติ)`
+        ? `จากการถอนเงิน ${split.gross.toLocaleString("th-TH")} บาท (ไม่รวมส่วนที่ไม่ใช่ค่าจ้าง ${split.reimbursed.toLocaleString("th-TH")} บาท — เงินคืนค่าทดรอง/เครดิตบริษัท/เงินฝาก ซึ่งไม่ใช่ค่าใช้จ่ายของการถอนครั้งนี้)`
         : `จากการถอนเงินของไรเดอร์`,
     created_at: now,
     logged_by: "ระบบ (อัตโนมัติ)",
@@ -140,6 +140,10 @@ function registerRiderFeeExpense() {
         // ครั้งถัดไปอ่านค่านี้เพื่อไม่ให้ pool ถูกใช้ซ้ำ ถ้าไม่เขียนไว้
         // ตัวแยกต้องเดาย้อนหลัง ซึ่งเดาถูกแต่เปราะกว่า
         const updates = {
+          // ชื่อใหม่ (exempt/taxable) + ชื่อเดิม (reimbursed/labour) — เขียนคู่จนกว่า
+          // ผู้อ่านเดิมจะย้ายครบ (กฎ "ย้าย writer ต้องถามว่าใครอ่านของเดิม")
+          [`transactions/${txId}/exempt_part`]: split.exempt,
+          [`transactions/${txId}/taxable_part`]: split.taxable,
           [`transactions/${txId}/reimbursed_part`]: split.reimbursed,
           [`transactions/${txId}/labour_part`]: split.labour,
         };
