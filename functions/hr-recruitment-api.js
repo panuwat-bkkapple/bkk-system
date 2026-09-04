@@ -77,6 +77,13 @@ function publicApplication(id, raw, notes) {
     experience: a.experience || null,
     introduction: a.introduction || null,
     resume_url: a.resume_url || null,
+    // ใบขับขี่: สามสถานะ ไม่ใช่สอง — ไม่มีฟิลด์ = ตำแหน่งนี้ไม่ได้ถาม หรือใบนี้
+    // ส่งมาก่อนฟอร์มจะมีคำถาม **ห้ามยุบเป็น false** (ดู src/pages/hr/applicantFacts.ts)
+    has_driver_license:
+      typeof a.has_driver_license === "boolean" ? a.has_driver_license : null,
+    // ความยินยอม PDPA — เวอร์ชันของประกาศที่เขาเห็นตอนกด ต้องมาคู่กับเวลาเสมอ
+    consent_at: Number(a.consent_at) || null,
+    consent_privacy_version: a.consent_privacy_version || null,
     created_at: Number(a.created_at) || null,
     uid: a.uid || null,
     status: stage,

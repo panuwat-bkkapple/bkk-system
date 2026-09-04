@@ -19,14 +19,30 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Briefcase, RefreshCw, FileText, UserPlus, Phone, Mail, X, Clock, AlertTriangle,
-  Trash2, StickyNote,
+  Trash2, StickyNote, IdCard, ShieldCheck,
 } from 'lucide-react';
 import { thaiDate } from './hrFormat';
+// สองข้อเท็จจริงที่ต้อง "ไม่รู้" ได้ ไม่ใช่แค่ใช่/ไม่ใช่ — กติกาอยู่ไฟล์แยกและมีเทส
+import { licenseFact, licenseLabel, consentFact } from './applicantFacts';
 // แถบความคืบหน้าอยู่ไฟล์แยกเพื่อให้เทสเรียกได้จริง (ไฟล์นี้ import firebase
 // ตอนโหลดโมดูล จึง SSR ในเทสไม่ได้) — ดูหัวไฟล์ StageTrack.tsx
 import { StageTrack, type StageMeta, type TrackStep } from './StageTrack';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
+// ป้ายความยินยอม PDPA — ขึ้นเฉพาะใบที่ "มีบันทึก" จริง
+//
+// ใบที่ไม่มีบันทึกคือใบที่ส่งมาก่อนฟอร์มเริ่มเก็บความยินยอม **ไม่ใช่คนที่ปฏิเสธ**
+// จึงเงียบ ไม่ใช่ขึ้นป้ายแดง (กติกาอยู่ใน applicantFacts.ts พร้อมเทส)
+function ConsentBadge({ row }: { row: { consent_at: number | null; consent_privacy_version: string | null } }) {
+  const fact = consentFact(row);
+  if (fact.kind !== 'recorded') return null;
+  return (
+    <span className="flex items-center gap-1 text-gray-500">
+      <ShieldCheck size={12} /> ยินยอมเก็บข้อมูล (ประกาศ {fact.version || 'ไม่ระบุรุ่น'})
+    </span>
+  );
+}
+
 const call = async <T,>(name: string, data: Record<string, unknown>): Promise<T> => {
   const fn = httpsCallable(fns(), name);
   return (await fn(data)).data as T;
@@ -42,6 +58,9 @@ interface Application {
   experience: string | null;
   introduction: string | null;
   resume_url: string | null;
+  has_driver_license: boolean | null;
+  consent_at: number | null;
+  consent_privacy_version: string | null;
   created_at: number | null;
   status: string;
   stage_label: string;
@@ -238,6 +257,13 @@ export const Recruitment: React.FC = () => {
                           <FileText size={12} /> เปิดเรซูเม่
                         </a>
                       )}
+                      {licenseLabel(licenseFact(row.has_driver_license)) && (
+                        <span className={`flex items-center gap-1 font-bold ${
+                          row.has_driver_license ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          <IdCard size={12} /> {licenseLabel(licenseFact(row.has_driver_license))}
+                        </span>
+                      )}
+                      <ConsentBadge row={row} />
                     </div>
                     {row.experience && <p className="text-gray-700"><b className="text-gray-500">ประสบการณ์:</b> {row.experience}</p>}
                     {row.introduction && <p className="text-gray-700"><b className="text-gray-500">แนะนำตัว:</b> {row.introduction}</p>}
