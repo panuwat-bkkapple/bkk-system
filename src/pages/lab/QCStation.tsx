@@ -20,6 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import {
    MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
    validateQcSubmit, submitQcStation, saveQcPhotosOnly,
+   selectQcTodoList, selectQcDoneList, canSubmitQc, matchesQcStationSearch,
 } from '../../utils/qcStation';
 
 const SUPERVISORS = QC_SUPERVISORS;
@@ -58,21 +59,13 @@ export const QCStation = () => {
    // 🔥 1. Logic ดึงงานเข้าแผนก QC
    const { todoList, doneList } = useMemo(() => {
       const list = Array.isArray(jobs) ? jobs : [];
-      const filtered = list.filter(j =>
-         j.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.ref_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.serial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.stock_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.qc_txn_id?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      // OID / serial / device_serial / stock_no / qc_txn_id — ดู matchesQcStationSearch
+      const filtered = list.filter(j => matchesQcStationSearch(j, searchTerm));
+      // To Do / Done ตัดสินใน utils/qcStation.ts (normalizeStatus ทั้งสองฝั่ง —
+      // รับทั้ง 'Sent To QC Lab' ที่ engine เขียนและ 'Sent to QC Lab' แถวเก่า)
       return {
-         // ✅ TO DO: เพิ่มสถานะ 'Sent to QC Lab' เข้าไปให้ระบบดึงงานมาโชว์
-         todoList: filtered.filter(j => [
-            'Sent to QC Lab'        // สำหรับงานไรเดอร์ที่จ่ายเงินแล้ว และส่งมาล้างข้อมูล
-         ].includes(j.status)),
-
-         // ✅ DONE: งานที่ตรวจ QC เสร็จแล้ว (มีเลข qc_txn_id)
-         doneList: filtered.filter(j => !!j.qc_txn_id).sort((a, b) => (b.qc_date || 0) - (a.qc_date || 0))
+         todoList: selectQcTodoList(filtered),
+         doneList: selectQcDoneList(filtered),
       };
    }, [jobs, searchTerm]);
 
@@ -520,7 +513,7 @@ export const QCStation = () => {
                         <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-4 shadow-2xl">
                            <button onClick={() => setSelectedJob(null)} className="px-6 py-4 rounded-xl font-bold text-slate-400 hover:bg-slate-50 uppercase text-xs tracking-widest">Cancel</button>
                            {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน + ถูก Sickw Gate block ได้ */}
-                           {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (() => {
+                           {canSubmitQc(selectedJob) && (() => {
                               const qcGate = getSickwGateStatus(liveJob?.sickw_check);
                               return (
                                  <button

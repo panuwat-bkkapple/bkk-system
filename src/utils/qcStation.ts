@@ -7,12 +7,59 @@ import { db } from '../api/firebase';
 import { uploadImageToFirebase } from './uploadImage';
 import { unpackAccessoryItemsToStock } from './accessoryItems';
 import { getSickwGateStatus } from './sickwApi';
+import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
 
 export const MAX_QC_PHOTOS = 8;
 export const QC_SUPERVISORS = ['Head QC - Somchai', 'Head QC - Wichai'];
 
-// สถานะที่ถือว่าเป็นงานรอตรวจของแผนก QC (ปุ่ม submit โชว์เฉพาะกลุ่มนี้)
-export const QC_SUBMITTABLE_STATUSES = ['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'];
+// สถานะที่ถือว่าเป็นงานรอตรวจของแผนก QC (ปุ่ม submit โชว์เฉพาะกลุ่มนี้) — canonical
+// เท่านั้น ห้าม includes(job.status) ตรงๆ ให้ถามผ่าน canSubmitQc ซึ่ง normalize ก่อน
+export const QC_SUBMITTABLE_STATUSES: string[] = [
+   JOB_STATUS.PENDING_QC, JOB_STATUS.WAITING_FOR_HANDOVER, JOB_STATUS.SENT_TO_QC_LAB,
+];
+
+type QcJobLike = { status?: string | null; receive_method?: string | null; qc_txn_id?: string | null; qc_date?: number | null };
+
+// ช่องค้นหาของสถานี ("Scan Barcode / OID / SN...") — substring ไม่สนตัวพิมพ์
+//
+// serial ของงานอยู่ได้สองฟิลด์: `serial` (QC Lab เขียนตอนตรวจเสร็จ / B2B unpack)
+// กับ `device_serial` (แอปไรเดอร์และการตรวจ IMEI ของแอดมินเขียนตอนตรวจหน้างาน —
+// bkk-rider-app RiderApp.tsx, AdminDeviceVerificationModal.tsx). งานที่ *รอ* เข้า
+// แล็บซึ่งคือทุกใบใน To Do จึงมักมีแค่ device_serial — ต้องอ่านทั้งคู่
+// (ไม่ rename ไม่ backfill ฟิลด์ใดทั้งสิ้น)
+const QC_SEARCH_FIELDS = ['model', 'ref_no', 'serial', 'device_serial', 'stock_no', 'qc_txn_id'] as const;
+
+export const matchesQcStationSearch = (job: Record<string, unknown> | null | undefined, term: string): boolean => {
+   const q = term.toLowerCase();
+   return QC_SEARCH_FIELDS.some((field) => {
+      const v = job?.[field];
+      return typeof v === 'string' && v.toLowerCase().includes(q);
+   });
+};
+
+// งานที่รอแผนก QC Lab ตรวจ (แท็บ To Do ของ /qc-station และ /mobile/qc)
+//
+// เทียบผ่าน normalizeStatus ทั้งสองฝั่ง ไม่ใช่ string literal — status engine
+// เขียน canonical 'Sent To QC Lab' (JOB_STATUS.SENT_TO_QC_LAB) ตั้งแต่ปุ่มส่งเข้า
+// แล็บย้ายไป transitionJob (#662/#667) ส่วนแถวเก่าใน DB ยังสะกด 'Sent to QC Lab'
+// ถาวร. การเทียบ ['Sent to QC Lab'].includes(j.status) แบบเดิมจึงมองไม่เห็นงาน
+// ที่ engine เพิ่งเขียนเลยสักใบ (To Do ขึ้น 0 — ดู
+// docs/reports/2026-09-04-qc-station-todo-empty-survey.md)
+export const isAwaitingQcLab = (job: QcJobLike | null | undefined): boolean =>
+   normalizeStatus(job?.status, job?.receive_method) === JOB_STATUS.SENT_TO_QC_LAB;
+
+// ปุ่ม submit ของสถานี — เทียบผ่าน normalizeStatus แบบเดียวกับ To Do ไม่งั้นเปิดงาน
+// ที่ engine เขียนได้แต่กดส่งไม่ได้
+export const canSubmitQc = (job: QcJobLike | null | undefined): boolean => {
+   const canonical = normalizeStatus(job?.status, job?.receive_method);
+   return !!canonical && QC_SUBMITTABLE_STATUSES.includes(canonical);
+};
+
+export const selectQcTodoList = <T extends QcJobLike>(jobs: T[]): T[] => jobs.filter(isAwaitingQcLab);
+
+// แท็บ Done = งานที่ผ่านสถานีแล้ว (มีเลข qc_txn_id) เรียงล่าสุดก่อน — ไม่เทียบสถานะ
+export const selectQcDoneList = <T extends QcJobLike>(jobs: T[]): T[] =>
+   jobs.filter((j) => !!j.qc_txn_id).sort((a, b) => (b.qc_date || 0) - (a.qc_date || 0));
 
 export interface QcFormState {
    screen_touch: boolean; screen_display: boolean; truetone: boolean; faceid: boolean;

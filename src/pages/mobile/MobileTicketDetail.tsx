@@ -36,7 +36,7 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS, normalizeStatus } from '../../types/job-statuses';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -46,7 +46,7 @@ import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDeci
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 import { wasRiderWithdrawn } from '../../utils/riderWithdrawal';
-import { JOB_EVENT, type JobEvent } from '../../utils/jobTransitions';
+import { JOB_EVENT, type JobEvent, isPostSaleRewindable } from '../../utils/jobTransitions';
 import { runJobTransition } from '../../utils/runJobTransition';
 
 // ---------------------------------------------------------------------------
@@ -318,14 +318,22 @@ export const MobileTicketDetail = () => {
   // pill should stay highlighted. qc_logs.action stores the canonical
   // status name in nearly all transitions, so a Set lookup against the
   // PIPELINE catches each step the job has ever touched.
+  //
+  // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง: engine เขียน canonical ('Sent To QC Lab')
+  // ทั้งใน status และ qc_logs.action ขณะที่ PIPELINE กับ log เก่ายังถือสะกดเดิม —
+  // เก็บทั้งค่าดิบและค่า canonical ไว้ในเซ็ต แล้ว normalize ฝั่งลิสต์ตอนถามด้วย
+  const canonicalOf = (s: string) => normalizeStatus(s, job.receive_method) ?? s;
   const reachedStatuses = new Set<string>();
-  if (job.status) reachedStatuses.add(job.status);
-  for (const log of (job.qc_logs || [])) {
-    if (log && typeof log.action === 'string') reachedStatuses.add(log.action);
-  }
+  const reach = (s: unknown) => {
+    if (typeof s !== 'string' || !s) return;
+    reachedStatuses.add(s);
+    reachedStatuses.add(canonicalOf(s));
+  };
+  reach(job.status);
+  for (const log of (job.qc_logs || [])) reach(log?.action);
   let currentStepIdx = -1;
   PIPELINE.forEach((step, idx) => {
-    if (step.statuses.some((s) => reachedStatuses.has(s))) {
+    if (step.statuses.some((s) => reachedStatuses.has(s) || reachedStatuses.has(canonicalOf(s)))) {
       currentStepIdx = Math.max(currentStepIdx, idx);
     }
   });
@@ -2409,17 +2417,18 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         actions.push({ label: 'เข้าสต็อก (In Stock)', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
       }
       break;
-    case 'Sold':
-    case 'In Stock':
-    case 'Ready to Sell':
-    case 'Sent to QC Lab':
-      // Post-sale inventory states previously had NO actions at all — a mis-tap
-      // on "Sold" (or stock/lab) left the job stuck with no way back. Offer a
-      // guarded rewind to the post-payment QC hub (Pending QC). Since this job
-      // was already Paid, the Pending QC branch re-offers Lab/Stock/Sold (not a
-      // second payout), so no double-pay risk.
-      actions.push({ label: 'ย้อนสถานะกลับ → Pending QC', event: JOB_EVENT.SALE_REVERTED_TO_QC, log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดสถานะผิด' });
-      break;
+  }
+
+  // Post-sale inventory states (Sold / In Stock / Ready To Sell / Sent To QC Lab)
+  // previously had NO actions at all — a mis-tap on "Sold" (or stock/lab) left
+  // the job stuck with no way back. Offer a guarded rewind to the post-payment
+  // QC hub (Pending QC). Since this job was already Paid, the Pending QC branch
+  // re-offers Lab/Stock/Sold (not a second payout), so no double-pay risk.
+  //
+  // ตัดสินด้วย isPostSaleRewindable (normalizeStatus) ไม่ใช่ case ใน switch ข้างบน —
+  // switch เทียบค่าดิบ ส่วน enum กับแถวเก่าสะกด 'Ready To/to Sell' ต่างกัน
+  if (isPostSaleRewindable(status, receiveMethod)) {
+    actions.push({ label: 'ย้อนสถานะกลับ → Pending QC', event: JOB_EVENT.SALE_REVERTED_TO_QC, log: 'แอดมินย้อนสถานะกลับเพื่อแก้กรณีกดผิด', style: 'border border-amber-300 text-amber-700 bg-amber-50', confirm: 'ย้อนสถานะกลับไป Pending QC? ใช้กรณีเผลอกดสถานะผิด' });
   }
 
   return actions;

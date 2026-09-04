@@ -7,6 +7,7 @@ import {
   ChevronLeft, Banknote, DollarSign, CalendarDays, ClipboardCheck
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
+import { JOB_STATUS, normalizeStatus } from '../../types/job-statuses';
 
 interface MobileLayoutProps {
   currentUser: any;
@@ -42,7 +43,9 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
           count++;
           nCount++; // new ticket notification
         }
-        if (j.status === 'Sent to QC Lab') qcCount++; // งานรอตรวจของแผนก QC
+        // งานรอตรวจของแผนก QC — normalizeStatus ก่อนเทียบ: engine เขียน 'Sent To QC Lab'
+        // (canonical) ส่วนแถวเก่าเป็น 'Sent to QC Lab' ตัวนับต้องเห็นทั้งคู่
+        if (normalizeStatus(j.status, j.receive_method) === JOB_STATUS.SENT_TO_QC_LAB) qcCount++;
         const s = String(j.status || '').trim().toLowerCase();
         if (!j.slip_url && !j.payment_slip &&
             (s === 'payout processing' || s === 'pending finance approval' || s === 'waiting for finance' || s === 'price accepted')) {
