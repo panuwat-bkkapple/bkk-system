@@ -33,6 +33,7 @@ const EMPLOYEE_EVENT_ACTIONS = [
   "hired", "probation_passed", "promoted", "salary_changed", "transferred",
   "resigned", "terminated", "account_issued", "account_revoked",
   "linked", "unlinked", "profile_updated",
+  "document_uploaded", "document_deleted",
 ];
 
 const str = (v) => String(v == null ? "" : v).trim();

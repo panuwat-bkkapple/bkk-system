@@ -20,11 +20,13 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus, Pencil, Receipt,
-  FileText, Printer, Ban, AlertTriangle, Clock,
+  FileText, Printer, Ban, AlertTriangle, Clock, FolderClosed,
 } from 'lucide-react';
 // ตัวเรนเดอร์ไทม์ไลน์อยู่ไฟล์แยกและไม่ import firebase — เทสเรนเดอร์ได้จริง
 import { EmployeeTimeline, TimelineHeading } from './EmployeeTimeline';
 import type { TimelineEvent } from './employeeTimeline';
+import { EmployeeFilesPanel, FilesSummary } from './EmployeeFiles';
+import type { ChecklistRow, FileRow } from './employeeFiles';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
 interface StatusResult {
@@ -150,6 +152,7 @@ export const EmployeeRegister = () => {
 
   const [docsFor, setDocsFor] = useState<EmployeeRow | null>(null);
   const [historyFor, setHistoryFor] = useState<EmployeeRow | null>(null);
+  const [filesFor, setFilesFor] = useState<EmployeeRow | null>(null);
 
   const staleCount = items.filter((e) => e.access?.stale_access).length;
 
@@ -311,9 +314,13 @@ export const EmployeeRegister = () => {
                       className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-bold text-gray-600 inline-flex items-center gap-1.5 disabled:opacity-50">
                       <Clock size={13} /> ประวัติ
                     </button>
+                    <button onClick={() => setFilesFor(row)} disabled={busy}
+                      className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                      <FolderClosed size={13} /> แฟ้ม
+                    </button>
                     <button onClick={() => setDocsFor(row)} disabled={busy}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
-                      <FileText size={13} /> เอกสาร
+                      <FileText size={13} /> ออกเอกสาร
                     </button>
                     <button onClick={() => setFormFor({ mode: 'edit', row })} disabled={busy}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
@@ -376,6 +383,9 @@ export const EmployeeRegister = () => {
       )}
       {historyFor && (
         <TimelineModal employee={historyFor} onClose={() => setHistoryFor(null)} />
+      )}
+      {filesFor && (
+        <FilesModal employee={filesFor} onClose={() => setFilesFor(null)} />
       )}
     </div>
   );
@@ -848,6 +858,144 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
             className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold disabled:opacity-50">
             {saving ? 'กำลังบันทึก...' : editing ? 'บันทึกการแก้ไข' : 'บันทึก'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// แฟ้มเอกสารพนักงาน — สำเนาบัตร ทะเบียนบ้าน สมุดบัญชี สัญญาที่เซ็นกลับ ฯลฯ
+//
+// **ไฟล์เดินทางผ่าน callable ทั้งขาขึ้นและขาลง ไม่มี URL ที่ไหนเลย** — เหตุผล
+// เต็มอยู่หัวไฟล์ `functions/hr-files.js` โดยย่อ: URL ของ Storage ที่มี download
+// token ข้ามกฎได้ตลอดไป ซึ่งรับไม่ได้กับสำเนาบัตรประชาชนของพนักงาน
+//
+// **ทุก state ที่บอกว่า "ครบ/ขาด" มาจาก server** หน้านี้ไม่ตัดสินเอง เพราะกฎว่า
+// ใครต้องมีเอกสารอะไรผูกกับประเภทการจ้างและการเป็นไรเดอร์ ซึ่งเป็นข้อมูลที่
+// server ถืออยู่แล้ว
+// ---------------------------------------------------------------------------
+const FilesModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
+  const toast = useToast();
+  const [checklist, setChecklist] = useState<ChecklistRow[] | null>(null);
+  const [files, setFiles] = useState<FileRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const pendingKind = React.useRef<string>('');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await call<{ files: FileRow[]; checklist: ChecklistRow[] }>(
+        'adminHrEmployeeFileList', { employeeId: employee.id },
+      );
+      setFiles(res.files || []);
+      // callable ตัวเก่ายังไม่ deploy = ไม่มี checklist — ต้องเป็น null เพื่อให้
+      // แถบสรุปบอกว่า "ยังอ่านไม่ได้" ไม่ใช่ [] ซึ่งอ่านเป็น "ไม่ต้องมีอะไรเลย"
+      setChecklist(Array.isArray(res.checklist) ? res.checklist : null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'โหลดแฟ้มไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  }, [employee.id, toast]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const pick = (kind: string) => {
+    pendingKind.current = kind;
+    inputRef.current?.click();
+  };
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    try {
+      // อ่านเป็น base64 — ไม่มี URL ให้ส่ง จึงต้องส่งเนื้อไฟล์เข้า callable
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+        reader.onload = () => {
+          const raw = String(reader.result || '');
+          const comma = raw.indexOf(',');
+          resolve(comma >= 0 ? raw.slice(comma + 1) : '');
+        };
+        reader.readAsDataURL(file);
+      });
+      await call('adminHrEmployeeFileUpload', {
+        employeeId: employee.id,
+        kind: pendingKind.current,
+        filename: file.name,
+        contentType: file.type,
+        base64,
+      });
+      toast.success('แนบไฟล์เข้าแฟ้มแล้ว');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'แนบไฟล์ไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const download = async (f: FileRow) => {
+    setBusy(true);
+    try {
+      const res = await call<{ filename: string; content_type: string; base64: string }>(
+        'adminHrEmployeeFileGet', { employeeId: employee.id, fileId: f.id },
+      );
+      const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: res.content_type || 'application/octet-stream' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = res.filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'เปิดไฟล์ไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (f: FileRow) => {
+    // การลบไฟล์เอกสารบุคคลกู้คืนไม่ได้ — ต้องถามก่อนเสมอ
+    if (!window.confirm(`ลบ "${f.filename}" ออกจากแฟ้มถาวร?`)) return;
+    setBusy(true);
+    try {
+      await call('adminHrEmployeeFileDelete', { employeeId: employee.id, fileId: f.id });
+      toast.success('ลบไฟล์แล้ว');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ลบไฟล์ไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-xl my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-black text-gray-800">แฟ้มเอกสารพนักงาน</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {employee.name} <span className="font-mono">{employee.employee_code}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <FilesSummary checklist={checklist} />
+          <EmployeeFilesPanel
+            checklist={checklist} files={files} busy={busy} loading={loading}
+            onPick={pick} onDownload={(f) => void download(f)} onDelete={(f) => void remove(f)}
+          />
+          <input ref={inputRef} type="file" className="hidden"
+            accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+            onChange={(e) => {
+              const f = e.target.files && e.target.files[0];
+              if (f) void upload(f);
+            }} />
+          <p className="text-[11px] text-gray-400">
+            รองรับ PDF และรูปภาพ ไม่เกิน 5 MB ต่อไฟล์ · ไฟล์ในแฟ้มเปิดได้เฉพาะผู้มีสิทธิ์ ไม่มีลิงก์สาธารณะ
+          </p>
         </div>
       </div>
     </div>
