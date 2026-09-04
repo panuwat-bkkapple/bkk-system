@@ -3,10 +3,12 @@ import { ref, onValue, update, remove } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db, app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
+import { riderPushHealth, formatAgo } from '../../utils/riderPushHealth';
+import { useNow } from '../../hooks/useNow';
 import {
   UserCheck, XCircle, Search, Bike, CreditCard, ShieldAlert,
   FileText, CheckCircle2, Star, Map, Ban, RefreshCw, Save, AlertTriangle, Activity,
-  Pencil, Trash2
+  Pencil, Trash2, BellRing, BellOff
 } from 'lucide-react';
 
 // การเปลี่ยนสถานะไรเดอร์ผ่าน callable ตัวเดียว (functions/rider-accounts.js)
@@ -22,6 +24,8 @@ const setRiderStatus = async (riderId: string, action: RiderAction, reason?: str
 
 export const RiderManagement = () => {
   const toast = useToast();
+  // เวลาสำหรับป้าย push ("N นาทีที่แล้ว") — ห้าม Date.now() ใน render
+  const now = useNow();
   const [riders, setRiders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRider, setSelectedRider] = useState<any>(null);
@@ -302,6 +306,22 @@ export const RiderManagement = () => {
                       {rider.approval_status === 'Active' && (rider.status === 'Online' || rider.status === 'Busy') && (
                         <span className={`ml-2 inline-block w-2 h-2 rounded-full ${rider.status === 'Online' ? 'bg-emerald-500' : 'bg-amber-500'}`} title={rider.status}></span>
                       )}
+                      {/* push ไปถึงเครื่องคนนี้ได้ไหม — คำถามที่ก่อนหน้านี้ไม่มีจอไหนตอบ
+                          (ข้อ H ของรายงานสำรวจ push) โชว์เฉพาะคนที่อนุมัติแล้ว
+                          เพราะคนที่ยัง Pending ยังไม่มีสิทธิ์ได้ push อยู่แล้ว */}
+                      {(rider.approval_status === 'Active' || rider.approval_status === 'Suspended') && (() => {
+                        const ph = riderPushHealth(rider, now);
+                        const cls = ph.level === 'ok'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : ph.level === 'stale'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : 'bg-red-50 text-red-700 border-red-200';
+                        return (
+                          <span className={`ml-2 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border align-middle ${cls}`} title={ph.detail}>
+                            {ph.level === 'none' ? <BellOff size={10} /> : <BellRing size={10} />} {ph.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-4">
                       <div className="text-sm font-semibold text-gray-700">{rider.phone || <span className="text-gray-300">-</span>}</div>
@@ -409,6 +429,37 @@ export const RiderManagement = () => {
                     </div>
                   </div>
                 )}
+
+                {/* การแจ้งเตือน — อ่านจากสิ่งที่แอปไรเดอร์เขียนไว้แล้ว ไม่มี writer ใหม่ */}
+                {(selectedRider.approval_status === 'Active' || selectedRider.approval_status === 'Suspended') && (() => {
+                  const ph = riderPushHealth(selectedRider, now);
+                  const tone = ph.level === 'ok'
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-900'
+                    : ph.level === 'stale'
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-red-50 border-red-200 text-red-900';
+                  return (
+                    <div className={`p-5 rounded-2xl border shadow-sm ${tone}`}>
+                      <h3 className="font-bold flex items-center gap-2 mb-2">
+                        {ph.level === 'none' ? <BellOff size={18} /> : <BellRing size={18} />} การแจ้งเตือน (push): {ph.label}
+                      </h3>
+                      <p className="text-xs leading-relaxed opacity-90">{ph.detail}</p>
+                      {ph.devices.length > 0 && (
+                        <ul className="mt-3 space-y-1 text-[11px] font-mono opacity-80">
+                          {ph.devices.map(d => (
+                            <li key={d.deviceId} className="flex justify-between gap-3">
+                              <span>{d.device} · {d.deviceId.slice(0, 8)}</span>
+                              <span>{d.updatedAt ? formatAgo(d.updatedAt, now) : 'ไม่ทราบเวลา'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {ph.level !== 'ok' && (
+                        <p className="mt-3 text-[11px] font-bold">วิธีแก้: ให้ไรเดอร์เปิดแอป → โปรไฟล์ → กด "ลองใหม่" บนการ์ดการแจ้งเตือน</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
