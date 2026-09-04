@@ -69,6 +69,11 @@ const DEFAULT_CONTRACT = {
   work_hours_per_day: 8,
   work_start: "09:00",
   work_end: "18:00",
+  // เวลาพักระหว่างวัน — **ไม่ใช่ของประดับ** ช่วงเวลาทำงาน 09:00-18:00 คือ 9
+  // ชั่วโมง ส่วน "วันละ 8 ชั่วโมง" คือชั่วโมงทำงานจริง สองตัวเลขนี้ต่างกันได้
+  // ก็เพราะมีเวลาพักคั่นอยู่ **เอกสารที่พิมพ์ตัวเลขทั้งคู่โดยไม่พูดถึงเวลาพัก
+  // จึงขัดกันเองบนหน้ากระดาษ** (เจอจากการเปิดสัญญาฉบับจริงที่ออกไปแล้ว)
+  break_minutes: 60,
   weekly_holiday: "อาทิตย์",
   notice_days: 30,
   // อายุของหนังสือเตือน — ใช้ตัดสินว่าใบไหนยัง "มีผล" อยู่
@@ -77,6 +82,51 @@ const DEFAULT_CONTRACT = {
   benefits: "",
   extra_clauses: "",
 };
+
+/**
+ * เวลาทำงานที่ประกาศไว้สอดคล้องกันไหม
+ *
+ * **สัญญาที่ขัดกันเองแย่กว่าสัญญาที่ยังพิมพ์ไม่ได้** — ถ้าช่วงเวลาลบเวลาพักแล้ว
+ * ไม่เท่ากับชั่วโมงทำงานที่ประกาศ เอกสารจะพิมพ์ตัวเลขสองชุดที่บวกกันไม่ลงตัว
+ * ให้คนเซ็น ซึ่งเป็นเอกสารที่ใช้อ้างอิงตอนมีข้อพิพาทไม่ได้
+ *
+ * รองรับกะข้ามคืน (`22:00`-`06:00`) โดยบวก 24 ชั่วโมงเมื่อเวลาจบน้อยกว่าเวลาเริ่ม
+ * คืน `{ ok, spanMin, workMin, breakMin, reason }` — `reason` เป็นข้อความไทยที่
+ * ไปโผล่บนหน้าจอโดยตรง
+ */
+function parseClock(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return null;
+  const h = Number(m[1]); const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function workScheduleCheck(terms) {
+  const t = terms || {};
+  const start = parseClock(t.work_start);
+  const end = parseClock(t.work_end);
+  if (start == null || end == null) {
+    return { ok: false, reason: "เวลาเริ่ม/เลิกงานต้องเป็นรูป HH:MM" };
+  }
+  // เท่ากันเป๊ะ = ช่วงศูนย์ ไม่ใช่ 24 ชั่วโมง — กะที่ยาว 24 ชม.ไม่มีอยู่จริง
+  const spanMin = end > start ? end - start : end === start ? 0 : end + 24 * 60 - start;
+  const breakMin = Math.max(0, Math.round(Number(t.break_minutes) || 0));
+  const workMin = Math.round((Number(t.work_hours_per_day) || 0) * 60);
+  if (workMin <= 0) return { ok: false, spanMin, workMin, breakMin, reason: "ยังไม่ได้ตั้งชั่วโมงทำงานต่อวัน" };
+  if (breakMin >= spanMin) {
+    return { ok: false, spanMin, workMin, breakMin, reason: "เวลาพักยาวเท่าหรือมากกว่าช่วงเวลาทำงานทั้งวัน" };
+  }
+  if (spanMin - breakMin !== workMin) {
+    const hh = (m) => (m / 60).toFixed(2).replace(/\.00$/, "");
+    return {
+      ok: false, spanMin, workMin, breakMin,
+      reason: `ตัวเลขไม่ลงตัว: ${t.work_start}-${t.work_end} คือ ${hh(spanMin)} ชม. หักพัก ${breakMin} นาที `
+        + `เหลือ ${hh(spanMin - breakMin)} ชม. แต่ประกาศว่าวันละ ${hh(workMin)} ชม.`,
+    };
+  }
+  return { ok: true, spanMin, workMin, breakMin };
+}
 
 /** รวมค่าที่ตั้งไว้กับค่าตั้งต้น ทีละฟิลด์ — ตั้งบางช่องไม่ทำให้ช่องอื่นหาย */
 function resolveContractTerms(settings) {
@@ -208,6 +258,7 @@ const formatDocNumber = (prefix, buddhistYear, seq) =>
   `${prefix}-${buddhistYear}-${String(num(seq, 1)).padStart(4, "0")}`;
 
 module.exports = {
+  workScheduleCheck, parseClock,
   DOC_TYPES, DEFAULT_CONTRACT,
   resolveContractTerms, probationEnd, warningExpiry, activeWarnings,
   missingFor, payLine, formatDocNumber, bkkDayIndex,

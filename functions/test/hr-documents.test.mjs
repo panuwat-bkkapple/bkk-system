@@ -443,5 +443,79 @@ const render = (type, over = {}) => type === "contract"
   }
 }
 
+// ── 13. เวลาทำงานที่ประกาศต้องบวกกันลงตัว ────────────────────────────────
+// **เจอจากการเปิดสัญญาฉบับจริงที่ออกไปแล้ว ไม่ใช่จากเทส** — ข้อ "เวลาทำงาน"
+// พิมพ์ว่า "วันละ 8 ชั่วโมง ระหว่างเวลา 09:00 ถึง 18:00 น." ซึ่งเป็นช่วง 9
+// ชั่วโมง และเอกสารไม่ได้พูดถึงเวลาพักเลย เอกสารที่คนต้องเซ็นจึงบวกกันไม่ลงตัว
+// บนหน้ากระดาษ และใช้อ้างอิงตอนมีข้อพิพาทไม่ได้
+{
+  const base = { work_start: "09:00", work_end: "18:00", work_hours_per_day: 8, break_minutes: 60 };
+  check("ค่าตั้งต้นลงตัวพอดี (9 ชม. − พัก 60 นาที = 8 ชม.)", D.workScheduleCheck(base).ok);
+  eq("ช่วงเวลาเป็นนาที", D.workScheduleCheck(base).spanMin, 540);
+
+  check("ไม่มีเวลาพัก = ไม่ลงตัว", !D.workScheduleCheck({ ...base, break_minutes: 0 }).ok);
+  check("บอกตัวเลขที่ขัดกันในข้อความ",
+    /9 ชม\./.test(D.workScheduleCheck({ ...base, break_minutes: 0 }).reason || ""));
+  check("ชั่วโมงต่อวันมากกว่าช่วงเวลา = ไม่ลงตัว",
+    !D.workScheduleCheck({ ...base, work_hours_per_day: 10 }).ok);
+  check("พักยาวกว่าช่วงเวลาทั้งวัน = ไม่ผ่าน",
+    !D.workScheduleCheck({ ...base, break_minutes: 600 }).ok);
+  check("ยังไม่ตั้งชั่วโมงต่อวัน = ไม่ผ่าน",
+    !D.workScheduleCheck({ ...base, work_hours_per_day: 0 }).ok);
+  check("เวลาผิดรูป = ไม่ผ่าน", !D.workScheduleCheck({ ...base, work_start: "9 โมง" }).ok);
+  check("ชั่วโมงเกิน 23 = ไม่ผ่าน", !D.workScheduleCheck({ ...base, work_start: "25:00" }).ok);
+
+  // กะข้ามคืนต้องคิดถูก ไม่ใช่ได้ค่าติดลบ
+  const night = D.workScheduleCheck({ work_start: "22:00", work_end: "07:00", work_hours_per_day: 8, break_minutes: 60 });
+  check("กะข้ามคืนคิดถูก", night.ok && night.spanMin === 540);
+  // เริ่มเท่ากับเลิก = ช่วงศูนย์ ไม่ใช่ 24 ชม. (กะยาว 24 ชม.ไม่มีอยู่จริง)
+  check("เริ่มเท่ากับเลิก = ไม่ผ่าน",
+    !D.workScheduleCheck({ ...base, work_start: "09:00", work_end: "09:00" }).ok);
+}
+
+// ── 14. สัญญาที่ขัดกันเองต้องออกไม่ได้ และเอกสารต้องพูดถึงเวลาพัก ─────────
+{
+  const api = readFileSync(join(fnDir, "hr-documents-api.js"), "utf8")
+    .split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n");
+  check("ตรวจเวลาทำงานก่อนออกสัญญา", /workScheduleCheck\(terms\)/.test(api));
+  check("ไม่ลงตัวแล้ว throw", /if \(!sched\.ok\) \{\s*throw new HttpsError/.test(api));
+  // ต้องตรวจ **ก่อน** จองเลข ไม่งั้นเลขหายจากลำดับโดยไม่มีเอกสาร
+  // เทียบกับ **จุดที่เรียก** ไม่ใช่ชื่อฟังก์ชันเปล่าๆ — `allocateDocNumber(db, type`
+  // ตรงกับบรรทัดนิยามฟังก์ชันที่อยู่บนสุดของไฟล์ด้วย ทำให้เงื่อนไข "มาก่อน"
+  // เป็นจริงเสมอโดยไม่ได้พิสูจน์อะไร (เจอตอนเขียนเทสนี้เอง)
+  check("ตรวจก่อนจองเลขที่เอกสาร",
+    api.includes("await allocateDocNumber(db, type")
+    && api.indexOf("workScheduleCheck(terms)") < api.indexOf("await allocateDocNumber(db, type"));
+  // ด่านนี้ต้องไม่ไปบล็อกเอกสารชนิดอื่นที่ไม่ได้พูดถึงเวลาทำงาน — ต้องเทียบ
+  // เงื่อนไข **ที่ครอบด่านนี้จริงๆ** ไม่ใช่หาข้อความ `type === "contract"`
+  // ลอยๆ ซึ่งมีอยู่อีกสามที่ในไฟล์ (เปลี่ยนเงื่อนไขเป็น `if (true)` แล้วเทส
+  // ยังเขียว — injection ข้อ 6 จับได้)
+  check("บล็อกเฉพาะสัญญาจ้าง",
+    /if \(type === "contract"\) \{\s*const sched = workScheduleCheck\(terms\);/.test(api));
+
+  const pdf = readFileSync(join(fnDir, "voucher-pdf.js"), "utf8");
+  check("สัญญาพิมพ์เวลาพักออกมาด้วย", /เวลาพักระหว่างวัน \$\{Math\.round\(Number\(t\.break_minutes\)\)\} นาที/.test(pdf));
+  // พัก 0 นาที = ไม่พิมพ์ประโยคนั้น ดีกว่าพิมพ์ "พัก 0 นาที" ซึ่งอ่านแล้วแปลก
+  check("พัก 0 นาทีไม่พิมพ์ประโยคเวลาพัก", /Number\(t\.break_minutes\) > 0/.test(pdf));
+}
+
+// ── 15. MIRROR: กฎเวลาทำงานมีสองสำเนา (JS ฝั่ง server · TS ฝั่งหน้าเว็บ) ──
+// ตัวที่ตัดสินจริงคือฝั่ง server (มันบล็อกการออกเอกสาร) ตัว TS มีไว้เตือนตั้งแต่
+// ตอนพิมพ์ค่า **แก้สูตรต้องแก้ทั้งคู่** — เทียบจากข้อความจริงในไฟล์เพราะ
+// functions import TS ไม่ได้ (รูปเดียวกับ walletCategoryParity ของแอปไรเดอร์)
+{
+  const js = readFileSync(join(fnDir, "hr-documents.js"), "utf8");
+  const ts = readFileSync(join(root, "src/utils/workSchedule.ts"), "utf8");
+  const KEY_LINES = [
+    "const spanMin = end > start ? end - start : end === start ? 0 : end + 24 * 60 - start;",
+    "if (breakMin >= spanMin) {",
+    "if (spanMin - breakMin !== workMin) {",
+  ];
+  for (const line of KEY_LINES) {
+    check(`สูตรตรงกันทั้งสองสำเนา: ${line.slice(0, 42)}...`,
+      js.includes(line) && ts.includes(line));
+  }
+}
+
 console.log(`\n${fail === 0 ? "ALL PASS" : `${fail} FAILED`} (${pass} passed)`);
 process.exit(fail === 0 ? 0 : 1);

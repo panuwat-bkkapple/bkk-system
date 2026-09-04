@@ -23,7 +23,7 @@ const { requireStaffRole } = require("./staff-accounts");
 const { HR_ROLES, employeeActorFields, bangkokBuddhistYear } = require("./hr-core");
 const {
   DOC_TYPES, resolveContractTerms, probationEnd, warningExpiry, activeWarnings,
-  missingFor, payLine, formatDocNumber,
+  missingFor, payLine, formatDocNumber, workScheduleCheck,
 } = require("./hr-documents");
 const { buildEmploymentContractPdf, buildHrLetterPdf } = require("./voucher-pdf");
 
@@ -126,6 +126,22 @@ function registerHrDocuments() {
 
     const at = Date.now();
     const terms = resolveContractTerms(settings);
+
+    // **สัญญาที่ขัดกันเองแย่กว่าสัญญาที่ยังพิมพ์ไม่ได้** — ข้อ "เวลาทำงาน" พิมพ์
+    // ทั้งช่วงเวลาและชั่วโมงต่อวัน ถ้าหักเวลาพักแล้วสองตัวเลขไม่ลงตัว เอกสารที่
+    // คนต้องเซ็นจะบวกกันไม่ได้บนหน้ากระดาษ และใช้อ้างอิงตอนมีข้อพิพาทไม่ได้
+    // ค่าตั้งต้น (09:00-18:00 · 8 ชม. · พัก 60 นาที) ลงตัวพอดี ด่านนี้จึงเงียบ
+    // จนกว่าจะมีคนตั้งค่าที่ขัดกันเอง ซึ่งเป็นจังหวะที่ควรถูกหยุดพอดี
+    if (type === "contract") {
+      const sched = workScheduleCheck(terms);
+      if (!sched.ok) {
+        throw new HttpsError(
+          "failed-precondition",
+          `เวลาทำงานในค่าตั้งขัดกันเอง ออกสัญญาไม่ได้ — ${sched.reason} (แก้ที่หน้าตั้งค่าเงินเดือน/ภาษี)`,
+        );
+      }
+    }
+
     const number = await allocateDocNumber(db, type, bangkokBuddhistYear(at));
 
     const doc = {
