@@ -8,6 +8,7 @@ import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { sumAppliedAdjustments, sumAppliedCoupons } from '../../../utils/adjustments';
 import { buildLogisticsRevenueTx, effectiveCustomerPickupFee } from '../../../utils/logisticsRevenue';
+import { JOB_STATUS, normalizeStatus } from '../../../types/job-statuses';
 
 // คำนวณยอดโอนสุทธิสดจาก final_price ตลอด — ไม่ใช้ net_payout ที่เก็บใน DB เพราะอาจล้าสมัย
 // (เช่น QC รอบหลังไม่ได้ sync) และต้องครอบด้วย Math.max(0, ...) ป้องกันยอดติดลบ
@@ -40,7 +41,9 @@ export const TransactionRepair = () => {
 
     return jobList.filter(j => {
       // เฉพาะ job ที่จ่ายแล้ว (มี paid_at) แต่ไม่มี transaction
-      const isPaid = j.paid_at && (j.status === 'Waiting for Handover' || j.status === 'Sent to QC Lab' || j.status === 'Completed' || j.status === 'Payment Completed' || j.status === 'Pending QC');
+      // normalizeStatus ก่อนเทียบ — สูตรเดียวกับ orphanCount ใน Finance.tsx
+      const s = normalizeStatus(j.status, j.receive_method);
+      const isPaid = j.paid_at && (s === JOB_STATUS.WAITING_FOR_HANDOVER || s === JOB_STATUS.SENT_TO_QC_LAB || s === JOB_STATUS.COMPLETED || s === JOB_STATUS.PAID || s === JOB_STATUS.PENDING_QC);
       const hasTransaction = txJobIds.has(j.id);
       return isPaid && !hasTransaction;
     }).sort((a: any, b: any) => (b.paid_at || 0) - (a.paid_at || 0));
