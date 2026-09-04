@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { JOB_EVENT, engineErrorCode, transitionErrorMessage } from './jobTransitions';
+import { JOB_EVENT, engineErrorCode, transitionErrorMessage, isPostSaleRewindable } from './jobTransitions';
 
 const require = createRequire(import.meta.url);
 
@@ -161,5 +161,34 @@ describe('transitionErrorMessage', () => {
   it('รหัสที่ไม่รู้จักใช้ fallback ที่ caller ส่งมาได้', () => {
     expect(transitionErrorMessage('something_new', 'ข้อความเฉพาะหน้า')).toBe('ข้อความเฉพาะหน้า');
     expect(transitionErrorMessage(null)).toContain('เปลี่ยนสถานะไม่สำเร็จ');
+  });
+});
+
+// ปุ่ม "ย้อนสถานะกลับ -> Pending QC" บน MobileTicketDetail — เคสจริง 4 ก.ย. 2569:
+// switch บนค่าดิบมี case 'Sent to QC Lab' / 'Ready to Sell' สะกดเก่าเท่านั้น
+// งานที่ engine เขียน canonical จึงไม่มีปุ่ม
+//
+// injection ที่ต้องแดง: เปลี่ยน isPostSaleRewindable กลับเป็น
+// `['Sold','In Stock','Ready to Sell','Sent to QC Lab'].includes(status)` → เคส
+// canonical ทั้งสองแดง (Ready To Sell, Sent To QC Lab)
+describe('isPostSaleRewindable', () => {
+  it('accepts both the engine (canonical) and legacy spellings', () => {
+    for (const s of ['Ready To Sell', 'Ready to Sell', 'Sent To QC Lab', 'Sent to QC Lab', 'Sold', 'In Stock']) {
+      expect(isPostSaleRewindable(s), s).toBe(true);
+    }
+    for (const s of ['Pending QC', 'Paid', 'Completed', 'not a status', '', null, undefined]) {
+      expect(isPostSaleRewindable(s), String(s)).toBe(false);
+    }
+  });
+
+  it('mirrors TRANSITIONS.sale_reverted_to_qc.from exactly', () => {
+    const engine = require(resolve(__dirname, '../../functions/status-engine.js'));
+    const from: string[] = engine.TRANSITIONS[JOB_EVENT.SALE_REVERTED_TO_QC].from;
+    for (const s of from) expect(isPostSaleRewindable(s), s).toBe(true);
+    // ทุกสถานะ canonical ที่ไม่อยู่ใน from-list ต้องเป็น false — กันการขยายเกินตาราง
+    const { JOB_STATUS } = require(resolve(__dirname, '../../functions/status-vocab.generated.js'));
+    for (const s of Object.values(JOB_STATUS) as string[]) {
+      expect(isPostSaleRewindable(s), s).toBe(from.includes(s));
+    }
   });
 });

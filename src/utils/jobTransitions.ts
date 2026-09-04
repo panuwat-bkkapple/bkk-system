@@ -9,6 +9,8 @@
 // pure โดยตั้งใจ (ไม่ import firebase) — ตัวที่ยิง callable อยู่ที่
 // `runJobTransition.ts` แยกไฟล์ เพื่อให้เทสชุดนี้รันได้โดยไม่ต้องมี DB
 
+import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
+
 /** event ที่ฝั่งแอดมินยิงได้ — ชื่อต้องตรงกับคีย์ใน status-engine.js เป๊ะ */
 export const JOB_EVENT = {
   // จ่ายงานให้ไรเดอร์คนใดคนหนึ่ง (โหมด manual บนหน้า /dispatcher)
@@ -168,4 +170,19 @@ export function engineErrorCode(error: unknown): string | null {
     return (details as { code: string }).code;
   }
   return null;
+}
+
+// สถานะปลายทางขาย/คลังที่ปุ่ม "ย้อนสถานะกลับ -> Pending QC" ใช้ได้ — MIRROR ของ
+// `TRANSITIONS.sale_reverted_to_qc.from` ใน status-engine.js (เทสเทียบกับตารางจริง)
+//
+// เทียบผ่าน normalizeStatus ไม่ใช่ `case` บนค่าดิบ: enum สะกด 'Ready To Sell' /
+// 'Sent To QC Lab' ขณะที่แถวเก่าใน DB สะกด 'Ready to Sell' / 'Sent to QC Lab' —
+// switch ที่ list สะกดใดสะกดหนึ่งจะทำให้ปุ่มหายจากอีกสะกดเงียบๆ (เคส 4 ก.ย. 2569)
+const POST_SALE_REWINDABLE: ReadonlySet<string> = new Set([
+  JOB_STATUS.SOLD, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL, JOB_STATUS.SENT_TO_QC_LAB,
+]);
+
+export function isPostSaleRewindable(status: string | null | undefined, receiveMethod?: string | null): boolean {
+  const canonical = normalizeStatus(status, receiveMethod);
+  return !!canonical && POST_SALE_REWINDABLE.has(canonical);
 }
