@@ -25,6 +25,10 @@ import { join, resolve } from 'node:path';
 /**
  * 108 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
  *
+ * P3-d: 92 -> 88 — ระเบิดกล่อง B2B ย้ายไป callable `unpackB2BLot` ทั้งก้อน
+ * (multi-path เดิมนับเป็น 4: สถานะงานแม่ + qc_logs + updated_at + งานลูก)
+ * **นี่คือใบที่ทำให้ B2BManager เหลือศูนย์** ไม่มีการเขียน jobs/{id} ตรงเลย
+ *
  * P3-c: 95 -> 92 — ย้ายสาย B2B ทั้งเส้น (B2BDispatchQueue 2 จุด, B2BManager
  * ฟอร์มบริษัท 1 จุด, และ `handleB2BUpdateStatus` ของ B2CWorkspacePage ที่ถูกลบ
  * ทิ้ง) **หักกลับ +1 เพราะ `jobActivityLog.ts` เป็นตัวเขียนตรงตัวใหม่** — มันคือ
@@ -53,7 +57,7 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 92;
+const MAX_DIRECT_JOB_WRITES = 88;
 
 const require = createRequire(import.meta.url);
 
