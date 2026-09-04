@@ -69,19 +69,31 @@ describe('สาย B2B ไม่เหลือตัวเขียนสถ�
     });
   }
 
-  it('B2BManager เหลือการเขียนสถานะแค่ในบล็อกสร้างงานลูก', () => {
+  it('B2BManager ไม่เหลือการเขียนสถานะเลยสักรูป', () => {
+    // P3-c เหลือไว้หนึ่งบล็อก (ระเบิดกล่อง สร้างงานลูก + ปิดงานแม่) เพราะ
+    // transaction ของ engine ครอบสอง sibling ไม่ได้ — P3-d ย้ายทั้งก้อนไป
+    // callable `unpackB2BLot` ไฟล์นี้จึงเหลือศูนย์ **ทั้งสองรูป**
     const rel = 'src/features/trade-in/components/b2b/B2BManager.tsx';
-    // งานลูกเริ่มที่ Pending QC — ค่าเดียวที่เหลือในรูป `status: '...'`
-    expect(statusLiterals(rel)).toEqual(['Pending QC']);
+    expect(statusLiterals(rel)).toEqual([]);
 
-    // งานแม่ปิดเป็น Completed ผ่าน multi-path (`jobs/${id}/status`) ซึ่งเป็น
-    // คนละรูปและ regex ข้างบนมองไม่เห็น — ปักไว้แยกเพื่อไม่ให้ "เทสเขียว"
-    // แปลว่า "ไม่มีการเขียนสถานะแล้ว" ทั้งที่ยังมี
+    // รูป multi-path (`jobs/${id}/status`) เป็นคนละรูปและ regex ข้างบนมองไม่
+    // เห็น — ปักไว้แยกเพื่อไม่ให้ "เทสเขียว" แปลว่า "ไม่มีการเขียนสถานะแล้ว"
+    // ทั้งที่ยังมีอยู่ในรูปที่สอง
     const src = readFileSync(resolve(__dirname, '../..', rel), 'utf8');
-    const pathWrites = [...src.matchAll(/\[`jobs\/\$\{[^`]*\/status`\]\s*=\s*'([^']+)'/g)].map(
-      (m) => m[1]
+    const pathWrites = [...src.matchAll(/\[`jobs\/\$\{[^`]*\/status`\]\s*=/g)];
+    expect(pathWrites).toEqual([]);
+  });
+
+  it('ไคลเอนต์ส่งแค่ jobId ให้ unpackB2BLot — ไม่ส่งรายการเครื่องหรือราคา', () => {
+    // เครื่องกับราคาที่ไคลเอนต์กำหนดได้ คือเครื่องกับราคาที่ปลอมได้ server
+    // อ่าน graded_items / documents จากแถวเอง
+    const src = readFileSync(
+      resolve(__dirname, '../features/trade-in/components/b2b/B2BManager.tsx'),
+      'utf8'
     );
-    expect(pathWrites).toEqual(['Completed']);
+    const call = src.match(/await fn\(\{([^}]*)\}\)/);
+    expect(call, 'ไม่พบการเรียก unpackB2BLot').toBeTruthy();
+    expect(call![1].replace(/\s/g, '')).toBe('jobId:job.id');
   });
 
   it('ไม่มีไฟล์ B2B ไหนเรียก onUpdateStatus อีก', () => {

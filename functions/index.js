@@ -6613,6 +6613,14 @@ exports.dailySickwUsageSummary = onSchedule(
 const statusTransitionApi = require("./status-transition-api");
 exports.transitionJob = statusTransitionApi.transitionJob;
 
+// ปิดล็อต B2B: สร้างงานลูกรายเครื่อง แล้วเลื่อนงานแม่ผ่าน engine
+//
+// แยกออกมาจาก transitionJob เพราะมันทำสองอย่างที่ transaction เดียวครอบไม่ได้
+// (RTDB transact ข้าม sibling ไม่ได้) — ดูเหตุผลเต็มและลำดับที่เลือกไว้ที่หัว
+// ./b2b-unpack.js
+const b2bUnpack = require("./b2b-unpack");
+exports.unpackB2BLot = b2bUnpack.unpackB2BLot;
+
 // =============================================================================
 // Staff account lifecycle — per-employee Firebase Auth accounts, CEO-gated.
 // เจ้าของการเขียน /staff + /admins เพียงผู้เดียว (rules ปิด client write แล้ว)

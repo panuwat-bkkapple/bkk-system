@@ -6,12 +6,14 @@ import {
   ThumbsUp, ThumbsDown, MessageSquareText, ChevronLeft, History,
   MessageCircle, ExternalLink
 } from 'lucide-react';
-import { ref, push, update } from 'firebase/database';
+import { ref, update } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { formatDate, formatCurrency } from '@/utils/formatters';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/ToastProvider';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from '@/api/firebase';
 import { runJobTransition } from '@/utils/runJobTransition';
 import { JOB_EVENT, type JobEvent } from '@/utils/jobTransitions';
 import { B2B_ACTION_EVENT, buildCancelPatch, type B2BActionType } from './b2bActions';
@@ -279,47 +281,49 @@ export const B2BManager = ({ job, onClose, basePricing }: B2BManagerProps) => {
         await fireAction('submit_to_finance', `แอดมินส่งเรื่องตั้งเบิกยอด ฿${b2bGrandTotal.toLocaleString()} ให้ฝ่ายบัญชี (กำหนดจ่าย: ${paymentDueDate})`, { finance_status: 'Waiting for Transfer', payment_due_date: paymentDueDate, documents: { ...job.documents, po_number: poNumber, invoice_number: invoiceNumber, tax_invoice_number: taxInvoiceNumber } });
         break;
       case 'unpack_to_stock':
+        // เงื่อนไขทุกข้อข้างล่างเป็น **ความสุภาพของหน้าจอ ไม่ใช่ด่าน** — ตัวที่
+        // กันจริงคือ `checkUnpackable` ฝั่ง server ซึ่งตรวจซ้ำทุกข้อจากแถวที่
+        // มันเพิ่งอ่านเอง ไม่ใช่จากสิ่งที่ไคลเอนต์ส่งไป
         if (statusLower === 'completed' || statusLower === 'in stock') { toast.warning('ระบบล็อค: ดีลนี้ระเบิดกล่องไปแล้ว ไม่สามารถทำซ้ำได้'); return; }
         if (statusLower !== 'payment completed') { toast.warning('ระบบล็อค: รอให้บัญชีชำระเงินก่อน'); return; }
         if (!taxInvoiceNumber) { toast.warning('ระบบล็อค: ไม่สามารถรับเข้าคลังได้หากไม่มีเลขใบกำกับภาษี (Tax Invoice)'); return; }
         if (validItems.length === 0) { toast.warning('ระบบล็อค: ไม่พบรายการเครื่องที่ประเมินไว้'); return; }
         if (!confirm(`ยืนยันการรับเครื่องเข้าคลัง? ระบบจะสร้างคิว QC จำนวน ${validItems.length} เครื่องอัตโนมัติ`)) return;
-
-        try {
-          // สร้าง atomic multi-path update: parent + children ทั้งหมดในคำสั่งเดียว
-          const batchUpdates: Record<string, any> = {};
-
-          // 1. อัปเดต parent job status
-          const parentLog = [
-            { action: 'Completed', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: 'ระเบิดกล่องและกระจายเครื่องเข้าคลังสำเร็จ (สิ้นสุดงานแอดมิน B2B)' },
-            ...(job.qc_logs || [])
-          ];
-          batchUpdates[`jobs/${job.id}/status`] = 'Completed';
-          batchUpdates[`jobs/${job.id}/qc_logs`] = parentLog;
-          batchUpdates[`jobs/${job.id}/updated_at`] = Date.now();
-
-          // 2. สร้าง child jobs ทั้งหมด
-          validItems.forEach((item: any, index: number) => {
-            const childKey = push(ref(db, 'jobs')).key;
-            batchUpdates[`jobs/${childKey}`] = {
-              ref_no: `${job.ref_no}-U${String(index + 1).padStart(3, '0')}`,
-              type: 'B2B-Unpacked', model: item.model, price: item.price, pre_grade: item.grade,
-              status: 'Pending QC', receive_method: 'Corporate Bulk', cust_name: `[Corporate] ${(job.cust_name || '').split('(')[0]}`,
-              imei: item.imei || '', serial: item.imei || '', created_at: Date.now(), updated_at: Date.now(),
-              agent_name: job.agent_name || 'Admin', parent_b2b_id: job.id,
-              qc_logs: [{ action: 'Sent to QC Lab', details: `ระเบิดกล่องจากล็อต B2B (${job.ref_no}) รอกระบวนการ Test & Data Wipe`, timestamp: Date.now(), by: 'System' }]
-            };
-          });
-
-          // 3. Atomic write - ถ้าพังก็พังทั้งหมด ไม่มีข้อมูลค้าง
-          await update(ref(db), batchUpdates);
-          toast.success(`ปิดจ๊อบเหมา! ส่งเครื่องลูก ${validItems.length} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`);
-          onClose();
-        } catch (error) {
-          console.error('Unpack failed:', error);
-          toast.error(`เกิดข้อผิดพลาดในการระเบิดกล่อง กรุณาลองใหม่อีกครั้ง`);
-        }
+        await runUnpack();
         break;
+    }
+  };
+
+  // ระเบิดกล่อง — ตัวเดียวในสาย B2B ที่ไม่ได้ยิง transitionJob ตรงๆ
+  //
+  // มันสร้าง **งานลูกรายเครื่อง** ด้วย ซึ่ง transaction ของ engine ครอบไม่ได้
+  // (RTDB transact ข้าม sibling ไม่ได้) ตรรกะทั้งก้อนจึงย้ายไปอยู่ที่ callable
+  // `unpackB2BLot` — ดูเหตุผลและลำดับที่เลือกไว้ที่หัว functions/b2b-unpack.js
+  //
+  // ไคลเอนต์ส่งแค่ `jobId` โดยตั้งใจ: รายการเครื่อง ราคา และเลขใบกำกับภาษี
+  // ล้วนเป็นสิ่งที่ server อ่านเองจากแถว ไม่ใช่สิ่งที่หน้าจอบอกมา — เครื่องกับ
+  // ราคาที่ไคลเอนต์กำหนดได้ คือเครื่องกับราคาที่ปลอมได้
+  const runUnpack = async () => {
+    try {
+      const fn = httpsCallable<{ jobId: string }, { ok: true; children: number; recovered: boolean }>(
+        getFunctions(app, 'asia-southeast1'),
+        'unpackB2BLot'
+      );
+      const res = await fn({ jobId: job.id });
+      const { children, recovered } = res.data;
+      toast.success(
+        recovered
+          ? `ปิดจ๊อบเหมาสำเร็จ (เครื่องลูก ${children} เครื่องถูกสร้างไว้แล้วจากการลองครั้งก่อน)`
+          : `ปิดจ๊อบเหมา! ส่งเครื่องลูก ${children} เครื่องเข้าห้อง QC เรียบร้อยแล้วครับ`
+      );
+      onClose();
+    } catch (error) {
+      // ข้อความจาก server ตรงกับสาเหตุจริงเสมอ (ยังไม่จ่ายเงิน / ไม่มีเลขใบกำกับ
+      // ภาษี / จำนวนเครื่องไม่ตรงกับที่เคยสร้างไว้) — ทับด้วยข้อความกลางๆ
+      // จะทำให้แอดมินไม่รู้ว่าต้องไปแก้อะไร
+      console.error('Unpack failed:', error);
+      const detail = (error as { message?: string } | null)?.message;
+      toast.error(detail || 'เกิดข้อผิดพลาดในการระเบิดกล่อง กรุณาลองใหม่อีกครั้ง');
     }
   };
 
