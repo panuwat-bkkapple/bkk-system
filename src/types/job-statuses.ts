@@ -10,8 +10,10 @@
  * copies drift. When you change this file, copy it byte-for-byte into the
  * other two repos in the same PR cycle.
  *
- * B2B statuses live in JobStatusB2B inside ./domain.ts and are NOT covered
- * here yet (separate redesign track).
+ * ครอบทั้งสาย B2C และ B2B — `JOB_STATUS` คือสาย B2C, `JOB_STATUS_B2B` คือสาย
+ * ขายส่ง. `JobStatusB2B` ใน ./domain.ts ยังอยู่ในฐานะ enum ของ TypeScript ที่
+ * โค้ดเดิมอ้างถึง และค่าของสองที่ **ต้องตรงกัน** (มีเทสตรึงไว้) — ที่นี่คือ
+ * ตัวที่ engine อ่านได้ ส่วนนั้นคือ type ที่ UI ใช้
  */
 
 // =============================================================================
@@ -89,6 +91,50 @@ export const JOB_STATUS = {
 export type JobStatus = (typeof JOB_STATUS)[keyof typeof JOB_STATUS];
 
 // =============================================================================
+// B2B lane
+// =============================================================================
+//
+// สาย B2B เดินคนละเส้นกับ B2C ตั้งแต่ต้น: ไม่มีไรเดอร์ ไม่มีการประเมินรายเครื่อง
+// หน้าบ้าน มีการออกใบเสนอราคาสองรอบ (pre-quote จากรายการที่ลูกค้าแจ้ง แล้ว
+// final quote หลังผู้ตรวจไปดูของจริง) และจบด้วย PO กับใบกำกับภาษี
+//
+// **แยก const ไม่ยุบเข้า JOB_STATUS โดยตั้งใจ** — สองเส้นนี้ไม่มีสถานะไหนที่
+// ข้ามไปมาได้ การรวมเป็นก้อนเดียวจะทำให้ทุก from-list ของ B2C ต้องอ่านผ่าน
+// สถานะที่ไม่มีวันเกิดกับมัน และคนอ่านโค้ดจะแยกไม่ออกว่าอันไหนของเส้นไหน
+//
+// ตัวที่ทับกับ B2C อยู่แล้ว (Following Up, Negotiation, In Stock, Completed,
+// Cancelled, Closed (Lost), Returned) **ไม่ซ้ำที่นี่** — ใช้ตัวใน JOB_STATUS
+// ร่วมกัน เพราะมันคือสถานะเดียวกันจริงๆ ไม่ใช่ชื่อพ้อง
+export const JOB_STATUS_B2B = {
+  NEW_B2B_LEAD: 'New B2B Lead',
+
+  // รอบใบเสนอราคาที่หนึ่ง — คิดจากรายการที่ลูกค้าแจ้งมา ยังไม่มีใครเห็นของ
+  PRE_QUOTE_SENT: 'Pre-Quote Sent',
+  PRE_QUOTE_ACCEPTED: 'Pre-Quote Accepted',
+
+  // ผู้ตรวจไปดูของจริงที่หน้างาน
+  SITE_VISIT_GRADING: 'Site Visit & Grading',
+  AUDITOR_ASSIGNED: 'Auditor Assigned',
+
+  // รอบใบเสนอราคาที่สอง — คิดจากเกรดจริงที่ผู้ตรวจให้
+  FINAL_QUOTE_SENT: 'Final Quote Sent',
+  FINAL_QUOTE_ACCEPTED: 'Final Quote Accepted',
+
+  // เอกสารและการจ่ายเงิน
+  PO_ISSUED: 'PO Issued',
+  WAITING_FOR_INVOICE: 'Waiting for Invoice/Tax Inv.',
+  PENDING_FINANCE_APPROVAL: 'Pending Finance Approval',
+
+  // แตกล็อตเข้าสต๊อกรายเครื่อง (งานแม่หนึ่งใบ -> งานลูกหลายใบ)
+  B2B_UNPACKED: 'B2B-Unpacked',
+} as const;
+
+export type JobStatusB2BValue = (typeof JOB_STATUS_B2B)[keyof typeof JOB_STATUS_B2B];
+
+/** สถานะงานทุกเส้น — ใช้เมื่อโค้ดต้องรับได้ทั้ง B2C และ B2B */
+export type AnyJobStatus = JobStatus | JobStatusB2BValue;
+
+// =============================================================================
 // Phase grouping — used by dashboards and customer tracking timelines
 // =============================================================================
 
@@ -110,7 +156,7 @@ export const PHASE = {
 
 export type Phase = (typeof PHASE)[keyof typeof PHASE];
 
-const STATUS_TO_PHASE: Record<JobStatus, Phase> = {
+const STATUS_TO_PHASE: Record<AnyJobStatus, Phase> = {
   [JOB_STATUS.NEW_LEAD]: PHASE.CREATED,
   [JOB_STATUS.ACTIVE_LEAD]: PHASE.CREATED,
 
@@ -163,13 +209,36 @@ const STATUS_TO_PHASE: Record<JobStatus, Phase> = {
   [JOB_STATUS.DISPUTED]: PHASE.EXCEPTION,
   [JOB_STATUS.REFUND_INITIATED]: PHASE.EXCEPTION,
   [JOB_STATUS.REFUND_COMPLETED]: PHASE.TERMINAL,
+
+  // สาย B2B — จัด phase ตาม "แอดมินต้องทำอะไรต่อ" แบบเดียวกับ B2C ไม่ใช่ตาม
+  // ชื่อขั้นตอน. Record นี้ exhaustive อยู่แล้ว การเพิ่มสมาชิกใหม่โดยลืมจัด
+  // phase จึงคอมไพล์ไม่ผ่าน ไม่ใช่เงียบแล้วได้ undefined
+  [JOB_STATUS_B2B.NEW_B2B_LEAD]: PHASE.CREATED,
+
+  // ทั้งสองรอบใบเสนอราคาคือการคุยราคากับลูกค้า = งานฝ่ายขาย
+  [JOB_STATUS_B2B.PRE_QUOTE_SENT]: PHASE.SALES,
+  [JOB_STATUS_B2B.PRE_QUOTE_ACCEPTED]: PHASE.SALES,
+  [JOB_STATUS_B2B.FINAL_QUOTE_SENT]: PHASE.SALES,
+  [JOB_STATUS_B2B.FINAL_QUOTE_ACCEPTED]: PHASE.SALES,
+
+  // ผู้ตรวจไปดูของจริง = ขั้นตรวจสภาพของสาย B2B (เทียบเท่า BEING_INSPECTED)
+  [JOB_STATUS_B2B.AUDITOR_ASSIGNED]: PHASE.INSPECTION,
+  [JOB_STATUS_B2B.SITE_VISIT_GRADING]: PHASE.INSPECTION,
+
+  // เอกสาร + จ่ายเงิน = payout เหมือน B2C
+  [JOB_STATUS_B2B.PO_ISSUED]: PHASE.PAYOUT,
+  [JOB_STATUS_B2B.WAITING_FOR_INVOICE]: PHASE.PAYOUT,
+  [JOB_STATUS_B2B.PENDING_FINANCE_APPROVAL]: PHASE.PAYOUT,
+
+  // แตกล็อตเข้าสต๊อกแล้ว — ของอยู่ในคลัง งานแม่ไม่มีอะไรให้ทำต่อ
+  [JOB_STATUS_B2B.B2B_UNPACKED]: PHASE.INVENTORY,
 };
 
-export function getPhase(status: JobStatus): Phase {
+export function getPhase(status: AnyJobStatus): Phase {
   return STATUS_TO_PHASE[status];
 }
 
-export function isTerminal(status: JobStatus): boolean {
+export function isTerminal(status: AnyJobStatus): boolean {
   return STATUS_TO_PHASE[status] === PHASE.TERMINAL;
 }
 
@@ -302,12 +371,18 @@ const LEGACY_ALIAS: Record<string, JobStatus> = {
 export function normalizeStatus(
   legacy: string | null | undefined,
   receiveMethod?: string | null
-): JobStatus | null {
+): AnyJobStatus | null {
   if (!legacy) return null;
 
-  // Already canonical
+  // Already canonical — ทั้งสองเส้น
   if ((Object.values(JOB_STATUS) as string[]).includes(legacy)) {
     return legacy as JobStatus;
+  }
+  // สาย B2B. **การที่ตัวนี้เคยคืน null คือเหตุผลที่ทุกปุ่มของสาย B2B ยิง
+  // transitionJob ไม่ได้เลย** — engine เรียก normalizeStatus เป็นด่านแรกสุดและ
+  // ตอบ unreadable_status ก่อนถึง from-list ด้วยซ้ำ
+  if ((Object.values(JOB_STATUS_B2B) as string[]).includes(legacy)) {
+    return legacy as JobStatusB2BValue;
   }
 
   // The 'In-Transit' overload — split by receive_method

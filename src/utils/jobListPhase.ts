@@ -18,14 +18,22 @@
 // - PHASE.INVENTORY splits: 'Pending QC' still needs hands on the device
 //   (in progress); from 'Sent To QC Lab' onward the ticket reads as closed.
 //
-// B2B statuses are outside the B2C enum and return null (fail open: the job
-// still shows under "ทั้งหมด"/All). The mobile page special-cases 'New B2B
-// Lead' itself; the desktop B2B workspace has its own filter on the B2B enum
-// (separate redesign track, see JobStatusB2B in types/domain.ts).
+// B2B statuses return null (fail open: the job still shows under "ทั้งหมด"/All).
+// The mobile page special-cases 'New B2B Lead' itself; the desktop B2B
+// workspace has its own filter.
+//
+// **ตั้งแต่ P3-a การกันนี้ต้องเขียนให้ชัด ไม่ใช่ได้มาฟรี** — เดิมสถานะ B2B อยู่
+// นอก enum ทำให้ normalizeStatus คืน null แล้วบรรทัด `if (!status) return null`
+// จัดการให้เอง พอสาย B2B เข้า enum แล้ว มันอ่านออกและมี phase (New B2B Lead ->
+// PHASE.CREATED) ซึ่งจะพางาน B2B ไปโผล่ในแท็บ "เปิดงาน" ของลิสต์ B2C
+//
+// เทส "unknown statuses return null" จับตอนที่เพิ่ม enum พอดี — ถ้าไม่มีมัน
+// งาน B2B จะไหลเข้าลิสต์ B2C โดยไม่มีใครสังเกต
 
 import {
   getPhase,
   JOB_STATUS,
+  JOB_STATUS_B2B,
   normalizeStatus,
   PHASE,
 } from '../types/job-statuses';
@@ -39,6 +47,8 @@ export function jobListPhaseOf(
 ): JobListPhase | null {
   const status = normalizeStatus(rawStatus, receiveMethod);
   if (!status) return null;
+  // สาย B2B มีลิสต์ของตัวเอง — ไม่ปนกับแท็บของ B2C (ดูหมายเหตุด้านบน)
+  if ((Object.values(JOB_STATUS_B2B) as string[]).includes(status)) return null;
 
   if (status === JOB_STATUS.ACTIVE_LEAD) return 'active';
   if (status === JOB_STATUS.PAID) return 'closed';

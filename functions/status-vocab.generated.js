@@ -5,7 +5,7 @@
 // .github/workflows/sync-status-enum.yml). Edit the TS file, then run:
 //   npm run generate:status-vocab
 //
-// source-sha256: 6e36eb6757e2f3c850ceb8bdbd14bc126ad66b34a0708b32a4103b3b9b467cc8
+// source-sha256: 1c8801a455ff757bb60d31a098c9de56e830e2614f7dcdb8f75a58a8c53ca4c9
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -28,6 +28,7 @@ __export(job_statuses_exports, {
   CANCEL_CATEGORY: () => CANCEL_CATEGORY,
   CANCEL_CATEGORY_LABEL_TH: () => CANCEL_CATEGORY_LABEL_TH,
   JOB_STATUS: () => JOB_STATUS,
+  JOB_STATUS_B2B: () => JOB_STATUS_B2B,
   PHASE: () => PHASE,
   RECEIVE_METHOD: () => RECEIVE_METHOD,
   REOPENABLE_STATUS: () => REOPENABLE_STATUS,
@@ -96,6 +97,24 @@ const JOB_STATUS = {
   REFUND_INITIATED: "Refund Initiated",
   REFUND_COMPLETED: "Refund Completed"
 };
+const JOB_STATUS_B2B = {
+  NEW_B2B_LEAD: "New B2B Lead",
+  // รอบใบเสนอราคาที่หนึ่ง — คิดจากรายการที่ลูกค้าแจ้งมา ยังไม่มีใครเห็นของ
+  PRE_QUOTE_SENT: "Pre-Quote Sent",
+  PRE_QUOTE_ACCEPTED: "Pre-Quote Accepted",
+  // ผู้ตรวจไปดูของจริงที่หน้างาน
+  SITE_VISIT_GRADING: "Site Visit & Grading",
+  AUDITOR_ASSIGNED: "Auditor Assigned",
+  // รอบใบเสนอราคาที่สอง — คิดจากเกรดจริงที่ผู้ตรวจให้
+  FINAL_QUOTE_SENT: "Final Quote Sent",
+  FINAL_QUOTE_ACCEPTED: "Final Quote Accepted",
+  // เอกสารและการจ่ายเงิน
+  PO_ISSUED: "PO Issued",
+  WAITING_FOR_INVOICE: "Waiting for Invoice/Tax Inv.",
+  PENDING_FINANCE_APPROVAL: "Pending Finance Approval",
+  // แตกล็อตเข้าสต๊อกรายเครื่อง (งานแม่หนึ่งใบ -> งานลูกหลายใบ)
+  B2B_UNPACKED: "B2B-Unpacked"
+};
 const PHASE = {
   CREATED: "created",
   SALES: "sales",
@@ -153,7 +172,25 @@ const STATUS_TO_PHASE = {
   [JOB_STATUS.RETURN_CONFIRMED]: PHASE.TERMINAL,
   [JOB_STATUS.DISPUTED]: PHASE.EXCEPTION,
   [JOB_STATUS.REFUND_INITIATED]: PHASE.EXCEPTION,
-  [JOB_STATUS.REFUND_COMPLETED]: PHASE.TERMINAL
+  [JOB_STATUS.REFUND_COMPLETED]: PHASE.TERMINAL,
+  // สาย B2B — จัด phase ตาม "แอดมินต้องทำอะไรต่อ" แบบเดียวกับ B2C ไม่ใช่ตาม
+  // ชื่อขั้นตอน. Record นี้ exhaustive อยู่แล้ว การเพิ่มสมาชิกใหม่โดยลืมจัด
+  // phase จึงคอมไพล์ไม่ผ่าน ไม่ใช่เงียบแล้วได้ undefined
+  [JOB_STATUS_B2B.NEW_B2B_LEAD]: PHASE.CREATED,
+  // ทั้งสองรอบใบเสนอราคาคือการคุยราคากับลูกค้า = งานฝ่ายขาย
+  [JOB_STATUS_B2B.PRE_QUOTE_SENT]: PHASE.SALES,
+  [JOB_STATUS_B2B.PRE_QUOTE_ACCEPTED]: PHASE.SALES,
+  [JOB_STATUS_B2B.FINAL_QUOTE_SENT]: PHASE.SALES,
+  [JOB_STATUS_B2B.FINAL_QUOTE_ACCEPTED]: PHASE.SALES,
+  // ผู้ตรวจไปดูของจริง = ขั้นตรวจสภาพของสาย B2B (เทียบเท่า BEING_INSPECTED)
+  [JOB_STATUS_B2B.AUDITOR_ASSIGNED]: PHASE.INSPECTION,
+  [JOB_STATUS_B2B.SITE_VISIT_GRADING]: PHASE.INSPECTION,
+  // เอกสาร + จ่ายเงิน = payout เหมือน B2C
+  [JOB_STATUS_B2B.PO_ISSUED]: PHASE.PAYOUT,
+  [JOB_STATUS_B2B.WAITING_FOR_INVOICE]: PHASE.PAYOUT,
+  [JOB_STATUS_B2B.PENDING_FINANCE_APPROVAL]: PHASE.PAYOUT,
+  // แตกล็อตเข้าสต๊อกแล้ว — ของอยู่ในคลัง งานแม่ไม่มีอะไรให้ทำต่อ
+  [JOB_STATUS_B2B.B2B_UNPACKED]: PHASE.INVENTORY
 };
 function getPhase(status) {
   return STATUS_TO_PHASE[status];
@@ -238,6 +275,9 @@ function normalizeStatus(legacy, receiveMethod) {
   if (Object.values(JOB_STATUS).includes(legacy)) {
     return legacy;
   }
+  if (Object.values(JOB_STATUS_B2B).includes(legacy)) {
+    return legacy;
+  }
   if (legacy === "In-Transit") {
     return receiveMethod === "Pickup" ? JOB_STATUS.RIDER_RETURNING : JOB_STATUS.PARCEL_IN_TRANSIT;
   }
@@ -253,6 +293,7 @@ const RECEIVE_METHOD = {
   CANCEL_CATEGORY,
   CANCEL_CATEGORY_LABEL_TH,
   JOB_STATUS,
+  JOB_STATUS_B2B,
   PHASE,
   RECEIVE_METHOD,
   REOPENABLE_STATUS,
