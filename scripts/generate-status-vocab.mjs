@@ -46,7 +46,20 @@ export async function renderStatusVocab() {
     `// source-sha256: ${createHash("sha256").update(source).digest("hex")}`,
     "",
   ].join("\n");
-  return banner + result.outputFiles[0].text;
+  // LEGACY_ALIAS is module-private in the TS source (nothing in the app needs
+  // it by name — normalizeStatus is the API). functions/ does: query lists for
+  // fetchJobsByStatuses must name EVERY spelling stored in the DB, and the
+  // only honest source of "which legacy spellings map here" is this table.
+  // Appended here rather than exported from the TS file because that file is
+  // mirrored byte-for-byte into two other repos (Data Contracts #6).
+  const aliasExport = [
+    "",
+    "// Appended by scripts/generate-status-vocab.mjs: the alias table for",
+    "// functions/status-match.js (query lists must name every stored spelling).",
+    "module.exports.LEGACY_ALIAS = LEGACY_ALIAS;",
+    "",
+  ].join("\n");
+  return banner + result.outputFiles[0].text + aliasExport;
 }
 
 const rendered = await renderStatusVocab();
