@@ -57,6 +57,18 @@ export const JOB_EVENT = {
 
   // P2-l — หน้าคลัง (Inventory)
   PUSHED_TO_POS: 'pushed_to_pos',
+
+  // P2-o — สองใบสุดท้ายของตาราง quick actions
+  //
+  // `ADMIN_MARKED_PAID` เป็นทางลัดที่ประกาศว่าเงินออกโดยไม่สร้างแถว
+  // `transactions` — **การที่มันมี event ไม่ได้แปลว่าทางนั้นถูกต้องทางบัญชี**
+  // คำถามนั้นยังเปิดอยู่ สิ่งที่ย้ายมาให้ engine คุมคือ from-list / version lock
+  // / audit trail ซึ่งเดิมไม่มีเลย
+  ADMIN_MARKED_PAID: 'admin_marked_paid',
+  // เริ่มดำเนินการของ Store-in/Mail-in — **คนละตัวกับ BROADCAST_TO_RIDERS**
+  // ถึงปลายทางจะเป็น Active Lead เหมือนกัน (คิวไรเดอร์กรอง non-Pickup ทิ้งอยู่แล้ว
+  // งานสองวิธีนี้จึงไม่โผล่ให้ไรเดอร์เห็น)
+  PROCESSING_STARTED: 'processing_started',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];

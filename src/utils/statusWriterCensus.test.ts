@@ -25,6 +25,9 @@ import { join, resolve } from 'node:path';
 /**
  * 108 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
  *
+ * P2-o: 96 -> 95 — ลบ `handleUpdateStatus` ของ MobileTicketDetail ทิ้งหลังย้าย
+ * สองใบสุดท้ายครบ **นี่คือการย้ายจริง** ต่างจากสองบรรทัดล่างที่เป็นการลบโค้ดตาย
+ * กับการรวมสำเนา
  * P2-n: 106 -> 96 มาจากการ **รวมสำเนาสองชุดมาที่เดียว** (payoutTransfer) ไม่ใช่
  * การย้ายไป engine — 10 บรรทัดเดิมยังเขียน jobs/{id} ตรงเหมือนเดิม แค่ยุบจาก
  * สองไฟล์เหลือไฟล์เดียว **อ่านรวมกับความคืบหน้าของการย้ายไม่ได้**
@@ -39,7 +42,7 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 96;
+const MAX_DIRECT_JOB_WRITES = 95;
 
 const require = createRequire(import.meta.url);
 
@@ -183,31 +186,27 @@ describe('สำมะโนการเขียนโหนดงานตร�
     }
   });
 
-  it('MobileTicketDetail: ตาราง quick actions ยิง event 23 ใบ เหลือ legacy 2 ใบ', () => {
-    // เลขในไฟล์ census ไม่ขยับใน PR นี้ เพราะ `handleUpdateStatus` ยังอยู่ให้ 2 ปุ่ม
-    // ที่รอเจ้าของงานเคาะ — **ตัวเลขที่นิ่งจึงไม่ใช่สัญญาณว่าไม่มีความคืบหน้า
-    // และไม่ใช่เหตุผลให้ลดเพดานเอง** ด่านนี้คือตัวที่นับความคืบหน้าจริงแทน
-    //
-    // นับใบในตาราง ไม่ใช่เช็คว่า "มี handleTransition อยู่ไหม" เพราะแบบหลังเขียว
-    // ได้ทั้งที่ปุ่มถูกย้อนกลับไปแล้วทุกใบ (บทเรียนจาก P2-h ที่ injection เขียว)
+  it('MobileTicketDetail: ตาราง quick actions ยิง event ครบทุกใบ ไม่เหลือ legacy', () => {
+    // P2-o ปิดสองใบสุดท้าย — `legacyStatus` ถูกลบออกจาก type ไปด้วย ไคลเอนต์
+    // จึงเลือกสถานะปลายทางเองไม่ได้อีกแม้จะอยากทำ
     const page = readFileSync(resolve(SRC, 'pages/mobile/MobileTicketDetail.tsx'), 'utf8');
     const moved = page.match(/event: JOB_EVENT\./g) || [];
-    // จับเฉพาะ "ใบ" จริงในตาราง — `legacyStatus: JOB_STATUS.X` หรือ `: 'X'`
-    // ไม่ใช่คำว่า legacyStatus ที่ปรากฏในนิยาม type ข้างล่างไฟล์
-    const legacy = page.match(/legacyStatus: (?:JOB_STATUS\.|')/g) || [];
-    // 23 = จำนวน "ใบ" ในตาราง ไม่ใช่จำนวนปลายทางที่ต่างกัน (14) — ปลายทาง
-    // เดียวโผล่ได้หลายใบ เช่น broadcast อยู่ใน 3 ใบ (ส่งครั้งแรก + re-broadcast
-    // สองจุด) นับใบเพราะใบคือสิ่งที่คนกด
-    expect(moved.length).toBe(23);
-    expect(legacy.length).toBe(2);
+    expect(moved.length).toBe(25);
+    expect(page).not.toMatch(/legacyStatus: (?:JOB_STATUS\.|')/);
+    expect(page).not.toContain('const handleUpdateStatus');
   });
 
-  it('MobileTicketDetail: handleUpdateStatus เหลือ call site เดียว คือทางถอยของ dispatcher', () => {
-    // ถ้ามีคนเรียกมันตรงๆ จากปุ่มใหม่ ตัวเลขนี้จะขยับ — และนั่นคือการเพิ่มหนี้
-    // ไม่ใช่การแก้บั๊ก
+  it('MobileTicketDetail: ด่านสิทธิ์จ่ายเงินรอดจากการลบ handleUpdateStatus', () => {
+    // **ตัวนี้เกือบหลุด** — ด่าน `job_mark_paid` เคยอยู่ใน handleUpdateStatus
+    // การลบฟังก์ชันนั้นทิ้งพาด่านไปด้วย และไม่มี error ให้ใครเห็น: engine กัน
+    // actor ที่ไม่ใช่แอดมิน/finance ได้ก็จริง แต่ job_mark_paid เป็นด่านของ
+    // *ร้าน* ที่บันทึก audit ทั้งตอนผ่านและตอนถูกปฏิเสธ ซึ่ง engine ไม่ทำแทน
+    //
+    // ตอนนี้ผูกกับ **event** ไม่ใช่ชื่อสถานะ (เดิมต้องจำสองสะกด 'Paid'/'PAID')
     const page = readFileSync(resolve(SRC, 'pages/mobile/MobileTicketDetail.tsx'), 'utf8');
-    const calls = page.match(/handleUpdateStatus\(/g) || [];
-    expect(calls.length).toBe(1);
+    const handler = page.slice(page.indexOf('const handleTransition'), page.indexOf('const handleSaveTracking'));
+    expect(handler).toContain("guard('job_mark_paid'");
+    expect(handler).toContain('JOB_EVENT.ADMIN_MARKED_PAID');
   });
 
   it('MobileTicketDetail: ผลพลอยได้ตอนเข้าคลังผูกกับปลายทางที่ engine ตอบ', () => {

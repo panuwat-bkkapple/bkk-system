@@ -49,6 +49,8 @@ describe('JOB_EVENT', () => {
       [JOB_EVENT.BROADCAST_RECALLED]: 'Following Up',
       [JOB_EVENT.SALE_REVERTED_TO_QC]: 'Pending QC',
       [JOB_EVENT.PUSHED_TO_POS]: 'Ready To Sell',
+      [JOB_EVENT.ADMIN_MARKED_PAID]: 'Paid',
+      [JOB_EVENT.PROCESSING_STARTED]: 'Active Lead',
     };
 
     // ทุกตัวใน JOB_EVENT ต้องอยู่ในตารางนี้ — เพิ่ม event แล้วลืมปักปลายทาง
