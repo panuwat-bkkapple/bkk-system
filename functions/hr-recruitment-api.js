@@ -47,7 +47,7 @@ const { requireStaffRole } = require("./staff-accounts");
 const { HR_ROLES, sanitizeEmployeePublic, sanitizeEmployeePrivate, employeeActorFields } = require("./hr-core");
 const { createEmployeeRecord } = require("./hr.js");
 const {
-  STAGES, stageOf, canTransition, nextStages, canHire, employeeDraftFrom, summarize,
+  STAGES, TRACK, trackStepOf, stageOf, canTransition, nextStages, canHire, employeeDraftFrom, summarize,
   legacyInternalFields, mergeNotes, canDelete, resumeStoragePath,
   clearInternalOnRow, stageRowUpdate, deletionLogRow,
 } = require("./hr-recruitment");
@@ -81,6 +81,8 @@ function publicApplication(id, raw, notes) {
     uid: a.uid || null,
     status: stage,
     stage_label: STAGES[stage].label,
+    // ขั้นบนแถบความคืบหน้า — 0 = อยู่นอกสาย (ปฏิเสธ/ถอนตัว/ค่าเก่า)
+    track_step: trackStepOf(a),
     next: nextStages(stage),
     employee_id: a.employee_id || null,
     hired_at: Number(a.hired_at) || null,
@@ -156,6 +158,8 @@ function registerHrRecruitment() {
       applications: rows,
       summary: summarize(rows),
       stages: STAGES,
+      // ลำดับขั้นมาจาก server — หน้าเว็บวาดแถบตามนี้ ไม่ได้ถือ array ของตัวเอง
+      track: TRACK,
       capped: rows.length >= MAX_APPLICATIONS,
       moved_notes: movedNotes,
     };
