@@ -109,6 +109,13 @@ jobs:
       - name: Status vocab mirror is in sync
         run: npm run check:status-vocab
 
+      # แอปพนักงาน (employee-app/) เป็น Vite app แยกที่มี tsconfig ของตัวเอง —
+      # `npx tsc -b` ของ root มองไม่เห็นมันเลย ถ้าไม่ build ที่นี่ TS ที่พังจะ
+      # ไปรู้ตอน deploy ซึ่งเป็น job ที่ตั้ง continue-on-error ไว้ = พังเงียบ
+      # (เทสของมันรันไปแล้วในขั้น Test ข้างบน — vite.config include ครอบไว้)
+      - name: Build employee app
+        run: cd employee-app && npm ci && npm run build
+
   functions:
     name: Cloud Functions (syntax + offline suites)
     runs-on: ubuntu-latest

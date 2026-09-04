@@ -270,4 +270,7 @@ function registerHrLeave() {
   };
 }
 
-module.exports = { registerHrLeave, APPROVE_ROLES };
+// `publicRequest` / `loadPolicy` / `loadRequests` ใช้ร่วมกับแอปพนักงาน
+// (`hr-employee-portal.js`) — **รูปของใบลาที่ส่งออกต้องมีที่เดียว** ไม่งั้น
+// วันหนึ่งจอแอดมินกับจอพนักงานจะเล่าใบเดียวกันคนละแบบ
+module.exports = { registerHrLeave, APPROVE_ROLES, publicRequest, loadPolicy, loadRequests, loadEmployee };

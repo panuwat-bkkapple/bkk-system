@@ -30,6 +30,7 @@ const StaffManagement = lazy(() => import('./pages/settings/StaffManagement').th
 const EmployeeRegister = lazy(() => import('./pages/hr/EmployeeRegister').then(m => ({ default: m.EmployeeRegister })));
 const PayrollRuns = lazy(() => import('./pages/hr/PayrollRuns').then(m => ({ default: m.PayrollRuns })));
 const HrSettings = lazy(() => import('./pages/hr/HrSettings').then(m => ({ default: m.HrSettings })));
+const Shifts = lazy(() => import('./pages/hr/Shifts'));
 const TaxYear = lazy(() => import('./pages/hr/TaxYear').then(m => ({ default: m.TaxYear })));
 const Recruitment = lazy(() => import('./pages/hr/Recruitment').then(m => ({ default: m.Recruitment })));
 const TaxFilings = lazy(() => import('./pages/admin/TaxFilings').then(m => ({ default: m.TaxFilings })));
@@ -212,6 +213,7 @@ export default function App() {
               <Route path="/payroll" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <PayrollRuns /> : <Navigate to="/" replace />} />
               <Route path="/payroll/tax-year" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <TaxYear /> : <Navigate to="/" replace />} />
               <Route path="/hr-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <HrSettings /> : <Navigate to="/" replace />} />
+              <Route path="/hr/shifts" element={currentUser?.role === 'CEO' || currentUser?.role === 'HR' ? <Shifts /> : <Navigate to="/" replace />} />
                 <Route path="/coupons" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <CouponManager /> : <Navigate to="/" replace />} />
                 <Route path="/rider-fee-promos" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderFeePromotions /> : <Navigate to="/" replace />} />
                 <Route path="/notification-settings" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <NotificationSettings /> : <Navigate to="/" replace />} />

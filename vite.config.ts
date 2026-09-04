@@ -18,7 +18,13 @@ export default defineConfig({
   // called with 0" — six red files for six suites that all passed. The CI job
   // that actually runs them is the functions job.
   test: {
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // `src/` คือของแอปแอดมิน · `employee-app/src/` คือแอปพนักงาน (PWA แยก)
+    //
+    // **เทสข้ามเข้ามาได้ โค้ดข้ามออกไปไม่ได้** — แอปพนักงานยังห้าม import จาก
+    // `src/` เหมือนเดิม (กฎเดียวกับ dealer-portal) แต่ตรรกะที่ตัดสินว่า "ใช้
+    // แอปได้ไหม" (ประตู GPS) ต้องมีด่านจริง ถ้าปล่อยให้อยู่นอกสายตา vitest
+    // มันจะเป็นโค้ดที่ไม่มีใครทดสอบ ในแอปที่ทั้งแอปขึ้นอยู่กับมัน
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'employee-app/src/**/*.{test,spec}.{ts,tsx}'],
   },
   resolve: {
     alias: {
