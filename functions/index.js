@@ -6974,3 +6974,10 @@ Object.assign(exports, require("./rider-expense-voucher").registerRiderExpenseVo
 // ไม่มี role gate ที่ไหนเลย — rules ของ riders แยกได้แค่ admin/ไม่ใช่ admin
 // =============================================================================
 Object.assign(exports, require("./rider-accounts").registerRiderAccounts());
+
+// =============================================================================
+// Audit log (/audit-log) — ใครแก้อะไร จากค่าอะไรเป็นค่าอะไร (CEO เท่านั้น)
+// อ่านอย่างเดียว ไม่มีเส้นทางแก้/ลบ — append-only เป็นคุณสมบัติของโหนดนี้
+// กติกาการเก็บค่า/การ mask อยู่ใน audit-log.js (ล้วน มีเทส)
+// =============================================================================
+Object.assign(exports, require("./audit-log-api").registerAuditLog());

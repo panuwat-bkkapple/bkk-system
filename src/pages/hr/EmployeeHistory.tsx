@@ -8,7 +8,8 @@
 // หน้านี้ตอบคำถามของ *คน*: ทำงานมานานแค่ไหน · เคยอยู่ตำแหน่งไหน · เงินเดือน
 // ขึ้นครั้งละเท่าไร · ปีนี้ลาไปกี่วัน · ออกเอกสารอะไรให้ไปแล้ว
 //
-// audit log ยังมีอยู่ และอยู่คนละที่ (ปุ่ม "บันทึกการแก้ไข") — ดู audit-log.js
+// audit log ยังมีอยู่ และอยู่คนละที่: หน้า `/audit-log` (CEO เท่านั้น —
+// src/pages/admin/AuditLog.tsx) ซึ่งอ่านโหนดเดียวกับที่ audit-log.js เขียน
 
 import React from 'react';
 import { Clock, TrendingUp, Briefcase, CalendarDays, FileText, AlertTriangle } from 'lucide-react';

@@ -41,40 +41,40 @@ const str = (v, max = 200) => String(v == null ? "" : v).trim().slice(0, max);
  */
 const AUDIT_FIELDS = {
   employee: {
-    name: {},
-    title: {},
-    first_name: {},
-    last_name: {},
-    position: {},
-    department: {},
-    status: {},
-    employment_type: {},
-    hired_at: { kind: "date" },
-    terminated_at: { kind: "date" },
-    employee_code: {},
+    name: { label: "ชื่อ-สกุล" },
+    title: { label: "คำนำหน้า" },
+    first_name: { label: "ชื่อ" },
+    last_name: { label: "นามสกุล" },
+    position: { label: "ตำแหน่ง" },
+    department: { label: "แผนก" },
+    status: { label: "สถานะการจ้าง" },
+    employment_type: { label: "ประเภทการจ้าง" },
+    hired_at: { kind: "date", label: "วันเริ่มงาน" },
+    terminated_at: { kind: "date", label: "วันพ้นสภาพ" },
+    employee_code: { label: "รหัสพนักงาน" },
     // ข้อเท็จจริงทางธุรกิจ — เก็บเต็ม เพราะนี่คือสิ่งที่ audit มีไว้ตรวจ
-    base_salary: { kind: "money" },
-    daily_rate: { kind: "money" },
-    pay_method: {},
-    supervisor_id: {},
+    base_salary: { kind: "money", label: "เงินเดือน" },
+    daily_rate: { kind: "money", label: "ค่าแรงรายวัน" },
+    pay_method: { label: "วิธีจ่าย" },
+    supervisor_id: { label: "หัวหน้างาน" },
     // ตัวระบุตัวบุคคล — mask เสมอ
-    national_id: { mask: true },
-    bank_account_no: { mask: true },
-    phone: { mask: true },
-    email: { mask: true },
+    national_id: { mask: true, label: "เลขบัตรประชาชน" },
+    bank_account_no: { mask: true, label: "เลขบัญชีธนาคาร" },
+    phone: { mask: true, label: "เบอร์โทร" },
+    email: { mask: true, label: "อีเมล" },
   },
   leave_request: {
-    status: {},
-    type: {},
-    from: { kind: "date" },
-    to: { kind: "date" },
-    days: {},
-    paid_days: {},
-    unpaid_days: {},
+    status: { label: "สถานะใบลา" },
+    type: { label: "ประเภทการลา" },
+    from: { kind: "date", label: "ลาตั้งแต่" },
+    to: { kind: "date", label: "ลาถึง" },
+    days: { label: "จำนวนวัน" },
+    paid_days: { label: "วันที่ได้ค่าจ้าง" },
+    unpaid_days: { label: "วันที่ไม่ได้ค่าจ้าง" },
   },
   settings: {
     // ค่าตั้งระบบเป็นตัวเลข/สวิตช์ล้วน เก็บเต็มได้
-    value: {},
+    value: { label: "ค่าที่ตั้งไว้" },
   },
 };
 
@@ -84,15 +84,34 @@ const AUDITED_ENTITIES = Object.keys(AUDIT_FIELDS);
  * สารบัญ action ของ audit — **คนละชุดกับ `EMPLOYEE_EVENT_ACTIONS`**
  *
  * ไทม์ไลน์การจ้างพูดภาษาของ HR (`hired` / `promoted` / `resigned`)
- * ส่วน audit พูดภาษาของการแก้ข้อมูล (`created` / `updated` / `deleted`)
+ * ส่วน audit พูดภาษาของการแก้ข้อมูล (`created` / `updated`)
  * — สองคำศัพท์นี้ห้ามยุบรวมกัน แต่ **ทั้งคู่ต้องมีสารบัญ** เพราะสารบัญที่ไม่
  * ตรงกับความจริงแย่กว่าไม่มีสารบัญ (เหตุผลเดียวกับที่ hr-files.test.mjs
  * สแกนซอร์สมาเทียบ)
+ *
+ * **ทุกค่าในลิสต์นี้ต้องมีผู้เขียนจริง** — ตอนร่างครั้งแรกลิสต์นี้มี `deleted`
+ * กับ `account_issued` ติดมาด้วยทั้งที่ไม่มีโค้ดบรรทัดไหนเขียนมันเลย ซึ่งทำให้
+ * หน้า audit log สัญญาว่ามีคำตอบให้สองคำถามที่มันตอบไม่ได้ (กฎเดียวกับ
+ * "ด่านที่ไปไม่ถึง ให้ลบ ไม่ใช่ ship")
+ *
+ * - `deleted` — ยังไม่มี callable ที่ลบแฟ้มพนักงาน (พ้นสภาพ = เปลี่ยน `status`
+ *   ซึ่งเป็น `updated`) เพิ่มกลับได้เมื่อมีตัวลบจริง
+ * - `account_issued` — บัญชีเข้าระบบออกที่ `adminStaffCreate`
+ *   (`staff-accounts.js`) ซึ่งยังไม่มี seam ของ audit ถ้าจะเพิ่ม ให้ไปเสียบที่นั่น
+ *   ไม่ใช่เดาจากการ "ผูกบัญชี" ใน `adminHrEmployeeLink` (ผูก ≠ ออกบัญชี)
+ *
+ * ตัวที่มีผู้เขียนแล้ว: `created` (`createEmployeeRecord` — ทั้งทางทะเบียนและ
+ * ทางกดจ้างผู้สมัคร) · `updated` (`adminHrEmployeeUpdate`,
+ * `adminHrEmployeeSetStatus`) · `account_revoked` (การปิดบัญชีตอนพ้นสภาพ)
  */
-const AUDIT_ACTIONS = [
-  "created", "updated", "deleted",
-  "account_issued", "account_revoked",
-];
+const AUDIT_ACTIONS = ["created", "updated", "account_revoked"];
+
+/** ป้ายภาษาไทยของ action — ส่งตอนอ่านด้วยเหตุผลเดียวกับ `auditFieldMeta` */
+const AUDIT_ACTION_LABEL = {
+  created: "สร้างแฟ้ม",
+  updated: "แก้ไขข้อมูล",
+  account_revoked: "ปิดบัญชีเข้าระบบ",
+};
 
 /** ค่าที่บันทึกไม่ได้ให้เป็น `null` ไม่ใช่ `"undefined"` (สตริงนั้นอ่านเหมือนค่าจริง) */
 function normalizeValue(v) {
@@ -187,6 +206,42 @@ function buildAuditEntry({ entity, entityId, action, actor, before, after, field
   };
 }
 
+/**
+ * ฟิลด์ทั้งหมดที่ entity นั้นประกาศไว้ว่าเก็บค่าได้
+ *
+ * ผู้เรียกส่ง `fields` เองได้เสมอ (และต้องส่งสำหรับ diff ที่ตั้งใจแคบ) แต่
+ * **สำหรับ entity ที่ต้องการเฝ้าทั้งแฟ้ม ให้ใช้ตัวนี้แทนการพิมพ์ลิสต์ซ้ำ** —
+ * ลิสต์ที่พิมพ์มือไว้ที่ call site คือสำเนาที่สองของ allowlist ซึ่งจะเงียบเมื่อ
+ * มีคนเพิ่มฟิลด์เข้า `AUDIT_FIELDS` แล้วลืมแก้ call site (ฟิลด์นั้นจะไม่ถูก
+ * audit เลยโดยไม่มีอะไรบอก)
+ */
+function auditFieldsFor(entity) {
+  return Object.keys(AUDIT_FIELDS[str(entity, 40)] || {});
+}
+
+/**
+ * ป้ายภาษาไทย + ชนิดของแต่ละฟิลด์ สำหรับให้หน้าเว็บ render
+ *
+ * **ส่งตอนอ่าน ไม่เก็บลงแถว** — สองเหตุผล: แถว audit เก็บถาวรและมีจำนวนมาก
+ * การฝังป้ายลงทุกแถวคือการเก็บสตริงเดิมซ้ำนับพันครั้ง · และป้ายที่ฝังไว้แล้ว
+ * จะค้างเป็นคำเก่าเมื่อวันหนึ่งเราเรียกฟิลด์นั้นด้วยคำใหม่
+ *
+ * **และห้ามมีตารางป้ายชุดที่สองฝั่ง UI** (กฎเดียวกับ `checklistFor` ของหน้า
+ * เอกสาร) — ฟิลด์ที่ไม่มีป้ายให้หน้าเว็บขึ้นชื่อฟิลด์ดิบ ซึ่งอ่านยากแต่จริง
+ */
+function auditFieldMeta(entity) {
+  const table = AUDIT_FIELDS[str(entity, 40)] || {};
+  const out = {};
+  for (const [field, spec] of Object.entries(table)) {
+    out[field] = {
+      label: spec.label || field,
+      kind: spec.kind || "text",
+      mask: Boolean(spec.mask),
+    };
+  }
+  return out;
+}
+
 /** ที่อยู่ของแถว — ซ้อนใต้ entity เพื่อให้อ่านของชิ้นเดียวโดยไม่ต้องมี index */
 function auditPath(entity, entityId) {
   const ent = str(entity, 40);
@@ -199,10 +254,13 @@ module.exports = {
   AUDIT_FIELDS,
   AUDITED_ENTITIES,
   AUDIT_ACTIONS,
+  AUDIT_ACTION_LABEL,
   MAX_CHANGES,
   normalizeValue,
   maskAuditValue,
   auditValueFor,
+  auditFieldsFor,
+  auditFieldMeta,
   changed,
   diffFields,
   buildAuditEntry,
