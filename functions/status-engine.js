@@ -34,7 +34,12 @@
 // The destination is this table's business, which is what keeps the rule in
 // one place instead of in 60 call sites.
 
-const { JOB_STATUS, RECEIVE_METHOD, normalizeStatus } = require("./status-vocab.generated");
+const {
+  JOB_STATUS,
+  JOB_STATUS_B2B,
+  RECEIVE_METHOD,
+  normalizeStatus,
+} = require("./status-vocab.generated");
 
 // ── Custody ─────────────────────────────────────────────────────────────────
 // Who is holding the device. `=` in a transition means "unchanged".
@@ -81,16 +86,39 @@ function actorSatisfies(actual, allowed) {
   return (ACTOR_IMPLIES[actual] || []).some((implied) => allowed.includes(implied));
 }
 
+// ── Job line ────────────────────────────────────────────────────────────────
+// `type` on the job row separates the corporate bulk line from the retail one.
+// It is a raw database value, not part of the status enum, and deliberately
+// stays out of `job-statuses.ts`: that file is byte-identical across three
+// repos, and adding a constant only the engine reads would spend a
+// three-repo sync on it. `jobTypeParity` in the offline suite pins the literal
+// against the writers instead.
+//
+// WHY THE ENGINE NEEDS IT AT ALL — the two lines share five status values
+// (Following Up, Negotiation, Paid, In Stock, Completed). Without this axis,
+// `b2b_unpacked_to_stock` (from "Paid") would be legal on a retail job that
+// was just paid out, and one call would turn a customer's phone into a
+// corporate lot and close their ticket.
+const JOB_TYPE = {
+  B2B: "B2B Trade-in",
+};
+
 // ── Transition table ────────────────────────────────────────────────────────
 // One row per event. `from` is the set of statuses the event is legal in;
 // omitting it means "any status" (only used where the whole point is that the
-// job can be anywhere, e.g. quarantine).
+// job can be anywhere, e.g. quarantine). `methods` and `jobTypes` narrow the
+// same way and are omitted on every row that does not need them — a row
+// without `jobTypes` is legal on both the retail and the corporate line,
+// which is what keeps the retail rows behaving exactly as they did before
+// the corporate line existed (legacy retail rows carry no `type` field at
+// all, so requiring one there would break them).
 //
 // This table describes the lifecycle as it runs TODAY, using canonical status
 // values. The v2 additions that need an enum change (Awaiting Customer
 // Decision, Quarantined, Return In Transit) are deliberately absent: the enum
 // is a coordinated three-repo change and the readers have to move first.
 const S = JOB_STATUS;
+const B = JOB_STATUS_B2B;
 
 const TRANSITIONS = {
   // Phase 1-2: created and sales -------------------------------------------
@@ -573,6 +601,176 @@ const TRANSITIONS = {
     actors: [ACTOR.ADMIN_STAFF],
   },
 
+
+  // Phase B: corporate bulk (B2B) -------------------------------------------
+  //
+  // A separate line, not a variant of the retail one: the unit is a LOT, the
+  // device count is unknown until an auditor walks the customer's floor, and
+  // the money moves against a PO and a tax invoice instead of a payout to a
+  // person. Nothing crosses between the two lines — a job is one or the other
+  // from the moment it is created.
+  //
+  // Every row below carries `jobTypes` because the two lines share status
+  // values; see the JOB_TYPE block above for what that guard is actually
+  // stopping.
+  //
+  // NO `methods` ON ANY B2B ROW, ON PURPOSE. B2B parents do not carry a
+  // receive method the enum knows: the corporate web form writes
+  // "Corporate Pickup" and the admin-created deal (B2BDispatchQueue) writes
+  // nothing at all. A `methods` list would therefore reject every B2B job,
+  // and adding those two strings to RECEIVE_METHOD would tell the retail
+  // logistics rows that a lot can be broadcast to riders.
+  //
+  // CUSTODY STAYS "=" THROUGH THE WHOLE LINE, ALSO ON PURPOSE. The parent is
+  // a deal, not a device — there is no single thing for it to hold, and the
+  // system has never recorded a handover moment for a lot. Per-device custody
+  // begins on the child jobs the unpack creates, each of which enters the
+  // retail inventory flow at Pending QC. Writing "store" onto the parent
+  // would assert an observation nobody made.
+  //
+  // The from-lists are read off the buttons that exist today (B2BManager's
+  // action panel, B2BDispatchQueue's two lists, B2BAuditorTool's job filter),
+  // not off a spec — every one of them is a status the UI can currently be
+  // sitting on when that button is pressed.
+  b2b_followed_up: {
+    from: [B.NEW_B2B_LEAD],
+    to: S.FOLLOWING_UP,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+    // B2BManager handleCallCustomer — writes only when the deal is still at
+    // New B2B Lead, so the from-list is that one status and nothing else.
+  },
+  // Both B2BManager (buttons shown at New B2B Lead / Following Up) and
+  // B2BDispatchQueue (whose queue holds those two plus both Pre-Quote states)
+  // send this. Pre-Quote Sent is in the list because a re-send is the same
+  // event landing on the same status — the dispatch screen only greys the
+  // button out, which is a UI nicety and not a rule the engine should invent.
+  b2b_pre_quote_sent: {
+    from: [B.NEW_B2B_LEAD, S.FOLLOWING_UP, B.PRE_QUOTE_SENT, B.PRE_QUOTE_ACCEPTED],
+    to: B.PRE_QUOTE_SENT,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  b2b_pre_quote_accepted: {
+    from: [B.PRE_QUOTE_SENT],
+    to: B.PRE_QUOTE_ACCEPTED,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  // Admin schedules the site visit and hands the lot to an auditor.
+  b2b_auditor_dispatched: {
+    from: [B.NEW_B2B_LEAD, S.FOLLOWING_UP, B.PRE_QUOTE_SENT, B.PRE_QUOTE_ACCEPTED],
+    to: B.SITE_VISIT_GRADING,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+    // site_visit_date is enforced by the two callers before they fire; it is
+    // not in `requires` because both of them write it in the same patch, so
+    // the engine would be reading the field it is being handed.
+  },
+  // The auditor scanned the first device on a lot nobody had dispatched.
+  //
+  // Same destination as b2b_auditor_dispatched and still a separate event,
+  // for the reason processing_started is separate from broadcast_to_riders:
+  // the two sentences are not the same sentence, and status_history is read
+  // by people asking what happened. This one means "grading began", not
+  // "a visit was scheduled" — there is no site_visit_date behind it.
+  //
+  // The wide from-list is B2BAuditorTool's own job filter: it offers every
+  // B2B deal except the six it locks (Pending Finance Approval, Payment
+  // Completed, In Stock, Completed, Cancelled, Closed (Lost)). The two
+  // grading statuses are absent because the tool deliberately skips the
+  // status write once the lot is already there — a no-op transition would
+  // add a status_history row saying nothing happened.
+  b2b_grading_started: {
+    from: [
+      B.NEW_B2B_LEAD, S.FOLLOWING_UP, B.PRE_QUOTE_SENT, B.PRE_QUOTE_ACCEPTED,
+      B.FINAL_QUOTE_SENT, B.FINAL_QUOTE_ACCEPTED, S.NEGOTIATION,
+      B.PO_ISSUED, B.WAITING_FOR_INVOICE,
+    ],
+    to: B.SITE_VISIT_GRADING,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  // AUDITOR_ASSIGNED is in this from-list and in no `to` anywhere: nothing in
+  // any of the three repos writes it. It survives because both B2B screens
+  // accept it as an in-grading status, so production rows that carry it (from
+  // a version that did write it) must still be able to move forward. Do not
+  // "clean it up" without checking the data first.
+  b2b_final_quote_sent: {
+    from: [B.SITE_VISIT_GRADING, B.AUDITOR_ASSIGNED],
+    to: B.FINAL_QUOTE_SENT,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  b2b_negotiation_opened: {
+    from: [B.FINAL_QUOTE_SENT],
+    to: S.NEGOTIATION,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  // Negotiation is in the from-list because the negotiation panel's "ตกลงราคาได้"
+  // button fires the same action as accepting the quote outright.
+  b2b_final_quote_accepted: {
+    from: [B.FINAL_QUOTE_SENT, S.NEGOTIATION],
+    to: B.FINAL_QUOTE_ACCEPTED,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  // The PO number lives at documents.po_number — nested, so `requires` (which
+  // only reads top-level fields) cannot check it. The caller blocks on it.
+  b2b_po_issued: {
+    from: [B.FINAL_QUOTE_ACCEPTED],
+    to: B.PO_ISSUED,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  b2b_invoice_requested: {
+    from: [B.PO_ISSUED],
+    to: B.WAITING_FOR_INVOICE,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+  b2b_submitted_to_finance: {
+    from: [B.WAITING_FOR_INVOICE],
+    to: B.PENDING_FINANCE_APPROVAL,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+
+  // THE GAP BETWEEN THE TWO ROWS ABOVE AND BELOW IS DELIBERATE.
+  // Pending Finance Approval -> Paid has no event, because the write that
+  // makes it is `payoutTransfer` (src/utils/payoutTransfer.ts), which sets
+  // the status and the DEBIT/CREDIT ledger rows in ONE multi-path update.
+  // Splitting that so the status half could go through the engine would put
+  // money movement and its ledger entry in two writes that can half-succeed —
+  // the reason that file documents for staying off the engine. The from-list
+  // below reads "Paid" because the legacy value that write produces for the
+  // B2B branch is "Payment Completed", which normalizeStatus reads as Paid.
+
+  // Closing the lot: the deal ends and its devices are re-created as one
+  // child job per unit, each entering the retail inventory flow at Pending QC.
+  // Those children are NOT this event's doing — the caller writes them in the
+  // same multi-path update, because a lot that changed status without its
+  // devices appearing anywhere is worse than one that did neither.
+  b2b_unpacked_to_stock: {
+    from: [S.PAID],
+    to: S.COMPLETED,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    jobTypes: [JOB_TYPE.B2B],
+  },
+
   cancelled: {
     from: [
       S.NEW_LEAD, S.ACTIVE_LEAD, S.FOLLOWING_UP, S.APPOINTMENT_SET,
@@ -581,6 +779,18 @@ const TRANSITIONS = {
       S.PARCEL_IN_TRANSIT, S.PARCEL_RECEIVED, S.DROP_OFF_RECEIVED,
       S.BEING_INSPECTED, S.QC_REVIEW, S.NEGOTIATION, S.REVISED_OFFER,
       S.PRICE_ACCEPTED,
+      // สาย B2B ทั้งเส้นก่อนจ่ายเงิน. วันนี้มีปุ่มยกเลิกใบเดียวคือ "ลูกค้าปฏิเสธ"
+      // ที่ Pre-Quote Sent — ที่เหลือคือการขยายตามกฎของงานชุดนี้ (ขยายได้
+      // ห้ามหด): กฎที่ยอมให้ยกเลิกตอนเพิ่งเสนอราคาแต่ห้ามยกเลิกตอนออก PO แล้ว
+      // ไม่ใช่กฎ มันคือรูปร่างของหน้าจอที่บังเอิญมีปุ่มอยู่ที่เดียว
+      // Payment Completed (= Paid) ไม่อยู่ในลิสต์ และ **การไม่อยู่ในลิสต์คือ
+      // ตัวที่กันจริง** ไม่ใช่ blockedWhenPaid — decideTransition เช็ค from
+      // ก่อน paid เสมอ ตัว blockedWhenPaid เป็นตาข่ายชั้นสองของสถานะที่
+      // *อยู่* ในลิสต์แต่ดันมี paid_at ติดมา. ยกเลิกหลังโอนเงินคือ dispute
+      B.NEW_B2B_LEAD, B.PRE_QUOTE_SENT, B.PRE_QUOTE_ACCEPTED,
+      B.SITE_VISIT_GRADING, B.AUDITOR_ASSIGNED,
+      B.FINAL_QUOTE_SENT, B.FINAL_QUOTE_ACCEPTED,
+      B.PO_ISSUED, B.WAITING_FOR_INVOICE, B.PENDING_FINANCE_APPROVAL,
     ],
     to: S.CANCELLED,
     custody: "=",
@@ -673,7 +883,7 @@ function reject(code, message) {
  *
  * `code` is a closed set so callers can map it to their own copy:
  *   unknown_event | unreadable_status | illegal_from | wrong_actor |
- *   wrong_receive_method | missing_field | already_paid
+ *   wrong_receive_method | wrong_job_type | missing_field | already_paid
  */
 function decideTransition({ job, event, actor }) {
   const rule = TRANSITIONS[event];
@@ -693,6 +903,10 @@ function decideTransition({ job, event, actor }) {
   }
   if (rule.methods && !rule.methods.includes(receiveMethod)) {
     return reject("wrong_receive_method", `event ${event} ใช้กับวิธีรับเครื่อง "${receiveMethod}" ไม่ได้`);
+  }
+  const jobType = (job && job.type) || null;
+  if (rule.jobTypes && !rule.jobTypes.includes(jobType)) {
+    return reject("wrong_job_type", `event ${event} ใช้กับงานชนิด "${jobType}" ไม่ได้`);
   }
 
   const paid = jobIsPaid(job);
@@ -757,6 +971,7 @@ const SIDE_EFFECT_OWNER = {
 
 module.exports = {
   ACTOR,
+  JOB_TYPE,
   SIDE_EFFECT_OWNER,
   CUSTODY,
   TRANSITIONS,
