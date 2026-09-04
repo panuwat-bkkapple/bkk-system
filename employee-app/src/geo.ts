@@ -41,15 +41,34 @@ export interface GeoInput {
   fix: GeoFix | null;
   error: GeoErrorCode | null;
   now: number;
+  /**
+   * เคยขอตำแหน่งจากการแตะของผู้ใช้ไปแล้วหรือยัง
+   *
+   * **iOS ขึ้นกล่องถามเฉพาะเมื่อคำขอมาจากการแตะ** — ขอตอนหน้าโหลดถูกปฏิเสธ
+   * ทันทีโดยไม่ถาม แอปจึงต้องมีปุ่มให้แตะก่อน ไม่ใช่หมุนรอกล่องที่ไม่มีวันขึ้น
+   */
+  asked: boolean;
 }
 
 export interface GeoBlock {
-  code: GeoErrorCode | 'no_fix' | 'stale';
+  code: GeoErrorCode | 'no_fix' | 'stale' | 'needs_gesture';
   title: string;
   detail: string;
-  /** ปุ่ม "ลองใหม่" ช่วยได้ไหม — เคสที่ช่วยไม่ได้ต้องไม่มีปุ่มให้กดวนไปเรื่อยๆ */
-  canRetry: boolean;
+  /**
+   * มีปุ่มให้กดไหม (และปุ่มนั้นเขียนว่าอะไร)
+   *
+   * **บทเรียน 5 ก.ย. 2569 — เดิมข้อนี้ผิด:** เคยตั้งใจไม่ให้ `denied` มีปุ่ม
+   * ด้วยเหตุผลว่า "ปุ่มที่กดแล้วไม่มีทางสำเร็จ สอนให้คนกดวนไปเรื่อยๆ" ซึ่ง
+   * **สมมติว่า `denied` แปลว่าผู้ใช้ปฏิเสธจริง** — บน iOS ไม่ใช่: การขอ
+   * ตำแหน่งที่ไม่ได้เกิดจากการแตะของผู้ใช้ถูกปฏิเสธทันทีโดย**ไม่เคยขึ้นกล่อง
+   * ถาม** ผลคือจอตัน ไม่มีปุ่ม ไม่มีทางไปต่อ ทั้งที่คนยังไม่เคยถูกถามด้วยซ้ำ
+   */
+  action: string | null;
 }
+
+/** ปุ่มที่กดแล้วมีทางสำเร็จ = ปุ่มที่ควรมี */
+const ASK = 'อนุญาตให้เข้าถึงตำแหน่ง';
+const RETRY = 'ลองใหม่';
 
 /**
  * พิกัดเก่ากว่านี้ถือว่าใช้ไม่ได้
@@ -61,33 +80,34 @@ export interface GeoBlock {
  */
 export const MAX_FIX_AGE_MS = 90_000;
 
-const MESSAGES: Record<GeoErrorCode, { title: string; detail: string; canRetry: boolean }> = {
+const MESSAGES: Record<GeoErrorCode, { title: string; detail: string; action: string | null }> = {
   unsupported: {
     title: 'เครื่องนี้ใช้ลงเวลาไม่ได้',
     detail: 'เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง ลองเปิดด้วย Safari หรือ Chrome รุ่นล่าสุด',
-    canRetry: false,
+    action: null,
   },
   insecure: {
     title: 'ที่อยู่เว็บไม่ปลอดภัย',
     detail: 'ต้องเปิดผ่าน https เท่านั้น เบราว์เซอร์จะไม่ยอมให้เว็บที่ไม่ปลอดภัยอ่านตำแหน่ง',
-    canRetry: false,
+    action: null,
   },
   denied: {
     title: 'ต้องอนุญาตให้เข้าถึงตำแหน่งก่อน',
-    // บอก *วิธีแก้* ไม่ใช่แค่บอกว่าถูกปฏิเสธ — คนส่วนใหญ่ไม่รู้ว่าเมื่อกด
-    // "ไม่อนุญาต" ไปแล้ว เบราว์เซอร์จะไม่ถามซ้ำอีก และปุ่มลองใหม่ก็ไม่ช่วย
-    detail: 'เปิดการตั้งค่าเว็บไซต์ในเบราว์เซอร์ แล้วเปลี่ยนสิทธิ์ "ตำแหน่ง" เป็นอนุญาต จากนั้นเปิดแอปใหม่',
-    canRetry: false,
+    // **ข้อความต้องครอบสองเคส** — "เคยกดไม่อนุญาต" กับ "ยังไม่เคยถูกถามเลย"
+    // (iOS ปฏิเสธคำขอที่ไม่ได้มาจากการแตะโดยไม่ขึ้นกล่องถาม) แยกสองเคสนี้จาก
+    // ฝั่งเว็บไม่ได้ เบราว์เซอร์ส่งรหัสเดียวกันมาทั้งคู่ จึงต้องบอกทั้งสองทาง
+    detail: 'กดปุ่มด้านล่างเพื่อขออนุญาตอีกครั้ง — ถ้ากล่องถามไม่ขึ้น แปลว่าเคยกดไม่อนุญาตไว้ ให้ไปที่ ตั้งค่า > ความเป็นส่วนตัว > บริการหาตำแหน่ง แล้วเปิดสิทธิ์ของเว็บไซต์นี้',
+    action: ASK,
   },
   unavailable: {
     title: 'หาตำแหน่งไม่พบ',
     detail: 'เปิด GPS ของเครื่อง แล้วออกไปที่ที่สัญญาณเข้าถึงได้ (ในอาคารลึกอาจจับไม่ได้)',
-    canRetry: true,
+    action: RETRY,
   },
   timeout: {
     title: 'หาตำแหน่งนานเกินไป',
     detail: 'สัญญาณอาจอ่อน ลองใหม่อีกครั้ง',
-    canRetry: true,
+    action: RETRY,
   },
 };
 
@@ -102,6 +122,16 @@ export function geoBlockReason(input: GeoInput): GeoBlock | null {
   if (!i.supported) return { code: 'unsupported', ...MESSAGES.unsupported };
   if (!i.secureContext) return { code: 'insecure', ...MESSAGES.insecure };
   if (i.permission === 'denied') return { code: 'denied', ...MESSAGES.denied };
+  // **ยังไม่เคยแตะขอ = ขอปุ่มก่อน ไม่ใช่หมุนรอ** — บน iOS กล่องถามจะไม่ขึ้น
+  // เลยถ้าคำขอไม่ได้มาจากการแตะ จอที่หมุนรออยู่จึงหมุนตลอดกาล
+  if (!i.asked && !i.fix) {
+    return {
+      code: 'needs_gesture',
+      title: 'แตะเพื่อเริ่มใช้งาน',
+      detail: 'แอปนี้ใช้ตำแหน่งเพื่อยืนยันว่าคุณอยู่ที่สาขาตอนลงเวลา กดปุ่มด้านล่างแล้วเลือก "อนุญาต" ในกล่องที่ขึ้นมา',
+      action: ASK,
+    };
+  }
   // error ของ browser มาก่อน "ยังไม่มีพิกัด" เพราะมันบอกสาเหตุได้ ส่วน
   // "ยังไม่มีพิกัด" เป็นแค่การรอ
   if (i.error) return { code: i.error, ...MESSAGES[i.error] };
@@ -110,7 +140,7 @@ export function geoBlockReason(input: GeoInput): GeoBlock | null {
       code: 'no_fix',
       title: 'กำลังหาตำแหน่ง',
       detail: 'รอสักครู่ ระบบกำลังอ่านพิกัดจาก GPS ของเครื่อง',
-      canRetry: true,
+      action: RETRY,
     };
   }
   const age = Number(i.now) - Number(i.fix.at);
@@ -121,7 +151,7 @@ export function geoBlockReason(input: GeoInput): GeoBlock | null {
       code: 'stale',
       title: 'ตำแหน่งเป็นข้อมูลเก่า',
       detail: 'พิกัดที่เครื่องให้มาไม่ใช่ของตอนนี้ กดลองใหม่เพื่ออ่านตำแหน่งปัจจุบัน',
-      canRetry: true,
+      action: RETRY,
     };
   }
   return null;
