@@ -3,7 +3,8 @@ import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import { isOfferAwaitingDecision } from '@/utils/customerOffer';
-import { isRecededStatus, normalizeStatus } from '@/types/job-statuses';
+import { isRecededStatus, JOB_STATUS } from '@/types/job-statuses';
+import { canonicalStatus } from '@/utils/statusCompare';
 import { statusBadgeClass } from '@/utils/statusColors';
 
 export const MethodBadge = ({ method }: { method: string }) => {
@@ -33,50 +34,44 @@ export const TicketPipeline = ({ status }: { status: string }) => {
   // keeps lighting up correctly through the Phase 2D writer rename. New
   // statuses from Phase 2B (Drop-off Received, Parcel Received, Awaiting
   // Shipping, Discrepancy Reported, ...) get bucketed too.
-  const isCancelled = [
-    'Cancelled', 'Closed (Lost)', 'Returned', 'Return Confirmed',
-    'Drop-off Expired', 'Shipping Expired', 'Parcel Lost',
-  ].includes(status);
+  const canon = (s: string) => canonicalStatus(s) ?? s;
+  const inList = (list: readonly string[]) => list.includes(canon(status));
+  const isCancelled = inList([
+    JOB_STATUS.CANCELLED, JOB_STATUS.CLOSED_LOST, JOB_STATUS.RETURN_CONFIRMED,
+    JOB_STATUS.DROP_OFF_EXPIRED, JOB_STATUS.SHIPPING_EXPIRED, JOB_STATUS.PARCEL_LOST,
+  ]);
 
+  // canonical เท่านั้น — สถานะของงานถูก canon() ก่อนเทียบ สะกดเก่าตกที่ canonical เอง
   const phase1_Sales = [
-    'New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off',
-    'Awaiting Shipping',
+    JOB_STATUS.NEW_LEAD, JOB_STATUS.FOLLOWING_UP, JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF,
+    JOB_STATUS.AWAITING_SHIPPING,
   ];
   const phase2_Logistics = [
-    // legacy
-    'Active Leads', 'Assigned', 'Accepted', 'Heading to Customer', 'Arrived', 'In-Transit',
-    // canonical
-    'Active Lead', 'Rider Assigned', 'Rider Accepted', 'Rider En Route', 'Rider Arrived',
-    'Rider Returning', 'Parcel In Transit',
-    // new intermediates
-    'Drop-off Received', 'Parcel Received',
+    JOB_STATUS.ACTIVE_LEAD, JOB_STATUS.RIDER_ASSIGNED, JOB_STATUS.RIDER_ACCEPTED, JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_ARRIVED,
+    JOB_STATUS.RIDER_RETURNING, JOB_STATUS.PARCEL_IN_TRANSIT,
+    JOB_STATUS.DROP_OFF_RECEIVED, JOB_STATUS.PARCEL_RECEIVED,
   ];
   const phase3_Inspection = [
-    'Being Inspected', 'QC Review', 'Revised Offer', 'Negotiation',
-    'Price Accepted', 'Discrepancy Reported',
+    JOB_STATUS.BEING_INSPECTED, JOB_STATUS.QC_REVIEW, JOB_STATUS.REVISED_OFFER, JOB_STATUS.NEGOTIATION,
+    JOB_STATUS.PRICE_ACCEPTED, 'Discrepancy Reported',
   ];
   const phase4_Finance = [
-    'Payout Processing', 'Waiting for Handover', 'Waiting For Handover',
-    'PAID', 'Paid', 'Pending QC', 'Sent to QC Lab', 'In Stock', 'Ready to Sell',
-    'Sold', 'Completed',
+    JOB_STATUS.PAYOUT_PROCESSING, JOB_STATUS.WAITING_FOR_HANDOVER,
+    JOB_STATUS.PAID, JOB_STATUS.PENDING_QC, JOB_STATUS.SENT_TO_QC_LAB, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL,
+    JOB_STATUS.SOLD, JOB_STATUS.COMPLETED,
   ];
 
-  // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง — ลิสต์ข้างบนถือสะกดเก่าบางตัว ('Sent to
-  // QC Lab', 'Ready to Sell') ขณะที่ engine เขียน canonical จึง normalize ทั้งค่าใน
-  // ลิสต์และค่าของงานก่อนเทียบ ไม่แก้ตัวลิสต์
-  const canon = (s: string) => normalizeStatus(s) ?? s;
-  const inList = (list: string[]) => list.some((s) => canon(s) === canon(status));
   const phases = [
     { id: 1, name: 'Sales & Deal', active: inList(phase1_Sales), done: (inList(phase2_Logistics) || inList(phase3_Inspection) || inList(phase4_Finance)) && !isCancelled },
     { id: 2, name: 'Logistics', active: inList(phase2_Logistics), done: (inList(phase3_Inspection) || inList(phase4_Finance)) && !isCancelled },
     { id: 3, name: 'Inspection', active: inList(phase3_Inspection), done: inList(phase4_Finance) && !isCancelled },
-    { id: 4, name: 'Finance & QC', active: inList(phase4_Finance), done: inList(['In Stock', 'Ready to Sell']) && !isCancelled }
+    { id: 4, name: 'Finance & QC', active: inList(phase4_Finance), done: inList([JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL]) && !isCancelled }
   ];
 
   if (isCancelled) {
     return (
-      <div className={`p-4 rounded-2xl text-center font-black text-xs uppercase tracking-widest border mt-6 shadow-inner ${status === 'Returned' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-red-50 text-red-600 border-red-200'}`}>
-        {status === 'Returned' ? '📦 Item Returned (ส่งเครื่องคืนลูกค้าแล้ว)' : '🚫 Ticket Closed / Cancelled (ยกเลิกรายการแล้ว)'}
+      <div className={`p-4 rounded-2xl text-center font-black text-xs uppercase tracking-widest border mt-6 shadow-inner ${canon(status) === JOB_STATUS.RETURN_CONFIRMED ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-red-50 text-red-600 border-red-200'}`}>
+        {canon(status) === JOB_STATUS.RETURN_CONFIRMED ? '📦 Item Returned (ส่งเครื่องคืนลูกค้าแล้ว)' : '🚫 Ticket Closed / Cancelled (ยกเลิกรายการแล้ว)'}
       </div>
     );
   }
