@@ -491,8 +491,8 @@ const HistoryModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = (
         </div>
         <div className="px-5 pb-4">
           <p className="text-[11px] text-gray-400">
-            รายการ &quot;ใครแก้อะไรเมื่อไหร่&quot; ย้ายไปอยู่ที่บันทึกการแก้ไข (audit log) แล้ว —
-            หน้านี้ตอบเรื่องของตัวพนักงาน ไม่ใช่ประวัติการกดปุ่ม
+            รายการ &quot;ใครแก้อะไรเมื่อไหร่&quot; อยู่ที่ ตั้งค่า &gt; บันทึกการแก้ไขข้อมูล
+            (<code>/audit-log</code> เฉพาะ CEO) — หน้านี้ตอบเรื่องของตัวพนักงาน ไม่ใช่ประวัติการกดปุ่ม
           </p>
         </div>
       </div>

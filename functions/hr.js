@@ -42,7 +42,7 @@ const {
   employeeActorFields,
 } = require("./hr-core");
 
-const { buildAuditEntry, auditPath } = require("./audit-log");
+const { buildAuditEntry, auditPath, auditFieldsFor } = require("./audit-log");
 const { buildEmployeeHistory } = require("./employee-history");
 
 const REGION = "asia-southeast1";
@@ -85,6 +85,18 @@ async function recordAudit(db, { entity, entityId, action, actor, before, after,
   } catch (e) {
     console.error("[hr] audit log failed:", e && e.message ? e.message : e);
   }
+}
+
+/**
+ * แปลง `employeeActorFields()` เป็นรูปที่ `buildAuditEntry` รับ
+ *
+ * สองรูปนี้ต่างกันเพราะคนละโหนดคนละคนอ่าน — ไทม์ไลน์ใช้ `by_*` ส่วน audit ใช้
+ * `actor_*` การแปลงจึงต้องมีที่เดียว ไม่ใช่พิมพ์ `{ uid: f.by_uid, ... }` ซ้ำ
+ * ทุก call site
+ */
+function auditActorOf(actorFields) {
+  const a = actorFields || {};
+  return { uid: a.by_uid || null, name: a.by_name || null, role: a.by_role || null };
 }
 
 async function recordEmployeeEvent(db, event) {
@@ -143,6 +155,25 @@ async function createEmployeeRecord(db, { pub, priv, links, status, actor }) {
     reason: null,
     at,
     ...(actor || {}),
+  });
+
+  // ── audit log ────────────────────────────────────────────────────────────
+  //
+  // **แถวแรกของแฟ้มคือแถวที่ audit ต้องมีที่สุด** — "ใครเป็นคนเอาคนนี้เข้า
+  // ทะเบียนเงินเดือน และตั้งเงินเดือนเริ่มต้นไว้เท่าไร" ถ้าเก็บเฉพาะการแก้
+  // ทีหลัง คนที่ถูกสร้างมาพร้อมเงินเดือนสูงแล้วไม่เคยถูกแก้เลยจะไม่มีแถวไหน
+  // ในระบบเล่าถึงเขาเลย
+  //
+  // อยู่ในตัวสร้างแฟ้ม **ไม่ใช่ที่ callable** เพราะแฟ้มเกิดได้สองทาง (ทะเบียน
+  // กับกดจ้างผู้สมัคร) และ seam เดียวคือเหตุผลที่ฟังก์ชันนี้ถูกแยกออกมาแต่แรก
+  await recordAudit(db, {
+    entity: "employee",
+    entityId: employeeId,
+    action: "created",
+    actor: auditActorOf(actor),
+    before: {},
+    after: { ...pub, ...(priv || {}), employee_code: code },
+    fields: auditFieldsFor("employee"),
   });
 
   // ห้าม log เลขบัตร/เงินเดือน — log ของ Cloud Run เก็บนานกว่าและมีคนอ่าน
@@ -353,19 +384,15 @@ function registerHr() {
     // ข้อความแก้ตัวว่า "ระบบไม่ได้บันทึกจำนวนเงินไว้" แล้วชี้ให้ไปดูค่าปัจจุบัน
     // ซึ่งไม่ใช่ประวัติ
     {
-      const actorFields = employeeActorFields(callerStaffId, staffMap, request.auth);
-      const actor = { uid: actorFields.by_uid, name: actorFields.by_name, role: actorFields.by_role };
+      const actor = auditActorOf(employeeActorFields(callerStaffId, staffMap, request.auth));
       const reason = String(data.reason || "").slice(0, 300) || null;
       await recordAudit(db, {
         entity: "employee", entityId: employeeId, action: "updated", actor, reason,
         before: { ...existing, ...(payBefore || {}) },
         after: { ...existing, ...updates, ...(payAfter || {}) },
-        fields: [
-          "name", "title", "first_name", "last_name", "position", "department",
-          "status", "employment_type", "hired_at", "terminated_at",
-          "base_salary", "daily_rate", "pay_method", "supervisor_id",
-          "national_id", "bank_account_no", "phone", "email",
-        ],
+        // ลิสต์มาจาก allowlist ตรงๆ — เดิมพิมพ์ไว้ที่นี่ 18 ชื่อ ซึ่งแปลว่า
+        // ฟิลด์ที่ถูกเพิ่มเข้า `AUDIT_FIELDS` วันหน้าจะไม่ถูก audit เงียบๆ
+        fields: auditFieldsFor("employee"),
       });
     }
     if (updates.position && updates.position !== existing.position) {
@@ -491,6 +518,33 @@ function registerHr() {
       at,
       ...employeeActorFields(callerStaffId, staffMap, request.auth),
     });
+
+    // ── audit log ────────────────────────────────────────────────────────────
+    //
+    // สองแถว ไม่ใช่แถวเดียว เพราะเป็นคนละข้อเท็จจริง: **สถานะเปลี่ยน** เกิดขึ้น
+    // เสมอ ส่วน **บัญชีถูกปิด** เกิดเฉพาะเมื่อปิดสำเร็จจริง — การพับรวมกันแปลว่า
+    // แถวเดียวจะโกหกทุกครั้งที่ปิดบัญชีล้มกลางทาง (`closed.errors`) ซึ่งเป็น
+    // เคสที่ธง `stale_access` มีไว้เตือนพอดี
+    {
+      const actor = auditActorOf(employeeActorFields(callerStaffId, staffMap, request.auth));
+      await recordAudit(db, {
+        entity: "employee", entityId: employeeId, action: "updated", actor, reason,
+        before: existing,
+        after: { ...existing, status, terminated_at: leaving ? at : null },
+        fields: auditFieldsFor("employee"),
+      });
+      const revoked = [
+        closed.staff === "closed" ? "บัญชีพนักงาน" : null,
+        closed.rider === "closed" ? "บัญชีไรเดอร์" : null,
+      ].filter(Boolean);
+      if (revoked.length) {
+        await recordAudit(db, {
+          entity: "employee", entityId: employeeId, action: "account_revoked", actor,
+          reason: `ปิด ${revoked.join(" และ ")}${reason ? ` · ${reason}` : ""}`,
+          before: {}, after: {}, fields: [],
+        });
+      }
+    }
 
     const { staffMap: freshStaff, ridersMap } = await loadRegistry(db);
     const access = accessSummary({ ...existing, status, links: existing.links }, freshStaff, ridersMap);
