@@ -89,7 +89,7 @@ function buildUnpackChildren({ job, jobId, keys, now }) {
       parent_b2b_id: jobId,
       qc_logs: [
         {
-          action: "Sent to QC Lab",
+          action: JOB_STATUS.SENT_TO_QC_LAB,
           details: `ระเบิดกล่องจากล็อต B2B (${job.ref_no}) รอกระบวนการ Test & Data Wipe`,
           timestamp: now,
           by: "System",
