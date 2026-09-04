@@ -110,6 +110,8 @@ interface EmployeeRow {
   position?: string | null;
   department?: string | null;
   branch?: string | null;
+  supervisor_id?: string | null;
+  default_shift_id?: string | null;
   employment_type?: string;
   status?: string;
   hired_at?: number | null;
@@ -401,6 +403,7 @@ export const EmployeeRegister = () => {
         <EmployeeFormModal
           key={formFor.mode === 'edit' ? formFor.row.id : 'create'}
           existing={formFor.mode === 'edit' ? formFor.row : null}
+          people={items}
           onClose={() => setFormFor(null)}
           onSaved={async () => { setFormFor(null); await load(); }}
         />
@@ -687,8 +690,10 @@ const DocumentsModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> =
 // ผู้เรียกคือ CEO/HR ซึ่งอ่านค่านี้ได้อยู่แล้วผ่าน callable และถ้าเติมค่าที่ mask
 // ไว้ การกดบันทึกโดยไม่แตะช่องนั้นจะเขียนทับเลขจริงด้วยจุดสี่จุด ตารางข้างนอก
 // ยัง mask ตามเดิม
-const EmployeeFormModal = ({ existing, onClose, onSaved }: {
+const EmployeeFormModal = ({ existing, people, onClose, onSaved }: {
   existing: EmployeeRow | null;
+  /** ทะเบียนทั้งหมด — ใช้เป็นตัวเลือกหัวหน้างานเท่านั้น */
+  people: EmployeeRow[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) => {
@@ -707,6 +712,8 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
     position: existing?.position || '',
     department: existing?.department || '',
     branch: existing?.branch || 'Main Store',
+    supervisor_id: existing?.supervisor_id || '',
+    default_shift_id: existing?.default_shift_id || '',
     employment_type: existing?.employment_type || 'monthly',
     hired_at: existing?.hired_at
       ? new Date(existing.hired_at).toISOString().slice(0, 10)
@@ -737,11 +744,21 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
   });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  // ตัวเองไม่อยู่ในรายการ (server ปฏิเสธอยู่แล้ว แต่ปุ่มที่กดแล้วโดนปฏิเสธ
+  // คือปุ่มที่ไม่ควรมี) และคนที่พ้นสภาพแล้วก็ไม่ควรเป็นผู้อนุมัติคนใหม่
+  const supervisorOptions = people
+    .filter((p) => p.id !== existing?.id && !['resigned', 'terminated'].includes(String(p.status || '')))
+    .map((p) => ({ id: p.id, label: `${p.name || p.id}${p.position ? ` · ${p.position}` : ''}` }));
+
   const payload = () => ({
     profile: {
       title: form.title, first_name: form.first_name, last_name: form.last_name,
       nickname: form.nickname, position: form.position,
       department: form.department, branch: form.branch,
+      // หัวหน้างาน = คนที่อนุมัติใบลา/คำขอเปลี่ยนกะในแอปพนักงาน
+      // (ตัวตรวจว่ามีอยู่จริงและไม่วนกลับอยู่ฝั่ง server — supervisorChainError)
+      supervisor_id: form.supervisor_id || null,
+      default_shift_id: form.default_shift_id || null,
       employment_type: form.employment_type,
       hired_at: form.hired_at ? new Date(form.hired_at).getTime() : null,
     },
@@ -844,6 +861,16 @@ const EmployeeFormModal = ({ existing, onClose, onSaved }: {
             {field('position', 'ตำแหน่ง')}
             {field('department', 'ฝ่าย')}
             {field('branch', 'สาขา')}
+            {/* หัวหน้างาน — คนที่กดอนุมัติใบลา/เปลี่ยนกะให้คนนี้ในแอปพนักงาน
+                ไม่ตั้ง = ไม่มีใครอนุมัติได้จากแอป ต้องให้ฝ่ายบุคคลกดแทน */}
+            <label className="block">
+              <span className="text-xs font-bold text-gray-500">หัวหน้างาน (ผู้อนุมัติ)</span>
+              <select value={form.supervisor_id} onChange={(e) => set('supervisor_id', e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                <option value="">ยังไม่ระบุ</option>
+                {supervisorOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </label>
             <label className="block">
               <span className="text-xs font-bold text-gray-500">ประเภทการจ้าง</span>
               <select value={form.employment_type} onChange={(e) => set('employment_type', e.target.value)}

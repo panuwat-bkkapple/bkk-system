@@ -165,6 +165,18 @@ function sanitizeEmployeePublic(input, { partial = false } = {}) {
   for (const [key, max] of [["nickname", 60], ["position", 120], ["department", 120], ["branch", 120]]) {
     if (!partial || has(key)) out[key] = clip(src[key], max) || null;
   }
+  // ── หัวหน้างาน + กะประจำตัว ──────────────────────────────────────────────
+  //
+  // **`supervisor_id` ชี้ไปที่ `employees/{id}` ไม่ใช่ `staff/{id}`** — คนอนุมัติ
+  // ใบลาคือ *คน* ในทะเบียน ไม่ใช่ *บัญชีเข้าระบบ* (หัวหน้าที่ยังไม่มีบัญชีก็ยัง
+  // เป็นหัวหน้าได้ และคนหนึ่งคนมีบัญชีได้หลายใบ)
+  //
+  // **ที่นี่ไม่ตรวจว่ามีคนนั้นอยู่จริงหรือชี้วนกลับมาหาตัวเอง** — sanitizer
+  // ไม่มีทะเบียนให้ดู การตรวจนั้นเป็นของ callable ที่มี `loadRegistry` อยู่แล้ว
+  // (เขียนไว้ตรงนี้เพื่อไม่ให้คนอ่านรอบหน้าเข้าใจว่าตรงนี้เป็นด่าน)
+  for (const key of ["supervisor_id", "default_shift_id"]) {
+    if (!partial || has(key)) out[key] = clip(src[key], 80) || null;
+  }
   if (!partial || has("photo_url")) {
     const url = clip(src.photo_url, 500);
     // ยอมเฉพาะ https — รูปโปรไฟล์ที่เป็น javascript:/data: คือ XSS ที่รอถูก render
@@ -457,6 +469,38 @@ function unlinkedAccounts(employees, staffMap, ridersMap) {
 // ── ผู้กระทำ — รูปเดียวกับ staff_status_events / rider_status_events ────────
 // ฟิลด์ by_* ต้องเหมือนกันเป๊ะทั้งสามโหนด ไม่งั้นประวัติของคนกลุ่มเดียวกัน
 // join ด้วย query shape เดียวไม่ได้ ซึ่งเป็นปัญหาที่ survey เจอมาแล้ว
+/**
+ * หัวหน้างานที่ตั้งให้คนนี้ ใช้ได้ไหม
+ *
+ * คืนข้อความ error หรือ `null` — ล้วน ทดสอบได้
+ *
+ * **วงกลมของสายบังคับบัญชาต้องกันที่นี่ ไม่ใช่ปล่อยให้ไปตันตอนอนุมัติ** —
+ * A มีหัวหน้าเป็น B และ B มีหัวหน้าเป็น A แปลว่าใบลาของทั้งคู่ไม่มีใครอนุมัติ
+ * ได้เลย และมันจะไม่ error ที่ไหน มันแค่เงียบ
+ *
+ * `employeeId` เป็น `null` ได้ (ตอนสร้างแฟ้มยังไม่มี id) — เคสนั้นตรวจได้แค่
+ * ว่าคนที่ชี้ไปมีอยู่จริง ซึ่งพอ เพราะแฟ้มใหม่ยังไม่มีใครชี้มาหามัน
+ */
+function supervisorChainError(employees, employeeId, supervisorId) {
+  const sup = String(supervisorId == null ? "" : supervisorId).trim();
+  if (!sup) return null;
+  const rows = employees && typeof employees === "object" ? employees : {};
+  if (employeeId && sup === employeeId) return "หัวหน้างานต้องไม่ใช่ตัวเอง";
+  if (!rows[sup]) return "ไม่พบหัวหน้างานในทะเบียนพนักงาน";
+  if (!employeeId) return null;
+
+  const seen = new Set([employeeId]);
+  let cur = sup;
+  while (cur) {
+    if (seen.has(cur)) return "สายบังคับบัญชาวนกลับมาหาตัวเอง";
+    seen.add(cur);
+    const next = (rows[cur] || {}).supervisor_id;
+    cur = String(next == null ? "" : next).trim();
+    if (cur && !rows[cur]) break;
+  }
+  return null;
+}
+
 function employeeActorFields(callerStaffId, staffMap, auth) {
   const caller = (staffMap && staffMap[callerStaffId]) || {};
   return {
@@ -486,4 +530,5 @@ module.exports = {
   countOtherActiveCeos,
   unlinkedAccounts,
   employeeActorFields,
+  supervisorChainError,
 };

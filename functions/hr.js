@@ -40,6 +40,7 @@ const {
   planAccountClosure,
   unlinkedAccounts,
   employeeActorFields,
+  supervisorChainError,
 } = require("./hr-core");
 
 const { buildAuditEntry, auditPath, auditFieldsFor } = require("./audit-log");
@@ -283,6 +284,11 @@ function registerHr() {
     const links = sanitizeLinks(data.links);
     const { employees } = await loadRegistry(db);
     assertLinkFree(employees, null, links);
+    // หัวหน้างานที่ชี้ไปที่คนที่ไม่มีอยู่ = ใบลาที่ไม่มีใครอนุมัติได้ และมันเงียบ
+    {
+      const err = supervisorChainError(employees, null, pub.value.supervisor_id);
+      if (err) throw new HttpsError("invalid-argument", err);
+    }
 
     // ผูกกับบัญชีที่ไม่มีอยู่ = ทะเบียนที่ชี้ไปที่ว่าง ตรวจตอนเขียนถูกกว่าตอนอ่าน
     if (links.staff_id) {
@@ -326,6 +332,13 @@ function registerHr() {
     if (data.profile !== undefined) {
       const pub = sanitizeEmployeePublic(data.profile, { partial: true });
       assertNoErrors(pub.errors);
+      // ตรวจสายบังคับบัญชาเฉพาะเมื่อมีการส่งช่องนี้มาจริง — `partial` แปลว่า
+      // ช่องที่ไม่ได้ส่งมาต้องไม่ถูกตีความว่า "ตั้งเป็นว่าง"
+      if (Object.prototype.hasOwnProperty.call(pub.value, "supervisor_id")) {
+        const { employees } = await loadRegistry(db);
+        const err = supervisorChainError(employees, employeeId, pub.value.supervisor_id);
+        if (err) throw new HttpsError("invalid-argument", err);
+      }
       Object.assign(updates, pub.value);
     }
     if (data.private !== undefined) {

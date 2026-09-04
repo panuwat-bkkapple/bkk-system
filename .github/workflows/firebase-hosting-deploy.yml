@@ -158,6 +158,44 @@ jobs:
           projectId: bkk-apple-tradein
           target: dealer
 
+      # ── แอปพนักงาน (employee-app/, site แยก, PWA ติดตั้งบนมือถือได้) ──────
+      # continue-on-error ทั้งชุดเช่นเดียวกับ chat/dealer — ปัญหาของแอปพนักงาน
+      # ห้าม block การ deploy แอปแอดมิน
+      #
+      # **หัว Permissions-Policy ของ site นี้ต้องเป็น `geolocation=(self)`**
+      # (ตั้งไว้ใน firebase.json แล้ว) — ก๊อปของ dealer มาซึ่งเป็น
+      # `geolocation=()` จะปิด GPS ทั้งแอปโดยไม่มี error ที่ไหนเลย
+      - name: Build Employee App
+        continue-on-error: true
+        run: cd employee-app && npm ci && npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+
+      - name: Ensure employee hosting site exists
+        continue-on-error: true
+        run: |
+          printf '%s' "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx firebase-tools@13 hosting:sites:create bkk-apple-employee --project bkk-apple-tradein || echo "site exists or create not permitted — continuing"
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+
+      - name: Deploy Hosting (employee app)
+        continue-on-error: true
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BKK_APPLE_TRADEIN }}
+          channelId: live
+          projectId: bkk-apple-tradein
+          target: employee
+
       # ── GETMOBIE landing (getmobie.com — static ล้วน ไม่มี build step) ────
       # custom domain getmobie.com ผูกครั้งเดียวใน console (site: getmobie-landing)
       - name: Ensure getmobie www site exists
