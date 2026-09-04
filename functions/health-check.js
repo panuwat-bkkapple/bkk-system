@@ -21,15 +21,17 @@
 //   - env key ไม่ตั้ง = status `skip` (ไม่นับเป็น fail) ตาม convention
 //     "ไม่ตั้ง key = ระบบข้ามเงียบๆ ไม่ crash" ของ email/telegram
 //
-// ค่าใช้จ่าย probe: Routes 1 element + Geocoding 1 call + quote 1 element
-// ต่อรอบ, scheduler รายชั่วโมง ≈ 2.2k calls/เดือน — อยู่ใน free tier
-// (Essentials 10k/เดือน/SKU) สบายๆ. อย่าลด interval ต่ำกว่านี้โดยไม่คิดโควตา
+// ค่าใช้จ่าย probe: Routes 2 element + Geocoding 2 call + quote 1 element
+// ต่อรอบ (คีย์ server 1 + คีย์เบราว์เซอร์ 1 อย่างละตัว), scheduler รายชั่วโมง
+// ≈ 1.5k calls/เดือน/SKU — อยู่ใน free tier (Essentials 10k/เดือน/SKU) สบายๆ.
+// อย่าลด interval ต่ำกว่านี้โดยไม่คิดโควตา
 // =============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getDatabase } = require("firebase-admin/database");
 const { lookupStaffByAuth } = require("./sickw-core");
+const { browserKeyVerdict } = require("./health-check-browser-key");
 const { riderStanding, STANDING } = require("./actor");
 const { summarizeRiderPushCoverage } = require("./rider-push-coverage");
 
@@ -51,6 +53,31 @@ const SICKW_BALANCE_WARN_USD = 10;
 const CUSTOMER_QUOTE_URL =
   process.env.HEALTH_CUSTOMER_QUOTE_URL ||
   "https://asia-southeast1-bkk-apple-tradein.cloudfunctions.net/quotePickupServiceability";
+
+// Referer ที่แนบไปกับ probe `browser_maps_key` — คีย์ฝั่งเบราว์เซอร์ถูกล็อก
+// HTTP referrer ไว้กับโดเมนเว็บลูกค้า ยิงจาก Cloud Function เปล่าๆ จะโดน
+// ปฏิเสธเสมอไม่ว่าคีย์จะดีหรือพัง จึงต้องแนบ origin ของเว็บไปเหมือนที่
+// เบราว์เซอร์ทำ. ค่า default มาจาก CUSTOMER_TRACKING_BASE_URL (ตั้งอยู่แล้ว)
+// override ได้ด้วย HEALTH_BROWSER_REFERER ถ้าคีย์ล็อกไว้กับโดเมนอื่น
+function refererFromEnv() {
+  const explicit = process.env.HEALTH_BROWSER_REFERER;
+  if (explicit) return explicit;
+  try {
+    const u = new URL(process.env.CUSTOMER_TRACKING_BASE_URL || "");
+    return `${u.origin}/`;
+  } catch {
+    return "https://www.bkkapple.com/";
+  }
+}
+const BROWSER_PROBE_REFERER = refererFromEnv();
+
+async function safeJson(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 /** fetch พร้อม timeout — probe ห้ามแขวนทั้งรอบเพราะ service เดียวหน่วง */
 async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
@@ -276,6 +303,55 @@ function buildProbes(db) {
           status: "ok",
           message: `กรุงเทพ serviceable, ค่าบริการ ฿${q.pickup_fee} (${q.distance_km} กม. ขับจริง)`,
         };
+      },
+    },
+
+    {
+      id: "browser_maps_key",
+      label: "คีย์ Maps ฝั่งเบราว์เซอร์ (checkout ลูกค้าจริง)",
+      // ปิดช่องที่ `customer_quote` มองไม่เห็น: probe นั้นส่งชื่อจังหวัดไปเป็น
+      // hint เอง จึงไม่เคยผ่านขั้น "เบราว์เซอร์ reverse geocode หาจังหวัด" ซึ่ง
+      // เป็นขั้นที่ไม่มี fallback และล้มจริงตอน billing ค้าง (4 ก.ย. 2569) ส่วน
+      // `geocoding_api`/`routes_api` ใช้คีย์ server คนละใบกับที่เบราว์เซอร์ถือ.
+      // ตัวนี้ยิง Geocoding + Routes ด้วย "คีย์เบราว์เซอร์ + Referer ของเว็บ"
+      // ให้เหมือนที่ useDeliveryManager/thaiPostal.ts ทำจริง แล้วให้
+      // browserKeyVerdict (pure, มีเทส) ตัดสิน — geocode ล้ม = fail เพราะ
+      // ลูกค้าเลือกวิธีรับเครื่องไม่ได้, Routes ล้มอย่างเดียว = warn เพราะมี
+      // haversine รองรับ
+      run: async () => {
+        const key = process.env.GOOGLE_MAPS_BROWSER_KEY;
+        if (!key) {
+          return {
+            status: "skip",
+            message: "GOOGLE_MAPS_BROWSER_KEY ไม่ได้ตั้ง (ค่าเดียวกับ NEXT_PUBLIC_GOOGLE_MAPS_API_KEY บน Vercel)",
+          };
+        }
+        const referer = { Referer: BROWSER_PROBE_REFERER };
+        const [geoRes, routesRes] = await Promise.all([
+          fetchWithTimeout(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${PROBE_ORIGIN.lat},${PROBE_ORIGIN.lng}` +
+              `&language=th&region=th&key=${encodeURIComponent(key)}`,
+            { headers: referer }
+          ),
+          fetchWithTimeout("https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", {
+            method: "POST",
+            headers: {
+              ...referer,
+              "Content-Type": "application/json",
+              "X-Goog-Api-Key": key,
+              "X-Goog-FieldMask": "originIndex,destinationIndex,distanceMeters,condition",
+            },
+            body: JSON.stringify({
+              origins: [{ waypoint: { location: { latLng: { latitude: PROBE_ORIGIN.lat, longitude: PROBE_ORIGIN.lng } } } }],
+              destinations: [{ waypoint: { location: { latLng: { latitude: PROBE_DEST.lat, longitude: PROBE_DEST.lng } } } }],
+              travelMode: "DRIVE",
+            }),
+          }),
+        ]);
+        return browserKeyVerdict({
+          geocode: { httpStatus: geoRes.status, body: await safeJson(geoRes) },
+          routes: { httpStatus: routesRes.status, body: await safeJson(routesRes) },
+        });
       },
     },
 
