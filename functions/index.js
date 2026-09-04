@@ -6894,7 +6894,14 @@ Object.assign(exports, require("./hr").registerHr());
 // กดจ้าง = สร้างแฟ้มพนักงานด้วย createEmployeeRecord ตัวเดียวกับหน้าทะเบียน
 // แต่ **ไม่ออกบัญชี login** — การออกบัญชียัง gate ที่ CEO ตามเดิม
 // =============================================================================
-Object.assign(exports, require("./hr-recruitment-api").registerHrRecruitment());
+Object.assign(
+  exports,
+  require("./hr-recruitment-api").registerHrRecruitment({
+    dispatchAdminPush,
+    dispatchTelegram,
+    staffIdsByRoles,
+  })
+);
 
 // =============================================================================
 // เอกสารบุคคล — สัญญาจ้าง · รับรองเงินเดือน · หนังสือเตือน · ผ่านทดลองงาน

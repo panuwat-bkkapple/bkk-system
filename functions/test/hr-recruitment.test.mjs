@@ -299,8 +299,11 @@ const ok = (from, to) => r.canTransition(from, to).ok;
 // ── 12. ทางเข้าและสิทธิ์ ───────────────────────────────────────────────────
 {
   const idx = readFileSync(join(fnDir, "index.js"), "utf8");
+  // รับได้ทั้งเรียกเปล่าและเรียกพร้อม deps (ทริกเกอร์ใบสมัครใหม่ต้องการ
+  // dispatchAdminPush ฉีดเข้ามา) — สิ่งที่ตรึงคือ **index.js ต้องลงทะเบียนมัน**
+  // ไม่ใช่รูปของการเรียก
   check("index.js ลงทะเบียน registerHrRecruitment",
-    /require\("\.\/hr-recruitment-api"\)\.registerHrRecruitment\(\)/.test(idx));
+    /require\("\.\/hr-recruitment-api"\)\.registerHrRecruitment\(/.test(idx));
 
   const app = readFileSync(join(root, "src/App.tsx"), "utf8");
   const line = app.split("\n").find((l) => l.includes('path="/employees/recruitment"')) || "";

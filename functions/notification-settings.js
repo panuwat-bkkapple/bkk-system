@@ -72,6 +72,8 @@ const EVENT_CATEGORY = {
   dealer_tier: "dealer",
   dealer_claim: "dealer",
   dealer_register: "dealer",
+
+  job_application: "hr",
 };
 
 const CHANNELS = ["admin_push", "rider_push", "telegram"];
@@ -83,6 +85,7 @@ const CATEGORIES = [
   "field_ops",
   "system_alert",
   "dealer",
+  "hr",
 ];
 
 let cache = null; // { at: number, value: object }
