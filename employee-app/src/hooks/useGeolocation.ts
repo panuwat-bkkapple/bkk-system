@@ -47,7 +47,13 @@ export function useGeolocation() {
     asked: false,
   });
   const watchId = useRef<number | null>(null);
-  const [watching, setWatching] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  // **คำนวณ ไม่ใช่ตั้งเป็น state ผ่าน effect** — "ควรติดตามอยู่ไหม" เป็นผลลัพธ์
+  // ของสองอย่างที่รู้อยู่แล้ว (เคยแตะขอ / Permissions API ตอบ granted) การ
+  // setState ใน effect เพื่อเก็บค่าที่ derive ได้ ทำให้ render ซ้อนโดยไม่จำเป็น
+  // และ eslint ของโปรเจกต์จับข้อนี้ถูกแล้ว
+  const watching = started || state.permission === 'granted';
 
   const onFix = useCallback((pos: GeolocationPosition) => {
     setState((p) => ({
@@ -90,12 +96,6 @@ export function useGeolocation() {
     return () => { alive = false; };
   }, []);
 
-  // เคยให้สิทธิ์ไว้แล้ว = เริ่มติดตามได้เองโดยไม่ต้องให้แตะซ้ำทุกครั้งที่เปิดแอป
-  // (เส้นทางของ Android/เดสก์ท็อป ซึ่ง Permissions API ตอบได้จริง)
-  useEffect(() => {
-    if (state.permission === 'granted' && !watching) setWatching(true);
-  }, [state.permission, watching]);
-
   useEffect(() => {
     if (!supported || !watching) return;
     watchId.current = navigator.geolocation.watchPosition(onFix, onFail, OPTIONS);
@@ -115,7 +115,7 @@ export function useGeolocation() {
     if (!supported) return;
     setState((p) => ({ ...p, error: null, asked: true }));
     navigator.geolocation.getCurrentPosition(
-      (pos) => { onFix(pos); setWatching(true); },
+      (pos) => { onFix(pos); setStarted(true); },
       onFail,
       OPTIONS,
     );
