@@ -8,6 +8,7 @@ import { uploadImageToFirebase } from './uploadImage';
 import { unpackAccessoryItemsToStock } from './accessoryItems';
 import { getSickwGateStatus } from './sickwApi';
 import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
+import { actionIs } from './statusCompare';
 
 export const MAX_QC_PHOTOS = 8;
 export const QC_SUPERVISORS = ['Head QC - Somchai', 'Head QC - Wichai'];
@@ -152,9 +153,9 @@ export const validateQcSubmit = (qcForm: QcFormState, liveJob: any): string | nu
 };
 
 // งานนี้เคยจ่ายเงินลูกค้าไปแล้วหรือยัง — ถ้าเคยแล้วห้ามส่งกลับ QC Review (วนลูป)
+export const PAID_LOG_ACTIONS = [JOB_STATUS.PAYOUT_PROCESSING, JOB_STATUS.PAID, 'Deal Closed (Negotiated)'] as const;
 export const isJobAlreadyPaid = (job: any): boolean =>
-   !!job?.qc_logs?.some((log: any) =>
-      ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
+   !!job?.qc_logs?.some((log: any) => actionIs(log?.action, ...PAID_LOG_ACTIONS));
 
 // อัปโหลดไฟล์รูปเข้า Storage แล้วคืน URL ชุดที่รวมรูปเดิม (เพดาน MAX_QC_PHOTOS)
 const uploadQcPhotoFiles = async (

@@ -20,7 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import {
    MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
    validateQcSubmit, submitQcStation, saveQcPhotosOnly,
-   selectQcTodoList, selectQcDoneList, canSubmitQc, matchesQcStationSearch,
+   selectQcTodoList, selectQcDoneList, canSubmitQc, matchesQcStationSearch, isJobAlreadyPaid,
 } from '../../utils/qcStation';
 
 const SUPERVISORS = QC_SUPERVISORS;
@@ -529,7 +529,7 @@ export const QCStation = () => {
                                     {qcGate.blocked
                                        ? 'IMEI Gate Block — ต้อง Override'
                                        : (() => {
-                                          const isPaid = selectedJob.qc_logs?.some((log: any) => ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
+                                          const isPaid = isJobAlreadyPaid(selectedJob);
                                           if (isPaid || selectedJob.receive_method === 'Pickup') return 'Approve & Send to Stock';
                                           return 'Submit QC to Admin';
                                        })()}
