@@ -10,10 +10,16 @@
 // เคสชุดเดียวกับ src/utils/riderWht.test.ts โดยตั้งใจ (MIRROR)
 //
 // ผล injection (วัดจริง 4 ก.ย. 2569):
-//   1. คูณอัตรากับ gross แทน taxableBase                → แดง 2 (ทั้งสองฝั่ง)
-//   2. ถอด clamp ฐานไม่เกิน gross                        → แดง 1
-//   3. ถอดเงื่อนไข "ฐาน 0 = ไม่หัก"                      → แดง 1
-//   4. net = taxableBase − wht (ลืมโอนส่วนเงินคืน)        → แดง 1
+//   1. คูณอัตรากับ gross แทน taxableBase (ทั้ง JS และ TS)  → แดง 1 + 1
+//   2. ถอด clamp ฐานไม่เกิน gross                          → แดง 1
+//   3. ถอดเงื่อนไข "ฐาน 0 = ไม่หัก"                        → แดง 1
+//   4. net = taxableBase − wht (ลืมโอนส่วนเงินคืน)          → แดง 1
+//   5. TS mirror ของ splitWithdrawal ทิ้งกฎ FIFO เมื่อแถวเก่าไม่มีฟิลด์ → parity แดง 1
+//   6. TS mirror ทิ้ง tie-break ด้วย id เมื่อเวลาเท่ากัน      → parity แดง 5
+//
+// **ยังไม่มีด่านคุม:** การที่หน้า RiderWithdrawals ประทับ `wht_base` ลงแถว
+// transactions และหนังสือรับรองอ่านค่านั้น (rider-wht-issue.js) เป็นโค้ด UI +
+// trigger ที่ต้องมี Firebase — พิสูจน์ด้วยการอ่านโค้ด บันทึกไว้ตรงๆ
 // ---------------------------------------------------------------------------
 
 import { createRequire } from "module";
