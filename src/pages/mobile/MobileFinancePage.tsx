@@ -15,6 +15,7 @@ import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { sumAppliedAdjustments, sumAppliedCoupons } from '../../utils/adjustments';
 import { buildLogisticsRevenueTx } from '../../utils/logisticsRevenue';
+import { buildPayoutUpdates } from '../../utils/payoutTransfer';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -157,46 +158,24 @@ export const MobileFinancePage = () => {
 
       const actualTransferAmount = getNetPayout(selectedTx);
 
-      const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
-      const logAction = isB2B ? 'Payment Completed' : 'Paid';
-      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount}) เมื่อ ${formatDate(transferredAt)}`;
-
-      const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
-
-      // Atomic multi-path update: job + transactions ทั้งหมดในครั้งเดียว
-      const updates: Record<string, any> = {};
-
-      updates[`jobs/${selectedTx.id}/status`] = nextStatus;
-      updates[`jobs/${selectedTx.id}/paid_at`] = now;
-      updates[`jobs/${selectedTx.id}/transferred_at`] = transferredAt; // เวลาโอนจริงตามสลิป (โชว์ในใบสำคัญรับเงิน/ติดตามลูกค้า)
-      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
-      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
-      updates[`jobs/${selectedTx.id}/updated_at`] = now;
-      updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
-      updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
-      updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
-      updates[`jobs/${selectedTx.id}/qc_logs`] = [newLog, ...(selectedTx.qc_logs || [])];
-
-      const debitKey = push(child(ref(db), 'transactions')).key;
-      updates[`transactions/${debitKey}`] = {
-        rider_id: 'SYSTEM',
-        amount: actualTransferAmount,
-        type: 'DEBIT',
-        category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
-        description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
-        timestamp: transferredAt, // ledger เงินสดอิงเวลาโอนจริง
-        ref_job_id: selectedTx.id,
-        slip_url: slipUrl
-      };
-
-      // Transaction: CREDIT รายได้ค่าบริการรับเครื่อง — helper กลางตัวเดียว
-      // (rider_id = SYSTEM เสมอ, ยอด = ค่าส่งที่เก็บจากลูกค้าจริง ไม่ใช่
-      // ต้นทุนไรเดอร์ — ดู src/utils/logisticsRevenue.ts)
+      const debitKey = push(child(ref(db), 'transactions')).key as string;
       const revenueTx = buildLogisticsRevenueTx(selectedTx, transferredAt);
-      if (revenueTx) {
-        const creditKey = push(child(ref(db), 'transactions')).key;
-        updates[`transactions/${creditKey}`] = revenueTx;
-      }
+      const creditKey = revenueTx ? (push(child(ref(db), 'transactions')).key as string) : null;
+
+      // ก้อนเขียนอยู่ที่ `utils/payoutTransfer.ts` ที่เดียว ใช้ร่วมกับจอเดสก์ท็อป
+      const updates = buildPayoutUpdates({
+        job: selectedTx,
+        slipUrl,
+        transferredAt,
+        transferredAtLabel: formatDate(transferredAt),
+        now,
+        bank: { name: editBankName, account: editBankAccount, holder: editBankHolder },
+        byName: currentUser?.name || 'Finance',
+        netPayout: actualTransferAmount,
+        debitKey,
+        revenueTx,
+        creditKey,
+      });
 
       await update(ref(db), updates);
 
