@@ -8,8 +8,8 @@
 //
 // สองเพดาน:
 //   LEGACY    — literal สะกดเก่า (คีย์ LEGACY_ALIAS + 'In-Transit') ในตำแหน่งเทียบ
-//               ต้องเท่ากับผลรวมของ EXEMPTIONS เป๊ะ (วันนี้ = ไฟล์ที่รอ #710) ไม่ใช่ ≤ —
-//               ถอด exemption เมื่อ PR นั้น merge แล้วเลขต้องตกเป็น 0
+//               ต้องเท่ากับผลรวมของ EXEMPTIONS เป๊ะ ไม่ใช่ ≤ — วันนี้ (หลัง #710) = 0
+//               ถ้าต้องเว้นไฟล์รอ PR ที่แยกไว้ ให้ระบุจำนวนเป๊ะแล้วถอดออกเมื่อ PR นั้น merge
 //   CANONICAL — literal สะกด canonical ในตำแหน่งเทียบ ลดได้ ขึ้นไม่ได้ (reader ใหม่ต้อง
 //               เขียนด้วย JOB_STATUS.* + statusIs/statusIn ใน utils/statusCompare.ts)
 //
@@ -33,16 +33,13 @@ const ROOT = resolve(__dirname, '../..');
 
 // ---- เพดาน (วัดจริง ก.ย. 2569 หลัง sweep) ----
 /** literal สะกด canonical ในตำแหน่งเทียบ — ลดได้ ขึ้นไม่ได้ */
-const CANONICAL_CEILING = 99; // วัดจริงหลัง sweep ก.ย. 2569 (ก่อน sweep 283)
+const CANONICAL_CEILING = 95; // วัดจริง 4 ก.ย. 2569 หลัง #710 (ก่อน sweep 283, หลัง #714 99)
 
 /**
  * ไฟล์ที่ยังถือ literal สะกดเก่าโดยรอ PR ที่แยกไว้ — ต้องระบุจำนวนเป๊ะ ไม่ใช่ allow ทั้งไฟล์
  * ถอดออกเมื่อ PR นั้น merge (เลขจะแดงเตือนเองถ้าลืม)
  */
-const LEGACY_EXEMPTIONS: Record<string, { count: number; reason: string }> = {
-  'src/pages/finance/Finance.tsx': { count: 3, reason: '#710 (orphan counter — รอตัวเลข before/after)' },
-  'src/pages/finance/components/TransactionRepair.tsx': { count: 3, reason: '#710' },
-};
+const LEGACY_EXEMPTIONS: Record<string, { count: number; reason: string }> = {};
 
 const SKIP_FILES = new Set([
   'src/types/job-statuses.ts',   // ต้นทางของคำศัพท์
