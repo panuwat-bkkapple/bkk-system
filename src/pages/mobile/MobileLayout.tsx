@@ -7,7 +7,8 @@ import {
   ChevronLeft, Banknote, DollarSign, CalendarDays, ClipboardCheck
 } from 'lucide-react';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
-import { JOB_STATUS, normalizeStatus } from '../../types/job-statuses';
+import { JOB_STATUS, JOB_STATUS_B2B } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface MobileLayoutProps {
   currentUser: any;
@@ -39,32 +40,31 @@ export const MobileLayout = ({ currentUser, onLogout }: MobileLayoutProps) => {
       const now = Date.now();
       snap.forEach((child) => {
         const j = child.val();
-        if (j.status === 'New Lead' || j.status === 'New B2B Lead' || j.status === 'Active Leads' || j.status === 'Active Lead') {
+        if (statusIs(j, JOB_STATUS.NEW_LEAD, JOB_STATUS_B2B.NEW_B2B_LEAD, JOB_STATUS.ACTIVE_LEAD)) {
           count++;
           nCount++; // new ticket notification
         }
         // งานรอตรวจของแผนก QC — normalizeStatus ก่อนเทียบ: engine เขียน 'Sent To QC Lab'
         // (canonical) ส่วนแถวเก่าเป็น 'Sent to QC Lab' ตัวนับต้องเห็นทั้งคู่
-        if (normalizeStatus(j.status, j.receive_method) === JOB_STATUS.SENT_TO_QC_LAB) qcCount++;
+        if (statusIs(j, JOB_STATUS.SENT_TO_QC_LAB)) qcCount++;
         const s = String(j.status || '').trim().toLowerCase();
         if (!j.slip_url && !j.payment_slip &&
             (s === 'payout processing' || s === 'pending finance approval' || s === 'waiting for finance' || s === 'price accepted')) {
           payoutCount++;
         }
         // Pending jobs stuck > 2 hours
-        const pendingStatuses = ['Pending QC', 'Being Inspected', 'Payout Processing'];
-        if (pendingStatuses.includes(j.status)) {
+        if (statusIs(j, JOB_STATUS.PENDING_QC, JOB_STATUS.BEING_INSPECTED, JOB_STATUS.PAYOUT_PROCESSING)) {
           const age = now - (j.updated_at || j.created_at || now);
           if (age > 2 * 3600000) nCount++;
         }
         // Dead stock > 14 days
-        if (['In Stock', 'Ready to Sell'].includes(j.status)) {
+        if (statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL)) {
           const age = now - (j.updated_at || j.created_at || now);
           if (age > 14 * 86400000) nCount++;
         }
         // Status changes within 24 hours
-        const alertStatuses = ['Cancelled', 'Closed (Lost)', 'Returned', 'Negotiation', 'Revised Offer', 'Price Accepted', 'Withdrawal Requested'];
-        if (alertStatuses.includes(j.status) && j.updated_at && (now - j.updated_at) < 24 * 3600000) {
+        const alertStatuses = [JOB_STATUS.CANCELLED, JOB_STATUS.CLOSED_LOST, JOB_STATUS.RETURN_CONFIRMED, JOB_STATUS.NEGOTIATION, JOB_STATUS.REVISED_OFFER, JOB_STATUS.PRICE_ACCEPTED, 'Withdrawal Requested'];
+        if (statusIs(j, ...alertStatuses) && j.updated_at && (now - j.updated_at) < 24 * 3600000) {
           nCount++;
         }
       });
