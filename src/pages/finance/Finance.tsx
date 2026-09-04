@@ -10,6 +10,7 @@ import { RiderSettlements } from './components/RiderSettlements';
 import { FinanceAuditLog } from './components/FinanceAuditLog'
 import { TransactionRepair } from './components/TransactionRepair'
 import { DataCleanup } from './components/DataCleanup'
+import { JOB_STATUS, normalizeStatus } from '../../types/job-statuses';
 
 export const Finance = () => {
   const [activeTab, setActiveTab] = useState<'payouts' | 'withdrawals' | 'settlements' | 'audit' | 'repair' | 'cleanup'>('payouts');
@@ -22,7 +23,10 @@ export const Finance = () => {
     const txList = Array.isArray(transactions) ? transactions : [];
     const txJobIds = new Set(txList.map(t => t.ref_job_id).filter(Boolean));
     return jobList.filter(j => {
-      const isPaid = j.paid_at && (j.status === 'Waiting for Handover' || j.status === 'Sent to QC Lab' || j.status === 'Completed' || j.status === 'Payment Completed' || j.status === 'Pending QC');
+      // normalizeStatus ก่อนเทียบ — engine เขียน 'Waiting For Handover'/'Sent To QC Lab'
+      // (canonical) ส่วน 'Payment Completed' เป็น alias ของ Paid ตามตารางเดียวกัน
+      const s = normalizeStatus(j.status, j.receive_method);
+      const isPaid = j.paid_at && (s === JOB_STATUS.WAITING_FOR_HANDOVER || s === JOB_STATUS.SENT_TO_QC_LAB || s === JOB_STATUS.COMPLETED || s === JOB_STATUS.PAID || s === JOB_STATUS.PENDING_QC);
       return isPaid && !txJobIds.has(j.id);
     }).length;
   }, [jobs, transactions]);
