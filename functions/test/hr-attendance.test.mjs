@@ -33,6 +33,14 @@
 //   | callable รับเวลาจาก client                                | แดง 2 |
 //   | ไม่ใช้ transaction ตอนเขียน                                | แดง 1 |
 //   | กวาดโหนด `attendance` ทั้งก้อน                            | แดง 2 |
+//   | callable ของเจ้าตัวไม่มีด่าน (ใครก็เรียกได้)                | แดง 2 |
+//   | callable ของฝ่ายบุคคลใช้ด่านของพนักงานแทน                  | แดง 2 |
+//   | ลบ `employeeMe` (แอปไม่มีทางตรวจตัวตนก่อนขอ GPS)           | แดง 1 |
+//
+// **ด่าน "ทุก callable มีด่าน" มีรูตอนเขียนครั้งแรก และ injection เป็นตัวจับได้**
+// — มันตัด body ด้วยหน้าต่างความยาวคงที่ 900 ตัวอักษร ซึ่งกินเข้าไปในฟังก์ชัน
+// ถัดไป ด่านของ*เพื่อนบ้าน*จึงทำให้ตัวที่ถูกถอดด่านผ่านหน้าไปเฉยๆ แก้เป็นตัด
+// ที่ callable ตัวถัดไป (รูปเดียวกับการนับวงเล็บใน audit-log-writers)
 //
 // **แถว "callable รับเวลาจาก client" เคยเขียว** — ด่านเดิมเขียนว่า `d.now`
 // อย่างเดียว ส่วน injection เขียน `(request.data || {}).now` ซึ่งเดินผ่านหน้า
@@ -317,6 +325,58 @@ const FAR = { lat: 13.8000, lng: 100.6000, accuracy_m: 12 };
 
   check("ลงทะเบียนใน index.js แล้ว",
     /require\("\.\/hr-attendance-api"\)\.registerHrAttendance\(/.test(read("index.js")));
+
+  // ── ราวกันตกของทั้งแอปพนักงาน: callable ทุกตัวต้องมีด่าน ────────────────
+  //
+  // **บัญชี Firebase Auth ของโปรเจกต์นี้เป็นกองเดียวกันทั้งระบบ** — พนักงาน
+  // ไรเดอร์ ดีลเลอร์ **และลูกค้า** (`createUserWithEmailAndPassword` ที่
+  // `bkk-frontend-next/app/components/loginActions.ts`) ใครก็ตามที่มีบัญชีจึง
+  // ยิง callable เหล่านี้ได้ **หน้าล็อกอินไม่ใช่ด่าน** ด่านคือบรรทัดเดียวที่
+  // ต้นฟังก์ชัน และตัวที่ลืมใส่จะไม่ error อะไรเลย มันจะแค่ตอบข้อมูลให้คนแปลกหน้า
+  //
+  // ตั้งชื่อขึ้นต้น `employee*`/`supervisor*` = ของเจ้าตัว ต้องใช้
+  // `requireEmployeeCaller` · `admin*` = ของฝ่ายบุคคล ต้องใช้ `requireStaffRole`
+  {
+    const files = ["hr-attendance-api.js", "hr-employee-portal.js"];
+    const rows = [];
+    for (const f of files) {
+      const src = strip(read(f));
+      // **ตัดท้ายที่ callable ตัวถัดไป ไม่ใช่ที่ความยาวคงที่** — หน้าต่าง 900
+      // ตัวอักษรกินเข้าไปในฟังก์ชันถัดไป แล้วด่านของ *เพื่อนบ้าน* ก็ทำให้ตัวที่
+      // ไม่มีด่านผ่านไปได้ (injection ที่ถอดด่านของ `employeeShiftChangeList`
+      // เขียวสนิทเพราะเหตุนี้ — ด่านที่เขียนมากันเรื่องนี้มีรูเอง)
+      const starts = [...src.matchAll(/const (\w+) = onCall\(/g)];
+      starts.forEach((m, idx) => {
+        const end = idx + 1 < starts.length ? starts[idx + 1].index : src.length;
+        const body = src.slice(m.index, end);
+        rows.push({
+          file: f,
+          name: m[1],
+          employeeGate: body.includes("requireEmployeeCaller("),
+          staffGate: body.includes("requireStaffRole("),
+        });
+      });
+    }
+    check(`มี callable ให้ตรวจจริง (พบ ${rows.length})`, rows.length >= 15);
+
+    const ungated = rows.filter((r) => !r.employeeGate && !r.staffGate);
+    check(`ทุก callable มีด่าน (ไม่มีด่าน: ${ungated.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      ungated.length === 0);
+
+    const selfWrong = rows
+      .filter((r) => /^(employee|supervisor)/.test(r.name) && !r.employeeGate);
+    check(`เส้นทางของเจ้าตัวใช้ requireEmployeeCaller ครบ (ผิด: ${selfWrong.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      selfWrong.length === 0);
+
+    const adminWrong = rows.filter((r) => /^admin/.test(r.name) && !r.staffGate);
+    check(`เส้นทางของฝ่ายบุคคลใช้ requireStaffRole ครบ (ผิด: ${adminWrong.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      adminWrong.length === 0);
+
+    // ด่านตัวตนของแอป — ถ้าไม่มีตัวนี้ แอปจะรู้ว่าใครเป็นใครก็ต่อเมื่อยิง
+    // callable ที่อ่านข้อมูลจริง ซึ่งแปลว่าต้องขอสิทธิ์ตำแหน่งไปก่อนแล้ว
+    check("มี employeeMe ไว้ให้แอปตรวจตัวตนก่อนขอสิทธิ์ตำแหน่ง",
+      rows.some((r) => r.name === "employeeMe" && r.employeeGate));
+  }
   check("ฝ่ายบุคคลอ่านของทุกคนได้ผ่าน gate ของ HR",
     /requireStaffRole\(db, request\.auth, HR_ROLES\)/.test(API));
 }
