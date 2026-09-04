@@ -19,6 +19,7 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Briefcase, RefreshCw, FileText, UserPlus, Phone, Mail, X, Clock, AlertTriangle,
+  Trash2, StickyNote,
 } from 'lucide-react';
 import { thaiDate } from './hrFormat';
 
@@ -46,6 +47,8 @@ interface Application {
   hired_at: number | null;
   stage_history: HistoryRow[];
   offer_note: string | null;
+  admin_note: string | null;
+  can_delete: boolean;
 }
 interface StageMeta { label: string; tone: string; terminal?: boolean; legacy?: boolean }
 interface ListResult {
@@ -53,6 +56,7 @@ interface ListResult {
   summary: { total: number; open: number; untouched: number; counts: Record<string, number> };
   stages: Record<string, StageMeta>;
   capped: boolean;
+  moved_notes: number;
 }
 
 const TONE: Record<string, string> = {
@@ -108,6 +112,26 @@ export const Recruitment: React.FC = () => {
     } finally { setBusy(''); }
   };
 
+  const remove = async (row: Application) => {
+    // ลบแล้วเรียกคืนไม่ได้ และมันลบไฟล์เรซูเม่ใน Storage ไปด้วย — ต้องพิมพ์
+    // ยืนยัน ไม่ใช่กดครั้งเดียวจบ (ปุ่มอยู่ในแผงที่กางออกมาแล้วเท่านั้น)
+    const typed = window.prompt(
+      `ลบใบสมัครของ "${row.full_name || 'ไม่ระบุชื่อ'}" ถาวร พร้อมไฟล์เรซูเม่\nพิมพ์ ลบ เพื่อยืนยัน:`,
+      '',
+    );
+    if (typed === null) return;
+    if (typed.trim() !== 'ลบ') { toast.error('ยกเลิกแล้ว — ข้อความยืนยันไม่ตรง'); return; }
+    setBusy(row.id);
+    try {
+      const res = await call<{ resumeDeleted: boolean }>('adminHrApplicationDelete', { applicationId: row.id });
+      toast.success(res.resumeDeleted ? 'ลบใบสมัครและไฟล์เรซูเม่แล้ว' : 'ลบใบสมัครแล้ว (ใบนี้ไม่มีไฟล์แนบ)');
+      setOpenId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ลบไม่สำเร็จ');
+    } finally { setBusy(''); }
+  };
+
   const visible = useMemo(() => {
     const list = data?.applications || [];
     if (filter === 'all') return list;
@@ -146,8 +170,9 @@ export const Recruitment: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-[13px] text-red-900 flex gap-2">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <p>
-            มีใบสมัครที่ยังไม่มีใครเปิดดู <b>{data.summary.untouched} ใบ</b> —
-            ตอนนี้ระบบยังไม่แจ้งเตือนเมื่อมีใบสมัครใหม่ ต้องเข้ามาดูเองที่หน้านี้
+            มีใบสมัครที่ยังไม่ได้ดำเนินการ <b>{data.summary.untouched} ใบ</b> —
+            ระบบไม่ได้บันทึกว่ามีใครเปิดอ่านหรือยัง นับจากสถานะที่ยังเป็น &quot;ใหม่&quot; เท่านั้น
+            และ<b>ยังไม่มีการแจ้งเตือนเมื่อมีใบสมัครใหม่</b> ต้องเข้ามาดูเองที่หน้านี้
           </p>
         </div>
       )}
@@ -219,6 +244,7 @@ export const Recruitment: React.FC = () => {
                         <b>เงื่อนไขที่เสนอ:</b> {row.offer_note}
                       </p>
                     )}
+                    <NoteEditor row={row} onSaved={load} />
                     {row.stage_history.length > 0 && (
                       <div className="pt-1">
                         <p className="text-xs font-bold text-gray-500 flex items-center gap-1"><Clock size={12} /> ประวัติ</p>
@@ -232,6 +258,18 @@ export const Recruitment: React.FC = () => {
                         </ul>
                       </div>
                     )}
+                    <div className="pt-2 border-t border-gray-200/70">
+                      {row.can_delete ? (
+                        <button onClick={() => void remove(row)} disabled={busy === row.id}
+                          className="text-[11px] font-bold text-red-400 hover:text-red-600 inline-flex items-center gap-1 disabled:opacity-50">
+                          <Trash2 size={12} /> ลบใบสมัครนี้ถาวร (พร้อมไฟล์เรซูเม่)
+                        </button>
+                      ) : (
+                        <p className="text-[11px] text-gray-400">
+                          ใบนี้กลายเป็นแฟ้มพนักงานแล้ว ลบไม่ได้ — เอกสารที่บอกว่าคนคนนี้ถูกจ้างมาอย่างไรต้องอยู่ต่อ
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -244,6 +282,50 @@ export const Recruitment: React.FC = () => {
         <HireModal application={hireFor} onClose={() => setHireFor(null)}
           onDone={async () => { setHireFor(null); await load(); }} />
       )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// โน้ต HR
+//
+// **โน้ตไม่ได้อยู่บนแถวใบสมัคร** — กฎของ `job_applications/$appId` ให้เจ้าของใบ
+// อ่านใบตัวเองได้ ทุกฟิลด์บนแถวนั้นจึงเป็นของที่ผู้สมัครอ่านได้ ไม่ใช่แค่ที่
+// หน้าเว็บเลือกแสดง โน้ตจึงเก็บที่ `job_application_notes/{id}` ซึ่งอ่านได้
+// เฉพาะฝั่ง server (หน้าเดิมฝั่งเว็บลูกค้าเขียนโน้ตลงบนแถวตรงๆ มาตลอด)
+// ---------------------------------------------------------------------------
+const NoteEditor: React.FC<{ row: Application; onSaved: () => Promise<void> }> = ({ row, onSaved }) => {
+  const toast = useToast();
+  const [text, setText] = useState(row.admin_note || '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setText(row.admin_note || ''); }, [row.id, row.admin_note]);
+
+  const dirty = text.trim() !== (row.admin_note || '').trim();
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await call('adminHrApplicationNote', { applicationId: row.id, note: text });
+      toast.success('บันทึกโน้ตแล้ว');
+      await onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'บันทึกโน้ตไม่สำเร็จ');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="pt-1">
+      <p className="text-xs font-bold text-gray-500 flex items-center gap-1">
+        <StickyNote size={12} /> โน้ต HR
+        <span className="font-normal text-gray-400">— ผู้สมัครไม่เห็นข้อความนี้</span>
+      </p>
+      <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
+        placeholder="บันทึกสำหรับผู้สมัครคนนี้..."
+        className="mt-1 w-full px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-800 resize-none bg-white" />
+      <button onClick={() => void save()} disabled={busy || !dirty}
+        className="mt-1 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px] font-bold disabled:opacity-40">
+        บันทึกโน้ต
+      </button>
     </div>
   );
 };
