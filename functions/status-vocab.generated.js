@@ -5,7 +5,7 @@
 // .github/workflows/sync-status-enum.yml). Edit the TS file, then run:
 //   npm run generate:status-vocab
 //
-// source-sha256: 1c8801a455ff757bb60d31a098c9de56e830e2614f7dcdb8f75a58a8c53ca4c9
+// source-sha256: dc0f9b1bf76296a2847b33aee5c941618a7a4fc06c5e5baff4681576f0db4bc6
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -79,6 +79,16 @@ const JOB_STATUS = {
   SENT_TO_QC_LAB: "Sent To QC Lab",
   IN_STOCK: "In Stock",
   READY_TO_SELL: "Ready To Sell",
+  // ล็อกของล็อตขายส่ง ไม่ใช่ช่องใน dropdown ที่บังเอิญมีคนเลือก —
+  // `adminDealerLotPublish` เขียนค่านี้ทับทุกเครื่องในล็อตพร้อม `lot_id`/`lot_no`
+  // ใน multi-path เดียว และ **จำสถานะเดิมของแต่ละเครื่องไว้ที่
+  // `lot_private/{lotId}/prev_status`** เพราะการปลดต้องคืนค่าเดิม ไม่ใช่เดาว่า
+  // เป็น In Stock. ปลดสองทาง (ยกเลิกล็อต / ยกเลิกออเดอร์ดีลเลอร์) และจบที่ Sold
+  // เมื่อส่งมอบ
+  //
+  // หน้า /inventory มีช่อง "Manual Status Override" ที่เลือกค่านี้ได้ด้วย แต่มัน
+  // บล็อกไว้เมื่อเครื่องมี `lot_id` — สองทางเขียนคนละความหมาย อย่ายุบรวมกัน
+  RESERVED: "Reserved",
   SOLD: "Sold",
   COMPLETED: "Completed",
   // Terminal — cancellation paths
@@ -158,6 +168,8 @@ const STATUS_TO_PHASE = {
   [JOB_STATUS.SENT_TO_QC_LAB]: PHASE.INVENTORY,
   [JOB_STATUS.IN_STOCK]: PHASE.INVENTORY,
   [JOB_STATUS.READY_TO_SELL]: PHASE.INVENTORY,
+  // เครื่องยังอยู่ในคลังของเรา แค่ถูกจองไว้ — ไม่ใช่ terminal (ปลดกลับมาขายได้)
+  [JOB_STATUS.RESERVED]: PHASE.INVENTORY,
   [JOB_STATUS.SOLD]: PHASE.INVENTORY,
   [JOB_STATUS.COMPLETED]: PHASE.TERMINAL,
   // Cancelled is a soft-close: reopenable until the grace window lapses, then a

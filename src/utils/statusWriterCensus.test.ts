@@ -150,18 +150,25 @@ describe('สำมะโนการเขียนโหนดงานตร�
     const page = readFileSync(resolve(SRC, 'pages/inventory/Inventory.tsx'), 'utf8');
     expect(page).toContain('JOB_EVENT.PUSHED_TO_POS');
     expect(page).toContain('JOB_EVENT.SOLD');
-    // ฟอร์มแก้ราคายังเขียนตรง เพราะ dropdown มี 'Reserved' ที่ normalizeStatus
-    // อ่านไม่ออก — เหลือ update() ตรงได้ใบเดียวในไฟล์นี้
+    // ฟอร์มแก้ราคายังเขียนตรง — ไม่ใช่เพราะ enum อีกแล้ว (P3-f ปิดข้อนั้นไป)
+    // แต่เพราะช่องนั้นเป็น Manual Status Override ที่ให้เลือกปลายทางเอง
+    // ดูเหตุผลเต็มในเทสถัดไป
     const writes = page.match(/update\(ref\(db, `jobs\/\$\{[^}]+\}`\)/g) || [];
     expect(writes.length).toBe(1);
   });
 
-  it("'Reserved' ยังอ่านไม่ออก — ห้ามย้ายฟอร์มแก้ราคาก่อนปิดเรื่องนี้", () => {
-    // ด่านนี้ไม่ได้ตรวจโค้ดของเรา มันตรึง **ข้อเท็จจริงที่ทำให้เราหยุด** ไว้
-    // ถ้าวันหนึ่งมีคนเพิ่ม Reserved เข้า enum/alias เทสนี้จะแดง ซึ่งคือสัญญาณให้
-    // กลับมาย้าย handleSavePricing ไม่ใช่สัญญาณว่าอะไรพัง
+  it("'Reserved' อ่านออกแล้ว (P3-f) — สิ่งที่ยังค้างคือรูปของ dropdown ไม่ใช่ enum", () => {
+    // ด่านนี้เคยตรึงว่า normalizeStatus('Reserved') === null และบอกว่า "แดงเมื่อไหร่
+    // ให้กลับมาย้าย handleSavePricing" — มันแดงจริงตอนเพิ่ม RESERVED เข้า enum
+    //
+    // **แต่ enum ไม่ใช่สิ่งเดียวที่บล็อกอยู่** และการย้ายตอนนี้จะพลาดประเด็น:
+    // ช่องนั้นชื่อ "Manual Status Override" ให้แอดมินกระโดดไปสถานะไหนก็ได้ใน
+    // สามค่า ซึ่งเป็น **รูป "ไคลเอนต์เลือกปลายทางเอง"** ที่งานทั้งชุดนี้กำจัด
+    // การย้ายมันโดยไม่ตัดสินใจก่อนว่าช่องนี้ควรมีอยู่ไหม = สร้าง event ที่รับ
+    // ปลายทางจากไคลเอนต์ ซึ่งแย่กว่าปล่อยให้เขียนตรงแล้วนับไว้ในสำมะโน
     const vocab = require(resolve(__dirname, '../../functions/status-vocab.generated.js'));
-    expect(vocab.normalizeStatus('Reserved')).toBeNull();
+    expect(vocab.normalizeStatus('Reserved')).toBe('Reserved');
+    expect(vocab.getPhase('Reserved')).toBe('inventory');
   });
 
   it('TradeInDashboard: สี่ฟังก์ชันที่ไม่มีใครเรียกต้องไม่กลับมา', () => {
