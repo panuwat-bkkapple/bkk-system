@@ -48,10 +48,11 @@ export default function App() {
     fix: geo.fix,
     error: geo.error,
     now,
+    asked: geo.asked,
   });
 
   // **ไม่อนุญาตตำแหน่ง = ใช้แอปไม่ได้ทั้งแอป** ไม่ใช่แค่ปุ่มลงเวลาถูกปิด
-  if (block) return <GpsGate block={block} onRetry={geo.retry} />;
+  if (block) return <GpsGate block={block} onAct={geo.request} />;
 
   return (
     <div className="app">

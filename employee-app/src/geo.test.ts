@@ -1,7 +1,29 @@
-// ประตู GPS — เหตุผลที่บล็อกต้องเรียงตามความถาวร และต้องบอกวิธีแก้ที่ถูก
+// ประตู GPS — เหตุผลที่บล็อกต้องเรียงตามความถาวร บอกวิธีแก้ที่ถูก
+// และ **ต้องไม่มีจอไหนที่ตัน**
+//
+// ─── บั๊กที่ทำให้ต้องแก้ชุดนี้ (5 ก.ย. 2569, หลุดถึงมือผู้ใช้) ──────────────
+// เวอร์ชันแรกขอตำแหน่งตอนหน้าโหลด และตั้งใจไม่ให้จอ `denied` มีปุ่ม ด้วยเหตุผล
+// ว่า "ปุ่มที่กดแล้วไม่มีทางสำเร็จ สอนให้คนกดวนไปเรื่อยๆ"
+//
+// **เหตุผลนั้นตั้งอยู่บนสมมติฐานที่ผิด: ว่า `denied` แปลว่าผู้ใช้ปฏิเสธจริง**
+// บน iOS (โดยเฉพาะตอนติดตั้งเป็นแอปบนหน้าจอโฮม) คำขอตำแหน่งที่ไม่ได้เกิดจาก
+// การแตะจะถูกปฏิเสธทันที **โดยไม่เคยขึ้นกล่องถาม** ผลคือเปิดแอปครั้งแรกแล้วเจอ
+// จอ "ต้องอนุญาตให้เข้าถึงตำแหน่งก่อน" ที่ไม่มีปุ่มอะไรเลย ทั้งที่ยังไม่มีใคร
+// ถูกถามสักครั้ง — ทางออกเดียวคือปิดแอปทิ้ง
+//
+// ชุดนี้จึงเฝ้าสองอย่างเพิ่ม: มีเส้นทาง "แตะเพื่ออนุญาต" และ **ทุกเหตุผลที่
+// แก้ได้ต้องมีปุ่ม ส่วนที่แก้ไม่ได้จริงๆ ต้องไม่มี**
 //
 // ─── ผล injection ─────────────────────────────────────────────────────────
-//   (ตัวเลขวัดจริง เติมหลังรันจริง)
+//   (ตัวเลขวัดจริง ไม่ใช่ที่คาดไว้)
+//
+//   | ทำลายอะไร                                                | ผล |
+//   |----------------------------------------------------------|----|
+//   | **ย้อนกลับเป็นบั๊กเดิม: จอ `denied` ไม่มีปุ่ม**             | แดง 2 |
+//   | `unavailable`/`timeout` ไม่มีปุ่ม                          | แดง 3 |
+//   | `unsupported` มีปุ่มหลอก (กดแล้วไม่มีทางสำเร็จ)             | แดง 2 |
+//   | ถอดเส้นทาง "แตะเพื่ออนุญาต" (หมุนรอกล่องที่ไม่ขึ้น)          | แดง 1 |
+//   | ขอให้แตะอนุญาตใหม่ทุกครั้งแม้มีพิกัดแล้ว                    | แดง 1 |
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -15,7 +37,7 @@ const fix = (over: Partial<{ lat: number; lng: number; accuracy_m: number; at: n
 
 const input = (over: Partial<GeoInput> = {}): GeoInput => ({
   supported: true, secureContext: true, permission: 'granted',
-  fix: fix(), error: null, now: NOW, ...over,
+  fix: fix(), error: null, now: NOW, asked: true, ...over,
 });
 
 describe('ใช้แอปได้เมื่อไหร่', () => {
@@ -23,11 +45,11 @@ describe('ใช้แอปได้เมื่อไหร่', () => {
     expect(geoBlockReason(input())).toBeNull();
   });
 
-  it('ไม่รองรับ = บล็อก และไม่มีปุ่มลองใหม่', () => {
+  it('ไม่รองรับ = บล็อก และไม่มีปุ่ม', () => {
     const b = geoBlockReason(input({ supported: false }))!;
     expect(b.code).toBe('unsupported');
-    // ปุ่มลองใหม่ที่กดแล้วไม่มีทางสำเร็จ สอนให้คนกดวนไปเรื่อยๆ
-    expect(b.canRetry).toBe(false);
+    // เคสนี้กดยังไงก็ไม่สำเร็จจริงๆ (เบราว์เซอร์ไม่มี API) จึงไม่ควรมีปุ่ม
+    expect(b.action).toBeNull();
   });
 
   it('เปิดผ่าน http = บอกเหตุผลจริง ไม่ใช่หมุนรอตลอดไป', () => {
@@ -36,12 +58,14 @@ describe('ใช้แอปได้เมื่อไหร่', () => {
     expect(b.detail).toContain('https');
   });
 
-  it('ปฏิเสธสิทธิ์ = บอกวิธีแก้ ไม่ใช่แค่บอกว่าถูกปฏิเสธ', () => {
+  it('ปฏิเสธสิทธิ์ = บอกวิธีแก้ **และต้องมีปุ่มให้กดต่อ**', () => {
     const b = geoBlockReason(input({ permission: 'denied' }))!;
     expect(b.code).toBe('denied');
-    // คนส่วนใหญ่ไม่รู้ว่ากด "ไม่อนุญาต" ไปแล้วเบราว์เซอร์จะไม่ถามซ้ำ
     expect(b.detail).toMatch(/ตั้งค่า/);
-    expect(b.canRetry).toBe(false);
+    // **จอนี้เคยตัน และนั่นคือบั๊กที่หลุดถึงมือผู้ใช้** — บน iOS `denied`
+    // เกิดได้ตั้งแต่ก่อนมีใครถูกถาม (คำขอที่ไม่ได้มาจากการแตะถูกปฏิเสธทันที
+    // โดยไม่ขึ้นกล่อง) ปุ่มจึงไม่ใช่ปุ่มหลอก มันคือทางเดียวที่จะได้กล่องถาม
+    expect(b.action).toBeTruthy();
   });
 
   it('ยังไม่ได้ถาม (prompt) ไม่ถือว่าถูกปฏิเสธ', () => {
@@ -51,19 +75,58 @@ describe('ใช้แอปได้เมื่อไหร่', () => {
     expect(b.code).toBe('no_fix');
   });
 
+  it('ยังไม่เคยแตะขอ = ขอปุ่มก่อน ไม่ใช่หมุนรอ', () => {
+    // **iOS ไม่ขึ้นกล่องถามให้คำขอที่ไม่ได้มาจากการแตะ** จอที่หมุนรอกล่องนั้น
+    // จึงหมุนตลอดกาล — เคสจริงบนเครื่องเจ้าของงาน
+    const b = geoBlockReason(input({ permission: null, fix: null, asked: false }))!;
+    expect(b.code).toBe('needs_gesture');
+    expect(b.action).toBeTruthy();
+  });
+
+  it('แตะขอแล้วแต่ยังไม่ได้พิกัด = กำลังหา (ไม่ใช่ขอให้แตะซ้ำ)', () => {
+    const b = geoBlockReason(input({ permission: null, fix: null, asked: true }))!;
+    expect(b.code).toBe('no_fix');
+  });
+
+  it('เคยให้สิทธิ์แล้วและมีพิกัดอยู่ ไม่ต้องแตะขอ', () => {
+    // คนที่เปิดแอปซ้ำทุกเช้าต้องไม่โดนขอสิทธิ์ใหม่ทุกครั้ง
+    expect(geoBlockReason(input({ asked: false }))).toBeNull();
+  });
+
   it('เบราว์เซอร์ที่ไม่มี Permissions API ยังใช้ได้', () => {
     // `navigator.permissions` เป็น null ได้จริง (เคยทำทั้งหน้าพังมาแล้วในเว็บลูกค้า)
+    // และบน Safari ค่านี้เป็น null **เสมอ** — geolocation ไม่อยู่ใน Permissions
+    // API ของ Safari เลย เส้นทางนี้จึงเป็นเส้นทางปกติของ iOS ไม่ใช่เคสขอบ
     expect(geoBlockReason(input({ permission: null }))).toBeNull();
   });
 
   it('error ของเบราว์เซอร์มาก่อน "ยังไม่มีพิกัด"', () => {
     const b = geoBlockReason(input({ fix: null, error: 'unavailable' }))!;
     expect(b.code).toBe('unavailable');
-    expect(b.canRetry).toBe(true);
+    expect(b.action).toBeTruthy();
   });
 
   it('หมดเวลา = ลองใหม่ได้', () => {
-    expect(geoBlockReason(input({ fix: null, error: 'timeout' }))!.canRetry).toBe(true);
+    expect(geoBlockReason(input({ fix: null, error: 'timeout' }))!.action).toBeTruthy();
+  });
+
+  it('ทุกเหตุผลที่แก้ได้ต้องมีปุ่ม และที่แก้ไม่ได้ต้องไม่มี', () => {
+    // ราวกันตกของกฎทั้งหมวด: จอที่ตันคือบั๊กที่หลุดมาแล้วหนึ่งรอบ
+    const withButton = [
+      geoBlockReason(input({ permission: 'denied' })),
+      geoBlockReason(input({ fix: null, asked: false, permission: null })),
+      geoBlockReason(input({ fix: null, error: 'unavailable' })),
+      geoBlockReason(input({ fix: null, error: 'timeout' })),
+      geoBlockReason(input({ fix: null })),
+      geoBlockReason(input({ fix: fix({ at: 1 }) })),
+    ];
+    expect(withButton.every((b) => b && b.action)).toBe(true);
+
+    const noButton = [
+      geoBlockReason(input({ supported: false })),
+      geoBlockReason(input({ secureContext: false })),
+    ];
+    expect(noButton.every((b) => b && b.action === null)).toBe(true);
   });
 });
 
