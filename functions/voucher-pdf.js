@@ -960,7 +960,14 @@ async function buildWhtCertificatePdf({ rider, cert, company }) {
   drawRight(thb(cert.gross), width - M, 11);
   y -= 16;
   draw("(ค่าตอบแทนงานรับ-ส่งอุปกรณ์)", M + 12, 9, { color: gray });
-  y -= 20;
+  y -= 14;
+  // ยอดถอนที่มีเงินคืนค่าทดรองปน — บอกให้ชัดว่าส่วนนั้นไม่ใช่เงินได้และไม่ได้ถูกหัก
+  // ไม่งั้นไรเดอร์เทียบกับสลิปแล้วเห็นว่า "จ่าย 1,065 แต่หนังสือรับรองบอก 1,000"
+  if (Number(cert.exempt) > 0) {
+    draw(`ยอดที่จ่ายรวม ${thb(cert.withdrawal_amount)} บาท มีเงินคืนค่าใช้จ่ายที่ผู้รับสำรองจ่าย ${thb(cert.exempt)} บาท ซึ่งไม่ใช่เงินได้พึงประเมินและไม่ได้หักภาษี`, M + 12, 9, { color: gray });
+    y -= 14;
+  }
+  y -= 6;
   hr(y + 6); y -= 14;
   draw("รวมเงินที่จ่าย", M, 11, { color: gray });
   drawRight(thb(cert.gross), width - M, 11, { color: gray });

@@ -19,6 +19,10 @@ export interface RiderWhtConfig {
 export interface RiderWhtResult {
   applies: boolean;
   gross: number;
+  /** ส่วนของยอดถอนที่เป็นเงินได้ (ค่าจ้าง) — ฐานที่คูณอัตรา */
+  taxableBase: number;
+  /** ส่วนที่ไม่ใช่เงินได้ (เงินคืนค่าทดรอง) = gross − taxableBase */
+  exempt: number;
   wht: number;
   net: number;
   ratePercent: number;
@@ -38,22 +42,35 @@ export function readRiderWhtConfig(raw: unknown): RiderWhtConfig {
   };
 }
 
+/**
+ * **ฐานภาษีไม่ใช่ยอดถอนทั้งก้อน** — เงินคืนค่าทดรอง (EXPENSE_REIMBURSEMENT) ที่ปน
+ * อยู่ในกระเป๋าไม่ใช่เงินได้ ไม่หัก 3% (นักบัญชียืนยัน 4 ก.ย. 2569) caller ส่ง
+ * `taxableBase` = ค่าจ้างล้วนจาก `splitWithdrawal` (utils/riderCostSplit.ts)
+ * ไม่ส่ง = หักบนยอดเต็ม ซึ่งเป็นทิศ "หักเกิน" ที่คืนได้ ไม่ใช่ "หักขาด" ที่ต้องไล่เก็บ
+ */
 export function computeRiderWht(
   grossAmount: number,
   employmentType: RiderEmploymentType,
   cfg: RiderWhtConfig,
+  opts: { taxableBase?: number | null } = {},
 ): RiderWhtResult {
   const gross = round2(Math.max(0, Number(grossAmount) || 0));
+  const rawBase = opts.taxableBase != null ? Number(opts.taxableBase) : gross;
+  const taxableBase = round2(Math.min(gross, Math.max(0, Number.isFinite(rawBase) ? rawBase : gross)));
+  const exempt = round2(gross - taxableBase);
   const ratePercent = cfg?.ratePercent || DEFAULT_WHT_RATE_PERCENT;
   const none = (reason: string): RiderWhtResult => ({
-    applies: false, gross, wht: 0, net: gross, ratePercent, reason,
+    applies: false, gross, taxableBase, exempt, wht: 0, net: gross, ratePercent, reason,
   });
 
   if (!cfg?.enabled) return none('ระบบหักภาษี ณ ที่จ่ายยังปิดอยู่');
   if (gross <= 0) return none('ยอดถอนเป็นศูนย์');
   if (employmentType === 'employee') return none('ลูกจ้างประจำ — หักที่ระบบเงินเดือน (ภ.ง.ด.1)');
   if (employmentType !== 'freelance') return none('ยังไม่ระบุสถานะการจ้างของไรเดอร์');
+  if (taxableBase <= 0) return none('ยอดถอนทั้งก้อนเป็นเงินคืนค่าทดรอง ไม่ใช่เงินได้');
 
-  const wht = round2((gross * ratePercent) / 100);
-  return { applies: true, gross, wht, net: round2(gross - wht), ratePercent, reason: '' };
+  const wht = round2((taxableBase * ratePercent) / 100);
+  return {
+    applies: true, gross, taxableBase, exempt, wht, net: round2(gross - wht), ratePercent, reason: '',
+  };
 }
