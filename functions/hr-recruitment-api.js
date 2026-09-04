@@ -40,6 +40,7 @@
 // =============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onValueCreated } = require("firebase-functions/v2/database");
 const { getDatabase } = require("firebase-admin/database");
 const { getStorage } = require("firebase-admin/storage");
 
@@ -139,7 +140,13 @@ async function loadNotesMap(db) {
   return snap.val() || {};
 }
 
-function registerHrRecruitment() {
+/**
+ * @param {object} deps  `dispatchAdminPush` / `dispatchTelegram` / `staffIdsByRoles`
+ *   ฉีดจาก index.js แบบเดียวกับ dealer-portal และ health-check — ไฟล์นี้ import
+ *   ตรงไม่ได้เพราะทั้งสามตัวอยู่ใน index.js ซึ่ง require ไฟล์นี้อยู่ (วงกลม)
+ *   ไม่ส่ง deps มา = ทริกเกอร์ไม่ถูกสร้าง ส่วน callable ทำงานตามปกติ
+ */
+function registerHrRecruitment(deps = {}) {
   // -------------------------------------------------------------------------
   // adminHrApplicationList
   // -------------------------------------------------------------------------
@@ -363,12 +370,67 @@ function registerHrRecruitment() {
     };
   });
 
+  // -------------------------------------------------------------------------
+  // onJobApplicationCreated — มีคนสมัครงาน แจ้ง CEO/MANAGER
+  //
+  // ก่อนหน้านี้ **ไม่มีใครถูกแจ้งเลย** ใบสมัครไปนอนรออยู่ที่ /recruitment
+  // จนกว่าจะมีคนนึกได้ว่าต้องเปิดดู — ขณะที่ใบสมัคร*ดีลเลอร์*แจ้งมาตั้งแต่ต้น
+  // (dealer-portal.js) ความไม่สมมาตรนี้ไม่มีเหตุผล คนสมัครงานที่รอเงียบสองอาทิตย์
+  // คือคนที่ไปรับงานที่อื่นแล้ว
+  //
+  // **ไม่ใส่ชื่อ/เบอร์/อีเมลผู้สมัครลงข้อความแจ้งเตือน** — push ขึ้นหน้าจอล็อก
+  // และเข้า Telegram ที่มีคนอยู่ในห้องมากกว่าคนที่ควรเห็นใบสมัคร ตำแหน่งที่สมัคร
+  // ไม่ใช่ PII และเพียงพอให้รู้ว่าต้องไปเปิดดู (หลักเดียวกับ probe
+  // `order_reconciliation` ใน health-check.js ที่ชี้ไปหน้าที่ gate สิทธิ์แล้วแทน)
+  //
+  // best-effort ทั้งก้อน — ใบสมัครถูกบันทึกไปแล้วตั้งแต่ก่อนถึงตรงนี้
+  // การแจ้งเตือนล้มต้องไม่ทำให้ใบสมัครหาย
+  const onJobApplicationCreated = deps.dispatchAdminPush
+    ? onValueCreated(
+        { region: REGION, ref: "/job_applications/{appId}" },
+        async (event) => {
+          const app = event.data?.val() || {};
+          const position = str(app.position_title, 80) || "ไม่ระบุตำแหน่ง";
+          try {
+            const db = getDatabase();
+            const targets = deps.staffIdsByRoles
+              ? await deps.staffIdsByRoles(db, ["CEO", "MANAGER"])
+              : null;
+            await deps.dispatchAdminPush(
+              {
+                data: {
+                  type: "job_application",
+                  title: "ใบสมัครงานใหม่",
+                  body: `ตำแหน่ง ${position} — รอตรวจสอบ`,
+                  url: "/recruitment",
+                },
+              },
+              "jobApplication",
+              "admin",
+              targets
+            );
+            if (deps.dispatchTelegram) {
+              await deps.dispatchTelegram(
+                `<b>ใบสมัครงานใหม่</b>\nตำแหน่ง ${position}\nเปิดดูที่หน้าใบสมัครงาน`,
+                "jobApplication"
+              );
+            }
+          } catch (e) {
+            console.error("[hr] job application notify failed:", (e && e.message) || e);
+          }
+        }
+      )
+    : null;
+
   return {
     adminHrApplicationList,
     adminHrApplicationSetStage,
     adminHrApplicationNote,
     adminHrApplicationDelete,
     adminHrApplicationHire,
+    // ไม่ส่ง deps มา = ไม่มีทริกเกอร์ (แต่ callable ยังทำงานครบ) — ทำให้เทส
+    // ที่ require ไฟล์นี้ตรงๆ ไม่ต้องมี Firebase app
+    ...(onJobApplicationCreated ? { onJobApplicationCreated } : {}),
   };
 }
 

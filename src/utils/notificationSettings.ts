@@ -19,7 +19,8 @@ export type NotificationEventKey =
   | 'approval'
   | 'field_ops'
   | 'system_alert'
-  | 'dealer';
+  | 'dealer'
+  | 'hr';
 
 export interface NotificationSettings {
   channels: Record<NotificationChannelKey, boolean>;
@@ -85,6 +86,11 @@ export const NOTIFICATION_EVENTS: NotificationOptionMeta<NotificationEventKey>[]
     key: 'dealer',
     label: 'Dealer Portal',
     description: 'ประมูลขายส่ง: มีผู้เสนอราคา, ปิดรับราคา (CEO/MANAGER), สลิปเข้า (CEO/FINANCE), สถานะคำสั่งซื้อดีลเลอร์',
+  },
+  {
+    key: 'hr',
+    label: 'งานบุคคล',
+    description: 'ใบสมัครงานใหม่จากหน้า /careers (CEO/MANAGER)',
   },
 ];
 
