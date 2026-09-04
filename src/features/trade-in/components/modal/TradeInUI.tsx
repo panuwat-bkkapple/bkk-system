@@ -3,7 +3,7 @@ import { Bike, Mail, Store, CheckCircle2, ChevronRight, Phone, Zap, CalendarDays
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { isAwaitingOffer } from '@/utils/offerRequest';
 import { isOfferAwaitingDecision } from '@/utils/customerOffer';
-import { isRecededStatus } from '@/types/job-statuses';
+import { isRecededStatus, normalizeStatus } from '@/types/job-statuses';
 import { statusBadgeClass } from '@/utils/statusColors';
 
 export const MethodBadge = ({ method }: { method: string }) => {
@@ -61,11 +61,16 @@ export const TicketPipeline = ({ status }: { status: string }) => {
     'Sold', 'Completed',
   ];
 
+  // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง — ลิสต์ข้างบนถือสะกดเก่าบางตัว ('Sent to
+  // QC Lab', 'Ready to Sell') ขณะที่ engine เขียน canonical จึง normalize ทั้งค่าใน
+  // ลิสต์และค่าของงานก่อนเทียบ ไม่แก้ตัวลิสต์
+  const canon = (s: string) => normalizeStatus(s) ?? s;
+  const inList = (list: string[]) => list.some((s) => canon(s) === canon(status));
   const phases = [
-    { id: 1, name: 'Sales & Deal', active: phase1_Sales.includes(status), done: (phase2_Logistics.includes(status) || phase3_Inspection.includes(status) || phase4_Finance.includes(status)) && !isCancelled },
-    { id: 2, name: 'Logistics', active: phase2_Logistics.includes(status), done: (phase3_Inspection.includes(status) || phase4_Finance.includes(status)) && !isCancelled },
-    { id: 3, name: 'Inspection', active: phase3_Inspection.includes(status), done: phase4_Finance.includes(status) && !isCancelled },
-    { id: 4, name: 'Finance & QC', active: phase4_Finance.includes(status), done: ['In Stock', 'Ready to Sell'].includes(status) && !isCancelled }
+    { id: 1, name: 'Sales & Deal', active: inList(phase1_Sales), done: (inList(phase2_Logistics) || inList(phase3_Inspection) || inList(phase4_Finance)) && !isCancelled },
+    { id: 2, name: 'Logistics', active: inList(phase2_Logistics), done: (inList(phase3_Inspection) || inList(phase4_Finance)) && !isCancelled },
+    { id: 3, name: 'Inspection', active: inList(phase3_Inspection), done: inList(phase4_Finance) && !isCancelled },
+    { id: 4, name: 'Finance & QC', active: inList(phase4_Finance), done: inList(['In Stock', 'Ready to Sell']) && !isCancelled }
   ];
 
   if (isCancelled) {
