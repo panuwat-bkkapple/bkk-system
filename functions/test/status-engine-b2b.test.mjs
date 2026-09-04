@@ -21,7 +21,7 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const { decideTransition, TRANSITIONS, ACTOR, JOB_TYPE } = require(
+const { decideTransition, TRANSITIONS, ACTOR, JOB_TYPE, B2B_JOB_TYPES } = require(
   path.join(root, "functions/status-engine.js")
 );
 const { normalizeStatus, JOB_STATUS_B2B } = require(
@@ -240,11 +240,23 @@ check("blockedWhenPaid is the second net: a lot inside the from-list with money 
 
 const b2bEvents = Object.keys(TRANSITIONS).filter((e) => e.startsWith("b2b_"));
 
+check("the short 'B2B' spelling the workspace accepts is a corporate lot too", () => {
+  // B2CWorkspacePage.isB2B opens this screen for type "B2B" as well. If the
+  // engine only knew "B2B Trade-in", every button on such a row would answer
+  // wrong_job_type — a screen full of dead buttons and no way to tell why.
+  const out = decideTransition({
+    job: { status: "New B2B Lead", type: "B2B" },
+    event: "b2b_pre_quote_sent",
+    actor: admin,
+  });
+  assert.ok(out.ok, out.code);
+});
+
 check("every b2b_ row carries jobTypes and no methods", () => {
   assert.ok(b2bEvents.length >= 12, `expected the whole line, got ${b2bEvents.length}`);
   for (const event of b2bEvents) {
     const rule = TRANSITIONS[event];
-    assert.deepEqual(rule.jobTypes, [JOB_TYPE.B2B], `${event} must be scoped to the corporate line`);
+    assert.deepEqual(rule.jobTypes, B2B_JOB_TYPES, `${event} must be scoped to the corporate line`);
     assert.equal(rule.methods, undefined, `${event} must not filter by receive_method — B2B lots carry none`);
   }
 });

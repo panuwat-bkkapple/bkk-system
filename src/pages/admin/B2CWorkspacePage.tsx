@@ -83,10 +83,14 @@ export const B2CWorkspacePage = ({ id, onBack }: { id: string, onBack: () => voi
   if (!job) return <div className="fixed inset-0 flex items-center justify-center bg-[#F8FAFC] font-black text-red-500 z-[9999]">ไม่พบข้อมูลคำสั่งซื้อนี้</div>;
   const isB2B = job.type === 'B2B Trade-in' || job.type === 'B2B' || String(job.ref_no).startsWith('B2B');
   if (isB2B) {
-    const handleB2BUpdateStatus = async (jobId: string, newStatus: string, logDetails: string, extraData?: any) => {
-      await update(ref(db, `jobs/${jobId}`), { status: newStatus, qc_logs: [{ action: newStatus, details: logDetails, by: currentUser?.name || 'Admin', timestamp: Date.now() }, ...(job.qc_logs || [])], updated_at: Date.now(), ...(extraData || {}) });
-    };
-    return <B2BManager job={job} onUpdateStatus={handleB2BUpdateStatus} onClose={onBack} basePricing={modelsData} />;
+    // `handleB2BUpdateStatus` ถูกลบใน P3-c — มันคือตัวเขียนสถานะตรงที่รับ
+    // *ปลายทาง* มาจากไคลเอนต์ ตอนนี้ B2BManager ยิง event ผ่าน
+    // runJobTransition เอง ไม่ต้องมีใครส่งฟังก์ชันเขียนสถานะให้มัน
+    //
+    // หมายเหตุ: `isB2B` ข้างบนกว้างกว่าที่ engine ยอมรับหนึ่งกรณี — แถวที่
+    // ref_no ขึ้นต้น "B2B" แต่ `type` เป็นของขายปลีก จะเปิดหน้านี้ได้แต่ทุกปุ่ม
+    // จะตอบ wrong_job_type (ดูเหตุผลที่ JOB_TYPE ใน functions/status-engine.js)
+    return <B2BManager job={job} onClose={onBack} basePricing={modelsData} />;
   }
 
   const basePrice = Number(job.final_price || job.price || 0);

@@ -8,6 +8,8 @@ import {
   ClipboardCheck, AlertTriangle, Info
 } from 'lucide-react';
 import { useToast } from '@/components/ui/ToastProvider';
+import { runJobTransition } from '@/utils/runJobTransition';
+import { JOB_EVENT } from '@/utils/jobTransitions';
 
 // เกณฑ์การจัดเกรดสินค้า B2B (Official Grading Criteria)
 const GRADE_CRITERIA: Record<string, { label: string; desc: string; boxClass: string }> = {
@@ -138,17 +140,28 @@ export const B2BAuditorTool = () => {
     const totalQty = updatedItems.filter((i) => i.grade !== 'Reject').length;
     const totalPrice = updatedItems.reduce((sum: number, item: any) => sum + Number(item.price), 0);
 
+    const gradedPatch = {
+      graded_items: updatedItems,
+      price: totalPrice,
+      summary: { total_qty: totalQty, total_price: totalPrice },
+    };
+    // เครื่องแรกที่สแกนบนล็อตที่ยังไม่ได้เปิดเกรด = การเปลี่ยนสถานะ ตัวถัดๆ ไป
+    // ไม่ใช่ — เงื่อนไขนี้เป็นของเดิม ย้ายมาเป็นการเลือก *ทาง* แทนการเลือก
+    // *ค่าสถานะ* engine ไม่มี event ที่ปลายทางเท่าต้นทาง และไม่ควรมี
+    // (status_history ที่มีแถว "ไม่มีอะไรเกิดขึ้น" คือไทม์ไลน์ที่อ่านยากขึ้นเปล่าๆ)
+    const alreadyGrading =
+      !!currentJob && ['Site Visit & Grading', 'Auditor Assigned'].includes(currentJob.status);
+
     try {
-      const updateData: any = {
-        graded_items: updatedItems,
-        price: totalPrice,
-        summary: { total_qty: totalQty, total_price: totalPrice },
-      };
-      // อัปเดต status เฉพาะครั้งแรกเท่านั้น
-      if (currentJob && !['Site Visit & Grading', 'Auditor Assigned'].includes(currentJob.status)) {
-        updateData.status = 'Site Visit & Grading';
+      if (alreadyGrading) {
+        await update(ref(db, `jobs/${selectedJobId}`), gradedPatch);
+      } else {
+        const res = await runJobTransition(selectedJobId, JOB_EVENT.B2B_GRADING_STARTED, {
+          patch: gradedPatch,
+          reason: `ผู้ตรวจเริ่มเกรดหน้างาน — เครื่องแรก ${selectedModel} (${grade})`,
+        });
+        if (!res.ok) { toast.error(res.message); return; }
       }
-      await update(ref(db, `jobs/${selectedJobId}`), updateData);
       setImei('');
       setNote('');
       document.getElementById('imei-input')?.focus();

@@ -51,6 +51,21 @@ describe('JOB_EVENT', () => {
       [JOB_EVENT.PUSHED_TO_POS]: 'Ready To Sell',
       [JOB_EVENT.ADMIN_MARKED_PAID]: 'Paid',
       [JOB_EVENT.PROCESSING_STARTED]: 'Active Lead',
+      // P3-c — สาย B2B. สามตัวที่ปลายทางเป็นสถานะ *ร่วม* กับสายขายปลีกคือตัวที่
+      // ต้องปักไว้ที่สุด: อ่านชื่อ event แล้วเดาปลายทางไม่ออก
+      [JOB_EVENT.B2B_FOLLOWED_UP]: 'Following Up',
+      [JOB_EVENT.B2B_PRE_QUOTE_SENT]: 'Pre-Quote Sent',
+      [JOB_EVENT.B2B_PRE_QUOTE_ACCEPTED]: 'Pre-Quote Accepted',
+      [JOB_EVENT.B2B_AUDITOR_DISPATCHED]: 'Site Visit & Grading',
+      [JOB_EVENT.B2B_GRADING_STARTED]: 'Site Visit & Grading',
+      [JOB_EVENT.B2B_FINAL_QUOTE_SENT]: 'Final Quote Sent',
+      [JOB_EVENT.B2B_NEGOTIATION_OPENED]: 'Negotiation',
+      [JOB_EVENT.B2B_FINAL_QUOTE_ACCEPTED]: 'Final Quote Accepted',
+      [JOB_EVENT.B2B_PO_ISSUED]: 'PO Issued',
+      [JOB_EVENT.B2B_INVOICE_REQUESTED]: 'Waiting for Invoice/Tax Inv.',
+      [JOB_EVENT.B2B_SUBMITTED_TO_FINANCE]: 'Pending Finance Approval',
+      [JOB_EVENT.B2B_UNPACKED_TO_STOCK]: 'Completed',
+      [JOB_EVENT.CANCELLED]: 'Cancelled',
     };
 
     // ทุกตัวใน JOB_EVENT ต้องอยู่ในตารางนี้ — เพิ่ม event แล้วลืมปักปลายทาง

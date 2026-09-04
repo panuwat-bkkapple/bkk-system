@@ -101,7 +101,17 @@ function actorSatisfies(actual, allowed) {
 // corporate lot and close their ticket.
 const JOB_TYPE = {
   B2B: "B2B Trade-in",
+  // สะกดสั้นที่ `B2CWorkspacePage.isB2B` ยอมรับด้วย — หน้าจอที่เปิด B2BManager
+  // ให้แถวนั้นมีอยู่จริง ถ้า engine ไม่รับ ปุ่มทุกใบของแถวนั้นจะตอบ
+  // wrong_job_type. รับเพิ่มไม่เสียอะไร: "B2B" ไม่ใช่งานขายปลีกอยู่แล้ว
+  //
+  // เงื่อนไขที่สามของหน้านั้น (`ref_no` ขึ้นต้น "B2B") **จงใจไม่ยกมา** — แถวที่
+  // ref_no เป็น B2B แต่ `type` เป็นของขายปลีกคือข้อมูลที่ขัดกันเอง การให้ engine
+  // ยอมรับมันคือการรับรองความขัดแย้งนั้น ไม่ใช่การรองรับ
+  B2B_SHORT: "B2B",
 };
+
+const B2B_JOB_TYPES = [JOB_TYPE.B2B, JOB_TYPE.B2B_SHORT];
 
 // ── Transition table ────────────────────────────────────────────────────────
 // One row per event. `from` is the set of statuses the event is legal in;
@@ -637,7 +647,7 @@ const TRANSITIONS = {
     to: S.FOLLOWING_UP,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
     // B2BManager handleCallCustomer — writes only when the deal is still at
     // New B2B Lead, so the from-list is that one status and nothing else.
   },
@@ -651,14 +661,14 @@ const TRANSITIONS = {
     to: B.PRE_QUOTE_SENT,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   b2b_pre_quote_accepted: {
     from: [B.PRE_QUOTE_SENT],
     to: B.PRE_QUOTE_ACCEPTED,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   // Admin schedules the site visit and hands the lot to an auditor.
   b2b_auditor_dispatched: {
@@ -666,7 +676,7 @@ const TRANSITIONS = {
     to: B.SITE_VISIT_GRADING,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
     // site_visit_date is enforced by the two callers before they fire; it is
     // not in `requires` because both of them write it in the same patch, so
     // the engine would be reading the field it is being handed.
@@ -694,7 +704,7 @@ const TRANSITIONS = {
     to: B.SITE_VISIT_GRADING,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   // AUDITOR_ASSIGNED is in this from-list and in no `to` anywhere: nothing in
   // any of the three repos writes it. It survives because both B2B screens
@@ -706,14 +716,14 @@ const TRANSITIONS = {
     to: B.FINAL_QUOTE_SENT,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   b2b_negotiation_opened: {
     from: [B.FINAL_QUOTE_SENT],
     to: S.NEGOTIATION,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   // Negotiation is in the from-list because the negotiation panel's "ตกลงราคาได้"
   // button fires the same action as accepting the quote outright.
@@ -722,7 +732,7 @@ const TRANSITIONS = {
     to: B.FINAL_QUOTE_ACCEPTED,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   // The PO number lives at documents.po_number — nested, so `requires` (which
   // only reads top-level fields) cannot check it. The caller blocks on it.
@@ -731,21 +741,21 @@ const TRANSITIONS = {
     to: B.PO_ISSUED,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   b2b_invoice_requested: {
     from: [B.PO_ISSUED],
     to: B.WAITING_FOR_INVOICE,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
   b2b_submitted_to_finance: {
     from: [B.WAITING_FOR_INVOICE],
     to: B.PENDING_FINANCE_APPROVAL,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
 
   // THE GAP BETWEEN THE TWO ROWS ABOVE AND BELOW IS DELIBERATE.
@@ -768,7 +778,7 @@ const TRANSITIONS = {
     to: S.COMPLETED,
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
-    jobTypes: [JOB_TYPE.B2B],
+    jobTypes: B2B_JOB_TYPES,
   },
 
   cancelled: {
@@ -779,10 +789,16 @@ const TRANSITIONS = {
       S.PARCEL_IN_TRANSIT, S.PARCEL_RECEIVED, S.DROP_OFF_RECEIVED,
       S.BEING_INSPECTED, S.QC_REVIEW, S.NEGOTIATION, S.REVISED_OFFER,
       S.PRICE_ACCEPTED,
-      // สาย B2B ทั้งเส้นก่อนจ่ายเงิน. วันนี้มีปุ่มยกเลิกใบเดียวคือ "ลูกค้าปฏิเสธ"
-      // ที่ Pre-Quote Sent — ที่เหลือคือการขยายตามกฎของงานชุดนี้ (ขยายได้
-      // ห้ามหด): กฎที่ยอมให้ยกเลิกตอนเพิ่งเสนอราคาแต่ห้ามยกเลิกตอนออก PO แล้ว
-      // ไม่ใช่กฎ มันคือรูปร่างของหน้าจอที่บังเอิญมีปุ่มอยู่ที่เดียว
+      // สาย B2B ทั้งเส้นก่อนจ่ายเงิน. B2BManager มีปุ่มยกเลิก **สองใบ**:
+      // "ลูกค้าปฏิเสธ" ที่ Pre-Quote Sent และ "ยกเลิกดีล" ท้ายแถบขวาซึ่งขึ้นบน
+      // ทุกสถานะยกเว้นสี่ตัวที่ถึงบัญชีแล้ว (Pending Finance Approval,
+      // Payment Completed, Completed, In Stock) ลิสต์นี้จึงตรงกับหน้าจอเกือบ
+      // เป๊ะ — ต่างที่เดียวคือ PENDING_FINANCE_APPROVAL ซึ่งใส่ไว้ตามกฎ
+      // "ขยายได้ ห้ามหด": ดีลที่ยังไม่โอนเงินต้องยกเลิกได้ ส่วนตัวที่กันจริง
+      // หลังโอนคือ blockedWhenPaid ไม่ใช่การไม่มีปุ่ม
+      //
+      // (ประวัติ: PR ของ P3-b เขียนว่ามีปุ่มเดียว — ผิด เจอปุ่มที่สองตอนย้าย
+      // ไคลเอนต์ใน P3-c ทิศทางของลิสต์ถูกอยู่แล้ว แต่เหตุผลที่เขียนไว้ไม่ตรง)
       // Payment Completed (= Paid) ไม่อยู่ในลิสต์ และ **การไม่อยู่ในลิสต์คือ
       // ตัวที่กันจริง** ไม่ใช่ blockedWhenPaid — decideTransition เช็ค from
       // ก่อน paid เสมอ ตัว blockedWhenPaid เป็นตาข่ายชั้นสองของสถานะที่
@@ -972,6 +988,7 @@ const SIDE_EFFECT_OWNER = {
 module.exports = {
   ACTOR,
   JOB_TYPE,
+  B2B_JOB_TYPES,
   SIDE_EFFECT_OWNER,
   CUSTODY,
   TRANSITIONS,

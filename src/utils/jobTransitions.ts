@@ -69,6 +69,38 @@ export const JOB_EVENT = {
   // ถึงปลายทางจะเป็น Active Lead เหมือนกัน (คิวไรเดอร์กรอง non-Pickup ทิ้งอยู่แล้ว
   // งานสองวิธีนี้จึงไม่โผล่ให้ไรเดอร์เห็น)
   PROCESSING_STARTED: 'processing_started',
+
+  // ── P3-c: สายรับซื้อเหมาองค์กร (B2B) ────────────────────────────────────
+  //
+  // เส้นนี้ไม่มีสถานะไหนข้ามไปมากับสายขายปลีก แต่**ใช้สถานะร่วมกัน 5 ตัว**
+  // (Following Up, Negotiation, Paid, In Stock, Completed) ทุก event ข้างล่าง
+  // จึงถูก engine จำกัดด้วย `jobTypes: ['B2B Trade-in']` — ยิงใส่งานขายปลีก
+  // จะได้ `wrong_job_type` กลับมา ไม่ใช่เขียนสำเร็จ
+  B2B_FOLLOWED_UP: 'b2b_followed_up',
+  B2B_PRE_QUOTE_SENT: 'b2b_pre_quote_sent',
+  B2B_PRE_QUOTE_ACCEPTED: 'b2b_pre_quote_accepted',
+  // จ่ายงานให้ผู้ตรวจพร้อมวันนัดหน้างาน — **คนละตัวกับ B2B_GRADING_STARTED**
+  // ถึงปลายทางจะเป็น Site Visit & Grading เหมือนกัน: ตัวนั้นแปลว่า "ผู้ตรวจเริ่ม
+  // สแกนเครื่องแล้ว" ซึ่งไม่มี site_visit_date อยู่เบื้องหลัง
+  B2B_AUDITOR_DISPATCHED: 'b2b_auditor_dispatched',
+  B2B_GRADING_STARTED: 'b2b_grading_started',
+  B2B_FINAL_QUOTE_SENT: 'b2b_final_quote_sent',
+  B2B_NEGOTIATION_OPENED: 'b2b_negotiation_opened',
+  B2B_FINAL_QUOTE_ACCEPTED: 'b2b_final_quote_accepted',
+  B2B_PO_ISSUED: 'b2b_po_issued',
+  B2B_INVOICE_REQUESTED: 'b2b_invoice_requested',
+  B2B_SUBMITTED_TO_FINANCE: 'b2b_submitted_to_finance',
+  // ปิดล็อต: งานแม่จบ งานลูกรายเครื่องถูกสร้างในคำสั่งเดียวกันฝั่งไคลเอนต์
+  // (ล็อตที่เปลี่ยนสถานะแล้วเครื่องไม่โผล่ที่ไหนเลย แย่กว่าไม่ทำทั้งคู่)
+  B2B_UNPACKED_TO_STOCK: 'b2b_unpacked_to_stock',
+
+  // ยกเลิกงาน — **ใช้ได้ทั้งสองสาย** (ไม่มี jobTypes ในตาราง engine)
+  //
+  // engine บังคับ `cancel_category` / `cancelled_by` / `cancelled_at` ผ่าน
+  // `requires` ซึ่งเป็นสามฟิลด์ที่ปุ่มยกเลิกของ B2B **ไม่เคยเขียนเลย** งานที่
+  // ยกเลิกทางนั้นจึงหลุดจาก soft-close ทั้งหมด (finalizeCancelledJobs หา
+  // cancelled_at ไม่เจอ = ไม่มีวันปิดเป็น Closed (Lost))
+  CANCELLED: 'cancelled',
 } as const;
 
 export type JobEvent = (typeof JOB_EVENT)[keyof typeof JOB_EVENT];
@@ -95,6 +127,11 @@ export function transitionErrorMessage(code: string | null | undefined, fallback
       return 'ไม่พบงานนี้ (อาจถูกลบไปแล้ว)';
     case 'wrong_receive_method':
       return 'ขั้นตอนนี้ใช้กับงานรับถึงบ้านเท่านั้น';
+    // สายขายปลีกกับสายเหมาองค์กรใช้สถานะร่วมกันหลายตัว รหัสนี้จึงแปลว่า "ปุ่มนี้
+    // ถูกกดบนงานผิดสาย" ซึ่งบนหน้าจอปกติเกิดไม่ได้ — เกิดเมื่อไหร่แปลว่าหน้าจอ
+    // เปิดค้างข้ามงาน หรือมีบั๊กที่ต้องแจ้ง ไม่ใช่สิ่งที่แอดมินแก้เองได้
+    case 'wrong_job_type':
+      return 'ปุ่มนี้ใช้กับงานคนละประเภทกับงานใบนี้ — รีเฟรชแล้วลองใหม่ ถ้ายังเป็นอยู่ให้แจ้งทีมพัฒนา';
     case 'already_paid':
       return 'งานนี้จ่ายเงินไปแล้ว ย้อนกลับไม่ได้';
     case 'not_paid':

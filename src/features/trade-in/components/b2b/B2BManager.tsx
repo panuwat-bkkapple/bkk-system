@@ -12,6 +12,10 @@ import { formatDate, formatCurrency } from '@/utils/formatters';
 import { AdminChatBox } from '@/components/Fleet/AdminChatBox';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/ToastProvider';
+import { runJobTransition } from '@/utils/runJobTransition';
+import { JOB_EVENT, type JobEvent } from '@/utils/jobTransitions';
+import { B2B_ACTION_EVENT, buildCancelPatch, type B2BActionType } from './b2bActions';
+import { appendJobActivityLog } from '@/utils/jobActivityLog';
 import { SmartB2BPipeline } from './components/SmartB2BPipeline';
 import { CompanyInfoCard } from './components/CompanyInfoCard';
 import { PreQuoteBuilder } from './components/PreQuoteBuilder';
@@ -19,14 +23,16 @@ import { AuditorSummary } from './components/AuditorSummary';
 import { DocumentVault } from './components/DocumentVault';
 import { CertificatePrint } from './components/CertificatePrint';
 
+// `onUpdateStatus` ถูกถอดออกจาก props ใน P3-c — มันคือรูป "ไคลเอนต์เลือกสถานะ
+// ปลายทางเอง" ที่งานชุดนี้กำจัด หน้านี้ยิง event ผ่าน runJobTransition ตรงๆ
+// แบบเดียวกับ MobileTicketDetail แล้ว
 interface B2BManagerProps {
   job: any;
-  onUpdateStatus: (id: string, status: string, log: string, data?: any) => void;
   onClose: () => void;
   basePricing: any[];
 }
 
-export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BManagerProps) => {
+export const B2BManager = ({ job, onClose, basePricing }: B2BManagerProps) => {
   const toast = useToast();
   const { currentUser } = useAuth();
 
@@ -82,6 +88,27 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
   const b2bPriceExVat = b2bGrandTotal * (100 / 107);
   const vatAmount = b2bGrandTotal - b2bPriceExVat;
 
+  const actorName = currentUser?.name || 'Admin';
+
+  // ประตูเดียวของหน้านี้ไปหา engine — ทุกปุ่มส่ง event ปลายทางเป็นเรื่องของ
+  // ตาราง TRANSITIONS ไม่ใช่ของ onClick
+  const fireTransition = async (
+    event: JobEvent,
+    reason: string,
+    patch?: Record<string, unknown>
+  ): Promise<boolean> => {
+    const res = await runJobTransition(job.id, event, { reason, ...(patch ? { patch } : {}) });
+    if (!res.ok) { toast.error(res.message); return false; }
+    return true;
+  };
+
+  // ปุ่ม -> event ผ่านตาราง `B2B_ACTION_EVENT` ไม่ใช่ชื่อ event ที่ฝังใน switch
+  const fireAction = async (
+    action: B2BActionType,
+    reason: string,
+    patch?: Record<string, unknown>
+  ) => fireTransition(B2B_ACTION_EVENT[action], reason, patch);
+
   const handleSaveDate = async (field: string, val: string) => {
     try {
       await update(ref(db, `jobs/${job.id}`), { [field]: val, updated_at: Date.now() });
@@ -91,17 +118,28 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     }
   };
 
+  // บันทึกโน้ตอย่างเดียว **ไม่ใช่ transition** — ของเดิมส่งสถานะปัจจุบันกลับเข้า
+  // ไปเพื่อให้ได้แถวใน qc_logs ซึ่งแปลว่ามันเขียนทับ `status` ด้วยค่าที่อ่านมา
+  // จาก React tree: ถ้าอีกหน้าจอเพิ่งเลื่อนสถานะไป การกด "บันทึก" จะย้อนกลับ
+  // เงียบๆ
   const handleSaveNotes = async () => {
     if (!callNotes.trim()) return;
-    onUpdateStatus(job.id, job.status, callNotes);
-    setCallNotes('');
+    try {
+      await appendJobActivityLog(job, 'บันทึกการติดต่อ', callNotes, actorName);
+      setCallNotes('');
+    } catch {
+      toast.error('บันทึกโน้ตล้มเหลว กรุณาลองใหม่');
+    }
   };
 
   const handleCallCustomer = async () => {
     if (!job?.cust_phone) { toast.warning('ไม่พบเบอร์โทรศัพท์ลูกค้า'); return; }
     window.location.href = `tel:${job.cust_phone}`;
     if (String(job.status).toLowerCase() === 'new b2b lead') {
-      onUpdateStatus(job.id, 'Following Up', 'แอดมินโทรติดต่อลูกค้าองค์กรเพื่อยืนยันข้อมูลและเตรียมเสนอราคา');
+      await fireTransition(
+        JOB_EVENT.B2B_FOLLOWED_UP,
+        'แอดมินโทรติดต่อลูกค้าองค์กรเพื่อยืนยันข้อมูลและเตรียมเสนอราคา'
+      );
     }
   };
 
@@ -109,14 +147,70 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     if (!editCompanyData.companyName.trim()) { toast.warning("กรุณาระบุชื่อบริษัท"); return; }
     const newCustName = editCompanyData.contactName ? `${editCompanyData.companyName} (${editCompanyData.contactName})` : editCompanyData.companyName;
     try {
-      await update(ref(db, `jobs/${job.id}`), {
-        cust_name: newCustName, cust_phone: editCompanyData.phone, cust_email: editCompanyData.email,
-        cust_address: editCompanyData.address, asset_details: editCompanyData.assetDetails, updated_at: Date.now()
+      // ข้อมูลบริษัท + แถว log ไปใน write เดียว (เดิมเป็นสอง write ที่สำเร็จ
+      // ครึ่งเดียวได้ และ write ที่สองยังเขียนทับ status ด้วย)
+      await appendJobActivityLog(job, 'แก้ไขข้อมูลบริษัท', 'แอดมินแก้ไขข้อมูลบริษัท/ผู้ติดต่อ', actorName, {
+        cust_name: newCustName,
+        cust_phone: editCompanyData.phone,
+        cust_email: editCompanyData.email,
+        cust_address: editCompanyData.address,
+        asset_details: editCompanyData.assetDetails,
       });
-      onUpdateStatus(job.id, job.status, "แอดมินแก้ไขข้อมูลบริษัท/ผู้ติดต่อ");
       setIsEditingCompany(false);
       toast.success("บันทึกข้อมูลบริษัทสำเร็จ");
     } catch (error) { toast.error("เกิดข้อผิดพลาดในการบันทึกข้อมูล"); }
+  };
+
+  // ลูกค้าปฏิเสธราคาเบื้องต้น
+  //
+  // ของเดิมเขียนแค่ `status: 'Cancelled'` — **ไม่มี cancelled_at, ไม่มี
+  // cancelled_by, ไม่มี cancel_category** ซึ่งแปลว่างานนั้นหลุดจากกลไก
+  // soft-close ทั้งหมด: `finalizeCancelledJobs` หา cancelled_at ไม่เจอจึงไม่
+  // ปิดเป็น Closed (Lost) และ `getReopenDeadline` คำนวณกำหนดเปิดใหม่ไม่ได้
+  // engine บังคับสามฟิลด์นี้ (`requires`) การย้ายมาจึงปิดรูนั้นไปด้วย
+  //
+  // `admin:` ไม่ใช่ `rider:` โดยตั้งใจ — `wasRiderWithdrawn` อ่าน prefix นั้น
+  // เพื่อขึ้นแบนเนอร์ "ไรเดอร์ทิ้งงาน" และค่าคอมมิชชันของไรเดอร์ก็อ่านจากมัน
+  const handleRejectPreQuote = async () => {
+    const why = 'ลูกค้าปฏิเสธราคาประเมินเบื้องต้น';
+    await fireTransition(
+      JOB_EVENT.CANCELLED,
+      why,
+      buildCancelPatch(currentUser?.id, 'price_disagreement', why)
+    );
+  };
+
+  // ยกเลิกดีลจากปุ่มท้ายแถบขวา — ขึ้นบนทุกสถานะที่ยังไม่ถึงบัญชี
+  const handleCancelDeal = async () => {
+    const reason = prompt('กรุณาระบุเหตุผลการยกเลิกดีล B2B:');
+    if (!reason) return;
+    await fireTransition(
+      JOB_EVENT.CANCELLED,
+      `ยกเลิกดีลรับซื้อเหมา (เหตุผล: ${reason})`,
+      buildCancelPatch(currentUser?.id, 'other', reason)
+    );
+  };
+
+  // ปรับราคาที่เจรจาใหม่ — **ไม่ใช่ transition** สถานะไม่เปลี่ยน
+  const handleSaveNegotiatedPrice = async () => {
+    if (!b2bPriceReason) { toast.warning('กรุณาระบุเหตุผลการปรับราคา'); return; }
+    const previous = Number(job?.price || 0);
+    const diff = Math.abs(b2bGrandTotal - previous);
+    const pct = previous > 0 ? Math.round((diff / previous) * 100) : 100;
+    if (pct > 10 && !confirm(`ราคาเปลี่ยนไป ${pct}% (฿${diff.toLocaleString()}) ยืนยันหรือไม่?`)) return;
+    try {
+      await appendJobActivityLog(
+        job,
+        'ปรับราคาเจรจา',
+        `แอดมินปรับราคารวม (Inc. VAT) ใหม่เป็น ฿${b2bGrandTotal.toLocaleString()} (เหตุผล: ${b2bPriceReason})`,
+        actorName,
+        { price: b2bGrandTotal }
+      );
+      setB2bPriceReason('');
+      toast.success('บันทึกราคาเจรจาใหม่เรียบร้อยแล้ว');
+    } catch {
+      toast.error('บันทึกราคาล้มเหลว กรุณาลองใหม่');
+    }
   };
 
   const handleAddExpectedItem = async () => {
@@ -146,43 +240,43 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
     }
   };
 
-  const handleB2BAction = async (actionType: string) => {
+  const handleB2BAction = async (actionType: B2BActionType | 'unpack_to_stock') => {
     switch (actionType) {
       case 'send_pre_quote':
         if (expectedItems.length === 0) { toast.warning('กรุณาเพิ่มรายการสินค้าใน Pre-Quote Builder ก่อนครับ'); return; }
         if (!quoteExpiryDate) { toast.warning('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ'); return; }
-        onUpdateStatus(job.id, 'Pre-Quote Sent', `ส่งใบเสนอราคาเบื้องต้น (หมดอายุ: ${quoteExpiryDate})`, { price: preQuoteTotal, quote_expiry_date: quoteExpiryDate });
+        await fireAction('send_pre_quote', `ส่งใบเสนอราคาเบื้องต้น (หมดอายุ: ${quoteExpiryDate})`, { price: preQuoteTotal, quote_expiry_date: quoteExpiryDate });
         break;
       case 'accept_pre_quote':
-        onUpdateStatus(job.id, 'Pre-Quote Accepted', 'ลูกค้ายอมรับราคาเบื้องต้น เตรียมเข้าสู่ขั้นตอนนัดหมายหน้างาน');
+        await fireAction('accept_pre_quote', 'ลูกค้ายอมรับราคาเบื้องต้น เตรียมเข้าสู่ขั้นตอนนัดหมายหน้างาน');
         break;
       case 'dispatch_inspector':
         if (!siteVisitDate) { toast.warning('กรุณากำหนดวัน-เวลานัดหมายหน้างาน (Site Visit Schedule) ก่อนจ่ายงานครับ'); return; }
-        onUpdateStatus(job.id, 'Site Visit & Grading', `จ่ายงานให้ทีม Inspector ประเมินหน้างานวันที่ ${formatDate(new Date(siteVisitDate).getTime())}`, { site_visit_date: siteVisitDate });
+        await fireAction('dispatch_inspector', `จ่ายงานให้ทีม Inspector ประเมินหน้างานวันที่ ${formatDate(new Date(siteVisitDate).getTime())}`, { site_visit_date: siteVisitDate });
         break;
       case 'send_final_quote':
         if (b2bGrandTotal <= 0) { toast.warning('ระบบล็อค: กรุณาระบุยอดรวมสุทธิให้ถูกต้อง'); return; }
         if (validItems.length === 0) { toast.warning('ระบบล็อค: ทีมงานยังไม่ได้ประเมินเกรดหน้างาน หรือไม่มีเครื่องที่ผ่านเกณฑ์'); return; }
         if (!quoteExpiryDate) { toast.warning('กรุณากำหนดวันหมดอายุใบเสนอราคา (Quote Validity) ก่อนส่งครับ'); return; }
-        onUpdateStatus(job.id, 'Final Quote Sent', `ส่งใบเสนอราคาจริง (ยอดสุทธิ: ฿${b2bGrandTotal.toLocaleString()}) สำหรับ ${validItems.length} เครื่อง`, { price: b2bGrandTotal, ex_vat: b2bPriceExVat, vat_amount: vatAmount });
+        await fireAction('send_final_quote', `ส่งใบเสนอราคาจริง (ยอดสุทธิ: ฿${b2bGrandTotal.toLocaleString()}) สำหรับ ${validItems.length} เครื่อง`, { price: b2bGrandTotal, ex_vat: b2bPriceExVat, vat_amount: vatAmount });
         break;
       case 'accept_final_quote':
-        onUpdateStatus(job.id, 'Final Quote Accepted', 'ลูกค้ายอมรับยอดประเมินจริง เตรียมออกเอกสารสั่งซื้อ (PO)');
+        await fireAction('accept_final_quote', 'ลูกค้ายอมรับยอดประเมินจริง เตรียมออกเอกสารสั่งซื้อ (PO)');
         break;
       case 'enter_negotiation':
-        onUpdateStatus(job.id, 'Negotiation', 'ลูกค้าขอต่อรองราคา เข้าสู่โหมดเจรจาพิเศษ');
+        await fireAction('enter_negotiation', 'ลูกค้าขอต่อรองราคา เข้าสู่โหมดเจรจาพิเศษ');
         break;
       case 'issue_po':
         if (!poNumber) { toast.warning('ระบบล็อค: กรุณากรอกเลขที่ P.O. ฝั่งเราในกล่องเอกสารซ้ายมือก่อนครับ'); return; }
-        onUpdateStatus(job.id, 'PO Issued', `บริษัทออกเอกสาร PO เลขที่ ${poNumber} เรียบร้อยแล้ว`, { documents: { ...job.documents, po_number: poNumber } });
+        await fireAction('issue_po', `บริษัทออกเอกสาร PO เลขที่ ${poNumber} เรียบร้อยแล้ว`, { documents: { ...job.documents, po_number: poNumber } });
         break;
       case 'wait_invoice':
-        onUpdateStatus(job.id, 'Waiting for Invoice/Tax Inv.', 'รอลูกค้าองค์กรส่ง Invoice และใบกำกับภาษีมาวางบิล');
+        await fireAction('wait_invoice', 'รอลูกค้าองค์กรส่ง Invoice และใบกำกับภาษีมาวางบิล');
         break;
       case 'submit_to_finance':
         if (!invoiceNumber) { toast.warning('กรุณาระบุเลขที่ Invoice ของลูกค้าก่อนส่งเรื่องตั้งเบิกครับ'); return; }
         if (!paymentDueDate) { toast.warning('กรุณากำหนด Payment Due Date ในคลังเอกสารให้บัญชีทราบกำหนดโอนก่อนครับ'); return; }
-        onUpdateStatus(job.id, 'Pending Finance Approval', `แอดมินส่งเรื่องตั้งเบิกยอด ฿${b2bGrandTotal.toLocaleString()} ให้ฝ่ายบัญชี (กำหนดจ่าย: ${paymentDueDate})`, { finance_status: 'Waiting for Transfer', payment_due_date: paymentDueDate, documents: { ...job.documents, po_number: poNumber, invoice_number: invoiceNumber, tax_invoice_number: taxInvoiceNumber } });
+        await fireAction('submit_to_finance', `แอดมินส่งเรื่องตั้งเบิกยอด ฿${b2bGrandTotal.toLocaleString()} ให้ฝ่ายบัญชี (กำหนดจ่าย: ${paymentDueDate})`, { finance_status: 'Waiting for Transfer', payment_due_date: paymentDueDate, documents: { ...job.documents, po_number: poNumber, invoice_number: invoiceNumber, tax_invoice_number: taxInvoiceNumber } });
         break;
       case 'unpack_to_stock':
         if (statusLower === 'completed' || statusLower === 'in stock') { toast.warning('ระบบล็อค: ดีลนี้ระเบิดกล่องไปแล้ว ไม่สามารถทำซ้ำได้'); return; }
@@ -279,7 +373,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
                   {b2bGrandTotal !== (job?.price || 0) && (
                     <div className="flex gap-3 animate-in slide-in-from-top-2 ml-[33%] bg-amber-50 p-4 rounded-2xl border border-amber-200">
                       <input type="text" placeholder="ระบุเหตุผลที่ปรับราคา (เช่น Negotiation)..." value={b2bPriceReason} onChange={(e) => setB2bPriceReason(e.target.value)} className="flex-1 bg-white border border-amber-200 p-3 rounded-xl text-sm font-bold outline-none focus:border-amber-400 shadow-sm" />
-                      <button onClick={() => { if (!b2bPriceReason) { toast.warning('กรุณาระบุเหตุผลการปรับราคา'); return; } const diff = Math.abs(b2bGrandTotal - (job?.price || 0)); const pct = (job?.price || 0) > 0 ? Math.round((diff / job.price) * 100) : 100; if (pct > 10 && !confirm(`ราคาเปลี่ยนไป ${pct}% (฿${diff.toLocaleString()}) ยืนยันหรือไม่?`)) return; onUpdateStatus(job.id, job.status, `แอดมินปรับราคารวม (Inc. VAT) ใหม่เป็น ฿${b2bGrandTotal.toLocaleString()} (เหตุผล: ${b2bPriceReason})`, { price: b2bGrandTotal }); setB2bPriceReason(''); toast.success('บันทึกราคาเจรจาใหม่เรียบร้อยแล้ว'); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 rounded-xl font-black text-xs uppercase shadow-sm transition-colors">Update Price</button>
+                      <button onClick={() => { if (!b2bPriceReason) { toast.warning('กรุณาระบุเหตุผลการปรับราคา'); return; } const diff = Math.abs(b2bGrandTotal - (job?.price || 0)); const pct = (job?.price || 0) > 0 ? Math.round((diff / job.price) * 100) : 100; if (pct > 10 && !confirm(`ราคาเปลี่ยนไป ${pct}% (฿${diff.toLocaleString()}) ยืนยันหรือไม่?`)) return; void handleSaveNegotiatedPrice(); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 rounded-xl font-black text-xs uppercase shadow-sm transition-colors">Update Price</button>
                     </div>
                   )}
                 </div>
@@ -335,7 +429,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
                   {statusLower === 'pre-quote sent' && (
                     <div className="grid grid-cols-2 gap-3 animate-in zoom-in-95">
                       <button onClick={() => handleB2BAction('accept_pre_quote')} className="py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase flex flex-col items-center gap-2 shadow-md"><ThumbsUp size={20}/> ลูกค้ายอมรับ</button>
-                      <button onClick={() => onUpdateStatus(job.id, 'Cancelled', 'ลูกค้าปฏิเสธราคาประเมินเบื้องต้น')} className="py-4 bg-white border border-red-100 hover:bg-red-50 text-red-500 rounded-xl font-black text-[10px] uppercase flex flex-col items-center gap-2 shadow-sm"><ThumbsDown size={20}/> ลูกค้าปฏิเสธ</button>
+                      <button onClick={handleRejectPreQuote} className="py-4 bg-white border border-red-100 hover:bg-red-50 text-red-500 rounded-xl font-black text-[10px] uppercase flex flex-col items-center gap-2 shadow-sm"><ThumbsDown size={20}/> ลูกค้าปฏิเสธ</button>
                     </div>
                   )}
                   {statusLower === 'pre-quote accepted' && <button onClick={() => handleB2BAction('dispatch_inspector')} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">2. Dispatch Inspector <Lock size={14} className={siteVisitDate ? 'hidden' : 'block opacity-50'}/></button>}
@@ -435,7 +529,7 @@ export const B2BManager = ({ job, onUpdateStatus, onClose, basePricing }: B2BMan
               <button onClick={handleSaveNotes} className="bg-slate-900 text-white px-5 rounded-xl text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Save</button>
             </div>
             {!isCancelled && !['pending finance approval', 'payment completed', 'completed', 'in stock'].includes(statusLower) && (
-              <button onClick={() => { const reason = prompt('กรุณาระบุเหตุผลการยกเลิกดีล B2B:'); if(reason) onUpdateStatus(job.id, 'Cancelled', `ยกเลิกดีลรับซื้อเหมา (เหตุผล: ${reason})`, { cancel_reason: reason }); }} className="w-full py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">ยกเลิกดีล (Cancel B2B Deal)</button>
+              <button onClick={() => { void handleCancelDeal(); }} className="w-full py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">ยกเลิกดีล (Cancel B2B Deal)</button>
             )}
           </div>
         </div>
