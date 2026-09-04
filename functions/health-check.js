@@ -30,6 +30,8 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getDatabase } = require("firebase-admin/database");
 const { lookupStaffByAuth } = require("./sickw-core");
+const { riderStanding, STANDING } = require("./actor");
+const { summarizeRiderPushCoverage } = require("./rider-push-coverage");
 
 const REGION = "asia-southeast1";
 const HEALTH_PATH = "system_health";
@@ -478,6 +480,52 @@ function buildProbes(db) {
       },
     },
 
+    {
+      id: "rider_push_tokens",
+      label: "Rider push — ไรเดอร์ที่อนุมัติแล้วยังรับ push ได้ไหม",
+      // ตัวจับ "ไรเดอร์ที่อนุมัติแล้วแต่ push ไปไม่ถึงเลย" — ความพังที่เงียบเพราะ
+      // ไม่มี request ไหนล้ม: pushToRider/sendToRider ตัด token ที่ FCM ปฏิเสธ
+      // ทิ้งทันทีโดยไม่บันทึกที่ไหน และ token ต่ออายุได้เฉพาะตอนไรเดอร์เปิดแอป
+      // งานนานๆ ที = ไม่มีเหตุให้เปิดแอป = token ตาย = ไม่มี push = ไม่มีเหตุให้เปิดแอป
+      // (bkk-rider-app/docs/reports/2026-09-03-rider-push-delivery-survey.md ข้อ E/H)
+      //
+      // ถามผลลัพธ์ ไม่ถาม config: มี token ที่เขียนไว้ไม่เกิน 7 วันไหม (เกณฑ์เดียวกับ
+      // การ์ดในแอปไรเดอร์). อ่าน /riders ทั้งโหนดได้เพราะมีไม่กี่แถว (ไม่ใช่ /jobs)
+      //
+      // warn ไม่ใช่ fail — ไรเดอร์ที่ไม่มี token อาจแค่ยังไม่เปิดแอปหลังติดตั้งใหม่
+      // ให้โผล่บนหน้า /system-health พร้อมชื่อ ไม่ต้อง push/Telegram ทุกชั่วโมง
+      run: async () => {
+        const snap = await db.ref("riders").once("value");
+        if (!snap.exists()) return { status: "ok", message: "ยังไม่มีไรเดอร์ในระบบ" };
+        const approved = [];
+        snap.forEach((child) => {
+          const rider = child.val() || {};
+          if (riderStanding(rider) !== STANDING.ACTIVE) return;
+          approved.push({ id: child.key, name: rider.name, rider });
+        });
+        if (approved.length === 0) return { status: "ok", message: "ไม่มีไรเดอร์ที่อนุมัติแล้ว" };
+        const c = summarizeRiderPushCoverage(approved, Date.now());
+        const meta = { total: c.total, ok: c.ok, stale: c.stale, none: c.none };
+        if (c.none.length > 0) {
+          return {
+            status: "warn",
+            message:
+              `${c.none.length}/${c.total} คน ไม่มี token — push ไปไม่ถึง: ${c.none.join(", ")}` +
+              (c.stale.length ? ` · ไม่ได้ต่ออายุเกิน 7 วัน: ${c.stale.join(", ")}` : "") +
+              " (ให้ไรเดอร์เปิดแอป → โปรไฟล์ → ลองใหม่)",
+            meta,
+          };
+        }
+        if (c.stale.length > 0) {
+          return {
+            status: "warn",
+            message: `${c.stale.length}/${c.total} คน ไม่ได้ต่ออายุ token เกิน 7 วัน: ${c.stale.join(", ")} — อาจตายแล้วโดยไม่รู้จนกว่าจะส่งจริง`,
+            meta,
+          };
+        }
+        return { status: "ok", message: `รับ push ได้ครบ ${c.ok}/${c.total} คน`, meta };
+      },
+    },
     {
       id: "search_analytics_ttl",
       label: "Search Analytics — อายุข้อมูลตาม retention",
