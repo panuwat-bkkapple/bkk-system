@@ -22,6 +22,8 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import { Settings, Save, AlertTriangle, Plus, Trash2, ArrowRight, RotateCcw, ListPlus } from 'lucide-react';
+// เตือนตั้งแต่ตอนพิมพ์ค่า — ตัวที่บล็อกจริงคือ server ตอนกดออกสัญญา
+import { workScheduleCheck } from '../../utils/workSchedule';
 
 // ต้องตรงกับ DEFAULT_* ใน functions/hr-payroll.js — ที่นี่ใช้แค่แสดงว่า
 // "ถ้าไม่ตั้งจะได้ค่าอะไร" ไม่ได้ใช้คำนวณ ตัวคำนวณจริงอ่านค่าจาก DB เองฝั่ง server
@@ -39,7 +41,7 @@ const CODE_DEFAULTS = {
   // functions/hr-documents.js (functions import TS ไม่ได้) — แก้ต้องแก้ทั้งคู่
   contract: {
     probation_days: 119, work_days_per_week: 6, work_hours_per_day: 8,
-    work_start: '09:00', work_end: '18:00', weekly_holiday: 'อาทิตย์',
+    work_start: '09:00', work_end: '18:00', break_minutes: 60, weekly_holiday: 'อาทิตย์',
     notice_days: 30, warning_valid_days: 365,
     probation_note: '', benefits: '', extra_clauses: '',
   },
@@ -87,11 +89,15 @@ export const HrSettings = () => {
     personal: '60000', spouse: '60000', child: '30000', parent: '30000', sso_allowance_cap: '10500',
     code_prefix: 'EMP',
     probation_days: '119', work_days_per_week: '6', work_hours_per_day: '8',
-    work_start: '09:00', work_end: '18:00', weekly_holiday: 'อาทิตย์',
+    work_start: '09:00', work_end: '18:00', break_minutes: '60', weekly_holiday: 'อาทิตย์',
     notice_days: '30', warning_valid_days: '365',
     probation_note: '', benefits: '', extra_clauses: '',
   });
   const [brackets, setBrackets] = useState<Bracket[]>(DEFAULT_BRACKETS);
+  const schedule = useMemo(() => workScheduleCheck({
+    work_start: form.work_start, work_end: form.work_end,
+    work_hours_per_day: form.work_hours_per_day, break_minutes: form.break_minutes,
+  }), [form.work_start, form.work_end, form.work_hours_per_day, form.break_minutes]);
   const [presets, setPresets] = useState<Preset[]>(DEFAULT_PRESETS);
 
   useEffect(() => {
@@ -123,6 +129,7 @@ export const HrSettings = () => {
         work_hours_per_day: String(numOr(c.work_hours_per_day, d.contract.work_hours_per_day)),
         work_start: String(c.work_start || d.contract.work_start),
         work_end: String(c.work_end || d.contract.work_end),
+        break_minutes: String(numOr(c.break_minutes, d.contract.break_minutes)),
         weekly_holiday: String(c.weekly_holiday || d.contract.weekly_holiday),
         notice_days: String(numOr(c.notice_days, d.contract.notice_days)),
         warning_valid_days: String(numOr(c.warning_valid_days, d.contract.warning_valid_days)),
@@ -226,6 +233,7 @@ export const HrSettings = () => {
           work_hours_per_day: Number(form.work_hours_per_day),
           work_start: form.work_start.trim(),
           work_end: form.work_end.trim(),
+          break_minutes: Math.round(Number(form.break_minutes)),
           weekly_holiday: form.weekly_holiday.trim(),
           notice_days: Math.round(Number(form.notice_days)),
           warning_valid_days: Math.round(Number(form.warning_valid_days)),
@@ -501,9 +509,15 @@ export const HrSettings = () => {
           {money('work_hours_per_day', 'ทำงาน (ชม./วัน)')}
           {text('work_start', 'เวลาเข้างาน')}
           {text('work_end', 'เวลาเลิกงาน')}
+          {money('break_minutes', 'พักระหว่างวัน (นาที)')}
           {text('weekly_holiday', 'วันหยุดประจำสัปดาห์')}
           {money('warning_valid_days', 'อายุหนังสือเตือน (วัน)', 'ใบที่เกินอายุจะไม่ถูกนับว่ายังมีผล')}
         </div>
+        {schedule && !schedule.ok && (
+          <p className="mt-3 text-[13px] text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            <b>เวลาทำงานขัดกันเอง ออกสัญญาไม่ได้</b> — {schedule.reason}
+          </p>
+        )}
         <div className="mt-4 space-y-3">
           {area('benefits', 'สวัสดิการ', 'เว้นว่าง = ไม่พิมพ์ข้อนี้ในสัญญา')}
           {area('extra_clauses', 'ข้อตกลงอื่น', 'เว้นว่าง = ไม่พิมพ์ข้อนี้ในสัญญา')}
