@@ -6,6 +6,8 @@ import {
   Bell, Package, ShieldAlert, Clock, Smartphone,
   AlertTriangle, X, CheckCircle2, MessageSquareQuote, Ticket
 } from 'lucide-react';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface Notification {
   id: string;
@@ -70,7 +72,7 @@ export const NotificationCenter = ({ newTicketAlerts = [] }: { newTicketAlerts?:
 
       // Dead stock (>14 days)
       const deadStock = jobs.filter((j: any) =>
-        ['In Stock', 'Ready to Sell'].includes(j.status) &&
+        statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL) &&
         j.type !== 'B2B Trade-in' &&
         (now - j.created_at) > (14 * msPerDay)
       );

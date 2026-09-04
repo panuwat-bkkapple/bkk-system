@@ -13,21 +13,20 @@ import { hasUnreadFrom } from '../../utils/jobChats';
 import { JOB_EVENT } from '../../utils/jobTransitions';
 import { runJobTransition } from '../../utils/runJobTransition';
 import { useToast } from '../../components/ui/ToastProvider';
-import { JOB_STATUS } from '../../types/job-statuses';
 import { jobPin, riderPin } from '../../utils/dispatchPins';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs, statusIn } from '../../utils/statusCompare';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 const center = { lat: 13.7563, lng: 100.5018 };
 
-const ACTIVE_STATUSES = [
-  'Assigned', 'Accepted', 'Arrived', 'Being Inspected',
-  'Price Accepted', 'Revised Offer', 'Payout Processing',
-  'Waiting for Handover', 'In-Transit',
-  // Canonical spellings (rider app writes these since Phase 2D; admin
-  // mobile writes 'Rider En Route' since the In-Transit writer flip) —
-  // without them, rider-claimed jobs vanished from the dispatcher map.
-  'Rider Assigned', 'Rider Accepted', 'Rider Arrived', 'Rider En Route', 'Rider Returning',
-];
+// canonical เท่านั้น — เทียบผ่าน statusIn ซึ่ง normalize ฝั่งงาน (สะกดเก่า Assigned /
+// Accepted / Arrived / Waiting for Handover / In-Transit ตกที่ canonical ของมันเอง)
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
+  JOB_STATUS.RIDER_ASSIGNED, JOB_STATUS.RIDER_ACCEPTED, JOB_STATUS.RIDER_ARRIVED, JOB_STATUS.BEING_INSPECTED,
+  JOB_STATUS.PRICE_ACCEPTED, JOB_STATUS.REVISED_OFFER, JOB_STATUS.PAYOUT_PROCESSING,
+  JOB_STATUS.WAITING_FOR_HANDOVER, JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_RETURNING,
+]);
 
 const STATUS_COLORS: Record<string, string> = {
   'Accepted': '#3B82F6',
@@ -74,12 +73,12 @@ export const DispatcherPage = () => {
     const list = Array.isArray(jobs) ? jobs : [];
     return {
       unassignedJobs: list.filter(j =>
-        (j.status === 'Active Leads' || j.status === JOB_STATUS.ACTIVE_LEAD ||
-          ((j.status === 'Assigned' || j.status === JOB_STATUS.RIDER_ASSIGNED) && !j.rider_id)) &&
+        (statusIs(j, JOB_STATUS.ACTIVE_LEAD) ||
+          (statusIs(j, JOB_STATUS.RIDER_ASSIGNED) && !j.rider_id)) &&
         j.type !== 'Withdrawal'
       ),
       activeJobs: list.filter(j =>
-        j.rider_id && ACTIVE_STATUSES.includes(j.status) && j.type !== 'Withdrawal'
+        j.rider_id && statusIn(j, ACTIVE_STATUSES) && j.type !== 'Withdrawal'
       )
     };
   }, [jobs]);
@@ -256,7 +255,7 @@ export const DispatcherPage = () => {
                           )}
                         </button>
                         <span className="text-[8px] bg-blue-900/30 px-1.5 py-0.5 rounded text-blue-300 border border-blue-900/50">{task.status}</span>
-                        {task.status === 'Assigned' && (
+                        {statusIs(task, JOB_STATUS.RIDER_ASSIGNED) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleUnassignJob(task.id); }}
                             className="text-slate-500 hover:text-red-400 p-0.5 rounded-md hover:bg-slate-700 transition-all opacity-0 group-hover:opacity-100"

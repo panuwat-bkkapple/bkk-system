@@ -4,10 +4,17 @@ import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
 import {
+
   TrendingUp, TrendingDown, ShoppingCart, Smartphone,
   ShieldAlert, AlertTriangle, ArrowRight, Wallet, Activity,
   Clock, Package
 } from 'lucide-react';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs, actionIs } from '../../utils/statusCompare';
+
+// qc_logs.action ที่นับว่า "ปิดจ๊อบ/จ่ายเงิน" — engine เขียน action เป็นชื่อสถานะ canonical
+// ('Paid') ส่วน log เก่าเป็น 'Payment Completed'/'PAID' actionIs normalize ให้ทั้งคู่
+const CLOSED_LOG_ACTIONS = [JOB_STATUS.PAID, JOB_STATUS.IN_STOCK, 'Deal Closed (Negotiated)', JOB_STATUS.PAYOUT_PROCESSING] as const;
 
 const routeMap: Record<string, string> = {
   pos_register: '/pos',
@@ -45,9 +52,7 @@ export const CEODashboard = () => {
        if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
 
        // 🌟 หาเวลาที่ "ปิดจ๊อบ/จ่ายเงิน" จริงๆ จากประวัติ Logs
-       const closedLog = j.qc_logs?.find((l: any) => 
-         ['Payment Completed', 'In Stock', 'Paid', 'Deal Closed (Negotiated)', 'Payout Processing'].includes(l.action)
-       );
+       const closedLog = j.qc_logs?.find((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
 
        // ถ้าระบบเจอว่ามีการปิดจ๊อบสำเร็จ ให้เช็คว่าปิด "วันนี้" ใช่หรือไม่?
        if (closedLog) {
@@ -73,7 +78,7 @@ export const CEODashboard = () => {
     
     const msPerDay = 86400000;
     const deadStockCount = allJobs.filter(j => 
-       ['In Stock', 'Ready to Sell'].includes(j.status) && 
+       statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL) && 
        j.type !== 'B2B Trade-in' && // 🛑 ไม่นับตัวแม่ (Parent) เพราะมันขายไม่ได้ เราจะนับอายุเฉพาะเครื่องลูกที่ระเบิดกล่องแล้ว
        (Date.now() - j.created_at) > (14 * msPerDay)
     ).length;
@@ -85,10 +90,10 @@ export const CEODashboard = () => {
        // 🌟 กรองให้โชว์เฉพาะงานที่ "จ่ายเงินแล้ว/เข้าคลังแล้ว" เท่านั้น จะได้ไม่สับสนกับงานที่เพิ่งประเมินราคา
        ...allJobs.filter(j => {
            if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
-           return j.qc_logs?.some((l: any) => ['Payment Completed', 'In Stock', 'Paid', 'Deal Closed (Negotiated)', 'Payout Processing'].includes(l.action));
+           return j.qc_logs?.some((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
        }).map(j => {
            // ดึงเวลาตอนที่ "ปิดจ๊อบ" มาโชว์ (ไม่ใช่เวลาที่เปิดบิลครั้งแรก)
-           const closedLog = j.qc_logs?.find((l: any) => ['Payment Completed', 'In Stock', 'Paid', 'Deal Closed (Negotiated)', 'Payout Processing'].includes(l.action));
+           const closedLog = j.qc_logs?.find((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
            
            return { 
                type: 'BUY', 

@@ -36,7 +36,8 @@ import { AmendmentBanner } from '../admin/components/AmendmentBanner';
 import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
-import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS, normalizeStatus } from '../../types/job-statuses';
+import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS, JOB_STATUS, JOB_STATUS_B2B } from '../../types/job-statuses';
+import { canonicalStatus, statusIs, statusIn, actionIs } from '../../utils/statusCompare';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -100,25 +101,23 @@ const METHOD_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = 
 // correctly. When the rider/admin app writes `Rider En Route`, the
 // pickup pill activates. When a legacy code path writes
 // `Heading to Customer`, the same pill activates.
+// canonical เท่านั้น (ก.ย. 2569) — ค่าที่งานถึง (status + qc_logs.action) ถูก normalize
+// ก่อนเทียบ สะกดเก่าทุกตัวจึงตกที่ canonical ของมันเองโดยไม่ต้อง list ซ้ำ
 const PIPELINE = [
-  { label: 'เปิดงาน', statuses: ['New Lead', 'New B2B Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping'] },
+  { label: 'เปิดงาน', statuses: [JOB_STATUS.NEW_LEAD, JOB_STATUS_B2B.NEW_B2B_LEAD, JOB_STATUS.FOLLOWING_UP, JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF, JOB_STATUS.AWAITING_SHIPPING] },
   {
     label: 'รับเครื่อง',
     statuses: [
-      'Active Leads', 'Active Lead',
-      // Rider claims through legacy or canonical
-      'Assigned', 'Accepted', 'Rider Accepted',
-      // Heading out (legacy "Heading to Customer" / "In-Transit", canonical "Rider En Route")
-      'Heading to Customer', 'In-Transit', 'Rider En Route',
-      // On-site (legacy "Arrived", canonical "Rider Arrived")
-      'Arrived', 'Rider Arrived',
+      JOB_STATUS.ACTIVE_LEAD,
+      JOB_STATUS.RIDER_ASSIGNED, JOB_STATUS.RIDER_ACCEPTED, JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_ARRIVED,
       // Mail-in parcel / Store-in drop-off — same "device on its way to us"
-      // segment, just without a rider.
-      'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
+      // segment, just without a rider. (legacy 'In-Transit' normalizes here for
+      // non-Pickup and to Rider Returning for Pickup)
+      JOB_STATUS.PARCEL_IN_TRANSIT, JOB_STATUS.PARCEL_RECEIVED, JOB_STATUS.DROP_OFF_RECEIVED,
     ],
   },
-  { label: 'ตรวจสอบ', statuses: ['Being Inspected', 'Pending QC', 'QC Review', 'Revised Offer', 'Negotiation'] },
-  { label: 'จ่ายเงิน', statuses: ['Payout Processing', 'Waiting for Handover', 'Paid', 'PAID', 'Sent to QC Lab', 'In Stock', 'Ready to Sell', 'Sold', 'Completed'] },
+  { label: 'ตรวจสอบ', statuses: [JOB_STATUS.BEING_INSPECTED, JOB_STATUS.PENDING_QC, JOB_STATUS.QC_REVIEW, JOB_STATUS.REVISED_OFFER, JOB_STATUS.NEGOTIATION] },
+  { label: 'จ่ายเงิน', statuses: [JOB_STATUS.PAYOUT_PROCESSING, JOB_STATUS.WAITING_FOR_HANDOVER, JOB_STATUS.PAID, JOB_STATUS.SENT_TO_QC_LAB, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL, JOB_STATUS.SOLD, JOB_STATUS.COMPLETED] },
 ];
 
 // Statuses where a Store-in / Mail-in job is still awaiting branch-intake work
@@ -128,12 +127,12 @@ const PIPELINE = [
 // desktop hold button ('Parcel Received'), the Store-in 'Drop-off Received',
 // and the legacy overloaded 'In-Transit'. Leaving the parcel statuses out is
 // what stranded Mail-in jobs on mobile with nothing but the Diagnos panel.
-const BRANCH_INTAKE_STATUSES = [
-  'Following Up', 'Appointment Set', 'Waiting Drop-off',
-  'Awaiting Shipping', 'Active Lead', 'Active Leads',
-  'In-Transit', 'Parcel In Transit', 'Parcel Received', 'Drop-off Received',
-  'Being Inspected',
-];
+const BRANCH_INTAKE_STATUSES: ReadonlySet<string> = new Set([
+  JOB_STATUS.FOLLOWING_UP, JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF,
+  JOB_STATUS.AWAITING_SHIPPING, JOB_STATUS.ACTIVE_LEAD,
+  JOB_STATUS.PARCEL_IN_TRANSIT, JOB_STATUS.PARCEL_RECEIVED, JOB_STATUS.DROP_OFF_RECEIVED,
+  JOB_STATUS.BEING_INSPECTED,
+]);
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -322,18 +321,16 @@ export const MobileTicketDetail = () => {
   // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง: engine เขียน canonical ('Sent To QC Lab')
   // ทั้งใน status และ qc_logs.action ขณะที่ PIPELINE กับ log เก่ายังถือสะกดเดิม —
   // เก็บทั้งค่าดิบและค่า canonical ไว้ในเซ็ต แล้ว normalize ฝั่งลิสต์ตอนถามด้วย
-  const canonicalOf = (s: string) => normalizeStatus(s, job.receive_method) ?? s;
   const reachedStatuses = new Set<string>();
   const reach = (s: unknown) => {
-    if (typeof s !== 'string' || !s) return;
-    reachedStatuses.add(s);
-    reachedStatuses.add(canonicalOf(s));
+    const c = canonicalStatus(s, job.receive_method);
+    if (c) reachedStatuses.add(c);
   };
   reach(job.status);
   for (const log of (job.qc_logs || [])) reach(log?.action);
   let currentStepIdx = -1;
   PIPELINE.forEach((step, idx) => {
-    if (step.statuses.some((s) => reachedStatuses.has(s) || reachedStatuses.has(canonicalOf(s)))) {
+    if (step.statuses.some((s) => reachedStatuses.has(s))) {
       currentStepIdx = Math.max(currentStepIdx, idx);
     }
   });
@@ -612,8 +609,7 @@ export const MobileTicketDetail = () => {
     try {
       // Only flip the status while the parcel hasn't been logged as shipped
       // yet — never drag a job that already reached QC/payout backwards.
-      const preShipping = ['New Lead', 'Following Up', 'Appointment Set', 'Waiting Drop-off', 'Awaiting Shipping', 'Active Lead', 'Active Leads']
-        .includes(job.status);
+      const preShipping = statusIs(job, JOB_STATUS.NEW_LEAD, JOB_STATUS.FOLLOWING_UP, JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF, JOB_STATUS.AWAITING_SHIPPING, JOB_STATUS.ACTIVE_LEAD);
       const payload: Record<string, unknown> = {
         tracking_number: tracking,
         courier_name: courierInput.trim() || '',
@@ -1242,7 +1238,7 @@ export const MobileTicketDetail = () => {
               doesn't auto-rebroadcast and spam other riders. Older
               jobs (pre-#52) sit at Active Leads with the same
               cancelled_* fields — both shapes show this banner. */}
-          {(['Active Leads', 'Active Lead', 'Following Up'].includes(job.status)) &&
+          {statusIs(job, JOB_STATUS.ACTIVE_LEAD, JOB_STATUS.FOLLOWING_UP) &&
             !job.rider_id &&
             job.cancelled_at &&
             wasRiderWithdrawn(job) && (
@@ -1460,7 +1456,7 @@ export const MobileTicketDetail = () => {
           {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.verification_completed_at
             && !isCancelled
-            && BRANCH_INTAKE_STATUSES.includes(job.status) && (
+            && statusIn(job, BRANCH_INTAKE_STATUSES) && (
             <button
               onClick={() => setShowVerifyModal(true)}
               className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -1481,7 +1477,7 @@ export const MobileTicketDetail = () => {
           {(job.receive_method === 'Store-in' || job.receive_method === 'Mail-in')
             && !job.inspected_at
             && !isCancelled
-            && BRANCH_INTAKE_STATUSES.includes(job.status) && (
+            && statusIn(job, BRANCH_INTAKE_STATUSES) && (
             <button
               onClick={() => setShowInspectModal(true)}
               className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-2xl p-4 flex items-center gap-3 shadow-md active:scale-[0.98] transition"
@@ -1605,7 +1601,7 @@ export const MobileTicketDetail = () => {
                 )}
 
                 {/* BKK Diagnos — start a session (Store-in / Mail-in staff mode) */}
-                {!['Cancelled', 'Completed', 'Paid', 'Returned'].includes(job.status) && (
+                {!statusIs(job, JOB_STATUS.CANCELLED, JOB_STATUS.COMPLETED, JOB_STATUS.PAID, JOB_STATUS.RETURN_CONFIRMED) && (
                   <DiagnosStartPanel job={job} deviceIndex={idx} />
                 )}
 
@@ -1871,7 +1867,7 @@ export const MobileTicketDetail = () => {
           </div>
 
           {/* Chat Input */}
-          {!['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Closed (Lost)', 'Cancelled'].includes(job.status) ? (
+          {!statusIs(job, JOB_STATUS.PENDING_QC, JOB_STATUS.IN_STOCK, JOB_STATUS.PAID, JOB_STATUS.COMPLETED, JOB_STATUS.RETURN_CONFIRMED, JOB_STATUS.CLOSED_LOST, JOB_STATUS.CANCELLED) ? (
             <div className="p-3 bg-white border-t border-slate-100 flex gap-2 items-center shrink-0">
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleChatImage} />
               <button
@@ -2237,7 +2233,12 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     style: 'bg-orange-50 text-orange-700 border border-orange-200',
   };
 
-  switch (status) {
+  // switch บน canonical (ก.ย. 2569): สะกดเก่าทุกตัว — 'Active Leads', 'Assigned',
+  // 'Accepted', 'Heading to Customer', 'Arrived', 'PAID', 'Waiting for Handover' —
+  // ตกที่ case ของ canonical เอง. 'In-Transit' แยกตาม receive_method ตาม
+  // normalizeStatus: Pickup -> Rider Returning (กลุ่มหลังจ่ายเงิน), อื่น -> Parcel In Transit
+  const canonical = canonicalStatus(status, receiveMethod) ?? status;
+  switch (canonical) {
     case 'New Lead':
       actions.push({ label: 'เริ่มติดตาม (Following Up)', event: JOB_EVENT.CASE_CLAIMED, log: 'เริ่มติดตามลูกค้า', style: 'bg-amber-500 text-white' });
       actions.push({ label: 'นัดหมายแล้ว (Appointment Set)', event: JOB_EVENT.APPOINTMENT_SET, log: 'ลูกค้ายืนยันนัดหมาย', style: 'bg-cyan-500 text-white' });
@@ -2294,8 +2295,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
     case 'Drop-off Received':
       actions.push(branchIntakeAction);
       break;
-    case 'Active Lead':
-    case 'Active Leads': {
+    case 'Active Lead': {
       // Mail-in / Store-in never have a rider in the loop — the customer ships
       // the device or drops it at the branch, then admin opens the parcel,
       // captures KYC at the counter, and starts inspection. The rider-centric
@@ -2344,20 +2344,15 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       }
       break;
     }
-    case 'Assigned':
-    case 'Accepted':
     case 'Rider Assigned':
     case 'Rider Accepted':
       actions.push({ label: 'กำลังเดินทาง (Rider En Route)', event: JOB_EVENT.RIDER_DEPARTED, log: 'ไรเดอร์กำลังเดินทาง', style: 'bg-yellow-500 text-white' });
       break;
-    case 'Heading to Customer':
-    case 'In-Transit':
-    case 'Arrived':
     case 'Rider En Route':
     case 'Rider Arrived':
-      // 'In-Transit' is overloaded (see normalizeStatus in job-statuses.ts):
-      // Pickup = rider on the road, Mail-in = parcel with the courier. Legacy
-      // Mail-in jobs still sit on this value, so give them the parcel actions.
+      // legacy 'In-Transit' ไม่มาถึง case นี้แล้ว (switch บน canonical แยกมันเป็น
+      // Rider Returning / Parcel In Transit ตั้งแต่ต้น) — เก็บ branch ไว้สำหรับงานที่
+      // receive_method ไม่ใช่ Pickup แต่สถานะไรเดอร์ค้างอยู่
       if (!isPickup) {
         actions.push(branchIntakeAction);
         if (isMailIn) actions.push(parcelHeldAction);
@@ -2377,10 +2372,8 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       // Detect by scanning qc_logs for a prior "Paid" / "PAID" entry.
       // If we ever paid this job, "ผ่าน QC → Payout" would loop a
       // second payout — wrong. Branch accordingly.
-      const wasPaid = (job?.qc_logs || []).some(
-        (l: any) => l && (l.action === 'Paid' || l.action === 'PAID'),
-      );
-      if (status === 'Pending QC' && wasPaid) {
+      const wasPaid = (job?.qc_logs || []).some((l: any) => actionIs(l?.action, JOB_STATUS.PAID));
+      if (canonical === JOB_STATUS.PENDING_QC && wasPaid) {
         actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', event: JOB_EVENT.SENT_TO_LAB, log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
         actions.push({ label: 'ผ่าน QC → เก็บ Stock', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
         actions.push({ label: 'ขายแล้ว (Sold)', event: JOB_EVENT.SOLD, log: 'ขายเครื่องนี้ออกแล้ว', style: 'bg-purple-500 text-white', confirm: 'ยืนยันทำเครื่องหมายว่า "ขายแล้ว (Sold)"? ปุ่มนี้ปิดวงจรการขาย' });
@@ -2398,9 +2391,7 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       actions.push({ label: 'จ่ายเงินแล้ว (Paid)', event: JOB_EVENT.ADMIN_MARKED_PAID, log: 'โอนเงินให้ลูกค้าเรียบร้อย', style: 'bg-green-600 text-white' });
       break;
     case 'Paid':
-    case 'PAID':
     case 'Waiting For Handover':
-    case 'Waiting for Handover':
     case 'Rider Returning':
       // Post-payment. Finance parks every B2C payout at "Waiting for Handover"
       // (see TradeInPayouts), so this is the normal paid state for all methods.

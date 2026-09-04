@@ -15,7 +15,7 @@ import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultC
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
 import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
 import {
-   MAX_QC_PHOTOS, QC_SUPERVISORS, canSubmitQc, selectQcTodoList, selectQcDoneList, matchesQcStationSearch,
+   MAX_QC_PHOTOS, QC_SUPERVISORS, canSubmitQc, selectQcTodoList, selectQcDoneList, matchesQcStationSearch, isJobAlreadyPaid,
    buildQcFormFromJob, validateQcSubmit, submitQcStation, saveQcPhotosOnly,
    type QcFormState,
 } from '../../utils/qcStation';
@@ -390,8 +390,7 @@ export const MobileQCStation = () => {
                      {gate.blocked ? (<><AlertTriangle size={18} /> IMEI Gate Block — ต้อง Override</>)
                         : submitting ? 'กำลังบันทึก...'
                         : (() => {
-                           const paidOrPickup = selectedJob.receive_method === 'Pickup' ||
-                              selectedJob.qc_logs?.some((log: any) => ['Payout Processing', 'Paid', 'PAID', 'Deal Closed (Negotiated)'].includes(log.action));
+                           const paidOrPickup = selectedJob.receive_method === 'Pickup' || isJobAlreadyPaid(selectedJob);
                            return (<><Save size={18} /> {paidOrPickup ? 'ผ่าน QC — เข้าคลัง' : 'ส่งผลให้แอดมินเคาะราคา'}</>);
                         })()}
                   </button>

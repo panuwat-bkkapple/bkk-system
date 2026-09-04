@@ -9,6 +9,8 @@ import {
   ScanLine, CheckCircle2, AlertOctagon, HelpCircle, 
   Play, Square, Save, History, Search, Package, ShieldAlert
 } from 'lucide-react';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 export const StockAudit = () => {
   const toast = useToast();
@@ -30,7 +32,7 @@ export const StockAudit = () => {
     
     // ดึงเฉพาะของที่ "ควรจะอยู่ในตู้" (In Stock หรือ Ready to Sell)
     const allJobs = Array.isArray(jobs) ? jobs : Object.keys(jobs).map(k => ({ id: k, ...(jobs as any)[k] }));
-    const currentStock = allJobs.filter(j => ['In Stock', 'Ready to Sell'].includes(j.status));
+    const currentStock = allJobs.filter(j => statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL));
     
     setExpectedStock(currentStock);
     setScannedCodes([]);

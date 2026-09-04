@@ -8,6 +8,8 @@ import { ref, update, push, child } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { settledRiderFee } from '../../../utils/riderSettlement';
+import { JOB_STATUS } from '../../../types/job-statuses';
+import { statusIs } from '../../../utils/statusCompare';
 
 
 export const RiderSettlements = () => {
@@ -29,7 +31,7 @@ export const RiderSettlements = () => {
     return list
       .filter(j => 
         // เช็คสถานะที่ถือว่างานจบ (ส่งเครื่องถึงมือร้าน)
-        (j.status === 'Pending QC' || j.status === 'Completed' || j.status === 'Waiting for Handover') && 
+        statusIs(j, JOB_STATUS.PENDING_QC, JOB_STATUS.COMPLETED, JOB_STATUS.WAITING_FOR_HANDOVER) && 
         j.rider_fee_status === 'Pending' && 
         j.type !== 'Withdrawal' && 
         j.rider_id != null

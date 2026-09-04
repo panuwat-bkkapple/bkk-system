@@ -18,6 +18,8 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Legend, Cell, PieChart, Pie, ReferenceLine
 } from 'recharts';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface AnalyticsProps { mode: 'buying' | 'sales'; }
 
@@ -129,7 +131,7 @@ export const Analytics = ({ mode }: AnalyticsProps) => {
       const thirtyDaysAgo = now - (30 * msPerDay);
 
       // --- A. LIQUIDITY AGING (อายุสต็อก) ---
-      const currentStock = jobsList.filter(j => ['In Stock', 'Ready to Sell'].includes(j.status));
+      const currentStock = jobsList.filter(j => statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL));
       let fastMoving = { count: 0, value: 0, items: [] as any[] };
       let normalMoving = { count: 0, value: 0, items: [] as any[] };
       let slowMoving = { count: 0, value: 0, items: [] as any[] };

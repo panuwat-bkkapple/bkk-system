@@ -7,6 +7,8 @@ import {
   RefreshCw, Smartphone, XCircle, RotateCcw, DollarSign, MessageSquare
 } from 'lucide-react';
 import { NotificationStatusCard } from './components/NotificationStatusCard';
+import { JOB_STATUS, JOB_STATUS_B2B } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface Notification {
   id: string;
@@ -36,8 +38,8 @@ export const MobileNotificationsPage = () => {
         const jobId = child.key!;
 
         // New tickets (รวม Active Lead จาก Instant Sell/broadcast — ทั้งสอง spelling)
-        if (job.status === 'New Lead' || job.status === 'New B2B Lead' || job.status === 'Active Leads' || job.status === 'Active Lead') {
-          const isB2B = job.status === 'New B2B Lead';
+        if (statusIs(job, JOB_STATUS.NEW_LEAD, JOB_STATUS_B2B.NEW_B2B_LEAD, JOB_STATUS.ACTIVE_LEAD)) {
+          const isB2B = statusIs(job, JOB_STATUS_B2B.NEW_B2B_LEAD);
           notifs.push({
             id: `new-${jobId}`,
             type: 'new_ticket',
@@ -67,7 +69,7 @@ export const MobileNotificationsPage = () => {
         }
 
         // Dead stock (In Stock > 14 days)
-        if (['In Stock', 'Ready to Sell'].includes(job.status)) {
+        if (statusIs(job, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL)) {
           const age = now - (job.updated_at || job.created_at || now);
           if (age > 14 * 86400000) {
             notifs.push({

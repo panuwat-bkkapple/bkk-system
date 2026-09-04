@@ -13,6 +13,8 @@ import {
   LOT_STATUS_META, DEALER_TIERS, TIER_META, fmtBaht, fmtDateTime,
   type Lot, type LotStatus, type DealerTier,
 } from '../../types/dealer';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 const call = async (name: string, data: Record<string, unknown>) => {
   const fn = httpsCallable(getFunctions(app, 'asia-southeast1'), name);
@@ -168,7 +170,7 @@ const CreateLotModal = ({
   const candidates = useMemo(() => {
     return jobs
       .filter((j) =>
-        ['In Stock', 'Ready to Sell'].includes(j.status) &&
+        statusIs(j, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL) &&
         j.type !== 'B2B Trade-in' && j.type !== 'Withdrawal' && !j.lot_id &&
         (
           !search ||
