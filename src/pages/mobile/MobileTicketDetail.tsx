@@ -2417,10 +2417,13 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
         actions.push({ label: 'เข้าสต็อก (In Stock)', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'นำเข้าสต็อกเรียบร้อย', style: 'bg-slate-700 text-white' });
       }
       break;
+    // engine เขียน canonical 'Sent To QC Lab' — switch เทียบค่าดิบจึงต้องมี case
+    // ของ enum คู่กับสะกดเก่า ไม่งั้นปุ่มย้อนสถานะหายจากงานที่เพิ่งส่งเข้าแล็บ
     case 'Sold':
     case 'In Stock':
     case 'Ready to Sell':
     case 'Sent to QC Lab':
+    case JOB_STATUS.SENT_TO_QC_LAB:
       // Post-sale inventory states previously had NO actions at all — a mis-tap
       // on "Sold" (or stock/lab) left the job stuck with no way back. Offer a
       // guarded rewind to the post-payment QC hub (Pending QC). Since this job
