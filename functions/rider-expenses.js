@@ -166,6 +166,47 @@ function buildPaymentUpdates({
   };
 }
 
+/**
+ * ใครกดขั้นนี้ได้ — pure เพื่อให้ตารางสิทธิ์มีเทสจริง ไม่ใช่ if ที่ฝังใน callable
+ *
+ * แยกออกมาเพราะนี่คือส่วนที่ **ผิดแล้วเงียบที่สุด**: ปล่อยผิดคนแล้วเงินออกโดยไม่มี
+ * error ที่ไหน. ตอนอยู่ใน callable ไม่มีเทสตัวไหนแตะมันได้เลย (ต้องมี Firebase)
+ *
+ * `needsCeo` บังคับที่ **ทั้งสองขั้นของฝ่ายบัญชี** ไม่ใช่แค่ปุ่มจ่าย — การตั้งเบิก
+ * คือการผูกพันเงินก้อนนั้นและเป็นจังหวะที่เอกสารถูกออก ปล่อยให้ตั้งเบิกได้ก่อน
+ * แปลว่าเอกสารยอดใหญ่ออกไปแล้วค่อยไปติดที่ปุ่มสุดท้าย
+ *
+ * @returns {{ok: true}|{ok: false, message: string}}
+ */
+function authorizeExpenseAction({ gate, staff, token, needsCeo }) {
+  const role = String((staff && staff.role) || "").toUpperCase();
+
+  if (gate === GATE.OPS) {
+    if (!OPS_ROLES.includes(role)) {
+      return { ok: false, message: "ขั้นนี้เป็นของหัวหน้าไรเดอร์หรือผู้จัดการ" };
+    }
+    return { ok: true };
+  }
+
+  if (gate === GATE.FINANCE) {
+    if (!financeActorVerdict(staff, token).allowed) {
+      return {
+        ok: false,
+        message: "ขั้นนี้เป็นของฝ่ายบัญชี — ให้ CEO เปิดสิทธิ์จ่ายเงินออกให้บัญชีนี้ก่อน",
+      };
+    }
+    // ธงถูกประทับตอนยื่นตามเพดาน ณ วันนั้น — ตรงนี้อ่านอย่างเดียว ไม่คำนวณใหม่
+    if (needsCeo === true && role !== "CEO") {
+      return { ok: false, message: "รายการนี้เกินเพดาน ต้องให้ CEO อนุมัติ" };
+    }
+    return { ok: true };
+  }
+
+  // ตารางบังคับให้ทุกแถวระบุประตูได้ (มีเทสตรึง) — มาถึงตรงนี้แปลว่ามีคนเพิ่ม
+  // สถานะใหม่โดยไม่ได้บอกว่าใครกดได้ ปฏิเสธไว้ก่อนดีกว่าเดา
+  return { ok: false, message: "ขั้นนี้ยังไม่ได้กำหนดผู้มีสิทธิ์" };
+}
+
 /** ข้อความที่ไรเดอร์เห็นบนหน้าจอล็อก — เงียบไปเลยแปลว่าเขาไม่รู้ว่าใบไปถึงไหน */
 const RIDER_PUSH = {
   ops_approve: () => ({
@@ -202,7 +243,6 @@ function registerRiderExpenses({ dispatchAdminPush, pushToRider, staffIdsByRoles
 
     const staff = await lookupStaffByAuth(db, request.auth);
     if (!staff) throw new HttpsError("permission-denied", "ไม่พบบัญชีพนักงาน");
-    const role = String(staff.role || "").toUpperCase();
     const actor = { id: staff.id, name: staff.name || "" };
 
     const id = String(request.data?.id || "");
@@ -235,32 +275,13 @@ function registerRiderExpenses({ dispatchAdminPush, pushToRider, staffIdsByRoles
       throw new HttpsError("invalid-argument", "ระบุเหตุผลให้ไรเดอร์ทราบ");
     }
 
-    // --- ประตู ---------------------------------------------------------------
-    if (t.gate === GATE.OPS) {
-      if (!OPS_ROLES.includes(role)) {
-        throw new HttpsError("permission-denied", "ขั้นนี้เป็นของหัวหน้าไรเดอร์หรือผู้จัดการ");
-      }
-    } else if (t.gate === GATE.FINANCE) {
-      const v = financeActorVerdict(staff, request.auth && request.auth.token);
-      if (!v.allowed) {
-        throw new HttpsError(
-          "permission-denied",
-          "ขั้นนี้เป็นของฝ่ายบัญชี — ให้ CEO เปิดสิทธิ์จ่ายเงินออกให้บัญชีนี้ก่อน"
-        );
-      }
-    } else {
-      // ตารางบังคับให้ทุกแถวระบุประตูได้ (มีเทสตรึง) — มาถึงตรงนี้แปลว่ามีคน
-      // เพิ่มสถานะใหม่โดยไม่ได้บอกว่าใครกดได้ ปฏิเสธไว้ก่อนดีกว่าเดา
-      throw new HttpsError("failed-precondition", "ขั้นนี้ยังไม่ได้กำหนดผู้มีสิทธิ์");
-    }
-
-    // ธงถูกประทับตอนยื่นตามเพดาน ณ วันนั้น — ตัวนี้อ่านอย่างเดียว ไม่คำนวณใหม่
-    // บังคับที่ **ทั้งสองขั้นของฝ่ายบัญชี**: ตั้งเบิกคือการผูกพันเงินก้อนนั้นและ
-    // เป็นจังหวะที่เอกสารถูกออก การให้ตั้งเบิกได้แล้วค่อยไปติดที่ปุ่มจ่าย แปลว่า
-    // เอกสารยอดใหญ่ถูกออกไปก่อนที่ CEO จะเห็น
-    if (row.needs_ceo === true && t.gate === GATE.FINANCE && role !== "CEO") {
-      throw new HttpsError("permission-denied", "รายการนี้เกินเพดาน ต้องให้ CEO อนุมัติ");
-    }
+    const auth = authorizeExpenseAction({
+      gate: t.gate,
+      staff,
+      token: request.auth && request.auth.token,
+      needsCeo: row.needs_ceo === true,
+    });
+    if (!auth.ok) throw new HttpsError("permission-denied", auth.message);
 
     const now = Date.now();
     const historyKey = db.ref(`rider_expenses/${id}/history`).push().key;
@@ -356,6 +377,7 @@ function registerRiderExpenses({ dispatchAdminPush, pushToRider, staffIdsByRoles
 
 module.exports = {
   registerRiderExpenses,
+  authorizeExpenseAction,
   buildTransitionUpdates,
   buildPaymentUpdates,
   CATEGORY_LABEL_TH,

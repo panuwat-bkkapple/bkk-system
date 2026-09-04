@@ -22,7 +22,7 @@ import { dirname, join } from "path";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-const { buildPaymentUpdates, buildTransitionUpdates } = require(
+const { buildPaymentUpdates, buildTransitionUpdates, authorizeExpenseAction } = require(
   join(here, "..", "rider-expenses.js")
 );
 const { financeActorVerdict } = require(join(here, "..", "finance-claims.js"));
@@ -245,6 +245,51 @@ const build = (over = {}) =>
   check(
     "amount ที่คืนกับที่เขียนลง ledger เป็นตัวเลขตัวเดียวกัน (สตริงจากฟอร์มก็ต้องได้)",
     amount === 120 && updates["transactions/tx1"].amount === 120
+  );
+}
+
+// --- ใครกดขั้นไหนได้ -------------------------------------------------------
+//
+// ส่วนนี้ผิดแล้ว**เงียบที่สุด**ในทั้งฟีเจอร์: ปล่อยผิดคนแล้วเงินออกโดยไม่มี error
+// ที่ไหนเลย และไม่มีใครเห็นจนกว่าจะกระทบยอด
+{
+  const ops = (staff, needsCeo) =>
+    authorizeExpenseAction({ gate: "ops", staff, token: {}, needsCeo });
+  const fin = (staff, needsCeo, token) =>
+    authorizeExpenseAction({ gate: "finance", staff, token: token || {}, needsCeo });
+
+  check("หัวหน้า (MANAGER) ยืนยันงานที่วิ่งจริงได้", ops({ role: "MANAGER" }, false).ok);
+  check("CEO ทำขั้นของ ops ได้", ops({ role: "CEO" }, false).ok);
+  check("STAFF ทำขั้นของ ops ไม่ได้", !ops({ role: "STAFF" }, false).ok);
+  check(
+    "FINANCE ไม่ใช่คนตอบว่างานวิ่งจริงไหม — เขาไม่ได้อยู่หน้างาน",
+    !ops({ role: "FINANCE" }, false).ok
+  );
+  check("ยอดใหญ่ไม่ได้ห้าม ops ยืนยันงาน (เพดานเป็นเรื่องของการจ่าย)",
+    ops({ role: "MANAGER" }, true).ok);
+
+  check("บัญชีทำขั้นบัญชีได้", fin({ role: "FINANCE" }, false).ok);
+  check(
+    "MANAGER ทำขั้นบัญชีไม่ได้ — นี่คือการแยกหน้าที่ที่ทั้งงานนี้มีไว้ทำ",
+    !fin({ role: "MANAGER" }, false).ok
+  );
+  check("STAFF ที่ CEO เปิดสิทธิ์ให้ ทำขั้นบัญชีได้",
+    fin({ role: "STAFF" }, false, { finance_disburse: true }).ok);
+  check("ยอดเกินเพดาน บัญชีทำเองไม่ได้ ต้อง CEO", !fin({ role: "FINANCE" }, true).ok);
+  check("ยอดเกินเพดาน CEO ทำได้", fin({ role: "CEO" }, true).ok);
+  check(
+    "เพดานบังคับที่ขั้นบัญชี ไม่ใช่แค่ปุ่มจ่าย (เอกสารออกตอนตั้งเบิก)",
+    !fin({ role: "STAFF" }, true, { finance_disburse: true }).ok
+  );
+
+  check(
+    "ประตูที่ไม่รู้จัก (สถานะใหม่ที่ลืมกำหนดสิทธิ์) = ปฏิเสธ ไม่ใช่ปล่อยผ่าน",
+    !authorizeExpenseAction({ gate: null, staff: { role: "CEO" }, token: {}, needsCeo: false }).ok
+  );
+  check(
+    "ทุกการปฏิเสธมีข้อความบอกเหตุผล ไม่ใช่ปุ่มที่กดแล้วเงียบ",
+    typeof ops({ role: "STAFF" }, false).message === "string" &&
+      ops({ role: "STAFF" }, false).message.length > 0
   );
 }
 
