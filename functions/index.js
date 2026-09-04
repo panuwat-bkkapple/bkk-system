@@ -6916,6 +6916,8 @@ Object.assign(exports, require("./hr-files-api").registerHrFiles());
 // สลิปที่ส่งไปแล้วยังอธิบายตัวเองได้แม้กฎหมายเปลี่ยน (logic อยู่ hr-payroll.js
 // ซึ่งเป็นกติกาล้วน + hr-payroll-api.js ซึ่งเป็น callable)
 // =============================================================================
+Object.assign(exports, require("./hr-leave-api").registerHrLeave());
+
 Object.assign(exports, require("./hr-payroll-api").registerHrPayroll());
 
 // =============================================================================
