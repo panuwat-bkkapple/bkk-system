@@ -23,7 +23,7 @@
 //      ยกเลิกกลางทางเขียน rider_fee ตรงพร้อม rider_fee_breakdown
 //      ถ้าไม่โชว์ breakdown แอดมินจะไล่หาความผิดที่ไม่มีอยู่จริง
 import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
-import type { JobStatus } from '../types/job-statuses';
+import type { AnyJobStatus } from '../types/job-statuses';
 
 /** ค่าที่ finite เท่านั้น — `Number(null)` เป็น 0 และ 0 ก็ finite */
 export const finiteOrNull = (v: unknown): number | null => {
@@ -77,7 +77,11 @@ export interface RiderAuditRow {
   refNo: string | null;
   receiveMethod: string | null;
   /** normalize แล้ว — DB มี legacy spelling ถาวร ห้ามเทียบ string ดิบ */
-  status: JobStatus | null;
+  // `AnyJobStatus` ไม่ใช่ `JobStatus` — ตั้งแต่สาย B2B เข้า enum แล้ว
+  // `normalizeStatus` คืนได้ทั้งสองเส้น. แถว audit ของไรเดอร์แทบไม่มีทางเป็น
+  // งาน B2B (คิวไรเดอร์กรอง non-Pickup ทิ้ง) แต่ฟังก์ชันนี้รับ job อะไรก็ได้
+  // การประกาศให้แคบกว่าความจริงคือการโกหก type ไม่ใช่การกันอะไร
+  status: AnyJobStatus | null;
   rawStatus: string | null;
 
   riderId: string | null;
