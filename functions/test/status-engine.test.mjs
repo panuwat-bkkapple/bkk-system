@@ -688,14 +688,44 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
 });
 
 check("every rule names a destination inside the canonical enum", () => {
+  // "Canonical" is BOTH lines: JOB_STATUS is retail, JOB_STATUS_B2B is
+  // corporate bulk. Widened when the corporate rows landed (P3-b) — this
+  // check went red on them, correctly, because it only knew the retail enum.
   const vocab = require(path.join(root, "functions/status-vocab.generated.js"));
-  const canonical = new Set(Object.values(vocab.JOB_STATUS));
+  const canonical = new Set([
+    ...Object.values(vocab.JOB_STATUS),
+    ...Object.values(vocab.JOB_STATUS_B2B),
+  ]);
   const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
   for (const [event, rule] of Object.entries(TRANSITIONS)) {
     assert.ok(canonical.has(rule.to), `${event} targets a status outside the enum: ${rule.to}`);
     for (const s of rule.from || []) {
       assert.ok(canonical.has(s), `${event} accepts a status outside the enum: ${s}`);
     }
+  }
+});
+
+check("no rule can drop a job onto the corporate line without scoping to it", () => {
+  // The widening above would, on its own, be a pure relaxation: every retail
+  // row could now name a B2B status and nothing would object. This is the
+  // rule that replaces what was lost. Destinations are the half that matters —
+  // an event whose `to` is a corporate status is how a retail ticket would
+  // become a corporate lot, and `jobTypes` is what stops it.
+  //
+  // Shared destinations (Cancelled, Following Up, Negotiation, Paid,
+  // Completed) are deliberately NOT covered: those events belong to both
+  // lines, which is why `cancelled` carries corporate statuses in its
+  // from-list and no jobTypes.
+  const vocab = require(path.join(root, "functions/status-vocab.generated.js"));
+  const b2bOnly = new Set(Object.values(vocab.JOB_STATUS_B2B));
+  const { TRANSITIONS, JOB_TYPE } = require(path.join(root, "functions/status-engine.js"));
+  for (const [event, rule] of Object.entries(TRANSITIONS)) {
+    if (!b2bOnly.has(rule.to)) continue;
+    assert.deepEqual(
+      rule.jobTypes,
+      [JOB_TYPE.B2B],
+      `${event} lands on the corporate status "${rule.to}" but is legal on any job type`
+    );
   }
 });
 
