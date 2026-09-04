@@ -20,8 +20,11 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus, Pencil, Receipt,
-  FileText, Printer, Ban, AlertTriangle,
+  FileText, Printer, Ban, AlertTriangle, Clock,
 } from 'lucide-react';
+// ตัวเรนเดอร์ไทม์ไลน์อยู่ไฟล์แยกและไม่ import firebase — เทสเรนเดอร์ได้จริง
+import { EmployeeTimeline, TimelineHeading } from './EmployeeTimeline';
+import type { TimelineEvent } from './employeeTimeline';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
 interface StatusResult {
@@ -146,6 +149,7 @@ export const EmployeeRegister = () => {
   }, [items, query]);
 
   const [docsFor, setDocsFor] = useState<EmployeeRow | null>(null);
+  const [historyFor, setHistoryFor] = useState<EmployeeRow | null>(null);
 
   const staleCount = items.filter((e) => e.access?.stale_access).length;
 
@@ -303,6 +307,10 @@ export const EmployeeRegister = () => {
                     )}
                   </div>
                   <div className="flex gap-2 shrink-0 items-start">
+                    <button onClick={() => setHistoryFor(row)} disabled={busy}
+                      className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-bold text-gray-600 inline-flex items-center gap-1.5 disabled:opacity-50">
+                      <Clock size={13} /> ประวัติ
+                    </button>
                     <button onClick={() => setDocsFor(row)} disabled={busy}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                       <FileText size={13} /> เอกสาร
@@ -366,6 +374,9 @@ export const EmployeeRegister = () => {
       {docsFor && (
         <DocumentsModal employee={docsFor} onClose={() => setDocsFor(null)} />
       )}
+      {historyFor && (
+        <TimelineModal employee={historyFor} onClose={() => setHistoryFor(null)} />
+      )}
     </div>
   );
 };
@@ -390,6 +401,64 @@ interface DocsResult {
   probation_end: number | null;
   availability: Record<string, { label: string; missing: string[] }>;
 }
+
+// ---------------------------------------------------------------------------
+// ไทม์ไลน์ประวัติพนักงาน
+//
+// **ข้อมูลมีอยู่แล้วตั้งแต่ต้น** — `employee_events` ถูกเขียนทุกครั้งที่จ้าง
+// เลื่อนตำแหน่ง ปรับเงินเดือน เปลี่ยนสถานะ หรือผูก/ถอนบัญชี และ callable
+// `adminHrEmployeeEvents` ก็มีมาตลอด สิ่งที่ขาดคือหน้าจอ ไม่ใช่ข้อมูล
+//
+// ตัวเรนเดอร์อยู่ `EmployeeTimeline.tsx` ซึ่งรับ items ทางพร็อพและไม่ import
+// firebase — เทสจึงเรนเดอร์ได้จริง ไฟล์นี้ทำแค่โหลดข้อมูลกับกรอบโมดอล
+// ---------------------------------------------------------------------------
+const TimelineModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
+  const toast = useToast();
+  const [items, setItems] = useState<TimelineEvent[]>([]);
+  const [capped, setCapped] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await call<{ items: TimelineEvent[]; capped?: boolean }>(
+          'adminHrEmployeeEvents', { employeeId: employee.id },
+        );
+        if (cancelled) return;
+        setItems(res.items || []);
+        // `capped` เพิ่งเพิ่มฝั่ง server — callable ตัวเก่าไม่ส่งมา ต้องไม่พัง
+        // และต้องไม่ขึ้นแบนเนอร์เตือนมั่ว (hosting ขึ้นก่อน functions เสมอ)
+        setCapped(res.capped === true);
+      } catch (e) {
+        if (!cancelled) toast.error(e instanceof Error ? e.message : 'โหลดประวัติไม่สำเร็จ');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id, toast]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-black text-gray-800"><TimelineHeading /></h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {employee.name} <span className="font-mono">{employee.employee_code}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="p-5">
+          <EmployeeTimeline items={items} capped={capped} loading={loading} />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const DocumentsModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
   const toast = useToast();
