@@ -24,6 +24,8 @@ const {
   loadNotificationSettings,
   shouldNotify,
 } = require("./notification-settings");
+// push ถึงไรเดอร์ต้อง data-only — ดูเหตุผลในไฟล์นั้น
+const { toDataOnlyRiderPush } = require("./rider-push-payload");
 const {
   loadEmailTemplates,
   emailEnabled,
@@ -3706,7 +3708,10 @@ async function pushToRider(db, riderUid, message, tag) {
       return;
     }
 
-    const result = await getMessaging().sendEachForMulticast({ ...message, tokens });
+    // ถอด `notification` แล้วย้าย title/body ลง data ก่อนส่งเสมอ — ถ้าไม่ทำ
+    // SW ฝั่งไรเดอร์จะได้สองใบ (SDK แสดงจาก notification เอง + ใบเปล่าจาก
+    // onBackgroundMessage ที่หา data.title ไม่เจอ) ดู rider-push-payload.js
+    const result = await getMessaging().sendEachForMulticast({ ...toDataOnlyRiderPush(message), tokens });
 
     result.responses.forEach((resp, idx) => {
       if (resp.error) {
