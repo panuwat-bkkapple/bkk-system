@@ -10,11 +10,14 @@ import {
   Clock, Package
 } from 'lucide-react';
 import { JOB_STATUS } from '../../types/job-statuses';
-import { statusIs, actionIs } from '../../utils/statusCompare';
+import { statusIs } from '../../utils/statusCompare';
+import { paidTrailEntry } from '../../utils/paidTrail';
 
-// qc_logs.action ที่นับว่า "ปิดจ๊อบ/จ่ายเงิน" — engine เขียน action เป็นชื่อสถานะ canonical
-// ('Paid') ส่วน log เก่าเป็น 'Payment Completed'/'PAID' actionIs normalize ให้ทั้งคู่
-const CLOSED_LOG_ACTIONS = [JOB_STATUS.PAID, JOB_STATUS.IN_STOCK, 'Deal Closed (Negotiated)', JOB_STATUS.PAYOUT_PROCESSING] as const;
+// "ปิดจ๊อบ/จ่ายเงิน" = paid_at ก่อน แล้วค่อย qc_logs (utils/paidTrail.ts: Paid / Waiting
+// For Handover — ตั้งแต่ writer จ่ายเงินย้ายไป engine ไทม์ไลน์ B2C ไม่มี 'Paid' จนกว่า
+// ไรเดอร์ส่งมอบ) บวก action เฉพาะของแดชบอร์ด: เข้าคลัง / ปิดดีล / เริ่มจ่าย
+const CLOSED_EXTRA_ACTIONS = [JOB_STATUS.IN_STOCK, 'Deal Closed (Negotiated)', JOB_STATUS.PAYOUT_PROCESSING] as const;
+const closedEntryOf = (j: { paid_at?: unknown; qc_logs?: unknown }) => paidTrailEntry(j, CLOSED_EXTRA_ACTIONS);
 
 const routeMap: Record<string, string> = {
   pos_register: '/pos',
@@ -51,12 +54,12 @@ export const CEODashboard = () => {
     const todaysJobs = allJobs.filter(j => {
        if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
 
-       // 🌟 หาเวลาที่ "ปิดจ๊อบ/จ่ายเงิน" จริงๆ จากประวัติ Logs
-       const closedLog = j.qc_logs?.find((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
+       // 🌟 หาเวลาที่ "ปิดจ๊อบ/จ่ายเงิน" จริงๆ — paid_at ก่อน แล้วค่อยประวัติ Logs
+       const closed = closedEntryOf(j);
 
        // ถ้าระบบเจอว่ามีการปิดจ๊อบสำเร็จ ให้เช็คว่าปิด "วันนี้" ใช่หรือไม่?
-       if (closedLog) {
-         return closedLog.timestamp >= startOfDay && closedLog.timestamp <= endOfDay;
+       if (closed) {
+         return closed.at >= startOfDay && closed.at <= endOfDay;
        }
        
        // ถ้ายังไม่ปิดจ๊อบ (เช่น กำลังประเมินราคา, รอ PO) ถือว่าบัญชียังไม่ได้จ่ายเงิน (Spend = ไม่นับ)
@@ -90,14 +93,14 @@ export const CEODashboard = () => {
        // 🌟 กรองให้โชว์เฉพาะงานที่ "จ่ายเงินแล้ว/เข้าคลังแล้ว" เท่านั้น จะได้ไม่สับสนกับงานที่เพิ่งประเมินราคา
        ...allJobs.filter(j => {
            if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
-           return j.qc_logs?.some((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
+           return closedEntryOf(j) !== null;
        }).map(j => {
            // ดึงเวลาตอนที่ "ปิดจ๊อบ" มาโชว์ (ไม่ใช่เวลาที่เปิดบิลครั้งแรก)
-           const closedLog = j.qc_logs?.find((l: any) => actionIs(l?.action, ...CLOSED_LOG_ACTIONS));
+           const closed = closedEntryOf(j);
            
            return { 
                type: 'BUY', 
-               time: closedLog ? closedLog.timestamp : j.updated_at, 
+               time: closed ? closed.at : j.updated_at, 
                text: j.type === 'B2B Trade-in' ? `รับซื้อเหมาล็อต (B2B): ${j.cust_name?.split('(')[0]}` : `รับซื้อเครื่อง: ${j.model}`, 
                amount: j.final_price || j.price, 
                user: j.agent_name || 'Admin' 

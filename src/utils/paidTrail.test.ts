@@ -2,9 +2,9 @@
 // เทียบกับรูปเก่าที่ payoutTransfer.ts เคยเขียน — reader ต้องเห็น "จ่ายแล้ว" ทั้งสองรูป
 //
 // INJECTION (วัดจริง — เขียนหลังรัน):
-//   ไม่อ่าน paid_at (ดู qc_logs อย่างเดียว)                  → แดง __
-//   ตัด WAITING_FOR_HANDOVER ออกจาก PAID_TRAIL_ACTIONS         → แดง __
-//   isJobAlreadyPaid กลับไปอ่าน qc_logs ตรง (qcStation.ts)     → แดง __
+//   ไม่อ่าน paid_at (ดู qc_logs อย่างเดียว)                  → แดง 2
+//   ตัด WAITING_FOR_HANDOVER ออกจาก PAID_TRAIL_ACTIONS         → แดง 1
+//   isJobAlreadyPaid กลับไปอ่าน qc_logs ตรง (qcStation.ts)     → แดง 1
 import { describe, it, expect } from 'vitest';
 import { JOB_STATUS } from '../types/job-statuses';
 import { paidTrailEntry, jobWasPaid, PAID_TRAIL_ACTIONS } from './paidTrail';
@@ -33,7 +33,7 @@ const directPayStoreIn = { receive_method: 'Store-in', status: JOB_STATUS.WAITIN
 
 describe('paidTrailEntry / jobWasPaid', () => {
   it('งาน Pickup ที่จ่ายผ่าน engine ถือว่าจ่ายแล้ว แม้ไม่มี action "Paid" เลยในไทม์ไลน์', () => {
-    expect(enginePaidPickup.qc_logs.some((l) => l.action === 'Paid')).toBe(false); // fixture ตรงตามที่ engine เขียน
+    expect(enginePaidPickup.qc_logs.some((l) => String(l.action) === 'Paid')).toBe(false); // fixture ตรงตามที่ engine เขียน
     expect(jobWasPaid(enginePaidPickup)).toBe(true);
     expect(paidTrailEntry(enginePaidPickup)).toEqual({ at: NOW, source: 'paid_at' });
   });

@@ -37,7 +37,8 @@ import { CancelModal } from '../admin/components/CancelModal';
 import DiagnosReportCard from '../../components/DiagnosReportCard';
 import DiagnosStartPanel from '../../components/DiagnosStartPanel';
 import { CANCEL_CATEGORY_LABEL_TH, REOPEN_WINDOW_MS, JOB_STATUS, JOB_STATUS_B2B } from '../../types/job-statuses';
-import { canonicalStatus, statusIs, statusIn, actionIs } from '../../utils/statusCompare';
+import { canonicalStatus, statusIs, statusIn } from '../../utils/statusCompare';
+import { jobWasPaid } from '../../utils/paidTrail';
 import type { CancelCategory } from '../../types/job-statuses';
 import { parseTimeRange, existingApptDate, buildPickupSchedule } from '../../utils/appointment';
 import { RECEIVE_METHOD_OPTIONS, canChangeReceiveMethod, locationLabel, currentLocation, buildMethodLocationFields, buildStoreInBranchFields } from '../../utils/receiveMethod';
@@ -2369,10 +2370,13 @@ function getQuickActions(status: string, isCancelled: boolean, receiveMethod?: s
       //   2. POST-payment (Pickup flow, after rider returns to branch
       //      with the device) → payment already done; next step is
       //      Lab / Stock / Sold for the resale pipeline.
-      // Detect by scanning qc_logs for a prior "Paid" / "PAID" entry.
-      // If we ever paid this job, "ผ่าน QC → Payout" would loop a
-      // second payout — wrong. Branch accordingly.
-      const wasPaid = (job?.qc_logs || []).some((l: any) => actionIs(l?.action, JOB_STATUS.PAID));
+      // Detect from paid_at first, then the trail (utils/paidTrail.ts) —
+      // since the finance writer moved onto the engine, a Pickup job paid
+      // through it carries 'Waiting For Handover' in qc_logs and no 'Paid'
+      // entry at all until the rider hands over, so scanning for 'Paid'
+      // alone offered a second payout on EVERY such job. If we ever paid
+      // this job, "ผ่าน QC → Payout" would loop a second payout — wrong.
+      const wasPaid = jobWasPaid(job);
       if (canonical === JOB_STATUS.PENDING_QC && wasPaid) {
         actions.push({ label: 'ผ่าน QC → ส่ง QC Lab', event: JOB_EVENT.SENT_TO_LAB, log: 'ผ่าน final QC ส่งเข้า Lab refurb', style: 'bg-emerald-500 text-white' });
         actions.push({ label: 'ผ่าน QC → เก็บ Stock', event: JOB_EVENT.INTAKE_QC_PASSED, log: 'ผ่าน final QC เข้า stock พร้อมขาย', style: 'bg-blue-500 text-white' });
