@@ -235,9 +235,8 @@ const ok = (from, to) => r.canTransition(from, to).ok;
   const ui = readFileSync(join(root, "src/pages/hr/Recruitment.tsx"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n");
-  // ปุ่มเรียงกันถูกแทนด้วยแถบความคืบหน้าแล้ว — การพิสูจน์ว่า "หน้าเว็บไม่ตั้ง
-  // กติกาเอง" ย้ายไปอยู่ข้อ 23 (กดได้เฉพาะที่อยู่ใน row.next)
-  check("หน้าเว็บอ่านขั้นที่ไปได้จาก row.next", /row\.next\.includes\(/.test(ui));
+  // ปุ่มเรียงกันถูกแทนด้วยแถบความคืบหน้าซึ่งย้ายไป StageTrack.tsx แล้ว —
+  // การพิสูจน์ว่า "หน้าเว็บไม่ตั้งกติกาเอง" อยู่ที่ข้อ 23 ที่เดียว ไม่ทำซ้ำ
   // เครื่องสถานะมีสำเนาเดียว — ลิสต์ที่ hardcode ฝั่ง client คือสำเนาที่สอง
   check("หน้าเว็บไม่ถือลำดับสถานะเอง",
     !/'reviewing'\s*,\s*'interview'/.test(ui) && !/ALLOWED/.test(ui));
@@ -530,25 +529,45 @@ const ok = (from, to) => r.canTransition(from, to).ok;
   check(`มีทั้งขาไปและขากลับให้ตรวจ (ไป ${fwd} · กลับ ${back})`, fwd >= 5 && back >= 3);
 }
 
-// ── 23. หน้าเว็บวาดแถบจาก server และกดได้เฉพาะที่ next อนุญาต ─────────────
+// ── 23. หน้าเว็บวาดแถบจาก server ─────────────────────────────────────────
+// **พฤติกรรมของแถบถูกพิสูจน์ด้วยการเรนเดอร์จริงแล้ว** ที่
+// `src/pages/hr/stageTrack.test.tsx` (SSR คอมโพเนนต์ตรงๆ) — ที่เหลืออยู่ตรงนี้
+// คือข้อที่เทสนั้นมองไม่เห็น: หน้ารายการต้องเอา `track` มาจาก server
 {
   const ui = readFileSync(join(root, "src/pages/hr/Recruitment.tsx"), "utf8");
   check("ลำดับขั้นมาจาก server", /data\?\.track \|\| \[\]/.test(ui));
-  check("วาดแถบจาก track ที่ได้มา", /track\.map\(\(st, i\)/.test(ui));
-  // แถบเป็นหน้าตาใหม่ของปุ่มชุดเดิม ไม่ใช่กติกาชุดที่สอง
-  check("ขั้นกดได้เฉพาะที่อยู่ใน row.next", /const can = row\.next\.includes\(st\.key\)/.test(ui));
-  check("ขั้นที่กดไม่ได้ถูก disable", /disabled=\{!can \|\| busy\}/.test(ui));
-  check("ทางออกด้านข้างมาจาก row.next", /row\.next\.filter\(\(k\) => !track\.some/.test(ui));
-  // ใบนอกสายต้องไม่ระบายเต็ม
-  check("ใบนอกสายไม่ระบายแถบ", /const offtrack = at === 0/.test(ui) && /!offtrack && at > st\.step/.test(ui));
-  // **ขั้นที่ยืนอยู่ต้องไม่ถูกนับว่าทำเสร็จแล้ว** — `>=` ทำให้ขั้นปัจจุบันขึ้น
-  // เครื่องหมายถูก แถบเลยอ่านว่าเสร็จหมดทั้งที่ใบยังค้างอยู่ตรงนั้น (เจอจาก
-  // การเรนเดอร์จริง ไม่ใช่จากเทส)
+  check("ส่ง track ต่อให้แถบ", /<StageTrack row=\{row\} track=\{track\}/.test(ui));
+  // ลิสต์ขั้นที่พิมพ์เองในหน้าเว็บคือสำเนาที่สองของเครื่องสถานะ
+  check("หน้าเว็บไม่ถือลำดับขั้นเอง", !/step: 1, short:/.test(ui));
+
+  const trackRaw = readFileSync(join(root, "src/pages/hr/StageTrack.tsx"), "utf8");
+  // ตัดคอมเมนต์ทิ้งก่อน — ไม่งั้นชื่อโมดูลที่ถูกเอ่ยถึงในคอมเมนต์จะถูกนับว่า
+  // เป็นการ import จริง (พลาดมาแล้วตอนเขียนครั้งแรก)
+  const track = trackRaw.split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n");
+  check("แถบวาดจาก track ที่ได้มา", /track\.map\(\(st, i\)/.test(track));
+  check("ขั้นกดได้เฉพาะที่อยู่ใน row.next", /const can = row\.next\.includes\(st\.key\)/.test(track));
+  check("ขั้นที่กดไม่ได้ถูก disable", /disabled=\{!can \|\| busy\}/.test(track));
+  check("ทางออกด้านข้างมาจาก row.next", /row\.next\.filter\(\(k\) => !track\.some/.test(track));
+  check("ใบนอกสายไม่ระบายแถบ",
+    /const offtrack = at === 0/.test(track) && /!offtrack && at > st\.step/.test(track));
   check("ขั้นปัจจุบันไม่นับว่าทำเสร็จแล้ว",
-    /const done = !offtrack && at > st\.step;/.test(ui) && !/at >= st\.step/.test(ui));
-  // สามสภาพต้องต่างกันตั้งแต่ยังไม่ชี้เมาส์ — เส้นประคือสภาพ "ไปได้"
+    /const done = !offtrack && at > st\.step;/.test(track) && !/at >= st\.step/.test(track));
   check("ขั้นที่ไปได้ต่างจากขั้นที่ไปไม่ได้โดยไม่ต้องชี้เมาส์",
-    /can\s*\n?\s*\?\s*'bg-white border-dashed/.test(ui));
+    /can\s*\n?\s*\?\s*'bg-white border-dashed/.test(track));
+
+  // **ไม่มี track ต้องถอยไปเป็นแถวปุ่มเดิม ห้ามคืน null** — hosting ขึ้นก่อน
+  // functions เสมอ ช่วงนั้นหน้าใหม่คุยกับ callable ตัวเก่าที่ไม่ส่ง track มา
+  // (เกิดขึ้นจริงตอน deploy #682: ช่องว่าง 10 นาทีที่แอดมินไม่มีปุ่มเลย)
+  check("ไม่มี track แล้วไม่คืน null", !/if \(!track\.length\) return null/.test(track));
+  check("แถบอยู่คนละไฟล์กับตัวที่ import firebase (เทสจึงเรียกได้จริง)",
+    !/api\/firebase/.test(track));
+}
+
+// ── 24. เทสเชิงพฤติกรรมของแถบมีอยู่จริงและถูกรันโดย npm test ──────────────
+{
+  const t = readFileSync(join(root, "src/pages/hr/stageTrack.test.tsx"), "utf8");
+  check("SSR คอมโพเนนต์จริง ไม่ใช่หาข้อความในซอร์ส", /renderToStaticMarkup\(/.test(t));
+  check("มีเคส fallback ตอนไม่มี track", /render\(\[\], next, 2\)/.test(t));
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : `${fail} FAILED`} (${pass} passed)`);
