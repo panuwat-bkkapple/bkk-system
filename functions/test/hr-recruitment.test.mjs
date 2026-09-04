@@ -55,6 +55,32 @@
 //  39   ถอดช่องโน้ตออกจากแถว                              เขียว* → แก้เทสแล้วแดง
 //  40   publicApplication ส่งใบสมัครทั้งก้อน               แดง
 //
+// รอบสาม (แถบความคืบหน้า — stepper)
+//
+//   #   ทำลายอะไร                                       ผล
+//  41   step ของ offer/accepted สลับกัน                  แดง 2
+//  42   ถอยกลับข้ามขั้นได้ (accepted → interview)         แดง 2
+//  43   rejected ขึ้นแถบ (ระบายเต็มให้ใบที่ถูกปฏิเสธ)      แดง 6
+//  44   ถอด sort ออกจาก buildTrack                        เขียว* → แก้เทสแล้วแดง
+//  45   callable ไม่ส่ง track / track_step                เขียว* → แก้เทสแล้วแดง
+//  46   ทุกขั้นกดได้ (ไม่ดู row.next)                      แดง 2
+//  47   ใบนอกสายระบายแถบเต็ม                              แดง
+//  48   หน้าเว็บถือลำดับขั้นเอง                            แดง
+//
+// (*) ข้อ 44 **เทสเห็นด้วยกับตัวเอง**: `Object.entries` คืนตามลำดับที่ประกาศ
+// ซึ่งใน STAGES บังเอิญตรงกับ `step` อยู่แล้ว ถอด `.sort()` ออกจึงไม่มีอะไร
+// เปลี่ยน — แต่ path ไปถึงมันมีจริง (คนเพิ่มขั้นใหม่จะพิมพ์ต่อท้าย object)
+// จึงแยก `buildTrack(stages)` ออกมาแล้วป้อน stages ที่ประกาศสลับลำดับเข้าไป
+// (*) ข้อ 45 **เป็นเทสว่าง**: ไม่มี assertion ไหนดูว่า callable ส่งลำดับขั้น
+// ออกไปเลย เพิ่มแล้ว
+//
+// **สองบั๊กที่ไม่มีข้อไหนจับได้ และเจอจากการเรนเดอร์ออกมาดูด้วยตา:**
+//   - `done = at >= st.step` ทำให้**ขั้นที่ใบยืนอยู่ขึ้นเครื่องหมายถูก** แถบ
+//     จึงอ่านว่า "เสร็จหมดแล้ว" ทั้งที่ใบยังค้างอยู่ตรงนั้น
+//   - ขั้นที่ไปได้กับขั้นที่ไปไม่ได้เป็นสีเทาเหมือนกันตอนไม่ได้ชี้เมาส์ —
+//     หน้าจอที่มีไว้ตอบว่า "ทำอะไรต่อได้" ตอบไม่ได้จนกว่าจะเอาเมาส์ไล่ชี้
+//   ทั้งคู่ผ่านทุกด่านอัตโนมัติ ตรึงเพิ่มไว้แล้วในข้อ 23
+//
 // (*) ข้อ 39 **เป็นเทสว่าง** — เดิมเช็คแค่ว่าไฟล์มีสตริง `adminHrApplicationNote`
 // ซึ่งยังจริงทั้งตอนถอด `<NoteEditor>` ออกจากแถว (นิยามคอมโพเนนต์ยังอยู่) และ
 // ตอนเปลี่ยนชื่อเป็น `adminHrApplicationNoteX` (substring ยังตรง) แก้เป็นเทียบ
@@ -209,7 +235,9 @@ const ok = (from, to) => r.canTransition(from, to).ok;
   const ui = readFileSync(join(root, "src/pages/hr/Recruitment.tsx"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .split("\n").map((l) => l.replace(/^\s*\/\/.*$/, "")).join("\n");
-  check("หน้าเว็บ render ปุ่มจาก row.next", /row\.next\.map/.test(ui));
+  // ปุ่มเรียงกันถูกแทนด้วยแถบความคืบหน้าแล้ว — การพิสูจน์ว่า "หน้าเว็บไม่ตั้ง
+  // กติกาเอง" ย้ายไปอยู่ข้อ 23 (กดได้เฉพาะที่อยู่ใน row.next)
+  check("หน้าเว็บอ่านขั้นที่ไปได้จาก row.next", /row\.next\.includes\(/.test(ui));
   // เครื่องสถานะมีสำเนาเดียว — ลิสต์ที่ hardcode ฝั่ง client คือสำเนาที่สอง
   check("หน้าเว็บไม่ถือลำดับสถานะเอง",
     !/'reviewing'\s*,\s*'interview'/.test(ui) && !/ALLOWED/.test(ui));
@@ -258,6 +286,11 @@ const ok = (from, to) => r.canTransition(from, to).ok;
   // อ่านตาม index ไม่กวาดทั้งโหนด (กฎค่า RTDB)
   check("อ่านใบสมัครตาม index created_at",
     /orderByChild\("created_at"\)\.limitToLast\(MAX_APPLICATIONS\)/.test(src));
+
+  // แถบความคืบหน้าจะวาดไม่ได้เลยถ้า callable ไม่ส่งลำดับขั้นกับตำแหน่งออกไป
+  // (ถอดสองบรรทัดนี้แล้วเทสยังเขียวใน injection ข้อ 5 — เทสว่าง แก้แล้ว)
+  check("list ส่งลำดับขั้นออกไป", /\n      track: TRACK,/.test(src));
+  check("แต่ละใบส่งตำแหน่งบนแถบออกไป", /track_step: trackStepOf\(a\)/.test(src));
 
   // ส่งออกเฉพาะฟิลด์ที่ตั้งใจ ไม่ใช่ทั้งก้อน
   const pub = src.slice(src.indexOf("function publicApplication"), src.indexOf("async function migrateLegacyNotes"));
@@ -439,6 +472,83 @@ const ok = (from, to) => r.canTransition(from, to).ok;
   // ระบบไม่ได้บันทึกการเปิดอ่าน การเขียนแบบนั้นคืออ้างสิ่งที่ไม่ได้เก็บ
   check("ไม่อ้างว่ารู้ว่าใครเปิดดูแล้วบ้าง", !/ยังไม่มีใครเปิดดู/.test(ui));
   check("บอกว่านับจากสถานะ", /นับจากสถานะ/.test(ui));
+}
+
+// ── 21. แถบความคืบหน้า (stepper) — ลำดับขั้นอยู่ฝั่ง server ────────────────
+// หน้าเว็บวาดแถบจากค่าที่ server ส่งมา ถ้าให้มันถือ array เองก็ได้สำเนาที่สอง
+// ของเครื่องสถานะ และวันที่ ALLOWED เปลี่ยน แถบจะยังวาดตามลำดับเก่าเงียบๆ
+{
+  eq("ลำดับขั้นบนแถบ", r.TRACK.map((t) => t.key),
+    ["new", "reviewing", "interview", "offer", "accepted", "hired"]);
+  check("เรียงตาม step จริง", r.TRACK.every((t, i) => i === 0 || t.step > r.TRACK[i - 1].step));
+  // ป้อน stages ที่ประกาศสลับลำดับ — ไปให้ถึงบรรทัด sort จริงๆ ไม่ใช่พึ่ง
+  // ลำดับที่ประกาศใน STAGES ซึ่งบังเอิญตรงอยู่แล้ว (injection ข้อ 4)
+  eq("เรียงให้แม้ประกาศสลับลำดับ",
+    r.buildTrack({
+      hired: { short: "จ", label: "จ้างแล้ว", step: 6 },
+      new: { short: "ห", label: "ใหม่", step: 1 },
+      rejected: { short: "ผ", label: "ไม่ผ่าน", offtrack: true },
+      interview: { short: "ส", label: "สัมภาษณ์", step: 3 },
+    }).map((t) => t.key),
+    ["new", "interview", "hired"]);
+  check("ทุกขั้นมีคำสั้นสำหรับแถบ", r.TRACK.every((t) => typeof t.short === "string" && t.short.length > 0));
+  check("คำสั้นสั้นกว่าหรือเท่าป้ายเต็มเสมอ",
+    r.TRACK.every((t) => t.short.length <= r.STAGES[t.key].label.length));
+
+  // ทางออกด้านข้างไม่มีตำแหน่งบนสาย — ยัดลงแถบเมื่อไหร่ต้องแต่งขั้นที่ไม่เคยมี
+  for (const k of ["rejected", "declined", "approved"]) {
+    check(`${k} ไม่อยู่บนแถบ`, !r.TRACK.some((t) => t.key === k));
+    eq(`${k} ได้ขั้น 0 (แถบไม่เดิน)`, r.trackStepOf({ status: k }), 0);
+  }
+  // **แถบต้องไม่เดินไปสุดให้ใบที่ถูกปฏิเสธ** — การระบายเต็มคือการบอกว่ามันไป
+  // ถึงปลายทางแล้ว ซึ่งตรงข้ามกับความจริง
+  check("ใบที่ถูกปฏิเสธไม่ได้ขั้นสูงสุด", r.trackStepOf({ status: "rejected" }) < r.TRACK[r.TRACK.length - 1].step);
+  eq("ใบที่จ้างแล้วอยู่ขั้นสุดท้าย", r.trackStepOf({ status: "hired" }), r.TRACK.length);
+  eq("ใบใหม่อยู่ขั้นแรก", r.trackStepOf({ status: "new" }), 1);
+  eq("ใบที่ไม่มีสถานะอยู่ขั้นแรก", r.trackStepOf({}), 1);
+}
+
+// ── 22. ตัวเลขขั้นต้องไม่ขัดกับเครื่องสถานะ ───────────────────────────────
+// **นี่คือด่านที่ทำให้ `step` โกหกไม่ได้** — ค่าที่ตั้งมั่วจะยังวาดแถบออกมาสวย
+// เหมือนเดิม สิ่งเดียวที่จับได้คือการเทียบกับ ALLOWED ซึ่งเป็นกติกาจริง
+//
+// กติกาที่เขียนไว้ในโค้ดคือ "ถอยกลับได้หนึ่งขั้น" — ถอยต้องเป็น -1 เป๊ะ ส่วน
+// เดินหน้าข้ามขั้นได้ (new → interview นัดสัมภาษณ์เลยโดยไม่ต้องผ่านการตรวจ)
+{
+  const stepOf = (k) => r.trackStepOf({ status: k });
+  const onTrack = (k) => r.TRACK.some((t) => t.key === k);
+  let back = 0, fwd = 0;
+  for (const [from, tos] of Object.entries(r.ALLOWED)) {
+    if (!onTrack(from)) continue;
+    for (const to of tos) {
+      if (!onTrack(to)) continue;
+      const d = stepOf(to) - stepOf(from);
+      if (d < 0) { back++; check(`ถอย ${from} → ${to} ได้ทีละหนึ่งขั้น (${d})`, d === -1); }
+      else { fwd++; check(`เดินหน้า ${from} → ${to} ไปข้างหน้าจริง (+${d})`, d >= 1); }
+    }
+  }
+  check(`มีทั้งขาไปและขากลับให้ตรวจ (ไป ${fwd} · กลับ ${back})`, fwd >= 5 && back >= 3);
+}
+
+// ── 23. หน้าเว็บวาดแถบจาก server และกดได้เฉพาะที่ next อนุญาต ─────────────
+{
+  const ui = readFileSync(join(root, "src/pages/hr/Recruitment.tsx"), "utf8");
+  check("ลำดับขั้นมาจาก server", /data\?\.track \|\| \[\]/.test(ui));
+  check("วาดแถบจาก track ที่ได้มา", /track\.map\(\(st, i\)/.test(ui));
+  // แถบเป็นหน้าตาใหม่ของปุ่มชุดเดิม ไม่ใช่กติกาชุดที่สอง
+  check("ขั้นกดได้เฉพาะที่อยู่ใน row.next", /const can = row\.next\.includes\(st\.key\)/.test(ui));
+  check("ขั้นที่กดไม่ได้ถูก disable", /disabled=\{!can \|\| busy\}/.test(ui));
+  check("ทางออกด้านข้างมาจาก row.next", /row\.next\.filter\(\(k\) => !track\.some/.test(ui));
+  // ใบนอกสายต้องไม่ระบายเต็ม
+  check("ใบนอกสายไม่ระบายแถบ", /const offtrack = at === 0/.test(ui) && /!offtrack && at > st\.step/.test(ui));
+  // **ขั้นที่ยืนอยู่ต้องไม่ถูกนับว่าทำเสร็จแล้ว** — `>=` ทำให้ขั้นปัจจุบันขึ้น
+  // เครื่องหมายถูก แถบเลยอ่านว่าเสร็จหมดทั้งที่ใบยังค้างอยู่ตรงนั้น (เจอจาก
+  // การเรนเดอร์จริง ไม่ใช่จากเทส)
+  check("ขั้นปัจจุบันไม่นับว่าทำเสร็จแล้ว",
+    /const done = !offtrack && at > st\.step;/.test(ui) && !/at >= st\.step/.test(ui));
+  // สามสภาพต้องต่างกันตั้งแต่ยังไม่ชี้เมาส์ — เส้นประคือสภาพ "ไปได้"
+  check("ขั้นที่ไปได้ต่างจากขั้นที่ไปไม่ได้โดยไม่ต้องชี้เมาส์",
+    /can\s*\n?\s*\?\s*'bg-white border-dashed/.test(ui));
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : `${fail} FAILED`} (${pass} passed)`);

@@ -14,15 +14,25 @@
 // แล้วเงียบกับใบที่ตกลงแล้วรอเริ่มงานจะหน้าตาเหมือนกัน
 // =============================================================================
 
+// `step` = ตำแหน่งบนแถบความคืบหน้า (stepper) ที่หน้าเว็บวาด · `short` = คำสั้น
+// ที่ใช้บนแถบนั้น (ป้ายเต็มยาวเกินไปเมื่อวางเรียงกันหกขั้น)
+//
+// **ลำดับขั้นอยู่ที่นี่ ไม่ใช่ที่หน้าเว็บ** — หน้าเว็บวาดแถบจากค่าที่ server ส่ง
+// มา ถ้าให้มันถือ array ของตัวเองก็จะได้สำเนาที่สองของเครื่องสถานะทันที และ
+// วันที่ ALLOWED เปลี่ยน แถบจะยังวาดตามลำดับเก่าโดยไม่มีอะไรเตือน
+//
+// **`offtrack` ไม่ใช่ terminal** — `rejected`/`declined` เป็นทางออกด้านข้างที่
+// ปิดสายด้วย ส่วน `approved` เป็นค่าเก่าที่ยังเดินต่อได้แต่**ไม่มีตำแหน่งบนสาย
+// วันนี้** การยัดมันลงขั้นใดขั้นหนึ่งคือการแต่งตำแหน่งที่ไม่เคยมีจริง
 const STAGES = {
-  new: { label: "ใหม่", tone: "red" },
-  reviewing: { label: "กำลังตรวจสอบ", tone: "amber" },
-  interview: { label: "นัดสัมภาษณ์", tone: "blue" },
-  offer: { label: "ยื่นข้อเสนอแล้ว", tone: "violet" },
-  accepted: { label: "ตอบรับแล้ว รอเริ่มงาน", tone: "teal" },
-  hired: { label: "จ้างแล้ว", tone: "emerald", terminal: true },
-  rejected: { label: "ไม่ผ่าน", tone: "gray", terminal: true },
-  declined: { label: "ผู้สมัครปฏิเสธ", tone: "gray", terminal: true },
+  new: { label: "ใหม่", short: "ใหม่", tone: "red", step: 1 },
+  reviewing: { label: "กำลังตรวจสอบ", short: "ตรวจสอบ", tone: "amber", step: 2 },
+  interview: { label: "นัดสัมภาษณ์", short: "สัมภาษณ์", tone: "blue", step: 3 },
+  offer: { label: "ยื่นข้อเสนอแล้ว", short: "ข้อเสนอ", tone: "violet", step: 4 },
+  accepted: { label: "ตอบรับแล้ว รอเริ่มงาน", short: "ตอบรับ", tone: "teal", step: 5 },
+  hired: { label: "จ้างแล้ว", short: "จ้างแล้ว", tone: "emerald", step: 6, terminal: true },
+  rejected: { label: "ไม่ผ่าน", short: "ไม่ผ่าน", tone: "gray", terminal: true, offtrack: true },
+  declined: { label: "ผู้สมัครปฏิเสธ", short: "ปฏิเสธ", tone: "gray", terminal: true, offtrack: true },
   // ค่าเก่าจากหน้ารีวิวฝั่งเว็บลูกค้า — ข้อมูลที่ลงไปแล้วเปลี่ยนย้อนหลังไม่ได้
   // จึงเป็นสมาชิกถาวรของคำศัพท์ชุดนี้ ไม่ใช่ scaffolding (กฎเดียวกับ
   // LEGACY_ALIAS ใน job-statuses.ts)
@@ -33,7 +43,7 @@ const STAGES = {
   // จึงไปไม่ถึงตลอดกาล ตามกฎ "ด่านที่ไปไม่ถึง ให้ลบ ไม่ใช่ ship"
   // ถ้าวันหนึ่งมีคนเติม "approved" ลง ALLOWED มันจะย้ายไปได้ทันที — เทสข้อ
   // "ย้ายไป approved ไม่ได้" คือตัวที่จะแดง
-  approved: { label: "ผ่าน (ค่าเดิม)", tone: "green", legacy: true },
+  approved: { label: "ผ่าน (ค่าเดิม)", short: "ผ่าน", tone: "green", legacy: true, offtrack: true },
 };
 
 // เดินไปไหนได้บ้าง — เขียนเป็นตารางชัดๆ ไม่ derive จากลำดับ เพราะสายจริงมี
@@ -53,6 +63,32 @@ const ALLOWED = {
   rejected: [],
   declined: [],
 };
+
+/**
+ * ขั้นบนแถบความคืบหน้า เรียงตามลำดับจริง
+ *
+ * derive จาก STAGES ไม่ได้เขียนซ้ำ — ลิสต์ที่พิมพ์เองเป็นครั้งที่สองคือลิสต์ที่
+ * จะไม่ตรงกับ `step` ในวันที่มีคนแก้ค่าใดค่าหนึ่ง
+ */
+function buildTrack(stages) {
+  return Object.entries(stages || {})
+    .filter(([, m]) => m && !m.offtrack && Number.isFinite(m.step))
+    // **การเรียงจำเป็นจริง ห้ามถอด** — `Object.entries` คืนตามลำดับที่ประกาศ
+    // ซึ่งวันนี้บังเอิญตรงกับ `step` พอดี ทำให้ถอด sort ออกแล้วยังเขียว (เจอ
+    // จาก injection ข้อ 4) แต่คนที่เพิ่มขั้นใหม่จะพิมพ์ต่อท้าย object เป็น
+    // ธรรมชาติ แล้วแถบจะวาดผิดลำดับทันทีโดยไม่มีอะไรเตือน — เทสจึงป้อน stages
+    // ที่ประกาศสลับลำดับเข้ามาตรงๆ เพื่อให้ไปถึงบรรทัดนี้
+    .sort((a, b) => a[1].step - b[1].step)
+    .map(([key, m]) => ({ key, step: m.step, short: m.short, label: m.label }));
+}
+
+const TRACK = buildTrack(STAGES);
+
+/** ขั้นที่ใบนี้เดินมาถึง — ใบที่อยู่นอกสายคืน 0 (แถบไม่เดิน ไม่ใช่เดินไปสุด) */
+function trackStepOf(app) {
+  const m = STAGES[stageOf(app)];
+  return m.offtrack || !Number.isFinite(m.step) ? 0 : m.step;
+}
 
 const isStage = (s) => Object.prototype.hasOwnProperty.call(STAGES, String(s || ""));
 
@@ -287,7 +323,7 @@ function deletionLogRow(id, app, actor, resumeDeleted, reason) {
 }
 
 module.exports = {
-  STAGES, ALLOWED, isStage, stageOf, canTransition, nextStages, canHire,
+  STAGES, ALLOWED, TRACK, buildTrack, trackStepOf, isStage, stageOf, canTransition, nextStages, canHire,
   employeeDraftFrom, summarize,
   INTERNAL_FIELDS, legacyInternalFields, mergeNotes, canDelete, resumeStoragePath,
   clearInternalOnRow, stageRowUpdate, deletionLogRow,
