@@ -317,6 +317,52 @@ const FAR = { lat: 13.8000, lng: 100.6000, accuracy_m: 12 };
 
   check("ลงทะเบียนใน index.js แล้ว",
     /require\("\.\/hr-attendance-api"\)\.registerHrAttendance\(/.test(read("index.js")));
+
+  // ── ราวกันตกของทั้งแอปพนักงาน: callable ทุกตัวต้องมีด่าน ────────────────
+  //
+  // **บัญชี Firebase Auth ของโปรเจกต์นี้เป็นกองเดียวกันทั้งระบบ** — พนักงาน
+  // ไรเดอร์ ดีลเลอร์ **และลูกค้า** (`createUserWithEmailAndPassword` ที่
+  // `bkk-frontend-next/app/components/loginActions.ts`) ใครก็ตามที่มีบัญชีจึง
+  // ยิง callable เหล่านี้ได้ **หน้าล็อกอินไม่ใช่ด่าน** ด่านคือบรรทัดเดียวที่
+  // ต้นฟังก์ชัน และตัวที่ลืมใส่จะไม่ error อะไรเลย มันจะแค่ตอบข้อมูลให้คนแปลกหน้า
+  //
+  // ตั้งชื่อขึ้นต้น `employee*`/`supervisor*` = ของเจ้าตัว ต้องใช้
+  // `requireEmployeeCaller` · `admin*` = ของฝ่ายบุคคล ต้องใช้ `requireStaffRole`
+  {
+    const files = ["hr-attendance-api.js", "hr-employee-portal.js"];
+    const rows = [];
+    for (const f of files) {
+      const src = strip(read(f));
+      for (const m of src.matchAll(/const (\w+) = onCall\(/g)) {
+        const body = src.slice(m.index, m.index + 900);
+        rows.push({
+          file: f,
+          name: m[1],
+          employeeGate: body.includes("requireEmployeeCaller("),
+          staffGate: body.includes("requireStaffRole("),
+        });
+      }
+    }
+    check(`มี callable ให้ตรวจจริง (พบ ${rows.length})`, rows.length >= 15);
+
+    const ungated = rows.filter((r) => !r.employeeGate && !r.staffGate);
+    check(`ทุก callable มีด่าน (ไม่มีด่าน: ${ungated.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      ungated.length === 0);
+
+    const selfWrong = rows
+      .filter((r) => /^(employee|supervisor)/.test(r.name) && !r.employeeGate);
+    check(`เส้นทางของเจ้าตัวใช้ requireEmployeeCaller ครบ (ผิด: ${selfWrong.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      selfWrong.length === 0);
+
+    const adminWrong = rows.filter((r) => /^admin/.test(r.name) && !r.staffGate);
+    check(`เส้นทางของฝ่ายบุคคลใช้ requireStaffRole ครบ (ผิด: ${adminWrong.map((r) => r.name).join(", ") || "ไม่มี"})`,
+      adminWrong.length === 0);
+
+    // ด่านตัวตนของแอป — ถ้าไม่มีตัวนี้ แอปจะรู้ว่าใครเป็นใครก็ต่อเมื่อยิง
+    // callable ที่อ่านข้อมูลจริง ซึ่งแปลว่าต้องขอสิทธิ์ตำแหน่งไปก่อนแล้ว
+    check("มี employeeMe ไว้ให้แอปตรวจตัวตนก่อนขอสิทธิ์ตำแหน่ง",
+      rows.some((r) => r.name === "employeeMe" && r.employeeGate));
+  }
   check("ฝ่ายบุคคลอ่านของทุกคนได้ผ่าน gate ของ HR",
     /requireStaffRole\(db, request\.auth, HR_ROLES\)/.test(API));
 }

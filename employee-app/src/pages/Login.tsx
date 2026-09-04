@@ -5,7 +5,7 @@ import { auth } from '../firebase';
 
 // เข้าสู่ระบบด้วยบัญชีเดียวกับที่ฝ่ายบุคคลออกให้ตอนเริ่มงาน
 // **แอปนี้ไม่มีทางสมัครเอง** — บัญชีเกิดจากการจ้างเท่านั้น (ดู adminStaffCreate)
-export default function Login() {
+export default function Login({ notice }: { notice?: string | null }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,6 +31,10 @@ export default function Login() {
         <div style={{ fontSize: 12, letterSpacing: '0.18em', opacity: 0.7, fontWeight: 800 }}>BKK APPLE</div>
         <h2>แอปพนักงาน</h2>
         <p>ลงเวลาเข้า-ออกงาน ขอลา และขอเปลี่ยนกะ</p>
+
+        {/* เหตุผลที่เพิ่งถูกเตะออก (เช่น บัญชีนี้ไม่ใช่บัญชีพนักงาน) — ต้องขึ้น
+            ก่อนฟอร์ม ไม่งั้นคนจะกรอกซ้ำแล้วเจอผลเดิมโดยไม่รู้ว่าทำไม */}
+        {notice && <div className="note warn" style={{ marginBottom: 4 }}>{notice}</div>}
 
         <form onSubmit={submit}>
           <label htmlFor="em">อีเมล</label>

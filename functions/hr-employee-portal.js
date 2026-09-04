@@ -67,6 +67,34 @@ function directReports(employees, supervisorEmployeeId) {
 
 function registerHrEmployeePortal() {
   // -------------------------------------------------------------------------
+  // employeeMe — "คนที่ล็อกอินอยู่เป็นพนักงานคนไหน"
+  //
+  // **มีไว้เป็นด่านแรกของแอป ไม่ใช่แค่ไว้โชว์ชื่อ** — บัญชี Firebase Auth ของ
+  // โปรเจกต์นี้เป็นกองเดียวกันทั้งระบบ: พนักงาน ไรเดอร์ ดีลเลอร์ **และลูกค้า**
+  // (เว็บลูกค้ามี `createUserWithEmailAndPassword`) ทุกคนจึงผ่านหน้าล็อกอินของ
+  // แอปพนักงานได้ สิ่งที่กันอยู่คือด่านของ callable ทุกตัว ไม่ใช่หน้าล็อกอิน
+  //
+  // แอปต้องเรียกตัวนี้ **ก่อนขอสิทธิ์ตำแหน่ง** — ไม่งั้นเราจะไปขอพิกัดปัจจุบัน
+  // จากลูกค้าที่บังเอิญกรอกรหัสผ่านของตัวเองเข้ามา ซึ่งเป็นข้อมูลที่เราไม่มี
+  // สิทธิ์ขอตั้งแต่แรก
+  //
+  // อ่านแค่ `employees` + `staff` (ผ่าน `requireEmployeeCaller`) ไม่แตะโหนดอื่น
+  // เพราะมันถูกเรียกทุกครั้งที่เปิดแอป
+  // -------------------------------------------------------------------------
+  const employeeMe = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { id, employee } = await requireEmployeeCaller(db, request.auth);
+    return {
+      id,
+      name: employee.name || null,
+      employee_code: employee.employee_code || null,
+      position: employee.position || null,
+      photo_url: employee.photo_url || null,
+      status: employee.status || null,
+    };
+  });
+
+  // -------------------------------------------------------------------------
   // employeeLeaveList — ใบลาของตัวเอง + ยอดคงเหลือ
   // -------------------------------------------------------------------------
   const employeeLeaveList = onCall({ region: REGION }, async (request) => {
@@ -320,6 +348,7 @@ function registerHrEmployeePortal() {
   });
 
   return {
+    employeeMe,
     employeeLeaveList,
     employeeLeavePreview,
     employeeLeaveCreate,
