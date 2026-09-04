@@ -1,7 +1,7 @@
 // src/pages/hr/EmployeeFiles.tsx
 //
 // ตัวเรนเดอร์แฟ้มเอกสารพนักงาน — **ไม่ import firebase** เพื่อให้ SSR ในเทสได้
-// จริง (รูปเดียวกับ `StageTrack` และ `EmployeeTimeline`) ทุกการกระทำส่งออกไป
+// จริง (รูปเดียวกับ `StageTrack` และ `EmployeeHistory`) ทุกการกระทำส่งออกไป
 // เป็น callback ให้โมดอลใน `EmployeeRegister` เป็นคนยิง callable
 //
 // **ป้ายชนิดเอกสารทั้งหมดมาจาก `checklist` ที่ server ส่งมา** ไฟล์นี้ไม่มีตาราง

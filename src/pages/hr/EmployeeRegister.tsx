@@ -23,13 +23,13 @@ import {
   FileText, Printer, Ban, AlertTriangle, Clock, FolderClosed, CalendarDays, Check,
 } from 'lucide-react';
 // ตัวเรนเดอร์ไทม์ไลน์อยู่ไฟล์แยกและไม่ import firebase — เทสเรนเดอร์ได้จริง
-import { EmployeeTimeline, TimelineHeading } from './EmployeeTimeline';
+import { EmployeeHistoryView, HistoryHeading } from './EmployeeHistory';
+import type { EmployeeHistoryData } from './employeeHistoryView';
 // การนับวันลาทั้งหมดอยู่ฝั่ง server — ไฟล์นี้แค่แปลงตัวเลขที่ได้มาให้อ่านออก
 import {
   balanceText, needsAttention, leaveSummary, statusTone, STATUS_LABEL,
   type LeaveBalance, type LeaveRequestRow,
 } from './employeeLeave';
-import type { TimelineEvent } from './employeeTimeline';
 import { EmployeeFilesPanel, FilesSummary } from './EmployeeFiles';
 import { SsoBadge } from './SsoBadge';
 import type { SsoState } from './SsoBadge';
@@ -410,7 +410,7 @@ export const EmployeeRegister = () => {
         <DocumentsModal employee={docsFor} onClose={() => setDocsFor(null)} />
       )}
       {historyFor && (
-        <TimelineModal employee={historyFor} onClose={() => setHistoryFor(null)} />
+        <HistoryModal employee={historyFor} onClose={() => setHistoryFor(null)} />
       )}
       {filesFor && (
         <FilesModal employee={filesFor} onClose={() => setFilesFor(null)} />
@@ -450,27 +450,20 @@ interface DocsResult {
 // เลื่อนตำแหน่ง ปรับเงินเดือน เปลี่ยนสถานะ หรือผูก/ถอนบัญชี และ callable
 // `adminHrEmployeeEvents` ก็มีมาตลอด สิ่งที่ขาดคือหน้าจอ ไม่ใช่ข้อมูล
 //
-// ตัวเรนเดอร์อยู่ `EmployeeTimeline.tsx` ซึ่งรับ items ทางพร็อพและไม่ import
+// ตัวเรนเดอร์อยู่ `EmployeeHistory.tsx` ซึ่งรับข้อมูลทางพร็อพและไม่ import
 // firebase — เทสจึงเรนเดอร์ได้จริง ไฟล์นี้ทำแค่โหลดข้อมูลกับกรอบโมดอล
 // ---------------------------------------------------------------------------
-const TimelineModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
+const HistoryModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
   const toast = useToast();
-  const [items, setItems] = useState<TimelineEvent[]>([]);
-  const [capped, setCapped] = useState(false);
+  const [data, setData] = useState<EmployeeHistoryData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await call<{ items: TimelineEvent[]; capped?: boolean }>(
-          'adminHrEmployeeEvents', { employeeId: employee.id },
-        );
-        if (cancelled) return;
-        setItems(res.items || []);
-        // `capped` เพิ่งเพิ่มฝั่ง server — callable ตัวเก่าไม่ส่งมา ต้องไม่พัง
-        // และต้องไม่ขึ้นแบนเนอร์เตือนมั่ว (hosting ขึ้นก่อน functions เสมอ)
-        setCapped(res.capped === true);
+        const res = await call<EmployeeHistoryData>('adminHrEmployeeHistory', { employeeId: employee.id });
+        if (!cancelled) setData(res);
       } catch (e) {
         if (!cancelled) toast.error(e instanceof Error ? e.message : 'โหลดประวัติไม่สำเร็จ');
       } finally {
@@ -486,7 +479,7 @@ const TimelineModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = 
       <div className="bg-white rounded-2xl w-full max-w-lg my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
           <div>
-            <h2 className="font-black text-gray-800"><TimelineHeading /></h2>
+            <h2 className="font-black text-gray-800"><HistoryHeading /></h2>
             <p className="text-xs text-gray-400 mt-0.5">
               {employee.name} <span className="font-mono">{employee.employee_code}</span>
             </p>
@@ -494,7 +487,13 @@ const TimelineModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = 
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
         <div className="p-5">
-          <EmployeeTimeline items={items} capped={capped} loading={loading} />
+          <EmployeeHistoryView data={data} loading={loading} />
+        </div>
+        <div className="px-5 pb-4">
+          <p className="text-[11px] text-gray-400">
+            รายการ &quot;ใครแก้อะไรเมื่อไหร่&quot; ย้ายไปอยู่ที่บันทึกการแก้ไข (audit log) แล้ว —
+            หน้านี้ตอบเรื่องของตัวพนักงาน ไม่ใช่ประวัติการกดปุ่ม
+          </p>
         </div>
       </div>
     </div>
