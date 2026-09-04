@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
@@ -159,6 +160,21 @@ check("the lot's own index is what the query needs — pinned so nobody renames 
   // existence query into a full-node download.
   const out = buildUnpackChildren({ job: lot(), jobId: "P", keys: ["c1"], now: 1 });
   assert.ok("parent_b2b_id" in out["jobs/c1"]);
+});
+
+check("the unpack callable's own role table matches the engine's reach", () => {
+  // `unpackB2BLot` gates on staff role BEFORE it ever calls the engine, so it
+  // is a SECOND copy of the same rule. When finance was opened up, missing
+  // this one would have left exactly one B2B button broken — the hardest
+  // shape of bug to trace back to a permission change.
+  const src = fs.readFileSync(path.join(root, "functions/b2b-unpack.js"), "utf8");
+  const table = src.match(/const ROLE_ACTOR = \{([\s\S]*?)\}/);
+  assert.ok(table, "role table not found");
+  for (const role of ["CEO", "MANAGER", "STAFF", "FINANCE"]) {
+    assert.match(table[1], new RegExp(`\\b${role}\\s*:`), `${role} missing from the unpack role table`);
+  }
+  // RIDER must not be in it: a rider has no reason to close a corporate lot.
+  assert.doesNotMatch(table[1], /\bRIDER\s*:/);
 });
 
 if (failures > 0) {
