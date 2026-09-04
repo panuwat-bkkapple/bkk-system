@@ -68,10 +68,12 @@ function approvalsFromHistory(history) {
   const rows = history && typeof history === "object" ? Object.values(history) : [];
   const latest = new Map();
   for (const h of rows) {
-    if (!h || !APPROVAL_LABEL[h.action]) continue;
+    if (!h) continue;
     const prev = latest.get(h.action);
     if (!prev || Number(h.at) > Number(prev.at)) latest.set(h.action, h);
   }
+  // การกรองว่า "ขั้นไหนนับเป็นการอนุมัติ" อยู่ที่บรรทัดถัดไปที่เดียว —
+  // เคยมี if กรองซ้ำในลูปข้างบน injection ถอดออกแล้วเขียว = ด่านที่ไปไม่ถึง ลบ
   return Object.keys(APPROVAL_LABEL)
     .filter((k) => latest.has(k))
     .map((k) => ({ action: k, label: APPROVAL_LABEL[k], by: latest.get(k).by_name || "", at: Number(latest.get(k).at) || 0 }));
