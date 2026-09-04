@@ -88,6 +88,8 @@ const DEFAULT_PAYROLL = {
   prorate_divisor: 30,
 };
 
+const { payrollReadiness } = require("./hr-compliance");
+
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const num = (v, fallback = 0) => {
@@ -458,13 +460,20 @@ function buildPayrollItem({ employee, priv, config, period, input }) {
 
   const deductTotal = round2(deductions.reduce((s, d) => s + num(d.amount, 0), 0));
 
-  // ช่องทางจ่ายมาจาก "มีเลขบัญชีไหม" ไม่ใช่ฟิลด์ที่ต้องมากรอกซ้ำ
+  // **ช่องทางจ่ายมาจากสิ่งที่ประกาศไว้ ไม่ใช่จากการมี/ไม่มีเลขบัญชี**
+  //
+  // ของเดิมเดาว่า "ไม่มีเลขบัญชี = เงินสด" ซึ่งทำให้คนที่ควรได้รับโอนแต่ข้อมูล
+  // ยังไม่ครบ ตกไปอยู่ถังเงินสดเงียบๆ แล้วยอดในสรุปก็ดูสมเหตุสมผลทุกประการ
+  // จนไปตายตอนโอนจริง — ตอนนี้กรณีนั้นกลายเป็น `incomplete` ที่กันการอนุมัติ
   //
   // เก็บเลขบัญชีแบบ mask เท่านั้นในบรรทัดนี้ — เลขเต็มอยู่ที่ employees_private
   // ที่เดียว การก๊อปมาไว้ในทุกรอบทุกเดือนคือการเพิ่มที่ที่ข้อมูลธนาคารอยู่
   // โดยไม่ได้เพิ่มความสามารถอะไร (ตอนทำไฟล์โอนจริงค่อยอ่านจากต้นทาง)
   const account = String((p.bank && p.bank.account) || "").replace(/\s|-/g, "");
-  const payMethod = account ? "transfer" : "cash";
+  const ready = payrollReadiness({ employee: emp, priv: p, now: period.to || Date.now() });
+  const payMethod = ready.pay_method;
+  // เรื่องเงินมาก่อน: ถ้ายังคิดยอดไม่ได้ ให้ข้อความนั้นชนะข้อความเรื่องบัญชี
+  incomplete = incomplete || ready.blocking;
 
   return {
     employee_id: emp.id || null,
@@ -496,6 +505,10 @@ function buildPayrollItem({ employee, priv, config, period, input }) {
     days_worked: inp.days_worked == null ? null : num(inp.days_worked, 0),
     note: String(inp.note || "").slice(0, 300) || null,
     incomplete,
+    // **แยกจาก `incomplete` โดยตั้งใจ** — เรื่องที่ต้องรู้แต่ไม่ได้ทำให้สลิปใบนี้
+    // ผิด (เช่น ยังไม่ขึ้นทะเบียน ปกส.) ต้องไม่กันการจ่ายเงินเดือนของทั้งบริษัท
+    // ดูเหตุผลเต็มที่หัวไฟล์ hr-compliance.js
+    warnings: ready.warnings,
   };
 }
 
@@ -517,6 +530,8 @@ function summarizeRun(items) {
     transfer: round2(list.filter((i) => i.pay_method !== "cash").reduce((s2, i) => s2 + num(i.net, 0), 0)),
     cash: round2(list.filter((i) => i.pay_method === "cash").reduce((s2, i) => s2 + num(i.net, 0), 0)),
     incomplete: list.filter((i) => i.incomplete).length,
+    // นับ "คน" ไม่ใช่ "จำนวนคำเตือน" — ตัวเลขนี้ไปขึ้นบนหัวรอบว่ามีกี่คนที่ต้องตาม
+    warned: list.filter((i) => Array.isArray(i.warnings) && i.warnings.length).length,
   };
 }
 

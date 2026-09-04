@@ -113,7 +113,10 @@ check("ข้ามปีตามเวลาไทยไม่ใช่ UTC",
   check("bank ไม่ปล่อยคีย์แปลกปลอม", Object.keys(value.bank).sort().join(",") === "account,account_name,name");
   check("emergency_contact ไม่ปล่อยคีย์แปลกปลอม",
     Object.keys(value.emergency_contact).sort().join(",") === "name,phone,relation");
-  check("pay ไม่ปล่อยคีย์แปลกปลอม", Object.keys(value.pay).sort().join(",") === "allowances,base_salary,daily_rate");
+  check("pay ไม่ปล่อยคีย์แปลกปลอม",
+    Object.keys(value.pay).sort().join(",") === "allowances,base_salary,daily_rate,pay_method");
+  // ช่องทางจ่ายเป็น **การประกาศ** — ไม่ระบุ = โอน ไม่ใช่เงินสด (hr-compliance.js)
+  check("ไม่ระบุช่องทางจ่าย = โอน", value.pay.pay_method === "transfer");
   check("allowances แต่ละแถวไม่ปล่อยคีย์แปลกปลอม",
     Object.keys(value.pay.allowances[0]).sort().join(",") === "amount,label,recurring,taxable");
   check("ฟิลด์บนสุดที่ไม่รู้จักถูกทิ้ง", !("unknown_top_level" in value));

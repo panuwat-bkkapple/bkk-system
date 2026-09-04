@@ -163,9 +163,14 @@ check("ปิดประกันสังคมได้", computeSso(15000, {
 
 // ── 7. หนึ่งบรรทัดของรอบ ───────────────────────────────────────────────────
 const P = { ...periodBounds(2026, 9, 20), periods: 12 };
+// **fixture มีเลขบัญชีเป็นค่าตั้งต้น** — ตั้งแต่ ก.ย. 2569 ช่องทางจ่ายเป็นการ
+// ประกาศ (ค่าตั้งต้น = โอน) คนที่ตั้งเป็นโอนแต่ไม่มีเลขบัญชีจะติด `incomplete`
+// ซึ่งตั้งใจ ดังนั้นพนักงานสมมติที่ "ปกติ" ต้องมีเลขบัญชี ไม่งั้นทุกเทสในไฟล์นี้
+// จะวัดเคสผิดพลาดแทนที่จะวัดการคิดเงิน (ดู hr-compliance.js)
+const ACCOUNT = { name: "SCB", account: "1234567890", account_name: "A" };
 const monthly = (base, priv, emp, input) => buildPayrollItem({
   employee: { id: "e1", name: "A", employee_code: "EMP-2569-0001", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1), ...(emp || {}) },
-  priv: { pay: { base_salary: base, allowances: [] }, ...(priv || {}) },
+  priv: { pay: { base_salary: base, allowances: [] }, bank: ACCOUNT, ...(priv || {}) },
   config: CFG, period: P, input: input || {},
 });
 {
@@ -214,7 +219,7 @@ const monthly = (base, priv, emp, input) => buildPayrollItem({
 // ── 8. รายวัน ──────────────────────────────────────────────────────────────
 const daily = (rate, input) => buildPayrollItem({
   employee: { id: "d1", name: "D", employment_type: "daily" },
-  priv: { pay: { daily_rate: rate } }, config: CFG, period: P, input: input || {},
+  priv: { pay: { daily_rate: rate }, bank: ACCOUNT }, config: CFG, period: P, input: input || {},
 });
 {
   const i = daily(500);
@@ -335,8 +340,22 @@ const daily = (rate, input) => buildPayrollItem({
     employee: { id: "c1", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1) },
     priv: { pay: { base_salary: 20000 } }, config: CFG, period: P, input: {},
   });
-  eq("ไม่มีเลขบัญชี = จ่ายเงินสด", i.pay_method, "cash");
+  // **เปลี่ยนพฤติกรรมโดยตั้งใจ (ก.ย. 2569)** — ของเดิมอ่านว่า "ไม่มีเลขบัญชี =
+  // เงินสด" ทำให้คนที่ควรได้รับโอนแต่ข้อมูลยังไม่ครบ ตกไปอยู่ถังเงินสดเงียบๆ
+  // แล้วยอดในสรุปก็ดูสมเหตุสมผล จนไปตายตอนโอนจริง
+  eq("ไม่มีเลขบัญชี = ยังเป็นโอน (ไม่เดาว่าเงินสด)", i.pay_method, "transfer");
+  check("ไม่มีเลขบัญชี = กันการอนุมัติ", Boolean(i.incomplete));
   eq("ไม่มีเลขบัญชี = ไม่มีเลข mask", i.bank_masked, null);
+}
+{
+  // ประกาศว่ารับเงินสดจริง = ผ่านได้โดยไม่ต้องมีเลขบัญชี
+  const i = buildPayrollItem({
+    employee: { id: "c2", employment_type: "monthly", hired_at: bangkokMidnight(2024, 1, 1) },
+    priv: { pay: { base_salary: 20000, pay_method: "cash" }, social_security_no: "1" },
+    config: CFG, period: P, input: {},
+  });
+  eq("ประกาศเงินสด = เงินสด", i.pay_method, "cash");
+  check("ประกาศเงินสด = ไม่กันการอนุมัติ", i.incomplete === null);
 }
 {
   // ต้นทุนบริษัทต้องรวมเงินสมทบฝั่งนายจ้าง — ยอดโอนสุทธิไม่ใช่ต้นทุน
@@ -344,8 +363,8 @@ const daily = (rate, input) => buildPayrollItem({
   const t = summarizeRun([a]);
   eq("ต้นทุนบริษัท = รายได้รวม + สมทบนายจ้าง", t.employer_cost, 20000 + 875);
   check("ต้นทุนบริษัทมากกว่ายอดโอนสุทธิเสมอ", t.employer_cost > t.net);
-  eq("แยกช่องทาง: ไม่มีบัญชี = เงินสด", t.cash, a.net);
-  eq("แยกช่องทาง: โอน = 0", t.transfer, 0);
+  eq("แยกช่องทาง: มีบัญชี = โอน", t.transfer, a.net);
+  eq("แยกช่องทาง: เงินสด = 0", t.cash, 0);
 }
 
 // ── 12d. รายการที่ใช้ประจำ (presets) ───────────────────────────────────────

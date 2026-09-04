@@ -205,6 +205,11 @@ function sanitizeEmployeePrivate(input, { partial = false } = {}) {
       base_salary: money(p.base_salary, "เงินเดือน"),
       daily_rate: money(p.daily_rate, "ค่าแรงรายวัน"),
       allowances,
+      // ช่องทางจ่าย — **เป็นการประกาศ ไม่ใช่การเดาจากการมี/ไม่มีเลขบัญชี**
+      // ของเดิมอ่านว่า "ไม่มีเลขบัญชี = จ่ายเงินสด" ทำให้คนที่ควรได้รับโอนแต่
+      // ข้อมูลยังไม่ครบ ตกไปอยู่ถังเงินสดเงียบๆ แล้วยอดสรุปก็ดูสมเหตุสมผล
+      // (กติกาเต็มอยู่ที่ hr-compliance.js)
+      pay_method: str(p.pay_method).toLowerCase() === "cash" ? "cash" : "transfer",
     };
   }
   return { value: out, errors };
