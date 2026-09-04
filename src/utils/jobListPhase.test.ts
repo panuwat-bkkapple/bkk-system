@@ -5,6 +5,7 @@
 // in a tab instead of vanishing.
 import { describe, it, expect } from 'vitest';
 import { jobListPhaseOf } from './jobListPhase';
+import { isRecededStatus, isTerminal } from '../types/job-statuses';
 
 describe('jobListPhaseOf', () => {
   it('sales tab: fresh and pre-handoff statuses', () => {
@@ -71,5 +72,30 @@ describe('jobListPhaseOf', () => {
     for (const s of ['New B2B Lead', 'PO Issued', 'Pre-Quote Sent', 'garbage', '', null, undefined]) {
       expect(jobListPhaseOf(s as string | null | undefined), String(s)).toBe(null);
     }
+  });
+});
+
+describe("'Reserved' — สถานะที่เพิ่งเข้า enum ใน P3-f", () => {
+  // **นี่คือการเปลี่ยนพฤติกรรม ไม่ใช่ของที่ได้มาฟรี** เดิม Reserved อยู่นอก enum
+  // `normalizeStatus` จึงคืน null แล้วบรรทัด `if (!status) return null` จัดการ
+  // ให้เอง — เครื่องที่ถูกล็อตขายส่งจองไว้จึงไม่อยู่ในแท็บไหนเลย โผล่เฉพาะ
+  // "ทั้งหมด" ทั้งที่พี่น้องของมัน (In Stock / Sold) นั่งอยู่ในแท็บปิดงาน
+  //
+  // พอเข้า enum แล้วมันได้ PHASE.INVENTORY เหมือนกัน → ตกแท็บ "ปิดงาน" ด้วย
+  // ซึ่งคือผลที่ถูกต้อง: ธุรกรรมกับลูกค้าจบไปนานแล้ว เครื่องอยู่ในคลังเรา
+  //
+  // ตรึงไว้เพราะบทเรียน P3-a: ตอนสถานะ B2B เข้า enum มันไหลเข้าแท็บ "เปิดงาน"
+  // ของ B2C โดยไม่มีใครตั้งใจ และสิ่งที่จับได้คือเทส ไม่ใช่คนอ่านโค้ด
+  it('ตกแท็บปิดงานเหมือน In Stock / Sold ไม่ใช่ null เหมือนเดิม', () => {
+    expect(jobListPhaseOf('Reserved')).toBe('closed');
+    expect(jobListPhaseOf('In Stock')).toBe('closed');
+    expect(jobListPhaseOf('Sold')).toBe('closed');
+  });
+
+  it('ไม่ใช่ terminal และไม่จาง — ปลดกลับมาขายได้', () => {
+    // ล็อตที่ถูกยกเลิกคืนเครื่องกลับเป็นสถานะเดิม การทำให้มันจางในลิสต์จะบอก
+    // ว่างานจบแล้วทั้งที่เครื่องยังหมุนอยู่
+    expect(isTerminal('Reserved')).toBe(false);
+    expect(isRecededStatus('Reserved')).toBe(false);
   });
 });
