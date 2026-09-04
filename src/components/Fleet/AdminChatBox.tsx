@@ -5,6 +5,8 @@ import { Send, X, MessageSquare, User, Image as ImageIcon } from 'lucide-react';
 import { uploadImageToFirebase } from '../../utils/uploadImage'; // 🌟 ดึงฟังก์ชันอัปโหลดรูปมาใช้
 import { useToast } from '../../components/ui/ToastProvider';
 import { subscribeJobChats, sendJobChatMessage, markJobChatsRead } from '../../utils/jobChats';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 interface AdminChatBoxProps {
   jobId: string;
@@ -134,7 +136,7 @@ export const AdminChatBox = ({ jobId, onClose, adminName }: AdminChatBoxProps) =
         <div ref={scrollRef} />
       </div>
 
-      {['Pending QC', 'In Stock', 'Paid', 'PAID', 'Completed', 'Returned', 'Closed (Lost)', 'Cancelled'].includes(jobInfo.status) ? (
+      {statusIs(jobInfo, JOB_STATUS.PENDING_QC, JOB_STATUS.IN_STOCK, JOB_STATUS.PAID, JOB_STATUS.COMPLETED, JOB_STATUS.RETURN_CONFIRMED, JOB_STATUS.CLOSED_LOST, JOB_STATUS.CANCELLED) ? (
         <div className="p-4 bg-slate-100 border-t border-slate-200 text-center rounded-b-2xl">
           <span className="text-xs font-bold text-slate-500 flex items-center justify-center gap-2">
             🔒 แชทถูกปิดแล้ว (จบงาน)
