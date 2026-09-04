@@ -15,7 +15,7 @@ import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultC
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
 import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
 import {
-   MAX_QC_PHOTOS, QC_SUPERVISORS, QC_SUBMITTABLE_STATUSES,
+   MAX_QC_PHOTOS, QC_SUPERVISORS, canSubmitQc,
    buildQcFormFromJob, validateQcSubmit, submitQcStation, saveQcPhotosOnly,
    type QcFormState,
 } from '../../utils/qcStation';
@@ -174,7 +174,7 @@ export const MobileQCStation = () => {
    // ---------- ฟอร์มตรวจ (เปิดทับเต็มจอ รวม bottom nav) ----------
    if (selectedJob && qcForm) {
       const gate = getSickwGateStatus(liveJob?.sickw_check);
-      const canSubmit = QC_SUBMITTABLE_STATUSES.includes(selectedJob.status);
+      const canSubmit = canSubmitQc(selectedJob);
       const totalPhotos = existingPhotos.length + photoFiles.length;
       return (
          <div className="fixed inset-0 z-[60] bg-[#F5F5F7] flex flex-col">

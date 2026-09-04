@@ -20,7 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import {
    MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
    validateQcSubmit, submitQcStation, saveQcPhotosOnly,
-   selectQcTodoList, selectQcDoneList,
+   selectQcTodoList, selectQcDoneList, canSubmitQc,
 } from '../../utils/qcStation';
 
 const SUPERVISORS = QC_SUPERVISORS;
@@ -518,7 +518,7 @@ export const QCStation = () => {
                         <div className="p-6 bg-white border-t border-slate-200 flex justify-end gap-4 shadow-2xl">
                            <button onClick={() => setSelectedJob(null)} className="px-6 py-4 rounded-xl font-bold text-slate-400 hover:bg-slate-50 uppercase text-xs tracking-widest">Cancel</button>
                            {/* 🔥 ปุ่มนี้จะฉลาดขึ้นตามสถานะการจ่ายเงิน + ถูก Sickw Gate block ได้ */}
-                           {['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'].includes(selectedJob.status) && (() => {
+                           {canSubmitQc(selectedJob) && (() => {
                               const qcGate = getSickwGateStatus(liveJob?.sickw_check);
                               return (
                                  <button

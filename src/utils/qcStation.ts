@@ -12,8 +12,11 @@ import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
 export const MAX_QC_PHOTOS = 8;
 export const QC_SUPERVISORS = ['Head QC - Somchai', 'Head QC - Wichai'];
 
-// สถานะที่ถือว่าเป็นงานรอตรวจของแผนก QC (ปุ่ม submit โชว์เฉพาะกลุ่มนี้)
-export const QC_SUBMITTABLE_STATUSES = ['Pending QC', 'Waiting for Handover', 'Sent to QC Lab'];
+// สถานะที่ถือว่าเป็นงานรอตรวจของแผนก QC (ปุ่ม submit โชว์เฉพาะกลุ่มนี้) — canonical
+// เท่านั้น ห้าม includes(job.status) ตรงๆ ให้ถามผ่าน canSubmitQc ซึ่ง normalize ก่อน
+export const QC_SUBMITTABLE_STATUSES: string[] = [
+   JOB_STATUS.PENDING_QC, JOB_STATUS.WAITING_FOR_HANDOVER, JOB_STATUS.SENT_TO_QC_LAB,
+];
 
 type QcJobLike = { status?: string | null; receive_method?: string | null; qc_txn_id?: string | null; qc_date?: number | null };
 
@@ -27,6 +30,13 @@ type QcJobLike = { status?: string | null; receive_method?: string | null; qc_tx
 // docs/reports/2026-09-04-qc-station-todo-empty-survey.md)
 export const isAwaitingQcLab = (job: QcJobLike | null | undefined): boolean =>
    normalizeStatus(job?.status, job?.receive_method) === JOB_STATUS.SENT_TO_QC_LAB;
+
+// ปุ่ม submit ของสถานี — เทียบผ่าน normalizeStatus แบบเดียวกับ To Do ไม่งั้นเปิดงาน
+// ที่ engine เขียนได้แต่กดส่งไม่ได้
+export const canSubmitQc = (job: QcJobLike | null | undefined): boolean => {
+   const canonical = normalizeStatus(job?.status, job?.receive_method);
+   return !!canonical && QC_SUBMITTABLE_STATUSES.includes(canonical);
+};
 
 export const selectQcTodoList = <T extends QcJobLike>(jobs: T[]): T[] => jobs.filter(isAwaitingQcLab);
 
