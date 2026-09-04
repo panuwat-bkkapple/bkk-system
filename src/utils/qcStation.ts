@@ -20,6 +20,23 @@ export const QC_SUBMITTABLE_STATUSES: string[] = [
 
 type QcJobLike = { status?: string | null; receive_method?: string | null; qc_txn_id?: string | null; qc_date?: number | null };
 
+// ช่องค้นหาของสถานี ("Scan Barcode / OID / SN...") — substring ไม่สนตัวพิมพ์
+//
+// serial ของงานอยู่ได้สองฟิลด์: `serial` (QC Lab เขียนตอนตรวจเสร็จ / B2B unpack)
+// กับ `device_serial` (แอปไรเดอร์และการตรวจ IMEI ของแอดมินเขียนตอนตรวจหน้างาน —
+// bkk-rider-app RiderApp.tsx, AdminDeviceVerificationModal.tsx). งานที่ *รอ* เข้า
+// แล็บซึ่งคือทุกใบใน To Do จึงมักมีแค่ device_serial — ต้องอ่านทั้งคู่
+// (ไม่ rename ไม่ backfill ฟิลด์ใดทั้งสิ้น)
+const QC_SEARCH_FIELDS = ['model', 'ref_no', 'serial', 'device_serial', 'stock_no', 'qc_txn_id'] as const;
+
+export const matchesQcStationSearch = (job: Record<string, unknown> | null | undefined, term: string): boolean => {
+   const q = term.toLowerCase();
+   return QC_SEARCH_FIELDS.some((field) => {
+      const v = job?.[field];
+      return typeof v === 'string' && v.toLowerCase().includes(q);
+   });
+};
+
 // งานที่รอแผนก QC Lab ตรวจ (แท็บ To Do ของ /qc-station และ /mobile/qc)
 //
 // เทียบผ่าน normalizeStatus ทั้งสองฝั่ง ไม่ใช่ string literal — status engine

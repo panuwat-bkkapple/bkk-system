@@ -8,7 +8,7 @@
 // `job.status === 'Sent to QC Lab'` → เคสแรกแดง (ใบของ engine หาย)
 import { describe, it, expect } from 'vitest';
 import { JOB_STATUS } from '../types/job-statuses';
-import { selectQcTodoList, isAwaitingQcLab } from './qcStation';
+import { selectQcTodoList, isAwaitingQcLab, matchesQcStationSearch } from './qcStation';
 
 describe('QC Lab To Do filter', () => {
    it('shows both the engine spelling and the legacy spelling of Sent To QC Lab', () => {
@@ -26,5 +26,19 @@ describe('QC Lab To Do filter', () => {
    it('isAwaitingQcLab is false for unreadable or missing status', () => {
       expect(isAwaitingQcLab({ status: 'not a status' })).toBe(false);
       expect(isAwaitingQcLab(null)).toBe(false);
+   });
+});
+
+describe('QC station search box', () => {
+   const jobs = [
+      { id: 'rider', ref_no: 'OID-MTH3OCEC-820', device_serial: 'HQ594LKGQL', model: 'iPhone 15' },
+      { id: 'qc', ref_no: 'OID-OTHER-1', serial: 'ABCD1234EFG', model: 'iPad' },
+   ];
+   it('matches device_serial (rider-written) and serial (QC-written) case-insensitively, plus OID', () => {
+      const find = (term: string) => jobs.filter((j) => matchesQcStationSearch(j, term)).map((j) => j.id);
+      expect(find('hq594lkgql')).toEqual(['rider']);
+      expect(find('abcd1234')).toEqual(['qc']);
+      expect(find('oid-mth3ocec')).toEqual(['rider']);
+      expect(find('')).toEqual(['rider', 'qc']);
    });
 });

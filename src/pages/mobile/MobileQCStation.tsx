@@ -15,7 +15,7 @@ import { SickwStoredResultCard } from '../../components/sickw/SickwStoredResultC
 import { SickwDeviceCheck } from '../../components/sickw/SickwDeviceCheck';
 import { getSickwGateStatus, type SickwParsedFields } from '../../utils/sickwApi';
 import {
-   MAX_QC_PHOTOS, QC_SUPERVISORS, canSubmitQc, selectQcTodoList, selectQcDoneList,
+   MAX_QC_PHOTOS, QC_SUPERVISORS, canSubmitQc, selectQcTodoList, selectQcDoneList, matchesQcStationSearch,
    buildQcFormFromJob, validateQcSubmit, submitQcStation, saveQcPhotosOnly,
    type QcFormState,
 } from '../../utils/qcStation';
@@ -56,14 +56,8 @@ export const MobileQCStation = () => {
 
    const { todoList, doneList } = useMemo(() => {
       const list = Array.isArray(jobs) ? jobs : [];
-      const q = searchTerm.toLowerCase();
-      const filtered = list.filter(j =>
-         j.model?.toLowerCase().includes(q) ||
-         j.ref_no?.toLowerCase().includes(q) ||
-         j.serial?.toLowerCase().includes(q) ||
-         j.stock_no?.toLowerCase().includes(q) ||
-         j.qc_txn_id?.toLowerCase().includes(q)
-      );
+      // OID / serial / device_serial / stock_no / qc_txn_id — ดู matchesQcStationSearch
+      const filtered = list.filter(j => matchesQcStationSearch(j, searchTerm));
       // To Do / Done ตัดสินใน utils/qcStation.ts ตัวเดียวกับ desktop (normalizeStatus
       // ทั้งสองฝั่ง — รับทั้ง 'Sent To QC Lab' ที่ engine เขียนและ 'Sent to QC Lab' แถวเก่า)
       return {

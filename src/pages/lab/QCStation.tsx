@@ -20,7 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import {
    MAX_QC_PHOTOS, QC_SUPERVISORS, buildQcFormFromJob,
    validateQcSubmit, submitQcStation, saveQcPhotosOnly,
-   selectQcTodoList, selectQcDoneList, canSubmitQc,
+   selectQcTodoList, selectQcDoneList, canSubmitQc, matchesQcStationSearch,
 } from '../../utils/qcStation';
 
 const SUPERVISORS = QC_SUPERVISORS;
@@ -59,13 +59,8 @@ export const QCStation = () => {
    // 🔥 1. Logic ดึงงานเข้าแผนก QC
    const { todoList, doneList } = useMemo(() => {
       const list = Array.isArray(jobs) ? jobs : [];
-      const filtered = list.filter(j =>
-         j.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.ref_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.serial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.stock_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         j.qc_txn_id?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      // OID / serial / device_serial / stock_no / qc_txn_id — ดู matchesQcStationSearch
+      const filtered = list.filter(j => matchesQcStationSearch(j, searchTerm));
       // To Do / Done ตัดสินใน utils/qcStation.ts (normalizeStatus ทั้งสองฝั่ง —
       // รับทั้ง 'Sent To QC Lab' ที่ engine เขียนและ 'Sent to QC Lab' แถวเก่า)
       return {
