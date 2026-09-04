@@ -11,6 +11,7 @@ import { appGate, sessionVerdict, type SessionFailure, type EmployeeMe } from '.
 /** ผลของการถามตัวตนที่จบแล้ว — ไม่มี `checking` เพราะ "ยังไม่รู้" คือ `null` */
 type SessionResolved = SessionFailure | { kind: 'employee'; me: EmployeeMe };
 import { call } from './api';
+import AppHeader from './AppHeader';
 import Login from './pages/Login';
 import GpsGate from './pages/GpsGate';
 import Home from './pages/Home';
@@ -136,20 +137,11 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="head">
-        <div className="row">
-          <div>
-            <h1>{me?.name || 'แอปพนักงาน'}</h1>
-            <div className="sub">
-              {me?.employee_code || 'BKK APPLE'}
-              {me?.position ? ` · ${me.position}` : ''}
-            </div>
-          </div>
-          <button className="btn ghost sm" onClick={() => void logout()}>
-            <LogOut size={13} /> ออก
-          </button>
-        </div>
-      </div>
+      <AppHeader
+        name={me?.name || 'แอปพนักงาน'}
+        sub={`${me?.employee_code || 'BKK APPLE'}${me?.position ? ` · ${me.position}` : ''}`}
+        onLogout={() => void logout()}
+      />
 
       <div className="main">
         {tab === 'home' && geo.fix && <Home fix={geo.fix} />}

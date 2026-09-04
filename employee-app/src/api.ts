@@ -79,6 +79,7 @@ export interface LeaveRequestRow {
   decided_at: number | null;
   decided_by_name: string | null;
   decision_note: string | null;
+  edited_at?: number | null;
 }
 
 export interface LeaveTypeRow { id: string; label: string; paid_days: number | null; counts: string }
@@ -103,6 +104,7 @@ export interface ShiftRequestRow {
   decided_at: number | null;
   decided_by_name: string | null;
   decision_note: string | null;
+  edited_at?: number | null;
 }
 
 export interface ShiftOption { id: string; label: string; start: number; end: number }

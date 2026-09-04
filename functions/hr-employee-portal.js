@@ -127,7 +127,10 @@ function registerHrEmployeePortal() {
     const [policy, requests] = await Promise.all([loadPolicy(db), loadRequests(db, employeeId)]);
     const v = validateLeaveRequest({
       employee,
-      draft: { type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10) },
+      // `id` = ใบที่กำลังแก้อยู่ — validator ข้ามใบนี้ตอนเช็คช่วงทับและตอนรวม
+      // วันที่ใช้ไปแล้ว ไม่งั้นการแก้ใบเดิมจะชนกับตัวเองเสมอ
+      draft: { type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10),
+        id: str(d.requestId, 60) || undefined },
       requests, overrides: policy.overrides, calendar: policy.calendar,
     });
     return {
@@ -173,6 +176,56 @@ function registerHrEmployeePortal() {
     await ref.set(row);
     return { ok: true, id: ref.key, warnings: v.warnings,
       request: publicRequest({ id: ref.key, employee_id: employeeId, ...row }) };
+  });
+
+  // -------------------------------------------------------------------------
+  // employeeLeaveUpdate — แก้ใบของตัวเองที่ยังไม่ถูกตัดสิน
+  //
+  // **แก้ในที่เดิม ไม่ใช่ยกเลิกแล้วยื่นใหม่** — สองคำสั่งที่ล้มกลางทางได้แปลว่า
+  // ใบเดิมหายไปแล้วใบใหม่ไม่เกิด. `days`/`paid_days`/`unpaid_days` คำนวณใหม่
+  // ฝั่ง server ทุกครั้งเหมือนตอนสร้าง ไม่รับตัวเลขจาก client
+  // -------------------------------------------------------------------------
+  const employeeLeaveUpdate = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { id: employeeId, employee } = await requireEmployeeCaller(db, request.auth);
+    const d = request.data || {};
+    const requestId = str(d.requestId, 60);
+    if (!requestId) throw new HttpsError("invalid-argument", "ต้องระบุใบลา");
+
+    const ref = db.ref(`leave_requests/${employeeId}/${requestId}`);
+    const snap = await ref.once("value");
+    if (!snap.exists()) throw new HttpsError("not-found", "ไม่พบใบลา");
+    // ใบที่ถูกตัดสินไปแล้วแก้ไม่ได้ด้วยเหตุผลเดียวกับที่ยกเลิกไม่ได้ — วันลาถูก
+    // นับเข้ายอดและอาจถูกจัดเวรแทนไปแล้ว
+    if (snap.val().status !== "pending") {
+      throw new HttpsError("failed-precondition", "ใบที่ตัดสินไปแล้วแก้จากแอปไม่ได้ ติดต่อหัวหน้างาน");
+    }
+
+    const [policy, requests] = await Promise.all([loadPolicy(db), loadRequests(db, employeeId)]);
+    const draft = {
+      id: requestId,
+      type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10),
+      document_note: str(d.documentNote, 200),
+    };
+    const v = validateLeaveRequest({
+      employee, draft, requests, overrides: policy.overrides, calendar: policy.calendar,
+    });
+    if (!v.ok) throw new HttpsError("failed-precondition", v.errors.join(" · "));
+
+    const patch = {
+      type: draft.type, from: draft.from, to: draft.to,
+      days: v.days, paid_days: v.paid_days, unpaid_days: v.unpaid_days,
+      reason: str(d.reason, 400) || null,
+      document_note: draft.document_note || null,
+      // ร่องรอยการแก้ — หัวหน้าที่เห็นใบนี้ในกล่องอนุมัติต้องรู้ว่ามันถูกแก้
+      // หลังยื่น ไม่ใช่ใบที่ยื่นมาแบบนี้ตั้งแต่แรก
+      edited_at: nowMs(),
+      edited_by_uid: request.auth.uid,
+    };
+    await ref.update(patch);
+    const row = { ...snap.val(), ...patch };
+    return { ok: true, id: requestId, warnings: v.warnings,
+      request: publicRequest({ id: requestId, employee_id: employeeId, ...row }) };
   });
 
   // -------------------------------------------------------------------------
@@ -352,6 +405,7 @@ function registerHrEmployeePortal() {
     employeeLeaveList,
     employeeLeavePreview,
     employeeLeaveCreate,
+    employeeLeaveUpdate,
     employeeLeaveCancel,
     employeeShiftChangeCreate,
     employeeShiftChangeList,

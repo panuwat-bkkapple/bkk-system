@@ -91,6 +91,9 @@ const publicRequest = (r) => ({
   decided_at: Number(r.decided_at) || null,
   decided_by_name: r.decided_by_name || null,
   decision_note: r.decision_note || null,
+  // แก้หลังยื่น — หัวหน้าที่เห็นใบนี้ในกล่องอนุมัติต้องรู้ว่ามันไม่ใช่ใบที่
+  // ยื่นมาแบบนี้ตั้งแต่แรก (เขียนโดย employeeLeaveUpdate)
+  edited_at: Number(r.edited_at) || null,
 });
 
 function registerHrLeave() {

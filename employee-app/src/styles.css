@@ -14,6 +14,9 @@
   --bad: #be123c;
   --bad-bg: #fff1f2;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* index.html ตั้ง viewport-fit=cover + apple-mobile-web-app-status-bar-style:
+     black-translucent = เว็บวิวกินพื้นที่ใต้แถบสถานะ ไม่เผื่อ = หัวแอปโดนบัง */
+  --safe-t: env(safe-area-inset-top, 0px);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -31,10 +34,10 @@ body {
 }
 
 .app { min-height: 100%; display: flex; flex-direction: column; max-width: 520px; margin: 0 auto; background: #f1f5f9; }
-.head { background: var(--bg); color: #fff; padding: 14px 16px calc(14px + 6px); }
+.head { background: var(--bg); color: #fff; padding: calc(14px + var(--safe-t)) 16px 20px; }
 .head h1 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .head .sub { font-size: 12px; opacity: 0.72; margin-top: 2px; }
-.head .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.head .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 .main { flex: 1; padding: 14px 14px calc(78px + var(--safe-b)); }
 
@@ -78,6 +81,22 @@ input, select, textarea {
 }
 textarea { min-height: 74px; resize: vertical; }
 
+/* ช่องวันที่ที่ยังว่าง — iOS Safari วาด `input[type=date]` ที่ไม่มีค่าเป็น
+   **กล่องเปล่าสนิท** (เดสก์ท็อป Chrome ขึ้น mm/dd/yyyy ให้ ซึ่งเป็นเหตุผลที่
+   บั๊กนี้มองไม่เห็นตอนพัฒนา) คนใช้จึงอ่านว่าแอปพัง ไม่ใช่ว่า "ยังไม่ได้เลือก"
+   จึงวางป้ายทับไว้เอง แล้วซ่อนเมื่อมีค่า — `pointer-events: none` เพื่อให้
+   การแตะยังทะลุไปเปิดตัวเลือกวันที่ของเครื่องตามเดิม */
+.datefield { position: relative; }
+.datefield > input { position: relative; z-index: 1; background: transparent; }
+/* เบราว์เซอร์ตระกูล Chromium *มี* ป้ายของตัวเอง (mm/dd/yyyy) ตอนช่องว่าง —
+   ถ้าไม่ซ่อน ป้ายของเราจะพิมพ์ทับกันอ่านไม่ออก. ซ่อนเฉพาะตอนว่างเท่านั้น
+   (React เป็นคนติดคลาส `empty` ให้) ไอคอนปฏิทินยังอยู่ครบ */
+.datefield.empty > input::-webkit-datetime-edit { opacity: 0; }
+.datefield > .ph {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); font-size: 15px; pointer-events: none; z-index: 2;
+}
+
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; background: #fff; border-top: 1px solid var(--line);
@@ -90,13 +109,18 @@ textarea { min-height: 74px; resize: vertical; }
 }
 .tabs button[aria-current='true'] { color: var(--ink); }
 
-.gate { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; padding: 26px; background: var(--bg); color: #fff; }
+.gate {
+  min-height: 100dvh; display: flex; flex-direction: column; justify-content: center;
+  padding: calc(26px + var(--safe-t)) 26px calc(26px + var(--safe-b));
+  background: var(--bg); color: #fff;
+}
 .gate h2 { font-size: 20px; margin: 14px 0 8px; font-weight: 800; }
 .gate p { color: #cbd5e1; font-size: 14px; margin: 0 0 18px; }
 
 .list { display: flex; flex-direction: column; gap: 8px; }
-.row { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
-.row .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.list .row { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.list .row .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.list .row .acts { display: flex; gap: 8px; margin-top: 6px; }
 
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

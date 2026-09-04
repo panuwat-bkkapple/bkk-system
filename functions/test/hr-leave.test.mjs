@@ -22,6 +22,16 @@
 //   | `policyWarnings` เงียบเมื่อตั้งสิทธิ์ต่ำกว่าขั้นต่ำ               | แดง 2 |
 //   | `unpaidLeaveInPeriod` นับใบที่ยังไม่อนุมัติ                      | แดง 1 |
 //   | `splitPaidDays` ไม่หักสิทธิ์ที่ใช้ไปแล้ว                          | แดง 3 |
+//   | ลบ `id` ออกจาก draft ของ `employeeLeaveUpdate`                  | แดง 1 |
+//   | ยอมให้แก้ใบที่ถูกตัดสินไปแล้ว                                    | แดง 1 |
+//   | `employeeLeaveUpdate` รับ `days` จาก client แทน validator        | แดง 1 |
+//   | `employeeLeavePreview` ไม่ส่ง `requestId` ต่อเป็น `draft.id`      | แดง 1 |
+//   | ถอด `edited_at` ออกจาก `publicRequest` (เขียนแล้วไม่มีคนอ่าน)     | แดง 1 |
+//
+// **แถวแรกของห้าแถวนี้เคยเป็นแดง 0** — เช็คเขียนไว้ว่า `/id:\s*requestId/`
+// ซึ่งไปแมตช์บรรทัด `return { ok: true, id: requestId, ... }` ที่ไม่เกี่ยวกับ
+// validator เลย ลบ `id` ออกจาก draft แล้วยังเขียวสนิท แก้โดยตัดเอาเฉพาะบล็อก
+// `const draft = {...}` มาตรวจ (กับดักเดิม: regex ของเทสโครงสร้างโกหกได้)
 //
 // **ตัวเลขข้างบนเป็นค่าที่วัดจริง ไม่ใช่ที่คาดไว้** — และแถวที่สองเคยเป็น
 // **แดง 0** ตอนรันรอบแรก: เทสลาคลอดเดิมเรียก `countLeaveDays` แล้ว*สั่ง*โหมด
@@ -39,9 +49,11 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
+const FUNCTIONS = join(HERE, "..");
 const L = require(join(HERE, "..", "hr-leave.js"));
 
 let passed = 0;
@@ -273,6 +285,89 @@ const emp = (over = {}) => ({ id: "e1", name: "สมชาย", hired_at: years
 {
   const oneYear = L.countLeaveDays({ from: "2026-01-01", to: "2026-12-31", counts: "calendar_days", calendar: CAL });
   check("หนึ่งปีเต็มยังนับได้ (เพดานต้องไม่ตัดใบที่ถูกกฎหมายทิ้ง)", oneYear === 365);
+}
+
+// ── 10. แก้ใบลาที่ยังไม่ถูกตัดสิน (employeeLeaveUpdate) ────────────────────
+//
+// **`draft.id` คือทั้งหมดของเรื่องนี้** — การแก้ใบเดิมคือการเทียบใบใหม่กับใบ
+// ที่มีอยู่ ซึ่งรวม*ตัวมันเอง*อยู่ด้วย ถ้าไม่บอกว่ากำลังแก้ใบไหน ทุกการแก้จะ
+// ถูกปฏิเสธว่า "ช่วงวันทับกับใบลาที่มีอยู่แล้ว" โดยชนกับตัวเอง และยอดวันที่ใช้
+// ไปแล้วก็จะถูกนับซ้ำสองรอบ (ใบเดิม + ใบที่กำลังจะเขียนทับมัน)
+{
+  const emp = { id: "e1", hired_at: "2020-01-01" };
+  const existing = [{
+    id: "own", employee_id: "e1", type: "sick", status: "pending",
+    from: "2026-09-10", to: "2026-09-11", days: 2, paid_days: 2, unpaid_days: 0,
+  }];
+  const draft = { type: "sick", from: "2026-09-10", to: "2026-09-12" };
+
+  const noId = L.validateLeaveRequest({ employee: emp, draft, requests: existing, calendar: CAL });
+  check("แก้ใบเดิมโดยไม่บอก id = ถูกปฏิเสธเพราะทับกับตัวเอง",
+    noId.ok === false && noId.errors.some((e) => e.includes("ทับ")));
+
+  const withId = L.validateLeaveRequest({
+    employee: emp, draft: { ...draft, id: "own" }, requests: existing, calendar: CAL,
+  });
+  check("บอก id ของใบที่กำลังแก้แล้วผ่าน", withId.ok === true);
+
+  // ใบของ *คนอื่น* ที่ทับช่วงต้องยังปฏิเสธอยู่ — `id` ต้องยกเว้นแค่ใบเดียว
+  // ไม่ใช่ปิดการตรวจทับซ้อนทั้งหมด (ถ้าเขียนเป็น `if (d.id) skip` จะเป็นแบบนั้น)
+  const other = existing.concat([{
+    id: "other", employee_id: "e1", type: "sick", status: "approved",
+    from: "2026-09-12", to: "2026-09-13", days: 2, paid_days: 2, unpaid_days: 0,
+  }]);
+  const stillBlocked = L.validateLeaveRequest({
+    employee: emp, draft: { ...draft, id: "own" }, requests: other, calendar: CAL,
+  });
+  check("ยกเว้นเฉพาะใบที่กำลังแก้ ใบอื่นที่ทับยังถูกปฏิเสธ", stillBlocked.ok === false);
+}
+
+// ── 11. การต่อสายของ employeeLeaveUpdate ──────────────────────────────────
+//
+// สแกน source เพราะ callable เรียกตรงไม่ได้ (ต้องมี Firebase) — สิ่งที่เฝ้าคือ
+// ข้อที่พังแล้ว**เงียบ** ไม่ใช่รูปของโค้ด
+{
+  const src = readFileSync(join(FUNCTIONS, "hr-employee-portal.js"), "utf8");
+  const body = (() => {
+    const i = src.indexOf("const employeeLeaveUpdate = onCall(");
+    if (i < 0) return "";
+    const j = src.indexOf("const employeeLeaveCancel = onCall(", i);
+    return src.slice(i, j < 0 ? src.length : j);
+  })();
+
+  check("มี employeeLeaveUpdate", body.length > 0);
+  check("แก้ได้เฉพาะใบที่ยัง pending", /status\s*!==\s*"pending"/.test(body));
+  // **ต้องดูใน `draft` เท่านั้น** — `/id:\s*requestId//` เปล่าๆ ไปแมตช์บรรทัด
+  // `return { ok: true, id: requestId, ... }` ซึ่งไม่เกี่ยวกับ validator เลย
+  // (injection ที่ลบ `id` ออกจาก draft จึงเขียวสนิทตอนรอบแรก)
+  const draftLiteral = (() => {
+    const i = body.indexOf("const draft = {");
+    if (i < 0) return "";
+    const j = body.indexOf("};", i);
+    return j < 0 ? "" : body.slice(i, j);
+  })();
+  check("draft ที่ส่งให้ validator มี id ของใบที่กำลังแก้",
+    draftLiteral.length > 0 && /\bid:\s*requestId\b/.test(draftLiteral));
+  // ตัวเลขวันต้องคำนวณใหม่ฝั่ง server ทุกครั้ง ไม่ใช่รับจาก client — ถ้ารับมา
+  // พนักงานยิง callable ตรงๆ ก็ประกาศเองได้ว่าลา 1 วันทั้งที่หายไปทั้งสัปดาห์
+  check("days/paid_days/unpaid_days มาจาก validator ไม่ใช่จาก client",
+    /days:\s*v\.days/.test(body) && /paid_days:\s*v\.paid_days/.test(body)
+    && !/days:\s*(?:Number\()?d\./.test(body));
+  check("ประทับร่องรอยการแก้ไว้ให้หัวหน้าเห็น", /edited_at:\s*nowMs\(\)/.test(body));
+
+  // preview ต้องรู้ว่ากำลังแก้ใบไหนด้วย ไม่งั้นตัวเลขที่โชว์ก่อนกดบันทึกจะเป็น
+  // "ทับกับใบลาที่มีอยู่แล้ว" ตลอด ทั้งที่กดบันทึกแล้วผ่าน
+  const prev = (() => {
+    const i = src.indexOf("const employeeLeavePreview = onCall(");
+    const j = src.indexOf("const employeeLeaveCreate = onCall(", i);
+    return i < 0 ? "" : src.slice(i, j < 0 ? src.length : j);
+  })();
+  check("preview ส่ง requestId ต่อเป็น draft.id", /id:\s*str\(d\.requestId/.test(prev));
+
+  // ฟิลด์ที่เขียนแล้วไม่มีใครอ่านคือฟิลด์ที่หายไปเงียบๆ (บทเรียน status_history)
+  const api = readFileSync(join(FUNCTIONS, "hr-leave-api.js"), "utf8");
+  check("edited_at ถูกส่งออกผ่าน publicRequest (มีคนอ่านจริง)",
+    /edited_at:\s*Number\(r\.edited_at\)/.test(api));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
