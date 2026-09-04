@@ -10,6 +10,7 @@ import {
 import { useToast } from '@/components/ui/ToastProvider';
 import { runJobTransition } from '@/utils/runJobTransition';
 import { JOB_EVENT } from '@/utils/jobTransitions';
+import { isB2BLotLocked } from '@/utils/b2bStatus';
 
 // เกณฑ์การจัดเกรดสินค้า B2B (Official Grading Criteria)
 const GRADE_CRITERIA: Record<string, { label: string; desc: string; boxClass: string }> = {
@@ -87,9 +88,9 @@ export const B2BAuditorTool = () => {
 
   const activeB2BJobs = useMemo(() => {
     if (!jobs) return [];
-    // อนุญาตให้แก้ไขได้จนกว่าดีลจะปิด/ชำระเงินจริง
-    const lockedStatuses = ['Pending Finance Approval', 'Payment Completed', 'In Stock', 'Completed', 'Cancelled', 'Closed (Lost)'];
-    return (jobs as any[]).filter(j => j.type === 'B2B Trade-in' && !lockedStatuses.includes(j.status));
+    // อนุญาตให้แก้ไขได้จนกว่าดีลจะปิด/ชำระเงินจริง — isB2BLotLocked เทียบผ่าน
+    // normalizeStatus: ล็อตที่จ่ายแล้วสะกด 'Paid' (engine) ก็ต้องล็อกเหมือน 'Payment Completed'
+    return (jobs as any[]).filter(j => j.type === 'B2B Trade-in' && !isB2BLotLocked(j));
   }, [jobs]);
 
   const currentJob = activeB2BJobs.find(j => j.id === selectedJobId);
