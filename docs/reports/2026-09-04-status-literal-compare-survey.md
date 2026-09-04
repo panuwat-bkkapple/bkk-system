@@ -2,7 +2,7 @@
 
 **ที่มา:** วันเดียวกันเจอกับดักเดียวกันสองรอบ — `/qc-station` To Do ว่าง (#709, engine เขียน `Sent To QC Lab` แต่หน้าเทียบ `'Sent to QC Lab'`) แล้วพอ deploy `/inventory` ก็หายเครื่องที่ขึ้น POS (#711, engine เขียน `Ready To Sell` แต่หน้าเทียบ `'Ready to Sell'`). ทั้งสองครั้งไม่มี error ไม่มีเทสแดง หน้าจอแค่ว่างลงเงียบๆ. รายงานนี้ไล่ทั้ง `src/` ให้ครบทีเดียว เพื่อให้เหลือ sweep PR ใบเดียว ไม่ใช่ hotfix ทีละหน้าตามที่ผู้ใช้บ่น
 
-**ข้อเท็จจริงหลักที่ทำให้กับดักนี้ "ติดอาวุธ" แล้ว:** ตั้งแต่ P2/P3 (#661–#707, 3–4 ก.ย.) **ไม่มี writer ตัวไหนใน 3 repo เขียนสะกดเก่าอีกแล้ว** — grep `status: '<สะกดเก่า>'` ทั้ง `bkk-system/src`, `bkk-system/functions`, `bkk-rider-app`, `bkk-frontend-next` ได้ศูนย์ (ยกเว้น `B2CWorkspace.tsx:608` ซึ่งอยู่ในคอมโพเนนต์ที่ไม่ถูก mount). ทุกแถวใหม่จึงเป็น canonical ล้วน และ **ทุก reader ที่เทียบสะกดเก่าเพียงสะกดเดียวจะไม่เห็นแถวใหม่แม้แต่ใบเดียว** — ไม่ใช่ "บางที" ไม่ใช่ "เฉพาะบางเครื่อง"
+**ข้อเท็จจริงหลักที่ทำให้กับดักนี้ "ติดอาวุธ" แล้ว:** ตั้งแต่ P2/P3 (#661–#707, 3–4 ก.ย.) engine เขียน canonical ให้ทุก transition และ grep `status: '<สะกดเก่า>'` ทั้ง `bkk-system/src`, `bkk-system/functions`, `bkk-rider-app`, `bkk-frontend-next` ได้ศูนย์ (ยกเว้น `B2CWorkspace.tsx:608` ในคอมโพเนนต์ที่ไม่ถูก mount — ลบทิ้งใน sweep แล้ว). **แก้ข้อความ (พบตอนทำ #713):** grep รูปนั้นพลาด `src/utils/payoutTransfer.ts:75-76` ซึ่งเขียน `'Payment Completed'` (B2B) / `'Waiting for Handover'` (B2C) ผ่าน ternary — writer ที่ยังไม่ผ่าน engine **โดยตั้งใจ** (CLAUDE.md) ดังนั้นสองสถานะนี้มี**ทั้งสองสะกดเกิดใหม่พร้อมกัน**บน production ส่วนสถานะอื่นทุกตัวแถวใหม่เป็น canonical ล้วน. ไม่ว่าทางไหน **reader ที่เทียบสะกดเดียวจะพลาดแถวอีกสะกดทั้งหมด** — ไม่ใช่ "บางที" ไม่ใช่ "เฉพาะบางเครื่อง"
 
 สคริปต์ที่ใช้สแกน (ทำซ้ำได้): ดึงค่าจาก `functions/status-vocab.generated.js` (`JOB_STATUS` + `JOB_STATUS_B2B`) + คีย์ใน `LEGACY_ALIAS` ของ `src/types/job-statuses.ts` + `In-Transit`/`Reserved`/`PAID` แล้ว grep เป็น string literal ในทุก `.ts/.tsx` ใต้ `src/` ที่ไม่ใช่เทส ตัดบรรทัดคอมเมนต์ทิ้ง → 528 hit → คัดเฉพาะรูปการเทียบ (`===`/`!==`/`case`/ลิสต์ที่ถูก `.includes`/`Set`) = **375 จุด ใน 37 ไฟล์** (ภาคผนวก A) + ตารางป้าย/สีอีก 92 key (ภาคผนวก B)
 
@@ -76,7 +76,18 @@ SwitchCase > Literal[value=/^(...ชุดเดียวกัน...)$/]
 
 ---
 
-## 4. สิ่งที่ sweep PR ควรเป็น
+## 4. ผลของ sweep PR (ใบเดียวกับที่รายงานนี้ไปด้วย)
+
+- **`src/utils/statusCompare.ts`** = ตัวเทียบกลาง (`canonicalStatus` / `statusIs` / `statusIn` / `actionIs`) — `b2bStatus.ts` (#713) และ `inventoryStatus.ts` (#711) ยุบมาใช้ตัวนี้
+- **P1 ปิดครบ:** ทุกไฟล์ในตาราง P1 แก้เป็น commit ต่อไฟล์ ยกเว้น `Finance.tsx` / `TransactionRepair.tsx` ที่รอ #710 (บันทึกเป็น exemption ในด่านพร้อมจำนวนเป๊ะ) และ `POS.tsx` ที่ไปกับ #711 แล้ว
+- **สะกดเก่าในลิสต์ "รับทั้งสองสะกด"** (RiderPerformance*, DispatcherPage, PIPELINE ของ MobileTicketDetail, เฟสของ TicketPipeline) ถอดออกหมด — ลิสต์เป็น canonical ล้วน แล้ว normalize ฝั่งงานแทน ไม่ต้อง list ซ้ำอีก
+- **`getQuickActions` ของ MobileTicketDetail switch บน canonical** ถอด case สะกดเก่า 7 ตัว — ผลข้างเคียงที่ตั้งใจ: แถวเก่า Pickup ที่ค้าง `'In-Transit'` ตกกลุ่ม Rider Returning ตาม `normalizeStatus` (ขากลับ) แทนกลุ่ม en-route เดิม
+- **`CustomerTracking`** เลิกเทียบ `toUpperCase()` กับ literal — ของเดิมพลาด `Rider Accepted`/`Rider Arrived` (canonical) มาตลอดโดยไม่มีใครเห็น
+- **ลบ `B2CWorkspace.tsx` + `TicketDetailsModal.tsx`** ที่ไม่ถูก mount (writer รูปเก่า + literal 3 จุดที่ไม่มีวันถูกเรียก)
+- **ด่าน `src/utils/statusLiteralCensus.test.ts` (บังคับใน CI):** LEGACY = 0 นอก exemption (#710 ×2 ไฟล์ ไฟล์ละ 3) · CANONICAL เพดาน 99 (ตัวจำแนกใน TS นับได้ 99 หลัง sweep; ตัวเลข 283 ข้างบนมาจากตัวจำแนก python ก่อน sweep ซึ่งรวมลิสต์ที่ถูกแทนด้วย `JOB_STATUS.*` ไปแล้ว) · injection 3 ตัวบันทึกในหัวไฟล์เทส (legacy `===` แดง · canonical `.includes` แดง · legacy เป็นคีย์ object เขียว)
+- **ยังไม่แตะ (P2/P3):** `switch`/compare ที่ใช้ literal canonical อีก 99 จุด (ลดตามการแตะไฟล์ ด่านกันไม่ให้เพิ่ม) · ตารางป้าย/สีที่ key ด้วยสะกดเก่า (`statusColors.ts`, `AppointmentCalendar`, `MobileNotificationsPage:89`, `MobileTicketDetail` 61-87, `DispatcherPage` STATUS_COLORS) — ยัง lookup ด้วยค่าดิบจึงถูกสำหรับแถวเก่า แต่แถว canonical ได้ค่า default; แก้ด้วยการ lookup ผ่าน `canonicalStatus` เป็นงานถัดไป · **ไม่มี writer cutover** (`payoutTransfer.ts` ยังเขียนสะกดเก่าตามเดิม)
+
+## 4 (เดิม). สิ่งที่ sweep PR ควรเป็น — เขียนก่อนลงมือ เก็บไว้เทียบ
 
 - **ใบเดียว commit ต่อไฟล์** (แบบ #709) ครอบ P1 ทั้ง 20 จุด + `statusColors.ts` (P3) + ด่านข้อ ก พร้อมเพดานที่วัดจริงหลังแก้
 - ทุกจุดใช้ helper ที่มีแล้ว ห้ามเพิ่ม literal สะกดใหม่แทนสะกดเก่า
