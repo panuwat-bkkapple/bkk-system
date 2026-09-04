@@ -42,6 +42,7 @@ interface HealthSummary {
 const SERVICE_ORDER = [
   'checkout_config',
   'customer_quote',
+  'browser_maps_key',
   'routes_api',
   'geocoding_api',
   'rtdb',
