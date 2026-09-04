@@ -14,6 +14,8 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { stockCost } from '../../utils/accessoryItems';
+import { JOB_STATUS } from '../../types/job-statuses';
+import { RESERVED_STATUS, inventoryStatusOf, isInventoryStock, isInStock, isReadyToSell, isReserved } from '../../utils/inventoryStatus';
 
 export const Inventory = () => {
   const toast = useToast();
@@ -41,8 +43,9 @@ export const Inventory = () => {
       // 🛑 เผื่อไว้: ไม่เอางานเบิกเงินของไรเดอร์มาปนด้วย
       j.type !== 'Withdrawal' &&
 
-      // 🟢 2. ดึงเฉพาะเครื่องที่มีสถานะอยู่ในคลังเท่านั้น
-      ['In Stock', 'Ready to Sell', 'Reserved'].includes(j.status) &&
+      // 🟢 2. ดึงเฉพาะเครื่องที่มีสถานะอยู่ในคลังเท่านั้น — normalizeStatus ก่อนเทียบ
+      // (engine เขียน 'Ready To Sell' แถวเก่า 'Ready to Sell' — utils/inventoryStatus.ts)
+      isInventoryStock(j) &&
       (
         j.model?.toLowerCase().includes(searchTerm.toLowerCase()) || 
         j.ref_no?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -50,8 +53,8 @@ export const Inventory = () => {
       )
     ).sort((a,b) => (b.qc_date || 0) - (a.qc_date || 0)); 
     
-    if (activeTab === 'instock') return filtered.filter(j => j.status === 'In Stock');
-    if (activeTab === 'ready') return filtered.filter(j => j.status === 'Ready to Sell');
+    if (activeTab === 'instock') return filtered.filter(isInStock);
+    if (activeTab === 'ready') return filtered.filter(isReadyToSell);
     return filtered; // 'all'
   }, [jobs, searchTerm, activeTab]);
 
@@ -61,7 +64,7 @@ export const Inventory = () => {
     // 🌟 คิดเฉพาะเครื่องเดี่ยว (B2C) และเครื่องลูก (B2B-Unpacked)
     // 🛑 และต้องตัดงานแม่ (B2B Trade-in) กับรายการถอนเงิน (Withdrawal) ออกไป
     const currentStock = list.filter(j => 
-      ['In Stock', 'Ready to Sell', 'Reserved'].includes(j.status) &&
+      isInventoryStock(j) &&
       j.type !== 'B2B Trade-in' &&
       j.type !== 'Withdrawal'
     );
@@ -93,7 +96,8 @@ export const Inventory = () => {
     setEditForm({ 
        selling_price: item.selling_price || 0, 
        promo_price: item.promo_price || 0,
-       status: item.status,
+       // canonical (หรือค่าดิบสำหรับ Reserved) ให้ตรงกับ value ของ <option> ข้างล่าง
+       status: inventoryStatusOf(item) || '',
        accessories: item.accessories || 'เครื่องเปล่า',
        warranty_days: item.warranty_days || 30
     });
@@ -111,7 +115,7 @@ export const Inventory = () => {
     if (!editingItem) return;
     // เครื่องที่ล็อกอยู่ในล็อตขายส่ง (Dealer Portal) — ห้ามแก้สถานะจากหน้านี้
     // ไม่งั้นหลุดจากการจอง (ปลดล็อกได้ทาง Cancel lot / Award เท่านั้น)
-    if (editingItem.lot_id && editForm.status !== editingItem.status) {
+    if (editingItem.lot_id && editForm.status !== inventoryStatusOf(editingItem)) {
       toast.error(`เครื่องนี้ล็อกอยู่ในล็อต ${editingItem.lot_no || ''} — เปลี่ยนสถานะผ่านหน้า Lots เท่านั้น`);
       return;
     }
@@ -267,8 +271,8 @@ export const Inventory = () => {
                            
                            <td className="p-5 text-center">
                               <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg border ${
-                                 item.status === 'Ready to Sell' ? 'bg-purple-50 text-purple-600 border-purple-200' : 
-                                 item.status === 'Reserved' ? 'bg-orange-50 text-orange-600 border-orange-200' : 
+                                 isReadyToSell(item) ? 'bg-purple-50 text-purple-600 border-purple-200' : 
+                                 isReserved(item) ? 'bg-orange-50 text-orange-600 border-orange-200' : 
                                  'bg-slate-50 text-slate-600 border-slate-200'
                               }`}>{item.status}</span>
                            </td>
@@ -278,14 +282,14 @@ export const Inventory = () => {
                                  <button onClick={() => handleEditClick(item)} className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200" title="Edit Pricing"><Tag size={16}/></button>
                                  
                                  {/* ปุ่ม Push to POS (ถ้ามีราคาแล้วและยังไม่ได้ลง POS) */}
-                                 {item.selling_price > 0 && item.status === 'In Stock' && (
+                                 {item.selling_price > 0 && isInStock(item) && (
                                     <button onClick={() => handlePushToPOS(item.id)} className="bg-purple-600 text-white p-2 rounded-lg hover:bg-purple-700 shadow-md" title="Push to POS">
                                        <ShoppingCart size={16}/>
                                     </button>
                                  )}
 
                                  {/* ปุ่ม Manual Sold (ถ้าอยู่ใน POS แล้ว) */}
-                                 {item.status === 'Ready to Sell' && (
+                                 {isReadyToSell(item) && (
                                     <button onClick={() => handleMarkSold(item.id)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 shadow-md text-[10px] font-bold uppercase tracking-widest">
                                        Sold
                                     </button>
@@ -345,9 +349,9 @@ export const Inventory = () => {
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Manual Status Override</label>
                         <select value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value})} className="w-full mt-1 p-3 rounded-xl border border-slate-200 font-bold text-sm outline-none">
-                           <option value="In Stock">In Stock (ยังไม่ขึ้น POS)</option>
-                           <option value="Ready to Sell">Ready to Sell (ขึ้นหน้าร้านแล้ว)</option>
-                           <option value="Reserved">Reserved (จองแล้ว)</option>
+                           <option value={JOB_STATUS.IN_STOCK}>In Stock (ยังไม่ขึ้น POS)</option>
+                           <option value={JOB_STATUS.READY_TO_SELL}>Ready to Sell (ขึ้นหน้าร้านแล้ว)</option>
+                           <option value={RESERVED_STATUS}>Reserved (จองแล้ว)</option>
                         </select>
                      </div>
                   </div>

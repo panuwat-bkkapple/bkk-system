@@ -10,6 +10,7 @@ import {
 import { ref, update, push, get, runTransaction } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { stockCost } from '../../utils/accessoryItems';
+import { selectPosStock } from '../../utils/inventoryStatus';
 import { ReceiptTemplate } from '../../components/receipt/ReceiptTemplate';
 import { useReceiptSettings } from '../../hooks/useReceiptSettings';
 
@@ -19,7 +20,8 @@ export const POS = () => {
     const { data: jobs, loading: jobsLoading } = useDatabase('jobs');
     const availableDevices = useMemo(() => {
         const list = Array.isArray(jobs) ? jobs : [];
-        return list.filter(j => j.status === 'Ready to Sell');
+        // normalizeStatus ทั้งสองฝั่ง — รับทั้ง 'Ready To Sell' ของ engine และ 'Ready to Sell' แถวเก่า
+        return selectPosStock(list);
     }, [jobs]);
 
     const { data: products, loading: productsLoading } = useDatabase('products');
