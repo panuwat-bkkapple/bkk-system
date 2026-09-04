@@ -500,6 +500,73 @@ check("การขยายไม่ได้พาสิทธิ์จ่า�
   assert.equal(out.ok, false, "งานที่จ่ายเงินแล้วต้องถูกปฏิเสธ");
 });
 
+check("ทางลัดจ่ายเงินของมือถือแคบกว่าที่ไคลเอนต์เคยทำเอง", () => {
+  // วันนี้ไคลเอนต์เขียน 'Paid' ทับสถานะอะไรก็ได้ที่ปุ่ม render — ผ่าน engine
+  // แล้วรับเฉพาะ Payout Processing **การย้ายนี้รัดเข้า ไม่ได้เปิดออก**
+  const ok = decideTransition({
+    job: job({ status: "Payout Processing" }),
+    event: "admin_marked_paid",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(ok.ok, true, ok.code);
+  assert.equal(ok.to, "Paid");
+  // **ต้องไม่ประทับ paid_at** — registry ให้สิทธิ์นั้นกับ payment_confirmed
+  // ตัวเดียว ทางนี้ปล่อยให้ trigger onJobStatusChanged ประทับเหมือนวันนี้
+  assert.equal(ok.stamps.paid, false, "ห้ามเป็นประตูที่สองไปหา paid_at");
+
+  for (const status of ["Being Inspected", "QC Review", "Rider Arrived", "New Lead"]) {
+    const out = decideTransition({ job: job({ status }), event: "admin_marked_paid", actor: ACTOR.ADMIN_STAFF });
+    assert.equal(out.ok, false, `${status} ควรถูกปฏิเสธแต่ผ่าน`);
+    assert.equal(out.code, "illegal_from");
+  }
+});
+
+check("ไรเดอร์กดจ่ายเงินแทนไม่ได้", () => {
+  const out = decideTransition({
+    job: job({ status: "Payout Processing" }),
+    event: "admin_marked_paid",
+    actor: ACTOR.RIDER,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "wrong_actor");
+});
+
+check("จ่ายซ้ำไม่ได้ — ตกที่ from-list ไม่ใช่ผ่านแล้วเขียนทับ", () => {
+  // เมื่ออยู่ Paid แล้วยิงซ้ำต้องถูกปฏิเสธ ไม่ใช่ผ่านแล้วไปเขียนอะไรใหม่
+  const again = decideTransition({
+    job: job({ status: "Paid", paid_at: 1_700_000_000_000 }),
+    event: "admin_marked_paid",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(again.ok, false);
+});
+
+check("เริ่มดำเนินการของ Store-in/Mail-in ไม่ใช่ event เดียวกับ broadcast", () => {
+  // ปลายทางเดียวกันแต่ความหมายต่างกัน — broadcast แปลว่าไรเดอร์เห็นงานได้แล้ว
+  // ซึ่งไม่จริงสำหรับสองวิธีนี้ (useRiderData กรอง non-Pickup ทิ้งก่อนดูสถานะ)
+  for (const method of ["Store-in", "Mail-in"]) {
+    const out = decideTransition({
+      job: job({ status: "Appointment Set", receive_method: method }),
+      event: "processing_started",
+      actor: ACTOR.ADMIN_STAFF,
+    });
+    assert.equal(out.ok, true, `${method} ถูกปฏิเสธ: ${out.code}`);
+    assert.equal(out.to, "Active Lead");
+  }
+});
+
+check("Pickup ต้องใช้ broadcast ไม่ใช่ processing_started", () => {
+  // ถ้าเปิดให้ Pickup ยิงตัวนี้ได้ งานจะเข้าคิวไรเดอร์โดยที่ trail บอกว่า
+  // "เริ่มดำเนินการ" ไม่ใช่ "ส่งให้ไรเดอร์" ซึ่งอ่านย้อนหลังแล้วผิด
+  const out = decideTransition({
+    job: job({ status: "Appointment Set", receive_method: "Pickup" }),
+    event: "processing_started",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "wrong_receive_method");
+});
+
 check("แอดมินกดออกเดินทางแทนไรเดอร์ที่ลืมกดได้", () => {
   for (const status of ["Rider Accepted", "Rider Assigned", "Active Lead"]) {
     const out = decideTransition({ job: job({ status }), event: "rider_departed", actor: ACTOR.ADMIN_STAFF });
@@ -611,6 +678,8 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
     ],
     sold: ["Ready To Sell", "In Stock", "Pending QC"],
     broadcast_recalled: ["Active Lead"],
+    admin_marked_paid: ["Payout Processing"],
+    processing_started: ["Appointment Set", "Waiting Drop-off", "Awaiting Shipping"],
     sale_reverted_to_qc: ["Sold", "In Stock", "Ready To Sell", "Sent To QC Lab"],
   };
   for (const [event, from] of Object.entries(pinned)) {
