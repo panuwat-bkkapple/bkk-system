@@ -6,6 +6,8 @@ import { ref, update, push as fbPush } from 'firebase/database';
 import { db } from '@/api/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/ToastProvider';
+import { runJobTransition } from '@/utils/runJobTransition';
+import { B2B_ACTION_EVENT } from '@/features/trade-in/components/b2b/b2bActions';
 import {
   Building2, Package, Plus, X, Send, Clock,
   CheckCircle2, ClipboardCheck, CalendarClock,
@@ -117,25 +119,22 @@ export const B2BDispatchQueue = () => {
     if (!siteVisitDate) { toast.warning('กรุณากำหนดวันนัดหมายหน้างานก่อนส่งครับ'); return; }
     if (!confirm(`ยืนยันส่งงาน ${currentJob.cust_name?.split('(')[0]} ไปให้ Auditor?`)) return;
 
-    try {
-      await update(ref(db, `jobs/${selectedJobId}`), {
-        status: 'Site Visit & Grading',
+    // ฟิลด์ที่ไปพร้อมสถานะอยู่ใน `patch` ของ transaction เดียวกัน ไม่ใช่ write
+    // ที่สองที่สำเร็จครึ่งเดียวได้ — ส่วน qc_logs ไม่ได้ส่ง เพราะ engine เขียน
+    // แถวให้เองจาก `reason` (ส่งไปด้วยจะโดนปฏิเสธด้วย patch_conflict)
+    const res = await runJobTransition(selectedJobId, B2B_ACTION_EVENT.dispatch_inspector, {
+      patch: {
         site_visit_date: siteVisitDate,
         quote_expiry_date: quoteExpiryDate || null,
         price: preQuoteTotal,
-        updated_at: Date.now(),
-        qc_logs: [
-          { action: 'Site Visit & Grading', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: `ส่งงานไป Auditor — นัดหมาย ${siteVisitDate} (${expectedItems.length} รายการ / ฿${preQuoteTotal.toLocaleString()})` },
-          ...(currentJob.qc_logs || [])
-        ]
-      });
-      toast.success('ส่งงานไปให้ Auditor เรียบร้อย!');
-      setSelectedJobId('');
-      setSiteVisitDate('');
-      setQuoteExpiryDate('');
-    } catch {
-      toast.error('ส่งงานล้มเหลว กรุณาลองใหม่');
-    }
+      },
+      reason: `ส่งงานไป Auditor — นัดหมาย ${siteVisitDate} (${expectedItems.length} รายการ / ฿${preQuoteTotal.toLocaleString()})`,
+    });
+    if (!res.ok) { toast.error(res.message); return; }
+    toast.success('ส่งงานไปให้ Auditor เรียบร้อย!');
+    setSelectedJobId('');
+    setSiteVisitDate('');
+    setQuoteExpiryDate('');
   };
 
   // สร้างงาน B2B ใหม่
@@ -183,21 +182,12 @@ export const B2BDispatchQueue = () => {
     if (!quoteExpiryDate) { toast.warning('กรุณากำหนดวันหมดอายุใบเสนอราคา'); return; }
     if (!confirm(`ยืนยันส่งใบเสนอราคาเบื้องต้น ฿${preQuoteTotal.toLocaleString()} ให้ ${currentJob.cust_name?.split('(')[0]}?`)) return;
 
-    try {
-      await update(ref(db, `jobs/${selectedJobId}`), {
-        status: 'Pre-Quote Sent',
-        price: preQuoteTotal,
-        quote_expiry_date: quoteExpiryDate,
-        updated_at: Date.now(),
-        qc_logs: [
-          { action: 'Pre-Quote Sent', by: currentUser?.name || 'Admin', timestamp: Date.now(), details: `ส่งใบเสนอราคาเบื้องต้น ฿${preQuoteTotal.toLocaleString()} (หมดอายุ: ${quoteExpiryDate})` },
-          ...(currentJob.qc_logs || [])
-        ]
-      });
-      toast.success('ส่ง Pre-Quote สำเร็จ!');
-    } catch {
-      toast.error('ส่ง Pre-Quote ล้มเหลว');
-    }
+    const res = await runJobTransition(selectedJobId, B2B_ACTION_EVENT.send_pre_quote, {
+      patch: { price: preQuoteTotal, quote_expiry_date: quoteExpiryDate },
+      reason: `ส่งใบเสนอราคาเบื้องต้น ฿${preQuoteTotal.toLocaleString()} (หมดอายุ: ${quoteExpiryDate})`,
+    });
+    if (!res.ok) { toast.error(res.message); return; }
+    toast.success('ส่ง Pre-Quote สำเร็จ!');
   };
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Loading B2B Queue...</div>;

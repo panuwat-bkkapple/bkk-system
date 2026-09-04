@@ -22,7 +22,7 @@ export const TicketDetailsModal = ({ job, onClose, onUpdateStatus, onClaimTicket
     <div className="fixed inset-0 z-[100] bg-white overflow-hidden">
       {isB2B ? (
         <B2BManager 
-          job={job} onUpdateStatus={onUpdateStatus} onClose={onClose} basePricing={basePricing as any[]} 
+          job={job} onClose={onClose} basePricing={basePricing as any[]} 
         />
       ) : (
         <B2CWorkspace 

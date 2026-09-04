@@ -54,6 +54,7 @@ const CODE_TO_HTTPS = {
   illegal_from: "failed-precondition",
   unreadable_status: "failed-precondition",
   wrong_receive_method: "failed-precondition",
+  wrong_job_type: "failed-precondition",
   already_paid: "failed-precondition",
   not_paid: "failed-precondition",
   write_contended: "aborted",

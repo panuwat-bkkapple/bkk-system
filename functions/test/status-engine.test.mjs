@@ -718,12 +718,12 @@ check("no rule can drop a job onto the corporate line without scoping to it", ()
   // from-list and no jobTypes.
   const vocab = require(path.join(root, "functions/status-vocab.generated.js"));
   const b2bOnly = new Set(Object.values(vocab.JOB_STATUS_B2B));
-  const { TRANSITIONS, JOB_TYPE } = require(path.join(root, "functions/status-engine.js"));
+  const { TRANSITIONS, B2B_JOB_TYPES } = require(path.join(root, "functions/status-engine.js"));
   for (const [event, rule] of Object.entries(TRANSITIONS)) {
     if (!b2bOnly.has(rule.to)) continue;
     assert.deepEqual(
       rule.jobTypes,
-      [JOB_TYPE.B2B],
+      B2B_JOB_TYPES,
       `${event} lands on the corporate status "${rule.to}" but is legal on any job type`
     );
   }
