@@ -32,6 +32,7 @@ const FUNCTIONS = join(HERE, "..");
 
 const F = require(join(FUNCTIONS, "hr-files.js"));
 const CORE = require(join(FUNCTIONS, "hr-core.js"));
+const AUDIT = require(join(FUNCTIONS, "audit-log.js"));
 
 let passed = 0;
 const failures = [];
@@ -189,7 +190,12 @@ const pdf = (extra = {}) => ({
   for (const m of sources.matchAll(/action:\s*"([a-z_]+)"/g)) written.add(m[1]);
 
   check("มี action ที่โค้ดเขียนจริงให้ตรวจ (regex ยังจับได้)", written.size >= 5);
-  const missing = [...written].filter((a) => !CORE.EMPLOYEE_EVENT_ACTIONS.includes(a));
+  // **มีสองคำศัพท์ในไฟล์เดียวกัน** — ไทม์ไลน์การจ้างพูด `hired`/`promoted`
+  // ส่วน audit log พูด `created`/`updated` (ดู AUDIT_ACTIONS ใน audit-log.js)
+  // เทียบกับ union ของทั้งสองสารบัญ **ไม่ใช่ผ่อน assert ให้ผ่าน** — action ที่
+  // พิมพ์ผิดในฝั่งไหนก็ยังตกทั้งคู่อยู่ดี
+  const known = [...CORE.EMPLOYEE_EVENT_ACTIONS, ...AUDIT.AUDIT_ACTIONS];
+  const missing = [...written].filter((a) => !known.includes(a));
   check(`ทุก action ที่โค้ดเขียนอยู่ในสารบัญ (ขาด: ${missing.join(", ") || "ไม่มี"})`,
     missing.length === 0);
   check("สารบัญรู้จักการเพิ่มเอกสาร", written.has("document_uploaded"));

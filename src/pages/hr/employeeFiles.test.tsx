@@ -1,7 +1,7 @@
 // เทสแฟ้มเอกสารพนักงาน — กฎล้วน + เรนเดอร์จริงด้วย renderToStaticMarkup
 //
 // เรนเดอร์ได้เพราะ `EmployeeFiles.tsx` ไม่ import firebase (รูปเดียวกับ
-// `StageTrack` และ `EmployeeTimeline`)
+// `StageTrack` และ `EmployeeHistory`)
 //
 // ─── ผล injection ─────────────────────────────────────────────────────────
 //   | ทำลายอะไร                                              | ผล |

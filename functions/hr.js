@@ -42,6 +42,9 @@ const {
   employeeActorFields,
 } = require("./hr-core");
 
+const { buildAuditEntry, auditPath } = require("./audit-log");
+const { buildEmployeeHistory } = require("./employee-history");
+
 const REGION = "asia-southeast1";
 
 const nowMs = () => Date.now();
@@ -62,6 +65,28 @@ async function loadRegistry(db) {
 // ประวัติการจ้างงาน — best-effort เหมือน recordStaffEvent/recordTransition:
 // สิทธิ์หรือข้อมูลถูกเปลี่ยนไปแล้วจริง การโยน error ตรงนี้จะทำให้คนกดเข้าใจว่า
 // ไม่สำเร็จแล้วกดซ้ำ ซึ่งแย่กว่าประวัติขาดแถว
+/**
+ * บันทึกลง audit log — ใครแก้อะไร จากค่าอะไรเป็นค่าอะไร
+ *
+ * **คนละเรื่องกับ `recordEmployeeEvent`** ซึ่งเป็นไทม์ไลน์ของการจ้าง:
+ * audit เก็บ *ค่า* (รวมเงินเดือน) และคนอ่านแคบกว่า · ประวัติเป็นของ
+ * **คำนวณ** จาก audit + ข้อมูลจริง ไม่ใช่โหนดที่สาม (ดู employee-history.js)
+ *
+ * best-effort เหมือนกัน — ข้อมูลถูกเปลี่ยนไปแล้วจริง การ throw ตรงนี้ทำให้
+ * คนกดเข้าใจว่าไม่สำเร็จแล้วกดซ้ำ ซึ่งแย่กว่า audit ขาดแถว **แต่ต้องดังใน log**
+ */
+async function recordAudit(db, { entity, entityId, action, actor, before, after, fields, reason }) {
+  try {
+    const entry = buildAuditEntry({ entity, entityId, action, actor, before, after, fields, reason });
+    if (!entry) return;
+    const path = auditPath(entity, entityId);
+    if (!path) return;
+    await db.ref(path).push(entry);
+  } catch (e) {
+    console.error("[hr] audit log failed:", e && e.message ? e.message : e);
+  }
+}
+
 async function recordEmployeeEvent(db, event) {
   try {
     await db.ref("employee_events").push(event);
@@ -262,6 +287,10 @@ function registerHr() {
     const at = nowMs();
     const updates = {};
     let salaryChanged = false;
+    // เก็บค่าก่อน/หลังของช่องเงินไว้ให้ audit — **audit ที่ไม่มีค่าเก่าคือ
+    // audit ที่ตอบคำถามเดียวที่มันมีไว้ตอบไม่ได้** (ดู audit-log.js)
+    let payBefore = null;
+    let payAfter = null;
 
     if (data.profile !== undefined) {
       const pub = sanitizeEmployeePublic(data.profile, { partial: true });
@@ -275,6 +304,8 @@ function registerHr() {
         const before = (await db.ref(`employees_private/${employeeId}/pay`).once("value")).val() || {};
         salaryChanged = Number(before.base_salary || 0) !== Number(priv.value.pay.base_salary || 0)
           || Number(before.daily_rate || 0) !== Number(priv.value.pay.daily_rate || 0);
+        payBefore = before;
+        payAfter = priv.value.pay;
 
         // เบี้ยเลี้ยงประจำต้องรอดจากการแก้ข้อมูลที่ไม่เกี่ยวกับมัน
         //
@@ -301,14 +332,40 @@ function registerHr() {
     // อยู่ใต้การแก้คำสะกดชื่อ (เหตุผลเดียวกับ recordStaffEvent ที่เก็บเฉพาะ
     // การเปลี่ยน role)
     if (salaryChanged) {
+      // ไทม์ไลน์การจ้าง — บอกว่า "มีการปรับเงินเดือน" ไม่บอกตัวเลข เพราะโหนดนี้
+      // คนอ่านกว้างกว่า **ตัวเลขอยู่ใน audit log** ซึ่งประวัติหยิบไปแสดง
+      // ให้เฉพาะคนที่เห็นเงินเดือนได้อยู่แล้ว
       await recordEmployeeEvent(db, {
         employee_id: employeeId,
         action: "salary_changed",
-        from: null, // ค่าเก่าเป็นข้อมูลอ่อนไหว — เก็บไว้ใน employees_private เท่านั้น
+        from: null,
         to: null,
         reason: String(data.reason || "").slice(0, 300) || null,
         at,
         ...employeeActorFields(callerStaffId, staffMap, request.auth),
+      });
+    }
+
+    // ── audit log ────────────────────────────────────────────────────────
+    //
+    // **เขียนค่าจริง** ทั้งช่องเงินและช่องข้อมูลทั่วไป — ก่อนหน้านี้ระบบเขียน
+    // `from: null, to: null` ให้ทุกการปรับเงินเดือน ทำให้หน้าประวัติต้องขึ้น
+    // ข้อความแก้ตัวว่า "ระบบไม่ได้บันทึกจำนวนเงินไว้" แล้วชี้ให้ไปดูค่าปัจจุบัน
+    // ซึ่งไม่ใช่ประวัติ
+    {
+      const actorFields = employeeActorFields(callerStaffId, staffMap, request.auth);
+      const actor = { uid: actorFields.by_uid, name: actorFields.by_name, role: actorFields.by_role };
+      const reason = String(data.reason || "").slice(0, 300) || null;
+      await recordAudit(db, {
+        entity: "employee", entityId: employeeId, action: "updated", actor, reason,
+        before: { ...existing, ...(payBefore || {}) },
+        after: { ...existing, ...updates, ...(payAfter || {}) },
+        fields: [
+          "name", "title", "first_name", "last_name", "position", "department",
+          "status", "employment_type", "hired_at", "terminated_at",
+          "base_salary", "daily_rate", "pay_method", "supervisor_id",
+          "national_id", "bank_account_no", "phone", "email",
+        ],
       });
     }
     if (updates.position && updates.position !== existing.position) {
@@ -519,7 +576,51 @@ function registerHr() {
     return { items, capped: items.length >= MAX_EVENTS };
   });
 
+  // -------------------------------------------------------------------------
+  // adminHrEmployeeHistory — ประวัติพนักงาน (ของ *คน* ไม่ใช่รายการแก้ฟิลด์)
+  //
+  // **ประกอบจากของที่มีอยู่แล้ว ไม่มีโหนดที่สาม** — ข้อเท็จจริงปัจจุบันจาก
+  // `employees` · การเปลี่ยนย้อนหลังจาก `audit_log` · วันลาจาก
+  // `leave_requests` · เอกสารจาก `hr_documents`
+  //
+  // ทุกอันอ่านเป็น subtree ของพนักงานคนเดียว **ไม่มีการกวาดโหนด** และไม่ต้อง
+  // มี `.indexOn` (หนี้ที่ `employee_events` ยังติดอยู่)
+  // -------------------------------------------------------------------------
+  const adminHrEmployeeHistory = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    await requireStaffRole(db, request.auth, HR_ROLES);
+    const employeeId = String((request.data || {}).employeeId || "");
+    if (!employeeId) throw new HttpsError("invalid-argument", "ต้องระบุพนักงาน");
+
+    const [empSnap, auditSnap, leaveSnap, docSnap] = await Promise.all([
+      db.ref(`employees/${employeeId}`).once("value"),
+      db.ref(`audit_log/employee/${employeeId}`).limitToLast(300).once("value"),
+      db.ref(`leave_requests/${employeeId}`).once("value"),
+      db.ref(`hr_documents/${employeeId}`).once("value"),
+    ]);
+    if (!empSnap.exists()) throw new HttpsError("not-found", "ไม่พบพนักงานในทะเบียน");
+
+    const collect = (snap) => {
+      const out = [];
+      snap.forEach((c) => { out.push({ id: c.key, ...c.val() }); return false; });
+      return out;
+    };
+
+    const history = buildEmployeeHistory({
+      employee: { id: employeeId, ...empSnap.val() },
+      auditRows: collect(auditSnap),
+      leaveRows: collect(leaveSnap),
+      documents: collect(docSnap),
+      now: nowMs(),
+      // HR_ROLES คือ CEO/HR ซึ่งเห็น `employees_private` (ที่เก็บเงินเดือน)
+      // อยู่แล้ว — ประวัติเงินเดือนจึงไม่ใช่การเปิดข้อมูลใหม่ให้ใคร
+      canSeePay: true,
+    });
+    return history;
+  });
+
   return {
+    adminHrEmployeeHistory,
     adminHrEmployeeList,
     adminHrEmployeeCreate,
     adminHrEmployeeUpdate,
