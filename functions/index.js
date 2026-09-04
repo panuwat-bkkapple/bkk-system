@@ -6576,6 +6576,14 @@ exports.transitionJob = statusTransitionApi.transitionJob;
 const b2bUnpack = require("./b2b-unpack");
 exports.unpackB2BLot = b2bUnpack.unpackB2BLot;
 
+// ฝ่ายบัญชีโอนเงินให้ลูกค้าแล้ว: transition ผ่าน engine แล้วเขียนแถว ledger
+//
+// writer สถานะตัวสุดท้ายที่ย้ายจากไคลเอนต์ (src/utils/payoutTransfer.ts เดิม) —
+// ลำดับ transition → ledger และเหตุผลที่ไม่ใช่ update() ก้อนเดียวอยู่ที่หัว
+// ./payout-transfer.js
+const payoutTransfer = require("./payout-transfer");
+exports.confirmPayoutTransfer = payoutTransfer.confirmPayoutTransfer;
+
 // =============================================================================
 // Staff account lifecycle — per-employee Firebase Auth accounts, CEO-gated.
 // เจ้าของการเขียน /staff + /admins เพียงผู้เดียว (rules ปิด client write แล้ว)
