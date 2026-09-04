@@ -11,22 +11,11 @@
 //
 // normalizeStatus อ่าน 'Payment Completed' / 'PAID' เป็น JOB_STATUS.PAID (LEGACY_ALIAS)
 // และคืนสถานะสาย B2B (JOB_STATUS_B2B) ตามเดิม จึงครอบทั้งสองสะกดในที่เดียว
-import { JOB_STATUS, JOB_STATUS_B2B, normalizeStatus } from '../types/job-statuses';
+import { JOB_STATUS, JOB_STATUS_B2B } from '../types/job-statuses';
+import { canonicalStatusOf, statusIn, type StatusJob } from './statusCompare';
 
-type StatusJob = { status?: string | null; receive_method?: string | null } | null | undefined;
-
-/** canonical ถ้าอ่านออก ไม่งั้นค่าดิบ (สถานะที่ enum ไม่รู้จักยังเทียบกับตัวเองได้) */
-export const canonicalStatusOf = (job: StatusJob): string | null => {
-   const raw = job?.status;
-   const canonical = normalizeStatus(raw, job?.receive_method);
-   if (canonical) return canonical;
-   return typeof raw === 'string' && raw ? raw : null;
-};
-
-const inSet = (job: StatusJob, set: ReadonlySet<string>): boolean => {
-   const s = canonicalStatusOf(job);
-   return !!s && set.has(s);
-};
+export { canonicalStatusOf };
+const inSet = statusIn;
 
 // ล็อตที่ห้ามแก้เกรด/ราคาแล้ว (B2BAuditorTool) — ตั้งแต่รอฝ่ายบัญชีอนุมัติเป็นต้นไป
 export const B2B_LOCKED_STATUSES: ReadonlySet<string> = new Set([

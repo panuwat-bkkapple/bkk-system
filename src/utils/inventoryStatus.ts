@@ -8,19 +8,13 @@
 //
 // 'Reserved' ไม่มี canonical (ไม่อยู่ใน JOB_STATUS/LEGACY_ALIAS — ดู CLAUDE.md
 // "ตัวที่ยังไม่ผ่าน engine") normalizeStatus จึงคืน null ต้องตกกลับไปใช้ค่าดิบ
-import { JOB_STATUS, normalizeStatus } from '../types/job-statuses';
+import { JOB_STATUS } from '../types/job-statuses';
+import { canonicalStatusOf, type StatusJob } from './statusCompare';
 
 export const RESERVED_STATUS = 'Reserved';
 
-type StatusJob = { status?: string | null; receive_method?: string | null } | null | undefined;
-
 /** canonical ถ้าอ่านออก ไม่งั้นค่าดิบ (สำหรับสถานะที่ยังไม่มี canonical เช่น Reserved) */
-export const inventoryStatusOf = (job: StatusJob): string | null => {
-   const raw = job?.status;
-   const canonical = normalizeStatus(raw, job?.receive_method);
-   if (canonical) return canonical;
-   return typeof raw === 'string' && raw ? raw : null;
-};
+export const inventoryStatusOf = canonicalStatusOf;
 
 const INVENTORY_STATUSES: ReadonlySet<string> = new Set([
    JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL, RESERVED_STATUS,
