@@ -56,6 +56,8 @@ const EVENTS: Record<string, { label: string; tone: EventView['tone'] }> = {
   profile_updated: { label: 'แก้ไขข้อมูล', tone: 'gray' },
   linked: { label: 'ผูกบัญชีเข้าระบบ', tone: 'blue' },
   unlinked: { label: 'ถอนบัญชีออกจากแฟ้ม', tone: 'amber' },
+  document_uploaded: { label: 'เพิ่มเอกสารเข้าแฟ้ม', tone: 'blue' },
+  document_deleted: { label: 'ลบเอกสารออกจากแฟ้ม', tone: 'amber' },
 };
 
 /** แปลงหนึ่งแถวเป็นสิ่งที่แสดงบนจอ */
@@ -71,6 +73,12 @@ export function describeEvent(ev: TimelineEvent): EventView {
   } else if (action === 'salary_changed') {
     // ห้ามเดาตัวเลข — server ไม่ได้เก็บไว้ตรงนี้โดยตั้งใจ
     lines.push('ระบบไม่ได้บันทึกจำนวนเงินไว้ในประวัติ (ดูค่าปัจจุบันที่ปุ่มแก้ไข)');
+  } else if (action === 'document_uploaded' || action === 'document_deleted') {
+    // **ชื่อ *ชนิด* เอกสาร ไม่ใช่ชื่อไฟล์** — server ตั้งใจไม่ส่งชื่อไฟล์มา
+    // เพราะคนตั้งชื่อไฟล์ว่าอะไรก็ได้ รวมถึงเลขบัตรของตัวเอง แล้วมันจะไปนั่งอยู่
+    // บนไทม์ไลน์ถาวร (ฝั่ง upload เขียนไว้ที่ `to`, ฝั่ง delete เขียนไว้ที่ `from`)
+    const doc = String((ev.to && ev.to.document) || (ev.from && ev.from.document) || '').trim();
+    if (doc) lines.push(doc);
   } else if (ev.from || ev.to) {
     const before = ev.from && 'status' in ev.from ? statusTh(ev.from.status) : null;
     const after = ev.to && 'status' in ev.to ? statusTh(ev.to.status) : null;
