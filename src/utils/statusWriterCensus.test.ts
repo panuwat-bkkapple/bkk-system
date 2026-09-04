@@ -25,6 +25,9 @@ import { join, resolve } from 'node:path';
 /**
  * 108 · ลดได้ ขึ้นไม่ได้ (113 ตอนเริ่ม P2-h)
  *
+ * P2-n: 106 -> 96 มาจากการ **รวมสำเนาสองชุดมาที่เดียว** (payoutTransfer) ไม่ใช่
+ * การย้ายไป engine — 10 บรรทัดเดิมยังเขียน jobs/{id} ตรงเหมือนเดิม แค่ยุบจาก
+ * สองไฟล์เหลือไฟล์เดียว **อ่านรวมกับความคืบหน้าของการย้ายไม่ได้**
  * P2-l: 108 -> 106 (Inventory ย้าย 2 จุด) · P2-k: 112 -> 108 มาจากการ **ลบโค้ดตาย** 4 ฟังก์ชันใน TradeInDashboard ไม่ใช่
  * การย้าย writer — ตัวเลขลดเท่ากันแต่คนละเรื่อง อย่าอ่านรวมกับความคืบหน้าของ
  * การย้าย. **ตัวนับนี้นับ *ทุก* การเขียน `jobs/{id}` ตรง ไม่ใช่แค่ที่มี
@@ -36,7 +39,7 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 106;
+const MAX_DIRECT_JOB_WRITES = 96;
 
 const require = createRequire(import.meta.url);
 
@@ -93,6 +96,33 @@ describe('สำมะโนการเขียนโหนดงานตร�
     );
     expect(sidebar).not.toContain('handleUpdateStatus');
     expect((sidebar.match(/handleTransition\(JOB_EVENT\./g) || []).length).toBe(10);
+  });
+
+  it('จอจ่ายเงินสองจอเรียก builder ตัวเดียว ไม่ประกอบก้อนเขียนเอง', () => {
+    // เดิมสองไฟล์นี้ถือสำเนาคนละชุด เหมือนกัน 88% ตรงกันเป๊ะ 53 บรรทัด — ซึ่งเป็น
+    // รูปที่ CLAUDE.md เตือน: กฎที่มีสองสำเนาคือกฎที่วันหนึ่งจะไม่ตรงกัน และตัวที่
+    // ต่างจะเป็นตัวที่ไม่มีใครเปิดดู
+    //
+    // ด่านนี้จับ "ประกอบเอง" ไม่ใช่แค่ "เรียก builder ไหม" เพราะแบบหลังเขียวได้
+    // ทั้งที่มีคนก๊อปก้อนเดิมกลับมาวางข้างๆ
+    for (const f of [
+      'pages/finance/components/TradeInPayouts.tsx',
+      'pages/mobile/MobileFinancePage.tsx',
+    ]) {
+      const page = readFileSync(resolve(SRC, f), 'utf8');
+      expect(page, f).toContain('buildPayoutUpdates(');
+      expect(page, `${f} ยังประกอบก้อนเขียนเอง`).not.toContain('/paid_at`]');
+      expect(page, `${f} ยังเขียนแถว ledger เอง`).not.toContain("type: 'DEBIT'");
+    }
+  });
+
+  it('payoutTransfer ยังไม่ย้ายไป engine และเหตุผลถูกจดไว้', () => {
+    // ตรึง **เหตุผลที่หยุด** ไม่ใช่ตรึงโค้ด: ก้อนนี้เขียนสถานะกับแถว ledger ใน
+    // update() ก้อนเดียวแบบ atomic การแยกสถานะไป transitionJob ทำลายข้อนั้น
+    // ถ้าวันหนึ่งมีคนย้ายจริง ต้องมาลบเทสนี้พร้อมกัน = มีจังหวะให้อ่านเหตุผลก่อน
+    const util = readFileSync(resolve(SRC, 'utils/payoutTransfer.ts'), 'utf8');
+    expect(util).toContain('atomic');
+    expect(util).not.toContain('runJobTransition');
   });
 
   it('Inventory: ปุ่มขึ้นหน้าร้านกับขายแล้วยิง event เหลือฟอร์มแก้ราคาที่รอ enum', () => {
@@ -201,7 +231,8 @@ describe('สำมะโนการเขียนโหนดงานตร�
     const names = perFile.map(([f]) => f);
     expect(names.some((f) => f.endsWith('B2CWorkspacePage.tsx'))).toBe(true);
     expect(names.some((f) => f.endsWith('MobileTicketDetail.tsx'))).toBe(true);
-    // นับได้ทั้งสองรูป ไม่ใช่แค่รูปเดียว: TradeInPayouts เป็น multi-path ล้วน
-    expect(names.some((f) => f.endsWith('TradeInPayouts.tsx'))).toBe(true);
+    // นับได้ทั้งสองรูป ไม่ใช่แค่รูปเดียว — รูป multi-path (`updates[...] = `)
+    // ย้ายจาก TradeInPayouts ไปอยู่ที่ payoutTransfer.ts ใน P2-n แล้ว
+    expect(names.some((f) => f.endsWith('payoutTransfer.ts'))).toBe(true);
   });
 });

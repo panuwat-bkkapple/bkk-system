@@ -11,6 +11,7 @@ import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { sumAppliedAdjustments, sumAppliedCoupons } from '../../../utils/adjustments';
 import { buildLogisticsRevenueTx } from '../../../utils/logisticsRevenue';
+import { buildPayoutUpdates } from '../../../utils/payoutTransfer';
 
 // แปลง epoch ms → ค่าสำหรับ <input type="datetime-local"> (อิงเวลาท้องถิ่น = เวลาไทยบนเครื่อง)
 const toDateTimeLocal = (ms: number) => {
@@ -130,56 +131,25 @@ export const TradeInPayouts = () => {
       // 🌟 ใช้ยอดสุทธิที่คิดสดจาก final_price
       const actualTransferAmount = getNetPayout(selectedTx);
 
-      // Status string is intentionally the legacy lowercase 'Waiting for
-      // Handover' — admin readers across this app (TradeInDashboard,
-      // Finance, RiderSettlements, MobileTicketsPage, QCStation,
-      // DispatcherPage) all match it that way and switching to canonical
-      // 'Waiting For Handover' would break those views. Rider app handles
-      // this via legacy alias (PR bkk-rider-app#51). Long-term fix is to
-      // unify domain.ts and job-statuses.ts; tracked separately.
-      const nextStatus = isB2B ? 'Payment Completed' : 'Waiting for Handover';
-      const logAction = isB2B ? 'Payment Completed' : 'Paid';
-      const logDetails = `ฝ่ายบัญชีโอนเงินสำเร็จ ยอดสุทธิ ฿${actualTransferAmount.toLocaleString()} เข้าบัญชี ${editBankName} (${editBankAccount}) เมื่อ ${formatDate(transferredAt)}`;
-
-      const newLog = { action: logAction, by: currentUser?.name || 'Finance', timestamp: now, details: logDetails, evidence_url: slipUrl };
-
-      // 🌟 Atomic multi-path update: job + transactions ทั้งหมดในครั้งเดียว
-      // ถ้า path ใด fail ทั้งหมดจะ rollback — ไม่มี partial write
-      const updates: Record<string, any> = {};
-
-      // Job update
-      updates[`jobs/${selectedTx.id}/status`] = nextStatus;
-      updates[`jobs/${selectedTx.id}/paid_at`] = now;
-      updates[`jobs/${selectedTx.id}/transferred_at`] = transferredAt; // เวลาโอนจริงตามสลิป (โชว์ในใบสำคัญรับเงิน/ติดตามลูกค้า)
-      updates[`jobs/${selectedTx.id}/paid_by`] = currentUser?.name || 'Finance';
-      updates[`jobs/${selectedTx.id}/payment_slip`] = slipUrl;
-      updates[`jobs/${selectedTx.id}/updated_at`] = now;
-      updates[`jobs/${selectedTx.id}/bank_name`] = editBankName;
-      updates[`jobs/${selectedTx.id}/bank_account`] = editBankAccount;
-      updates[`jobs/${selectedTx.id}/bank_holder`] = editBankHolder;
-      updates[`jobs/${selectedTx.id}/qc_logs`] = [newLog, ...(selectedTx.qc_logs || [])];
-
-      // Transaction: DEBIT (payout to customer)
-      const debitKey = push(child(ref(db), 'transactions')).key;
-      updates[`transactions/${debitKey}`] = {
-        rider_id: 'SYSTEM',
-        amount: actualTransferAmount,
-        type: 'DEBIT',
-        category: isB2B ? 'B2B_PURCHASE' : 'TRADE_IN_PAYOUT',
-        description: `จ่ายเงินรับซื้อสุทธิ ${selectedTx.model} (${selectedTx.cust_name?.split('(')[0]})`,
-        timestamp: transferredAt, // ledger เงินสดอิงเวลาโอนจริง
-        ref_job_id: selectedTx.id,
-        slip_url: slipUrl
-      };
-
-      // Transaction: CREDIT รายได้ค่าบริการรับเครื่อง — helper กลางตัวเดียว
-      // (rider_id = SYSTEM เสมอ, ยอด = ค่าส่งที่เก็บจากลูกค้าจริง ไม่ใช่
-      // ต้นทุนไรเดอร์ — ดู src/utils/logisticsRevenue.ts)
+      // ก้อนเขียนทั้งหมดอยู่ที่ `utils/payoutTransfer.ts` ที่เดียว — จอนี้กับ
+      // MobileFinancePage เคยถือสำเนาคนละชุด (เหมือนกัน 88% ตรงกันเป๊ะ 53 บรรทัด)
+      const debitKey = push(child(ref(db), 'transactions')).key as string;
       const revenueTx = buildLogisticsRevenueTx(selectedTx, transferredAt);
-      if (revenueTx) {
-        const creditKey = push(child(ref(db), 'transactions')).key;
-        updates[`transactions/${creditKey}`] = revenueTx;
-      }
+      const creditKey = revenueTx ? (push(child(ref(db), 'transactions')).key as string) : null;
+
+      const updates = buildPayoutUpdates({
+        job: selectedTx,
+        slipUrl,
+        transferredAt,
+        transferredAtLabel: formatDate(transferredAt),
+        now,
+        bank: { name: editBankName, account: editBankAccount, holder: editBankHolder },
+        byName: currentUser?.name || 'Finance',
+        netPayout: actualTransferAmount,
+        debitKey,
+        revenueTx,
+        creditKey,
+      });
 
       await update(ref(db), updates);
 
