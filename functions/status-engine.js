@@ -76,8 +76,30 @@ const ACTOR = {
 
 // An admin_manager may do anything an admin_staff may do, and system may do
 // anything at all (schedulers, triggers, migrations).
+//
+// FINANCE IS STAFF PLUS FINANCE, NOT A NARROWER ROLE (ก.ย. 2569)
+// Before the engine existed there was no role check on job status at all —
+// every signed-in admin account, finance included, could write any status
+// directly. The migration turned `actors: [ADMIN_STAFF]` into a real gate,
+// which silently took the whole desktop away from finance accounts: 51 of the
+// rows in this table name admin_staff, and none of the screens that render
+// those buttons (/tickets, /workspace/:id, /b2b-dispatch, /b2b-auditor,
+// /mobile/job/:id) has a role guard of its own, so a finance user sees every
+// button and every one of them answers wrong_actor.
+//
+// This restores what those accounts had. It is deliberately an implication
+// rather than adding FINANCE to 51 `actors` lists: one line cannot drift, and
+// fifty-one can — the shape this whole migration exists to end.
+//
+// WHAT IT DOES NOT GRANT: admin_manager rows (parcel_declared_lost,
+// dispute_opened). Finance ends up with exactly a STAFF account's reach plus
+// the money events, which is a rule that can be stated in one sentence. The
+// two rows that already list FINANCE explicitly (payout_started,
+// admin_marked_paid) keep it — redundant now, but they say "this is finance's
+// job", which the implication does not.
 const ACTOR_IMPLIES = {
   [ACTOR.ADMIN_MANAGER]: [ACTOR.ADMIN_STAFF],
+  [ACTOR.FINANCE]: [ACTOR.ADMIN_STAFF],
 };
 
 function actorSatisfies(actual, allowed) {

@@ -281,14 +281,23 @@ check("จ่ายเงินแล้วรับข้อเสนอให�
   assert.equal(out.code, "already_paid");
 });
 
-check("การเงินไม่ใช่คนกดแทนลูกค้าหน้างาน", () => {
+// เดิมเทสนี้ยืนยันว่า **การเงินกดรับข้อเสนอแทนลูกค้าไม่ได้** — เปลี่ยนผลลัพธ์
+// ตอนเจ้าของงานสั่งเปิดสิทธิ์ FINANCE (ก.ย. 2569) ไม่ใช่เพราะเทสผิด แต่เพราะ
+// กฎเปลี่ยน: FINANCE = STAFF + เรื่องเงิน และแถวนี้ STAFF ทำได้อยู่แล้ว
+//
+// **สิ่งที่แลกไปและควรรู้:** `revised_offer_accepted` คือการตกลง *ยอดที่บริษัท
+// จะจ่าย* ส่วน `payment_confirmed` คือการ *จ่ายจริง* การให้คนเดียวกันทำได้ทั้ง
+// สองอย่างคือการเสียหลัก four-eyes ไป — เดิมก็ไม่ได้บังคับครบอยู่แล้ว
+// (`payout_started` ระบุ FINANCE ไว้ตรงๆ มาตั้งแต่ต้น) ถ้าวันหนึ่งจะรัดกลับ
+// ทางที่ถูกคือ **ลิสต์ปฏิเสธรายแถว** ไม่ใช่ถอน implication ทั้งก้อน ซึ่งจะพา
+// 51 แถวหายไปพร้อมกันอีกรอบ
+check("การเงินกดรับข้อเสนอแทนลูกค้าได้ — สิทธิ์เท่า STAFF (เปลี่ยนจากเดิมโดยตั้งใจ)", () => {
   const out = decideTransition({
     job: job({ status: "Revised Offer" }),
     event: "revised_offer_accepted",
     actor: ACTOR.FINANCE,
   });
-  assert.equal(out.ok, false);
-  assert.equal(out.code, "wrong_actor");
+  assert.ok(out.ok, out.code);
 });
 
 check("a paid job cannot be reverted back into inspection", () => {
@@ -685,6 +694,76 @@ check("from-list ของ event ที่ปุ่มแอดมินเร�
   for (const [event, from] of Object.entries(pinned)) {
     assert.deepEqual(TRANSITIONS[event].from, from, `from-list ของ ${event} เปลี่ยน`);
   }
+});
+
+check("finance reaches every staff row — the migration had silently locked them out", () => {
+  // Before the engine there was no role check on job status at all, so a
+  // finance account could work the whole desktop. `actors: [ADMIN_STAFF]`
+  // turned that into a real gate and took 51 rows away from them at once,
+  // on screens that have no role guard of their own — every button visible,
+  // every button answering wrong_actor.
+  const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
+  const staffRows = Object.entries(TRANSITIONS).filter(
+    ([, r]) => r.actors.includes(ACTOR.ADMIN_STAFF) && !r.actors.includes(ACTOR.FINANCE)
+  );
+  assert.ok(staffRows.length > 40, `expected the bulk of the table, got ${staffRows.length}`);
+  const [event] = staffRows[0];
+  const out = decideTransition({
+    job: { status: "New Lead", receive_method: "Pickup" },
+    event: "case_claimed",
+    actor: ACTOR.FINANCE,
+  });
+  assert.ok(out.ok, `finance refused on ${event}: ${out.code}`);
+});
+
+check("...and reaches the corporate line too, not only retail", () => {
+  const out = decideTransition({
+    job: { status: "Final Quote Accepted", type: "B2B Trade-in" },
+    event: "b2b_po_issued",
+    actor: ACTOR.FINANCE,
+  });
+  assert.ok(out.ok, out.code);
+});
+
+check("finance is staff PLUS finance, not a manager", () => {
+  // The line that makes the rule statable in one sentence. If this goes green
+  // for admin_manager rows, finance quietly became the highest role.
+  for (const [event, job] of [
+    ["dispute_opened", { status: "Completed", receive_method: "Pickup" }],
+    ["parcel_declared_lost", { status: "Investigating Carrier", receive_method: "Mail-in" }],
+  ]) {
+    const out = decideTransition({ job, event, actor: ACTOR.FINANCE });
+    assert.equal(out.ok, false, `finance should not reach ${event}`);
+    assert.equal(out.code, "wrong_actor");
+  }
+});
+
+check("the implication does not leak to riders", () => {
+  // actorSatisfies walks ACTOR_IMPLIES of the ACTUAL actor. A rider must not
+  // pick up staff powers from anyone else's entry.
+  const out = decideTransition({
+    job: { status: "New Lead", receive_method: "Pickup" },
+    event: "case_claimed",
+    actor: ACTOR.RIDER,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "wrong_actor");
+});
+
+check("finance keeps the money events it alone owns", () => {
+  const out = decideTransition({
+    job: { status: "Payout Processing", receive_method: "Pickup" },
+    event: "payment_confirmed",
+    actor: ACTOR.FINANCE,
+  });
+  assert.ok(out.ok, out.code);
+  // และแอดมินธรรมดายังแตะไม่ได้ — การเปิดสิทธิ์ทางเดียวต้องไม่เปิดอีกทาง
+  const staff = decideTransition({
+    job: { status: "Payout Processing", receive_method: "Pickup" },
+    event: "payment_confirmed",
+    actor: ACTOR.ADMIN_STAFF,
+  });
+  assert.equal(staff.ok, false);
 });
 
 check("every rule names a destination inside the canonical enum", () => {

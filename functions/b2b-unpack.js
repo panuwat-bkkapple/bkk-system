@@ -136,11 +136,21 @@ exports.unpackB2BLot = onCall({ region: REGION }, async (request) => {
 
   const db = getDatabase();
   const who = await lookupStaffByAuth(db, request.auth);
+  // FINANCE อยู่ในลิสต์เพราะมันเป็น "staff บวกเรื่องเงิน" ไม่ใช่ role ที่แคบกว่า
+  // (ดูเหตุผลเต็มที่ ACTOR_IMPLIES ใน status-engine.js) — **ด่านนี้เป็นสำเนาที่
+  // สองของกติกาเดียวกัน** ตอนเปิดสิทธิ์ให้ finance ต้องแก้ทั้งคู่ ไม่งั้นทุกปุ่ม
+  // ของสาย B2B ใช้ได้ยกเว้นปุ่มระเบิดกล่อง ซึ่งเป็นอาการที่ไล่หาสาเหตุยากมาก
   const role = String((who && who.role) || "").toUpperCase();
-  if (!who || !["CEO", "MANAGER", "STAFF"].includes(role)) {
+  const ROLE_ACTOR = {
+    CEO: ACTOR.ADMIN_MANAGER,
+    MANAGER: ACTOR.ADMIN_MANAGER,
+    STAFF: ACTOR.ADMIN_STAFF,
+    FINANCE: ACTOR.FINANCE,
+  };
+  const actor = who ? ROLE_ACTOR[role] : null;
+  if (!actor) {
     throw new HttpsError("permission-denied", "บัญชีนี้ไม่มีสิทธิ์รับเครื่องเข้าคลัง");
   }
-  const actor = role === "STAFF" ? ACTOR.ADMIN_STAFF : ACTOR.ADMIN_MANAGER;
 
   const snap = await db.ref(`jobs/${jobId}`).once("value");
   const job = snap.val();
