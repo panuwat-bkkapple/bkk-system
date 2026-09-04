@@ -20,6 +20,8 @@ import {
   Banknote, RefreshCw, CheckCircle2, Download, AlertTriangle, ChevronDown, ChevronRight, Lock, Calendar, Plus, Trash2, Pencil, FileText,
 } from 'lucide-react';
 import { baht, thaiDate, toCsv, download, downloadBase64 } from './hrFormat';
+// วันที่แบบไทยและกติกาการอ่านยอดวันลา — ล้วน มีเทส
+import { bangkokIsoDate } from './employeeLeave';
 
 const fns = () => getFunctions(app, 'asia-southeast1');
 const call = async <T,>(name: string, data: Record<string, unknown>): Promise<T> => {
@@ -108,6 +110,9 @@ export const PayrollRuns = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [period, setPeriod] = useState(thisPeriod);
   const [presets, setPresets] = useState<Preset[]>([]);
+  // วันลาไม่รับค่าจ้างในรอบนี้ — **แสดงอย่างเดียว ไม่หักเงิน**
+  // การหักอัตโนมัติเป็นงานรอบถัดไปที่ต้องตัดสินใจแยก (ดู functions/hr-leave.js)
+  const [unpaidLeave, setUnpaidLeave] = useState<Record<string, { days: number }>>({});
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -126,6 +131,24 @@ export const PayrollRuns = () => {
     try {
       const res = await call<{ run: Run; items: Item[]; presets: Preset[] }>('adminHrPayrollGet', { period: key });
       setRun(res.run); setItems(res.items || []); setPresets(res.presets || []);
+
+      // ยิงแยกและล้มได้เงียบ — hosting ขึ้นก่อน functions เสมอ หน้ารอบจ่าย
+      // ต้องใช้งานได้เต็มที่แม้ callable ตัวนี้ยังไม่ได้ deploy
+      const ids = (res.items || []).map((i) => i.employee_id).filter((x): x is string => Boolean(x));
+      if (ids.length && res.run) {
+        try {
+          const lv = await call<{ rows: Record<string, { days: number }> }>('adminHrLeaveUnpaidInPeriod', {
+            employeeIds: ids,
+            from: bangkokIsoDate(res.run.period_from),
+            to: bangkokIsoDate(res.run.period_to),
+          });
+          setUnpaidLeave(lv.rows || {});
+        } catch {
+          setUnpaidLeave({});
+        }
+      } else {
+        setUnpaidLeave({});
+      }
     } catch (e) {
       setRun(null); setItems([]);
       toast.error(e instanceof Error ? e.message : 'โหลดรอบไม่สำเร็จ');
@@ -407,6 +430,12 @@ export const PayrollRuns = () => {
                         {(item.warnings || []).map((w) => (
                           <p key={w} className="text-xs font-bold text-amber-700 mt-0.5">{w}</p>
                         ))}
+                        {(unpaidLeave[item.employee_id || '']?.days || 0) > 0 && (
+                          <p className="text-xs font-bold text-amber-700 mt-0.5">
+                            รอบนี้มีวันลาไม่รับค่าจ้าง {unpaidLeave[item.employee_id || ''].days} วัน
+                            — ยังไม่ได้หักในยอดนี้ ถ้าต้องหักให้เพิ่มบรรทัด &quot;หักขาด/ลา/มาสาย&quot;
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right shrink-0">

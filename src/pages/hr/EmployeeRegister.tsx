@@ -20,10 +20,15 @@ import { app } from '../../api/firebase';
 import { useToast } from '../../components/ui/ToastProvider';
 import {
   Users, Plus, X, ShieldAlert, Link2, RefreshCw, Search, IdCard, Banknote, UserMinus, Pencil, Receipt,
-  FileText, Printer, Ban, AlertTriangle, Clock, FolderClosed,
+  FileText, Printer, Ban, AlertTriangle, Clock, FolderClosed, CalendarDays, Check,
 } from 'lucide-react';
 // ตัวเรนเดอร์ไทม์ไลน์อยู่ไฟล์แยกและไม่ import firebase — เทสเรนเดอร์ได้จริง
 import { EmployeeTimeline, TimelineHeading } from './EmployeeTimeline';
+// การนับวันลาทั้งหมดอยู่ฝั่ง server — ไฟล์นี้แค่แปลงตัวเลขที่ได้มาให้อ่านออก
+import {
+  balanceText, needsAttention, leaveSummary, statusTone, STATUS_LABEL,
+  type LeaveBalance, type LeaveRequestRow,
+} from './employeeLeave';
 import type { TimelineEvent } from './employeeTimeline';
 import { EmployeeFilesPanel, FilesSummary } from './EmployeeFiles';
 import { SsoBadge } from './SsoBadge';
@@ -170,6 +175,7 @@ export const EmployeeRegister = () => {
   const [docsFor, setDocsFor] = useState<EmployeeRow | null>(null);
   const [historyFor, setHistoryFor] = useState<EmployeeRow | null>(null);
   const [filesFor, setFilesFor] = useState<EmployeeRow | null>(null);
+  const [leaveFor, setLeaveFor] = useState<EmployeeRow | null>(null);
 
   const staleCount = items.filter((e) => e.access?.stale_access).length;
 
@@ -336,6 +342,10 @@ export const EmployeeRegister = () => {
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                       <FolderClosed size={13} /> แฟ้ม
                     </button>
+                    <button onClick={() => setLeaveFor(row)} disabled={busy}
+                      className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                      <CalendarDays size={13} /> วันลา
+                    </button>
                     <button onClick={() => setDocsFor(row)} disabled={busy}
                       className="text-xs font-bold border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                       <FileText size={13} /> ออกเอกสาร
@@ -404,6 +414,9 @@ export const EmployeeRegister = () => {
       )}
       {filesFor && (
         <FilesModal employee={filesFor} onClose={() => setFilesFor(null)} />
+      )}
+      {leaveFor && (
+        <LeaveModal employee={leaveFor} onClose={() => setLeaveFor(null)} />
       )}
     </div>
   );
@@ -1055,6 +1068,247 @@ const FilesModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ 
           <p className="text-[11px] text-gray-400">
             รองรับ PDF และรูปภาพ ไม่เกิน 5 MB ต่อไฟล์ · ไฟล์ในแฟ้มเปิดได้เฉพาะผู้มีสิทธิ์ ไม่มีลิงก์สาธารณะ
           </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// วันลา — สิทธิ์ ยอดคงเหลือ และการยื่น/ตัดสินใบลา
+//
+// **จำนวนวันมาจาก server เสมอ ไม่คำนวณซ้ำที่นี่** — ช่องพรีวิวเรียก
+// `adminHrLeavePreview` ซึ่งใช้ตัวคำนวณตัวเดียวกับตอนบันทึกจริง สูตรสองชุด
+// คือของที่วันหนึ่งจะไม่ตรงกัน แล้วคนจะเชื่อตัวเลขที่เห็นบนจอ
+//
+// โมดอลนี้ยัง **ไม่ผูกกับรอบจ่ายเงินเดือน** — วันลาไม่รับค่าจ้างถูกบันทึกและ
+// แสดง แต่ยังไม่หักเงินใคร (ดูหัวไฟล์ functions/hr-leave.js)
+// ---------------------------------------------------------------------------
+interface LeaveTypeOption {
+  id: string; label: string; basis: string | null; counts: string;
+  paid_days: number | null; max_days: number | null;
+}
+interface LeavePreview {
+  ok: boolean; errors?: string[]; warnings?: string[];
+  days?: number; paid_days?: number; unpaid_days?: number;
+}
+
+const LeaveModal: React.FC<{ employee: EmployeeRow; onClose: () => void }> = ({ employee, onClose }) => {
+  const toast = useToast();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [types, setTypes] = useState<LeaveTypeOption[]>([]);
+  const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [requests, setRequests] = useState<LeaveRequestRow[]>([]);
+  const [policyWarnings, setPolicyWarnings] = useState<{ type: string; message: string }[]>([]);
+  const [form, setForm] = useState({ type: 'personal', from: '', to: '', reason: '' });
+  const [preview, setPreview] = useState<LeavePreview | null>(null);
+
+  const year = String(new Date().getFullYear());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await call<{
+        types: LeaveTypeOption[]; balances: LeaveBalance[]; requests: LeaveRequestRow[];
+        policy_warnings: { type: string; message: string }[];
+      }>('adminHrLeaveList', { employeeId: employee.id, year });
+      setTypes(res.types || []);
+      setBalances(res.balances || []);
+      setRequests(res.requests || []);
+      setPolicyWarnings(res.policy_warnings || []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'โหลดข้อมูลวันลาไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  }, [employee.id, toast, year]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // พรีวิวยิงเมื่อกรอกครบทั้งสามช่องเท่านั้น — ยิงทุกการพิมพ์คือการเรียก
+  // callable ทุกตัวอักษรที่คนกดในช่องวันที่
+  useEffect(() => {
+    if (!form.type || !form.from || !form.to) { setPreview(null); return; }
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await call<LeavePreview>('adminHrLeavePreview', {
+          employeeId: employee.id, type: form.type, from: form.from, to: form.to,
+        });
+        if (alive) setPreview(res);
+      } catch {
+        // พรีวิวล้มไม่ใช่เรื่องที่ต้องขึ้น toast — ตอนกดบันทึกจะได้เหตุผลจริง
+        if (alive) setPreview(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [employee.id, form.type, form.from, form.to]);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const res = await call<{ warnings?: string[] }>('adminHrLeaveCreate', {
+        employeeId: employee.id, type: form.type, from: form.from, to: form.to, reason: form.reason,
+      });
+      toast.success('บันทึกใบลาแล้ว');
+      for (const w of res.warnings || []) toast.info(w);
+      setForm({ type: form.type, from: '', to: '', reason: '' });
+      setPreview(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'บันทึกใบลาไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decide = async (row: LeaveRequestRow, status: string) => {
+    setBusy(true);
+    try {
+      await call('adminHrLeaveDecide', { employeeId: employee.id, requestId: row.id, status });
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'บันทึกผลไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const summary = leaveSummary(requests);
+  const canSubmit = Boolean(form.type && form.from && form.to) && preview?.ok === true && !busy;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-black text-gray-800">วันลา ปี {year}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {employee.name} <span className="font-mono">{employee.employee_code}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {policyWarnings.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1">
+              <p className="text-xs font-black text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle size={13} /> สิทธิ์ที่ตั้งไว้ต่ำกว่าขั้นต่ำตามกฎหมาย
+              </p>
+              {policyWarnings.map((w) => (
+                <p key={w.type} className="text-[11px] text-amber-700">{w.message}</p>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <p className="text-sm text-gray-400">กำลังโหลด...</p>
+          ) : (
+            <>
+              <div className="flex gap-4 flex-wrap text-xs text-gray-600">
+                <span>ลาไปแล้ว <b className="text-gray-800">{summary.approved_days}</b> วัน</span>
+                {summary.unpaid_days > 0 && (
+                  <span className="text-amber-700 font-bold">ไม่รับค่าจ้าง {summary.unpaid_days} วัน</span>
+                )}
+                {summary.pending > 0 && (
+                  <span className="text-amber-700 font-bold">รออนุมัติ {summary.pending} ใบ</span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {balances.map((b) => (
+                  <div key={b.type}
+                    className={`rounded-xl border p-3 ${needsAttention(b) ? 'border-amber-200 bg-amber-50' : 'border-gray-100 bg-gray-50'}`}>
+                    <p className="text-xs font-black text-gray-700">{b.label}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{balanceText(b)}</p>
+                    {b.basis && <p className="text-[10px] text-gray-400 mt-0.5">{b.basis}</p>}
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+                <p className="text-xs font-black text-gray-700">ยื่นใบลา</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
+                    className="text-sm border border-gray-200 rounded-lg px-2 py-1.5">
+                    {types.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                  </select>
+                  <input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })}
+                    className="text-sm border border-gray-200 rounded-lg px-2 py-1.5" />
+                  <input type="date" value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })}
+                    className="text-sm border border-gray-200 rounded-lg px-2 py-1.5" />
+                </div>
+                <input type="text" value={form.reason} placeholder="เหตุผล (ไม่บังคับ)"
+                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5" />
+
+                {preview && !preview.ok && (preview.errors || []).map((err) => (
+                  <p key={err} className="text-[11px] text-rose-700">{err}</p>
+                ))}
+                {preview?.ok && (
+                  <div className="text-[11px] text-gray-600">
+                    ลา <b>{preview.days}</b> วัน · ได้ค่าจ้าง <b>{preview.paid_days}</b> วัน
+                    {(preview.unpaid_days || 0) > 0 && (
+                      <span className="text-amber-700 font-bold"> · ไม่ได้ค่าจ้าง {preview.unpaid_days} วัน</span>
+                    )}
+                    {(preview.warnings || []).map((w) => (
+                      <p key={w} className="text-amber-700 mt-0.5">{w}</p>
+                    ))}
+                  </div>
+                )}
+
+                <button onClick={() => void submit()} disabled={!canSubmit}
+                  className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-black text-white text-xs font-bold disabled:opacity-40">
+                  บันทึกใบลา
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                {requests.length === 0 && <p className="text-xs text-gray-400">ยังไม่มีใบลาในปีนี้</p>}
+                {requests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-2 border border-gray-100 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-700 truncate">
+                        {types.find((t) => t.id === r.type)?.label || r.type} · {r.from}
+                        {r.to !== r.from && ` ถึง ${r.to}`}
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        {r.days} วัน · ได้ค่าจ้าง {r.paid_days} วัน
+                        {r.unpaid_days > 0 && <span className="text-amber-700 font-bold"> · ไม่ได้ค่าจ้าง {r.unpaid_days} วัน</span>}
+                        {r.reason && ` — ${r.reason}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusTone(r.status)}`}>
+                        {STATUS_LABEL[r.status] || r.status}
+                      </span>
+                      {r.status === 'pending' && (
+                        <>
+                          <button onClick={() => void decide(r, 'approved')} disabled={busy} title="อนุมัติ"
+                            className="p-1 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+                            <Check size={13} />
+                          </button>
+                          <button onClick={() => void decide(r, 'rejected')} disabled={busy} title="ไม่อนุมัติ"
+                            className="p-1 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                            <Ban size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                วันลานับตามปฏิทินทำการของร้าน (วันหยุดประจำสัปดาห์และวันหยุดที่ประกาศไว้ไม่นับเป็นวันลา)
+                ยกเว้นลาคลอดซึ่งกฎหมายให้นับรวมวันหยุด · ตัวเลขวันลาที่ไม่ได้ค่าจ้าง
+                <b> ยังไม่ถูกนำไปหักในรอบจ่ายเงินเดือนอัตโนมัติ</b>
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>
