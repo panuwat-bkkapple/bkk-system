@@ -35,6 +35,18 @@ const EVENT_CATEGORY = {
 
   chat_message: "chat_message",
 
+  // ── push ที่ส่งจาก codebase rider-notifications (bkk-rider-app/functions) ──
+  // สามบรรทัดนี้ถูก MIRROR ไว้ที่ bkk-rider-app/functions/src/notificationGate.ts
+  // (RIDER_EVENT_CATEGORY) และมีเทสฝั่งนั้นอ่านไฟล์นี้มาเทียบตัวอักษร —
+  // แก้หมวดตรงนี้ต้องแก้ที่นั่นด้วย ไม่งั้น CI ของ rider-app แดง
+  //
+  // ก่อนหน้านี้ codebase นั้นไม่เคยอ่านสวิตช์เลย (รายงานสำรวจ push ข้อ I) ปิด
+  // "Push ไรเดอร์" แล้วยังเด้งครึ่งหนึ่ง — ตอนนี้ sendToRider ฝั่งนั้นตัดสินด้วย
+  // channel rider_push + หมวดตามตารางนี้ แบบ fail-open เหมือนกัน
+  chat: "chat_message",            // แอดมิน/ลูกค้าทักไรเดอร์ในแชทของงาน
+  job_status: "status_change",     // จ่ายงาน · ลูกค้ายอมรับราคา · QC ปรับราคา ฯลฯ
+  broadcast_job: "new_ticket",     // งาน Active Lead ในโหมด broadcast
+
   offer_approval: "approval",
   customer_offer: "approval",
   amendment_requested: "approval",

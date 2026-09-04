@@ -41,7 +41,7 @@ export const NOTIFICATION_CHANNELS: NotificationOptionMeta<NotificationChannelKe
   {
     key: 'rider_push',
     label: 'Push ไรเดอร์',
-    description: 'แจ้งเตือนที่ส่งเข้าแอปไรเดอร์ เช่น ถูกถอนงาน เลื่อนนัด จุดรับเครื่องเปลี่ยน',
+    description: 'แจ้งเตือนที่ส่งเข้าแอปไรเดอร์ทุกใบ — งานใหม่/broadcast, แชท, ถูกถอนงาน, เลื่อนนัด, จุดรับเครื่องเปลี่ยน · ปิด = ไรเดอร์เงียบทั้งหมด',
   },
   {
     key: 'telegram',
