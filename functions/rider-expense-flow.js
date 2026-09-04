@@ -89,6 +89,20 @@ const TRANSITIONS = {
     movesMoney: false,
     needsReason: true,
   },
+  // ทางออกของ `needs_info` — **ไม่มีตัวนี้ = ตีกลับแล้วใบค้างตาย** เพราะฝั่ง
+  // ไรเดอร์ยังไม่มีปุ่มส่งใหม่ (`duplicateDecision` ใน bkk-rider-app คืน
+  // `return_existing` ให้ id เดิม ไม่ได้ปลุกแถวกลับเป็น submitted)
+  //
+  // gate เป็น OPS แบบระบุตรงๆ ไม่ใช่ `gateForStatus` เพราะคนที่ "ถือ" ใบตอน
+  // needs_info คือ**ไรเดอร์** ไม่ใช่ใครในแอดมิน — ฝั่งแอดมินที่ปล่อยกลับเข้า
+  // คิวได้คือหัวหน้าไรเดอร์ที่รับเอกสารมาจากมือเขา
+  resubmit: {
+    from: [EXPENSE_STATUS.NEEDS_INFO],
+    to: EXPENSE_STATUS.SUBMITTED,
+    gate: GATE.OPS,
+    movesMoney: false,
+    needsReason: false,
+  },
 };
 
 /**

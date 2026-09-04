@@ -12,10 +12,10 @@
 //
 // ผล injection (วัดจริงทุกข้อ):
 //
-//   1. ให้ ops_approve มี movesMoney: true          → แดง 2 (assert ตอนโหลด + เทสเงิน)
-//   2. เพิ่ม 'approved' เข้า from ของ pay           → แดง 1 (ข้ามขั้นบัญชี)
-//   3. ถอด TERMINAL ออกจาก resolveTransition        → แดง 2 (paid/rejected เดินต่อได้)
-//   4. ให้ gateForStatus คืน OPS ทุกสถานะ           → แดง 2 (ตีกลับผิดฝ่าย)
+//   1. ให้ ops_approve มี movesMoney: true          → ไฟล์โหลดไม่ขึ้น (assert ตอนโหลด)
+//   2. เพิ่ม 'approved' เข้า from ของ pay           → แดง 2 (ข้ามขั้นบัญชี + ทางเงินมี 2 ทาง)
+//   3. ถอด TERMINAL ออกจาก resolveTransition        → แดง 6 (paid/rejected เดินต่อได้ทุก action)
+//   4. ให้ gateForStatus คืน OPS ทุกสถานะ           → แดง 2 (ตีกลับ/ปฏิเสธผิดฝ่าย)
 //   5. เปลี่ยน to ของ finance_approve เป็น 'paid'   → แดง 1
 //   6. ลบ assert "เงินขยับที่ pay ที่เดียว"          → **เขียว** — เพราะเทสข้อเงิน
 //      จับได้อยู่แล้วโดยไม่ต้องพึ่ง assert ตอนโหลด. เก็บ assert ไว้เพราะมันจับ
@@ -119,6 +119,21 @@ const check = (label, cond) => {
   const n = resolveTransition("ops_approve", S.NEEDS_INFO);
   check("ใบที่ตีกลับแล้วต้องให้ไรเดอร์ส่งใหม่ ไม่ใช่อนุมัติต่อ",
     !n.ok && n.code === "wrong_status");
+}
+
+// --- needs_info ต้องมีทางออก ไม่ใช่หลุมดำ ----------------------------------
+{
+  const r = resolveTransition("resubmit", S.NEEDS_INFO);
+  check("ใบที่ตีกลับกลับเข้าคิวได้", r.ok && r.to === S.SUBMITTED);
+  check("การปล่อยกลับเข้าคิวเป็นของ ops ไม่ใช่บัญชี", r.gate === GATE.OPS);
+  check("ปล่อยกลับเข้าคิวไม่แตะเงิน", r.movesMoney === false);
+
+  const dup = resolveTransition("resubmit", S.SUBMITTED);
+  check("ใบที่อยู่ในคิวอยู่แล้วส่งซ้ำไม่ได้", !dup.ok && dup.code === "wrong_status");
+
+  const skip = resolveTransition("resubmit", S.APPROVED);
+  check("ปล่อยกลับเข้าคิวจากขั้นที่หัวหน้าอนุมัติแล้วไม่ได้",
+    !skip.ok && skip.code === "wrong_status");
 }
 
 // --- คำสั่งที่ไม่รู้จัก ----------------------------------------------------

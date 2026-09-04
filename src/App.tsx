@@ -184,7 +184,9 @@ export default function App() {
               {/* อนุมัติ = สั่งจ่ายเงินออก จึงจำกัด CEO/MANAGER ให้ตรงกับ
                   canReviewAdjustments ที่ทั้งหน้าและ callable ใช้ (FINANCE
                   เป็นคนจ่ายเงิน ให้คนเดียวกันอนุมัติแล้วจ่าย = ไม่มีใครทานสอง) */}
-              <Route path="/rider-expenses" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderExpenses /> : <Navigate to="/" replace />} />
+              {/* FINANCE ต้องเข้าได้ด้วย — ขั้นตรวจเอกสารกับขั้นจ่ายเงินเป็นของฝ่ายบัญชี
+                  (ตัวกรองว่าใครกดปุ่มไหนได้อยู่ในหน้า + บังคับจริงฝั่ง server) */}
+              <Route path="/rider-expenses" element={['CEO', 'MANAGER', 'FINANCE'].includes(String(currentUser?.role || '')) ? <RiderExpenses /> : <Navigate to="/" replace />} />
               <Route path="/issued-rider-fee-discounts" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <IssuedRiderFeeDiscounts /> : <Navigate to="/" replace />} />
               <Route path="/reviews" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <ReviewManager /> : <Navigate to="/" replace />} />
               <Route path="/offer-report" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <OfferReport /> : <Navigate to="/" replace />} />

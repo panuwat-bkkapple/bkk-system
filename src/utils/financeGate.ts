@@ -16,7 +16,8 @@ export type FinanceAction =
   | 'payout_transfer'
   | 'job_mark_paid'
   | 'rider_withdrawal'
-  | 'sales_void';
+  | 'sales_void'
+  | 'rider_expense_pay';
 
 /** ข้อความบอกผู้ใช้ว่าปุ่มที่กดคืออะไร — ใช้ทั้งใน toast และ audit */
 export const FINANCE_ACTION_LABEL: Record<FinanceAction, string> = {
@@ -24,7 +25,35 @@ export const FINANCE_ACTION_LABEL: Record<FinanceAction, string> = {
   job_mark_paid: 'ทำเครื่องหมายว่าจ่ายเงินแล้ว',
   rider_withdrawal: 'ยืนยันโอนเงินถอนของไรเดอร์',
   sales_void: 'ยกเลิกบิลขาย',
+  rider_expense_pay: 'จ่ายคืนเงินสำรองจ่ายของไรเดอร์',
 };
+
+/**
+ * action ที่ **server บังคับเองด้วย** ไม่ได้พึ่งหน้าจอ
+ *
+ * สี่ตัวแรกในตารางนี้ยังเป็นด่านฝั่งเบราว์เซอร์ล้วน — `finance_disburse` ถูก
+ * อ่านฝั่ง server ที่ `functions/finance-claims.js` เพียงเพื่อ**บันทึกลง audit**
+ * ว่า token ใบนั้นถือสิทธิ์อะไร ไม่เคยถูกใช้ปฏิเสธ callable ตัวไหนเลย
+ * (`financeActorVerdict` เพิ่งเกิดมาพร้อมกับ `rider_expense_pay`)
+ *
+ * เขียนไว้ตรงๆ เพราะ "มีตารางสิทธิ์อยู่" อ่านแล้วเหมือนมีการบังคับ ทั้งที่
+ * ของจริงยังไม่มี — การไล่ปิดสี่ตัวนั้นเป็นงานแยก ไม่ใช่ของที่ทำแถมกลางทาง
+ */
+export const SERVER_ENFORCED_FINANCE_ACTIONS: FinanceAction[] = ['rider_expense_pay'];
+
+/**
+ * "บัญชีนี้เป็นฝ่ายบัญชีไหม" — MIRROR ของ `financeActorVerdict`
+ * (`functions/finance-claims.js`) ซึ่งเป็นตัวตัดสินจริง **แก้ต้องแก้ทั้งคู่**
+ *
+ * ห้ามใช้ `evaluateFinanceGate` แทนตัวนี้สำหรับขั้นของฝ่ายบัญชี — ฟังก์ชันนั้น
+ * ปล่อย admin ทุกคนผ่านตราบใดที่ยังไม่เปิด `settings/finance_gate/enforce`
+ * (dual-read ของ action เก่า) ซึ่งจะทำให้หน้าจอขึ้นปุ่มให้ STAFF แล้ว server
+ * ปฏิเสธ = ปุ่มที่โกหกคนกด
+ */
+export function isFinanceActor(state: { role?: string | null; hasClaim: boolean }): boolean {
+  const role = String(state.role || '').toUpperCase();
+  return role === 'CEO' || state.hasClaim === true || role === 'FINANCE';
+}
 
 export type FinanceGateState = {
   /** role จาก staff session (CEO / MANAGER / STAFF / FINANCE) */

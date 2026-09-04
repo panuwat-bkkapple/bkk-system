@@ -18,6 +18,7 @@ import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications
 import { useNewTicketAlert } from '../../hooks/useNewTicketAlert';
 import { useToast } from '../ui/ToastProvider';
 import { hrScopeRedirect, isHrRole } from '../../utils/hrScope';
+import { EXPENSE_PENDING_STATUSES } from '../../utils/riderExpenseFlow';
 
 interface AdminLayoutProps {
   currentUser: any;
@@ -142,15 +143,28 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
   //
   // badge นี้ไม่ใช่ของประดับ: ไรเดอร์สำรองจ่ายเงินตัวเองไปแล้ว ถ้าไม่มีอะไร
   // บอกว่ามีคิวใหม่ เขาจะรอเงินคืนโดยไม่มีใครรู้ว่าต้องไปกดที่ไหน
+  //
+  // **นับทุกสถานะที่ยังไม่จบ ไม่ใช่แค่ `submitted`** — ตั้งแต่แยกเป็นสามขั้น
+  // ใบที่หัวหน้าอนุมัติแล้วจะไปนอนที่ `approved`/`finance_approved` รอฝ่ายบัญชี
+  // ถ้ายังนับแค่ใบแรกสุด badge จะเป็นศูนย์ทั้งที่มีคิวค้างอยู่ฝั่งบัญชี
+  // (สามลิสต์เนอร์บนโหนดเล็ก ๆ ยังถูกกว่าการ subscribe ทั้งก้อน)
   useEffect(() => {
-    const q = query(ref(db, 'rider_expenses'), orderByChild('status'), equalTo('submitted'));
-    const unsub = onValue(
-      q,
-      (snap) => setPendingRiderExpenses(snap.exists() ? Object.keys(snap.val()).length : 0),
-      // อ่านไม่ได้ (ยังไม่ deploy rules) = badge เป็นศูนย์ ไม่ใช่หน้าพัง
-      () => setPendingRiderExpenses(0),
-    );
-    return () => unsub();
+    const counts: Record<string, number> = {};
+    const sync = () =>
+      setPendingRiderExpenses(Object.values(counts).reduce((a, b) => a + b, 0));
+    const unsubs = EXPENSE_PENDING_STATUSES.map((status) => {
+      counts[status] = 0;
+      return onValue(
+        query(ref(db, 'rider_expenses'), orderByChild('status'), equalTo(status)),
+        (snap) => {
+          counts[status] = snap.exists() ? Object.keys(snap.val()).length : 0;
+          sync();
+        },
+        // อ่านไม่ได้ (ยังไม่ deploy rules) = badge เป็นศูนย์ ไม่ใช่หน้าพัง
+        () => { counts[status] = 0; sync(); },
+      );
+    });
+    return () => unsubs.forEach((u) => u());
   }, []);
 
   // role HR มีขอบเขตแคบที่สุดในระบบ: หน้าของฝ่ายบุคคลเท่านั้น ไม่ใช่
@@ -264,7 +278,7 @@ export const AdminLayout = ({ currentUser, onLogout }: AdminLayoutProps) => {
                 <NavButton collapsed={isCollapsed} to="/rider-performance" icon={<TrendingUp size={18} />} label="Rider Performance" />
               )}
               {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-audit" icon={<ClipboardCheck size={18} />} label="ใบตรวจงานไรเดอร์" badgeCount={pendingRiderAudit} />}
-              {hasAccess(['CEO', 'MANAGER']) && <NavButton collapsed={isCollapsed} to="/rider-expenses" icon={<ReceiptText size={18} />} label="เบิกค่าใช้จ่ายไรเดอร์" badgeCount={pendingRiderExpenses} />}
+              {hasAccess(['CEO', 'MANAGER', 'FINANCE']) && <NavButton collapsed={isCollapsed} to="/rider-expenses" icon={<ReceiptText size={18} />} label="เบิกค่าใช้จ่ายไรเดอร์" badgeCount={pendingRiderExpenses} />}
               <NavButton collapsed={isCollapsed} to="/discrepancy-reports" icon={<ShieldAlert size={18} />} label="แจ้งข้อมูลไม่ตรง (Reports)" badgeCount={pendingDiscrepancies} />
             </div>
           </div>

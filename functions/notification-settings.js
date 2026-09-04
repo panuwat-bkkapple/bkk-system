@@ -43,6 +43,12 @@ const EVENT_CATEGORY = {
   amendment_applied: "approval",
   amendment_escalated: "approval",
   amendment_expired: "approval",
+  rider_expense_ops_approved: "approval",
+  rider_expense_finance_approved: "approval",
+  rider_expense_finance_queue: "approval",
+  rider_expense_needs_info: "approval",
+  rider_expense_approved: "approval",
+  rider_expense_rejected: "approval",
 
   job_withdrawn: "field_ops",
   appointment_rescheduled: "field_ops",

@@ -1,10 +1,14 @@
-// รีวิวคำขอเบิกค่าใช้จ่ายที่ไรเดอร์สำรองจ่าย (ค่าทางด่วน / ค่าจอดรถ)
+// ใบเบิกค่าใช้จ่ายที่ไรเดอร์สำรองจ่าย (ค่าทางด่วน / ค่าจอดรถ)
 //
-// **หน้านี้ไม่เขียน DB เอง** — การอนุมัติ/ปฏิเสธไปผ่าน callable
-// `adminReviewExpense` เท่านั้น เพราะการอนุมัติหนึ่งครั้งแตะสามโหนดพร้อมกัน
-// (สถานะรายการ / กระเป๋าไรเดอร์ / บัญชีบริษัท) ซึ่งต้องเป็น atomic
-// และต้อง idempotent — กดสองครั้งแล้วเติมเงินสองรอบคือความพังที่แพงที่สุด
-// ของฟีเจอร์นี้ และไม่มีใครเห็นจนกว่าจะมีคนกระทบยอด
+// **หน้านี้ไม่เขียน DB เอง** — ทุกการกดไปผ่าน callable `adminReviewExpense`
+// เท่านั้น เพราะขั้นจ่ายเงินแตะสามโหนดพร้อมกัน (สถานะ / กระเป๋าไรเดอร์ /
+// บัญชีบริษัท) ซึ่งต้อง atomic และต้อง idempotent
+//
+// **สามขั้น ไม่ใช่ปุ่มเดียว** ตามที่เจ้าของงานกำหนด: หัวหน้าไรเดอร์ยืนยันว่างาน
+// นั้นวิ่งจริง → ฝ่ายบัญชีตรวจเอกสารแล้วตั้งเบิก → ฝ่ายบัญชีจ่ายเงิน. เหตุผลที่
+// สองขั้นหลังไม่ยุบเป็นปุ่มเดียวแม้เป็นคนเดียวกันกด: สถานะ "ตั้งเบิกแล้วแต่ยัง
+// ไม่จ่าย" คือสิ่งเดียวที่บอกว่าค้างจ่ายอยู่เท่าไร ยุบแล้วตัวเลขนั้นหายไปจาก
+// ระบบโดยไม่มีที่อื่นเก็บแทน
 //
 // ดีไซน์เต็ม: bkk-rider-app docs/reports/2026-09-02-rider-expense-claim-design.md
 
@@ -12,7 +16,7 @@ import { useMemo, useState } from 'react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   ReceiptText, CheckCircle2, XCircle, Loader2, ExternalLink, AlertTriangle,
-  Clock, ShieldAlert, Search,
+  Clock, ShieldAlert, Search, Undo2, Wallet, FileCheck2,
 } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useAuth } from '../../hooks/useAuth';
@@ -20,6 +24,16 @@ import { app } from '../../api/firebase';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { useToast } from '../../components/ui/ToastProvider';
 import { canReviewAdjustments } from '../../utils/adjustments';
+import { isFinanceActor } from '../../utils/financeGate';
+import { useFinanceGate } from '../../hooks/useFinanceGate';
+import {
+  expenseActionsFor,
+  EXPENSE_ACTION_LABEL,
+  EXPENSE_ACTION_NEEDS_REASON,
+  EXPENSE_STATUS_LABEL,
+  type ExpenseAction,
+  type ExpenseStatus,
+} from '../../utils/riderExpenseFlow';
 
 const CATEGORY_LABEL: Record<string, string> = {
   toll: 'ค่าทางด่วน',
@@ -27,17 +41,49 @@ const CATEGORY_LABEL: Record<string, string> = {
   other: 'ค่าใช้จ่ายอื่น',
 };
 
-type Tab = 'submitted' | 'paid' | 'rejected';
+const ACTION_ICON: Record<ExpenseAction, typeof CheckCircle2> = {
+  ops_approve: CheckCircle2,
+  finance_approve: FileCheck2,
+  pay: Wallet,
+  send_back: Undo2,
+  reject: XCircle,
+  resubmit: Undo2,
+};
+
+/** แท็บจัดตาม "ใครต้องกด" ไม่ใช่ตามชื่อสถานะ — คนเปิดหน้านี้มาหาคิวของตัวเอง */
+type Tab = 'ops' | 'finance' | 'needs_info' | 'paid' | 'rejected';
 
 const TAB_LABEL: Record<Tab, string> = {
-  submitted: 'รออนุมัติ',
-  paid: 'อนุมัติแล้ว',
-  rejected: 'ปฏิเสธแล้ว',
+  ops: 'รอหัวหน้าตรวจ',
+  finance: 'รอฝ่ายบัญชี',
+  needs_info: 'ส่งกลับให้แก้',
+  paid: 'จ่ายแล้ว',
+  rejected: 'ปฏิเสธ',
+};
+
+const TAB_STATUSES: Record<Tab, ExpenseStatus[]> = {
+  ops: ['submitted'],
+  finance: ['approved', 'finance_approved'],
+  needs_info: ['needs_info'],
+  paid: ['paid'],
+  rejected: ['rejected'],
+};
+
+const STATUS_CHIP: Record<string, string> = {
+  submitted: 'bg-amber-50 text-amber-800 border-amber-200',
+  approved: 'bg-sky-50 text-sky-800 border-sky-200',
+  finance_approved: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+  paid: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  needs_info: 'bg-orange-50 text-orange-800 border-orange-200',
+  rejected: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
 export const RiderExpenses = () => {
   const toast = useToast();
   const { currentUser } = useAuth();
+  // ประตูฝั่งบัญชีตัวเดียวกับที่หน้าอื่นใช้ — ห้ามเขียนเงื่อนไข role ขึ้นใหม่
+  // (การตัดสินจริงอยู่ฝั่ง server ที่ `financeActorVerdict` ตัวนี้แค่ซ่อนปุ่ม)
+  const { hasClaim, guard } = useFinanceGate();
   // โหนดนี้มีแต่คำขอเบิก จึงเล็กมาก subscribe ทั้งก้อนได้ตามกฎค่า RTDB
   // (เหตุผลเดียวกับ /withdrawals ใน RiderWithdrawals.tsx) — ถ้าวันหนึ่ง
   // ปริมาณโตจริง ให้ query ตาม .indexOn ["rider_id","status","submitted_at"]
@@ -45,15 +91,16 @@ export const RiderExpenses = () => {
   const { data: rows, loading } = useDatabase('rider_expenses');
   const { data: riders } = useDatabase('riders');
 
-  const [tab, setTab] = useState<Tab>('submitted');
+  const isOps = canReviewAdjustments(currentUser?.role);
+  const isFinance = isFinanceActor({ role: currentUser?.role, hasClaim });
+
+  const [tab, setTab] = useState<Tab>(isOps ? 'ops' : 'finance');
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ id: string; action: ExpenseAction } | null>(null);
   const [reason, setReason] = useState('');
 
   const isCeo = String(currentUser?.role || '').toUpperCase() === 'CEO';
-  // gate เดียวกับที่ server ใช้ — ห้ามเขียนเงื่อนไข role ขึ้นมาใหม่
-  const canReview = canReviewAdjustments(currentUser?.role);
 
   const riderName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -66,13 +113,9 @@ export const RiderExpenses = () => {
   const list = useMemo(() => {
     const all = (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
     const q = search.trim().toLowerCase();
+    const want = TAB_STATUSES[tab] as string[];
     return all
-      .filter((r) => {
-        const status = String(r.status || '');
-        if (tab === 'submitted') return status === 'submitted';
-        if (tab === 'paid') return status === 'paid';
-        return status === 'rejected';
-      })
+      .filter((r) => want.includes(String(r.status || '')))
       .filter((r) => {
         if (!q) return true;
         const name = riderName[String(r.rider_id)] || '';
@@ -85,29 +128,51 @@ export const RiderExpenses = () => {
       .sort((a, b) => Number(b.submitted_at || 0) - Number(a.submitted_at || 0));
   }, [rows, tab, search, riderName]);
 
-  const pendingCount = useMemo(
-    () => ((Array.isArray(rows) ? rows : []) as { status?: string }[])
-      .filter((r) => r?.status === 'submitted').length,
-    [rows]
-  );
+  const countByTab = useMemo(() => {
+    const all = (Array.isArray(rows) ? rows : []) as { status?: string }[];
+    const out = {} as Record<Tab, number>;
+    (Object.keys(TAB_STATUSES) as Tab[]).forEach((t) => {
+      const want = TAB_STATUSES[t] as string[];
+      out[t] = all.filter((r) => want.includes(String(r?.status || ''))).length;
+    });
+    return out;
+  }, [rows]);
 
-  const review = async (id: string, approve: boolean, rejectReason?: string) => {
+  const run = async (id: string, action: ExpenseAction, why?: string) => {
+    // ขั้นจ่ายเงินคือเงินออกจากบริษัทจริง — ต้องลง audit ทั้งที่ผ่านและถูกปฏิเสธ
+    // เหมือนทุกปุ่มจ่ายเงินในระบบ (การตัดสินจริงยังอยู่ฝั่ง server)
+    if (action === 'pay') {
+      const row = ((Array.isArray(rows) ? rows : []) as Record<string, unknown>[])
+        .find((r) => String(r.id) === id);
+      // บันทึกความพยายามเสมอ ทั้งที่ผ่านและถูกปฏิเสธ (เหมือนทุกปุ่มเงินออก)
+      guard('rider_expense_pay', { refId: id, amount: Number(row?.amount_thb) || null });
+      if (!isFinance) {
+        toast.error('บัญชีนี้ไม่มีสิทธิ์จ่ายเงินออก — ให้ CEO เปิดสิทธิ์ให้ที่หน้าจัดการพนักงาน');
+        return;
+      }
+    }
+
     setBusyId(id);
     try {
       // repo นี้ไม่มี export `functions` ส่วนกลาง — ทุก call site สร้าง instance
       // เองพร้อม region (ดู DiagnosStartPanel / useFinanceGate) region ต้องตรงกับ
       // ฝั่ง functions ไม่งั้น callable หา endpoint ไม่เจอ
-      await httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminReviewExpense')({
+      const res = await httpsCallable(getFunctions(app, 'asia-southeast1'), 'adminReviewExpense')({
         id,
-        approve,
-        reason: rejectReason || '',
+        action,
+        reason: why || '',
       });
-      toast.success(approve ? 'อนุมัติแล้ว เงินเข้ากระเป๋าไรเดอร์เรียบร้อย' : 'ปฏิเสธรายการแล้ว');
-      setRejecting(null);
+      const status = (res.data as { status?: string })?.status;
+      toast.success(
+        status === 'paid'
+          ? 'จ่ายแล้ว เงินเข้ากระเป๋าไรเดอร์เรียบร้อย'
+          : `บันทึกแล้ว: ${EXPENSE_STATUS_LABEL[status as ExpenseStatus] || 'สำเร็จ'}`
+      );
+      setAsking(null);
       setReason('');
     } catch (e) {
-      // ข้อความจาก server เขียนมาให้อ่านได้อยู่แล้ว (เกินเพดาน / รีวิวซ้ำ /
-      // ต้องให้ CEO อนุมัติ) — ห้ามกลืนแล้วโชว์ "เกิดข้อผิดพลาด" เฉยๆ
+      // ข้อความจาก server เขียนมาให้อ่านได้อยู่แล้ว (เกินเพดาน / ข้ามขั้น /
+      // ไม่ใช่ฝ่ายที่ถือใบ) — ห้ามกลืนแล้วโชว์ "เกิดข้อผิดพลาด" เฉยๆ
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(msg || 'ดำเนินการไม่สำเร็จ');
     } finally {
@@ -115,14 +180,14 @@ export const RiderExpenses = () => {
     }
   };
 
-  if (!canReview) {
+  if (!isOps && !isFinance) {
     return (
       <div className="p-8">
         <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center max-w-md mx-auto">
           <ShieldAlert size={32} className="mx-auto text-gray-300 mb-3" />
-          <p className="font-bold text-gray-700 mb-1">เฉพาะ CEO หรือ Manager</p>
+          <p className="font-bold text-gray-700 mb-1">เฉพาะหัวหน้าไรเดอร์และฝ่ายบัญชี</p>
           <p className="text-sm text-gray-500">
-            การอนุมัติรายการนี้คือการสั่งจ่ายเงินออก จึงจำกัดสิทธิ์ไว้
+            การอนุมัติรายการนี้นำไปสู่การสั่งจ่ายเงินออก จึงจำกัดสิทธิ์ไว้
           </p>
         </div>
       </div>
@@ -136,7 +201,7 @@ export const RiderExpenses = () => {
         <div>
           <h1 className="text-xl font-bold text-gray-900">เบิกค่าใช้จ่ายไรเดอร์</h1>
           <p className="text-xs text-gray-500">
-            ค่าทางด่วน / ค่าจอดรถ ที่ไรเดอร์สำรองจ่ายไปเอง — อนุมัติแล้วเงินเข้ากระเป๋าและลงบัญชีอัตโนมัติ
+            หัวหน้ายืนยันว่างานวิ่งจริง → ฝ่ายบัญชีตรวจเอกสารแล้วตั้งเบิก → ฝ่ายบัญชีจ่ายเงิน
           </p>
         </div>
       </div>
@@ -153,9 +218,9 @@ export const RiderExpenses = () => {
             }`}
           >
             {TAB_LABEL[t]}
-            {t === 'submitted' && pendingCount > 0 && (
+            {(t === 'ops' || t === 'finance' || t === 'needs_info') && countByTab[t] > 0 && (
               <span className="ml-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                {pendingCount}
+                {countByTab[t]}
               </span>
             )}
           </button>
@@ -179,16 +244,23 @@ export const RiderExpenses = () => {
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center">
           <p className="font-bold text-gray-600 mb-1">ไม่มีรายการในหมวดนี้</p>
           <p className="text-sm text-gray-400">
-            {tab === 'submitted' ? 'ยังไม่มีคำขอที่รออนุมัติ' : 'ยังไม่มีประวัติ'}
+            {tab === 'ops' || tab === 'finance' ? 'ยังไม่มีคำขอที่รอคุณ' : 'ยังไม่มีประวัติ'}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
           {list.map((r) => {
             const id = String(r.id);
+            const status = String(r.status || '');
             const evidence = (Array.isArray(r.evidence) ? r.evidence : []) as { url?: string }[];
             const needsCeo = r.needs_ceo === true;
-            const blockedForMe = needsCeo && !isCeo;
+            const actions = expenseActionsFor(status, { isOps, isFinance });
+            // ธงเพดานบังคับที่ขั้นของฝ่ายบัญชีทั้งสองขั้น (server ก็เช็คซ้ำ)
+            const ceoBlocked = needsCeo && !isCeo && (status === 'approved' || status === 'finance_approved');
+            const history = r.history && typeof r.history === 'object'
+              ? Object.values(r.history as Record<string, Record<string, unknown>>)
+                  .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+              : [];
             return (
               <div key={id} className="bg-white rounded-2xl border border-gray-200 p-5">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -199,6 +271,11 @@ export const RiderExpenses = () => {
                       </span>
                       <span className="text-sm text-gray-500">
                         {riderName[String(r.rider_id)] || String(r.rider_id)}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
+                        STATUS_CHIP[status] || STATUS_CHIP.rejected
+                      }`}>
+                        {EXPENSE_STATUS_LABEL[status as ExpenseStatus] || status}
                       </span>
                       {needsCeo && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-violet-50 text-violet-700 border border-violet-200">
@@ -251,64 +328,90 @@ export const RiderExpenses = () => {
                   )}
                 </div>
 
-                {String(r.status) === 'submitted' && (
-                  rejecting === id ? (
-                    <div className="mt-4 space-y-2">
-                      <input
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        placeholder="เหตุผลที่ปฏิเสธ (ไรเดอร์จะเห็นข้อความนี้)"
-                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          disabled={busyId === id || reason.trim() === ''}
-                          onClick={() => review(id, false, reason.trim())}
-                          className="px-4 py-2 rounded-xl bg-red-500 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold"
-                        >
-                          ยืนยันปฏิเสธ
-                        </button>
-                        <button
-                          onClick={() => { setRejecting(null); setReason(''); }}
-                          className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-500"
-                        >
-                          ยกเลิก
-                        </button>
-                      </div>
+                {asking?.id === id ? (
+                  <div className="mt-4 space-y-2">
+                    <input
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      placeholder={
+                        asking.action === 'send_back'
+                          ? 'ต้องแก้อะไร (ไรเดอร์จะเห็นข้อความนี้)'
+                          : 'เหตุผลที่ปฏิเสธ (ไรเดอร์จะเห็นข้อความนี้)'
+                      }
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        disabled={busyId === id || reason.trim() === ''}
+                        onClick={() => run(id, asking.action, reason.trim())}
+                        className={`px-4 py-2 rounded-xl disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold ${
+                          asking.action === 'reject' ? 'bg-red-500' : 'bg-orange-500'
+                        }`}
+                      >
+                        ยืนยัน{EXPENSE_ACTION_LABEL[asking.action]}
+                      </button>
+                      <button
+                        onClick={() => { setAsking(null); setReason(''); }}
+                        className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-500"
+                      >
+                        ยกเลิก
+                      </button>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2 mt-4 flex-wrap">
-                      <button
-                        disabled={busyId === id || blockedForMe || evidence.length === 0}
-                        onClick={() => review(id, true)}
-                        className="px-5 py-2.5 rounded-xl bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold flex items-center gap-2"
-                      >
-                        {busyId === id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                        อนุมัติและจ่ายเข้ากระเป๋า
-                      </button>
-                      <button
-                        disabled={busyId === id}
-                        onClick={() => setRejecting(id)}
-                        className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 flex items-center gap-2"
-                      >
-                        <XCircle size={14} /> ปฏิเสธ
-                      </button>
-                      {blockedForMe && (
-                        <span className="text-xs text-violet-700">
-                          ยอดนี้เกินเพดานของ Manager — รอ CEO อนุมัติ
-                        </span>
-                      )}
+                  </div>
+                ) : actions.length > 0 ? (
+                  <div className="flex items-center gap-2 mt-4 flex-wrap">
+                    {actions.map((a, i) => {
+                      const Icon = ACTION_ICON[a];
+                      const primary = i === 0;
+                      const needsReason = EXPENSE_ACTION_NEEDS_REASON.includes(a);
+                      // ปุ่มเดินหน้าต้องมีหลักฐาน — ปฏิเสธ/ตีกลับกดได้เสมอ
+                      const blocked =
+                        busyId === id ||
+                        (primary && ceoBlocked) ||
+                        (primary && a !== 'resubmit' && evidence.length === 0);
+                      return (
+                        <button
+                          key={a}
+                          disabled={blocked}
+                          onClick={() => (needsReason ? setAsking({ id, action: a }) : run(id, a))}
+                          className={
+                            primary
+                              ? 'px-5 py-2.5 rounded-xl bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-bold flex items-center gap-2'
+                              : 'px-4 py-2.5 rounded-xl border border-gray-200 disabled:text-gray-300 text-sm font-bold text-gray-600 flex items-center gap-2'
+                          }
+                        >
+                          {primary && busyId === id
+                            ? <Loader2 size={14} className="animate-spin" />
+                            : <Icon size={14} />}
+                          {EXPENSE_ACTION_LABEL[a]}
+                        </button>
+                      );
+                    })}
+                    {ceoBlocked && (
+                      <span className="text-xs text-violet-700">
+                        ยอดนี้เกินเพดาน — รอ CEO อนุมัติ
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  ['submitted', 'approved', 'finance_approved', 'needs_info'].includes(status) && (
+                    <div className="mt-4 text-xs text-gray-400">
+                      รอฝ่ายอื่นดำเนินการ — ขั้นนี้ไม่ใช่ของบัญชีคุณ
                     </div>
                   )
                 )}
 
-                {String(r.status) !== 'submitted' && (
+                {/* ประวัติต่อขั้น: ฟิลด์เดี่ยวตอบ "ใครอนุมัติขั้นไหน" ไม่ได้
+                    เมื่อใบหนึ่งเดินวนผ่านการตีกลับหลายรอบ */}
+                {history.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500 space-y-1">
-                    <div>
-                      {String(r.status) === 'paid' ? 'อนุมัติโดย' : 'ปฏิเสธโดย'}{' '}
-                      {String(r.reviewed_by_name || '-')} · {formatDate(Number(r.reviewed_at))}
-                    </div>
-                    {r.reject_reason ? <div className="text-red-600">เหตุผล: {String(r.reject_reason)}</div> : null}
+                    {history.map((h, i) => (
+                      <div key={i}>
+                        {EXPENSE_ACTION_LABEL[String(h.action) as ExpenseAction] || String(h.action)}
+                        {' · '}{String(h.by_name || '-')}{' · '}{formatDate(Number(h.at))}
+                        {h.reason ? <span className="text-orange-600"> — {String(h.reason)}</span> : null}
+                      </div>
+                    ))}
                     {/* ตามรอยกลับได้ทั้งสองทาง: จากรายการ → แถวกระเป๋า/แถวบัญชี */}
                     {r.paid_tx_id ? (
                       <div className="text-gray-400">
@@ -317,6 +420,23 @@ export const RiderExpenses = () => {
                     ) : null}
                   </div>
                 )}
+
+                {/* แถวเก่าที่เกิดก่อนมีประวัติต่อขั้น — ยังต้องอ่านออก */}
+                {history.length === 0 && r.reviewed_at ? (
+                  <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500 space-y-1">
+                    <div>{String(r.reviewed_by_name || '-')} · {formatDate(Number(r.reviewed_at))}</div>
+                    {(r.review_reason || r.reject_reason) ? (
+                      <div className="text-red-600">
+                        เหตุผล: {String(r.review_reason || r.reject_reason)}
+                      </div>
+                    ) : null}
+                    {r.paid_tx_id ? (
+                      <div className="text-gray-400">
+                        แถวกระเป๋า {String(r.paid_tx_id)} · แถวบัญชี {String(r.expense_doc_id || '-')}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             );
           })}

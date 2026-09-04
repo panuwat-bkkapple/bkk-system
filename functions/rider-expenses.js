@@ -1,46 +1,66 @@
 "use strict";
 
 /**
- * รีวิวคำขอเบิกค่าใช้จ่ายที่ไรเดอร์สำรองจ่าย (ค่าทางด่วน / ค่าจอดรถ)
+ * ขั้นตอนของใบเบิกค่าใช้จ่ายที่ไรเดอร์สำรองจ่าย (ค่าทางด่วน / ค่าจอดรถ)
  *
  * ครึ่งที่ไรเดอร์ยื่นอยู่ที่ `bkk-rider-app/functions/src/index.ts`
  * (`riderSubmitExpense`) — คนละ codebase เพราะตัวนี้ต้อง gate ด้วย
- * `lookupStaffByAuth` + `dispatchAdminPush` ซึ่งอยู่ที่นี่ทั้งคู่ ส่วนตัวนั้น
- * ถูกเรียกจากแอปไรเดอร์และอยู่ข้าง `riderRequestWithdraw` ที่มี pattern เดียวกัน
+ * `lookupStaffByAuth` + `dispatchAdminPush` ซึ่งอยู่ที่นี่ทั้งคู่
  * ดีไซน์เต็ม: `bkk-rider-app/docs/reports/2026-09-02-rider-expense-claim-design.md`
+ *
+ * **เส้นทางที่เจ้าของงานกำหนด (4 ก.ย. 2569) — ตารางอยู่ที่
+ * `rider-expense-flow.js` ที่เดียว ห้ามกระจายเป็น if ที่นี่:**
+ *
+ *   ไรเดอร์ตั้งเบิก → หัวหน้า/แอดมินไรเดอร์ตรวจว่างานนั้นวิ่งจริง (`ops_approve`)
+ *   → ฝ่ายบัญชีตรวจเอกสารแล้วตั้งเบิก (`finance_approve`) → ฝ่ายบัญชีจ่ายเงิน
+ *   (`pay`) → ออกเอกสารใบสำคัญเงินสดย่อย (งานถัดไป ยังไม่อยู่ในไฟล์นี้)
  *
  * กติกาที่ตั้งใจ:
  *
- *   - **idempotent เป็นข้อแรก ไม่ใช่ข้อสุดท้าย** — รายการที่ `status` ไม่ใช่
- *     `submitted` แล้วจะถูกปฏิเสธการรีวิวซ้ำ. การกดสองครั้ง (เน็ตช้า แล้วกดใหม่)
- *     คือความพังที่แพงที่สุดของฟีเจอร์นี้ เพราะมันเติมเงินเข้ากระเป๋าสองรอบ
- *     และไม่มีใครเห็นจนกว่าจะมีคนกระทบยอด
+ *   - **เงินขยับที่ `pay` ที่เดียว** และบังคับด้วยโครงสร้าง: ตัวจ่ายถูกเรียก
+ *     ก็ต่อเมื่อ `resolveTransition` ตอบ `movesMoney` เท่านั้น ซึ่งตารางบังคับ
+ *     ให้เป็นจริงได้แถวเดียว. **ก่อนหน้านี้การกดอนุมัติครั้งเดียวเครดิตกระเป๋า
+ *     ทันที** = คนที่ตรวจว่า "วิ่งงานนั้นจริงไหม" เป็นคนสั่งจ่ายเงินไปด้วยในตัว
+ *     ซึ่งเป็นการรวมหน้าที่ที่ระบบบัญชีมีไว้แยก
  *
- *   - **อนุมัติ = เขียนสามโหนดใน `update()` เดียว** (rider_expenses + transactions
+ *   - **idempotent เป็นข้อแรก ไม่ใช่ข้อสุดท้าย** — ทุกคำสั่งต้องผ่านตาราง
+ *     transition ก่อนแตะอะไร: สถานะปลายทาง (`paid`/`rejected`) ออกไม่ได้ และ
+ *     ข้ามขั้นไม่ได้. การกดสองครั้ง (เน็ตช้าแล้วกดใหม่) คือความพังที่แพงที่สุด
+ *     ของฟีเจอร์นี้ เพราะมันเติมเงินสองรอบและไม่มีใครเห็นจนกว่าจะกระทบยอด
+ *
+ *   - **จ่าย = เขียนสามโหนดใน `update()` เดียว** (rider_expenses + transactions
  *     + expenses) เพื่อให้ไม่มีสภาพครึ่งๆ: เงินเข้ากระเป๋าแล้วแต่ไม่ลงบัญชี
  *     (กำไรสูงเกินจริง) หรือลงบัญชีแล้วแต่ไรเดอร์ไม่ได้เงิน
  *
  *   - **`needs_ceo` ตัดสินที่ตอนยื่น อ่านที่ตอนรีวิว** — ธงถูกประทับโดย
- *     `riderSubmitExpense` จากเพดานใน `settings/rider_expense` ตัวรีวิวไม่คำนวณ
+ *     `riderSubmitExpense` จากเพดานใน `settings/rider_expense` ตัวนี้ไม่คำนวณ
  *     ใหม่ เพราะเพดานอาจถูกแก้ระหว่างทาง และสิ่งที่ยุติธรรมคือกติกา ณ วันที่ยื่น
  *
  *   - **`taxable` เขียนลงแถว ledger ตรงๆ ห้ามอนุมานจากชื่อหมวดทีหลัง** —
- *     คำตอบของนักบัญชีว่า "เงินคืนค่าทดรองเป็นเงินได้ไหม" ยังไม่มา แถวที่เขียน
- *     วันนี้ต้องอ่านได้ถูกไม่ว่าคำตอบจะออกทางไหน. ถ้าอนุมานจากหมวดทีหลัง
- *     การเปลี่ยนคำตอบจะเปลี่ยนความหมายของ**แถวเก่าทุกแถวย้อนหลัง** ซึ่งเป็น
- *     สิ่งที่ ledger ห้ามทำโดยนิยาม
+ *     ถ้าอนุมานจากหมวด การเปลี่ยนคำตอบทางบัญชีจะเปลี่ยนความหมายของ**แถวเก่า
+ *     ทุกแถวย้อนหลัง** ซึ่งเป็นสิ่งที่ ledger ห้ามทำโดยนิยาม
+ *     (คำตอบที่ได้แล้ว 4 ก.ย. 2569: เงินคืนค่าทดรอง **ไม่ใช่เงินได้** ไม่หัก 3%
+ *     — ตรงกับค่าเริ่มต้นที่เขียนไว้อยู่แล้ว ไม่ต้อง backfill)
  *
- *   - **ปฏิเสธไม่แตะเงินเลย** — ไม่มีแถว ledger ไม่มีแถวบัญชี มีแค่สถานะกับเหตุผล
+ *   - **ตีกลับ/ปฏิเสธไม่แตะเงินเลย** — ไม่มีแถว ledger ไม่มีแถวบัญชี
+ *     มีแค่สถานะ เหตุผล และแถวประวัติ
  *
  * ชื่อ callable `adminReviewExpense` unique ระดับ project ตามกฎ {region}/{name}
+ * — **ไม่เปลี่ยนชื่อแม้ความหมายกว้างขึ้น** เพราะการเปลี่ยนชื่อ = Cloud Run
+ * service ตัวใหม่ + ตัวเก่าค้างเป็นกำพร้าที่ยังรับ request ได้อยู่
  */
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { getDatabase } = require("firebase-admin/database");
 const { lookupStaffByAuth } = require("./sickw-core");
+const { financeActorVerdict } = require("./finance-claims");
+const { GATE, resolveTransition } = require("./rider-expense-flow");
 
 const REGION = "asia-southeast1";
-const REVIEW_ROLES = ["CEO", "MANAGER"];
+
+/** หัวหน้า/แอดมินฝั่งไรเดอร์ — ตรวจว่างานนั้นวิ่งจริง ไม่ได้แตะเงิน */
+const OPS_ROLES = ["CEO", "MANAGER"];
+
 const MAX_REASON_LEN = 500;
 
 /** หมวดใน /expenses ที่ P&L อ่าน — ค่าทางด่วน/ที่จอดรถเป็นค่าเดินทาง */
@@ -55,22 +75,59 @@ const CATEGORY_LABEL_TH = {
 const shortJob = (id) => String(id || "").slice(-4);
 
 /**
- * สร้าง multi-path update ของการอนุมัติ — pure เพื่อให้เทสได้โดยไม่ต้องมี DB
+ * แถวที่ทุก transition เขียนเหมือนกัน — pure เพื่อให้เทสได้โดยไม่ต้องมี DB
+ *
+ * `reviewed_by_*`/`reviewed_at` = **คนที่ทำล่าสุด** ไม่ใช่ "คนอนุมัติ" อีกต่อไป
+ * แต่ยังเขียนต่อเพราะมีคนอ่านอยู่ (`src/pages/finance/RiderExpenses.tsx`) —
+ * ย้าย writer โดยไม่ดูว่าใครอ่านของเดิมคือบั๊กที่ CLAUDE.md จดไว้แล้วหนึ่งรอบ
+ *
+ * `history/{key}` คือสิ่งที่ตอบคำถามของฝ่ายบัญชีว่า "ใครอนุมัติขั้นไหนเมื่อไร"
+ * ซึ่งฟิลด์เดี่ยวตอบไม่ได้เมื่อใบหนึ่งเดินวนผ่านการตีกลับหลายรอบ
+ */
+function buildTransitionUpdates({ id, action, from, to, actor, now, reason, historyKey }) {
+  const text = String(reason || "").trim().slice(0, MAX_REASON_LEN);
+  return {
+    [`rider_expenses/${id}/status`]: to,
+    [`rider_expenses/${id}/reviewed_by_staff_id`]: actor.id,
+    [`rider_expenses/${id}/reviewed_by_name`]: actor.name,
+    [`rider_expenses/${id}/reviewed_at`]: now,
+    [`rider_expenses/${id}/review_reason`]: text || null,
+    // คนอ่านเดิมรู้จักแค่ชื่อนี้ — เขียนคู่ไว้จนกว่าจะไม่มีจอไหนอ่านมันแล้ว
+    ...(action === "reject" ? { [`rider_expenses/${id}/reject_reason`]: text } : {}),
+    [`rider_expenses/${id}/history/${historyKey}`]: {
+      at: now,
+      action,
+      from,
+      to,
+      by_staff_id: actor.id,
+      by_name: actor.name,
+      ...(text ? { reason: text } : {}),
+    },
+  };
+}
+
+/**
+ * multi-path update ของ**ขั้นจ่ายเงิน** — pure ด้วยเหตุผลเดียวกัน
  *
  * คืน `{ updates, txKey, amount }` ไม่ใช่เขียนเอง เพราะสิ่งที่ต้องพิสูจน์คือ
  * "เขียนอะไรบ้าง" ไม่ใช่ "เขียนสำเร็จไหม"
+ *
+ * ชื่อเดิมคือ `buildApprovalUpdates` — เปลี่ยนเพราะการอนุมัติกับการจ่ายเงิน
+ * แยกขั้นกันแล้ว ชื่อเดิมจะอ่านเหมือนว่าอนุมัติแล้วเงินออกทันที ซึ่งคือ
+ * พฤติกรรมเก่าที่งานนี้มาแก้พอดี
  */
-function buildApprovalUpdates({ id, row, reviewer, txKey, expenseKey, now, taxable }) {
+function buildPaymentUpdates({
+  id, row, actor, txKey, expenseKey, now, taxable, from, to, historyKey,
+}) {
   const amount = Number(row.amount_thb) || 0;
   const label = CATEGORY_LABEL_TH[row.category] || CATEGORY_LABEL_TH.other;
   const jobRef = row.job_id ? ` งาน #${shortJob(row.job_id)}` : "";
 
   return {
     updates: {
-      [`rider_expenses/${id}/status`]: "paid",
-      [`rider_expenses/${id}/reviewed_by_staff_id`]: reviewer.id,
-      [`rider_expenses/${id}/reviewed_by_name`]: reviewer.name,
-      [`rider_expenses/${id}/reviewed_at`]: now,
+      ...buildTransitionUpdates({
+        id, action: "pay", from, to, actor, now, reason: "", historyKey,
+      }),
       [`rider_expenses/${id}/paid_tx_id`]: txKey,
       [`rider_expenses/${id}/expense_doc_id`]: expenseKey,
 
@@ -98,7 +155,7 @@ function buildApprovalUpdates({ id, row, reviewer, txKey, expenseKey, now, taxab
         category: EXPENSE_ACCOUNT_CATEGORY,
         note: String(row.note || ""),
         created_at: now,
-        logged_by: reviewer.name,
+        logged_by: actor.name,
         source: "rider_expense",
         rider_id: row.rider_id,
         rider_expense_id: id,
@@ -109,96 +166,189 @@ function buildApprovalUpdates({ id, row, reviewer, txKey, expenseKey, now, taxab
   };
 }
 
+/** ข้อความที่ไรเดอร์เห็นบนหน้าจอล็อก — เงียบไปเลยแปลว่าเขาไม่รู้ว่าใบไปถึงไหน */
+const RIDER_PUSH = {
+  ops_approve: () => ({
+    title: "หัวหน้าอนุมัติใบเบิกแล้ว",
+    body: "ส่งต่อให้ฝ่ายบัญชีตรวจเอกสารแล้ว",
+    type: "rider_expense_ops_approved",
+  }),
+  finance_approve: () => ({
+    title: "ฝ่ายบัญชีตั้งเบิกแล้ว",
+    body: "รอรอบการจ่ายเงิน",
+    type: "rider_expense_finance_approved",
+  }),
+  pay: (amount) => ({
+    title: "คืนเงินสำรองจ่ายแล้ว",
+    body: `฿${Number(amount).toLocaleString("th-TH")} เข้ากระเป๋าเรียบร้อย`,
+    // ชื่อเดิม — แอปไรเดอร์รู้จักอยู่แล้ว ไม่เปลี่ยนโดยไม่จำเป็น
+    type: "rider_expense_approved",
+  }),
+  send_back: (_a, reason) => ({
+    title: "ใบเบิกถูกส่งกลับให้แก้ไข",
+    body: reason,
+    type: "rider_expense_needs_info",
+  }),
+  reject: (_a, reason) => ({
+    title: "คำขอเบิกค่าใช้จ่ายถูกปฏิเสธ",
+    body: reason,
+    type: "rider_expense_rejected",
+  }),
+};
+
 function registerRiderExpenses({ dispatchAdminPush, pushToRider, staffIdsByRoles }) {
   const adminReviewExpense = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
 
-    const reviewer = await lookupStaffByAuth(db, request.auth);
-    const role = String(reviewer?.role || "").toUpperCase();
-    if (!reviewer || !REVIEW_ROLES.includes(role)) {
-      throw new HttpsError("permission-denied", "เฉพาะ CEO หรือ Manager เท่านั้น");
-    }
+    const staff = await lookupStaffByAuth(db, request.auth);
+    if (!staff) throw new HttpsError("permission-denied", "ไม่พบบัญชีพนักงาน");
+    const role = String(staff.role || "").toUpperCase();
+    const actor = { id: staff.id, name: staff.name || "" };
 
     const id = String(request.data?.id || "");
     if (!id) throw new HttpsError("invalid-argument", "ไม่พบรหัสรายการ");
 
-    const approve = request.data?.approve === true;
-    const reason = String(request.data?.reason || "").trim().slice(0, MAX_REASON_LEN);
-    if (!approve && reason === "") {
-      throw new HttpsError("invalid-argument", "ระบุเหตุผลที่ปฏิเสธ");
+    // **ไม่มี fallback จาก `approve: true` ของโปรโตคอลเดิมโดยตั้งใจ** — แท็บที่
+    // ค้างไว้ก่อน deploy จะได้ข้อความให้รีเฟรช ไม่ใช่ถูกเดาให้เป็นขั้นใดขั้นหนึ่ง
+    // การเดาผิดที่นี่คือการจ่ายเงินโดยข้ามฝ่ายบัญชี
+    const action = String(request.data?.action || "");
+    if (!action) {
+      throw new HttpsError(
+        "invalid-argument",
+        "หน้าจอเป็นเวอร์ชันเก่า — รีเฟรชหน้าจอแล้วลองใหม่"
+      );
     }
 
     const rowRef = db.ref(`rider_expenses/${id}`);
     const row = (await rowRef.get()).val();
     if (!row) throw new HttpsError("not-found", "ไม่พบรายการนี้");
 
-    // ด่านกันจ่ายซ้ำ — ต้องอยู่ก่อนทุกการเขียน
-    if (row.status !== "submitted") {
-      throw new HttpsError(
-        "failed-precondition",
-        `รายการนี้ถูกดำเนินการไปแล้ว (${row.status})`
-      );
+    const from = String(row.status || "");
+    const t = resolveTransition(action, from);
+    if (!t.ok) {
+      const code = t.code === "unknown_action" ? "invalid-argument" : "failed-precondition";
+      throw new HttpsError(code, t.message);
     }
 
-    // ธงถูกประทับตอนยื่นตามเพดาน ณ วันนั้น — ตัวรีวิวอ่านอย่างเดียว ไม่คำนวณใหม่
-    if (row.needs_ceo === true && role !== "CEO") {
+    const reason = String(request.data?.reason || "").trim().slice(0, MAX_REASON_LEN);
+    if (t.needsReason && reason === "") {
+      throw new HttpsError("invalid-argument", "ระบุเหตุผลให้ไรเดอร์ทราบ");
+    }
+
+    // --- ประตู ---------------------------------------------------------------
+    if (t.gate === GATE.OPS) {
+      if (!OPS_ROLES.includes(role)) {
+        throw new HttpsError("permission-denied", "ขั้นนี้เป็นของหัวหน้าไรเดอร์หรือผู้จัดการ");
+      }
+    } else if (t.gate === GATE.FINANCE) {
+      const v = financeActorVerdict(staff, request.auth && request.auth.token);
+      if (!v.allowed) {
+        throw new HttpsError(
+          "permission-denied",
+          "ขั้นนี้เป็นของฝ่ายบัญชี — ให้ CEO เปิดสิทธิ์จ่ายเงินออกให้บัญชีนี้ก่อน"
+        );
+      }
+    } else {
+      // ตารางบังคับให้ทุกแถวระบุประตูได้ (มีเทสตรึง) — มาถึงตรงนี้แปลว่ามีคน
+      // เพิ่มสถานะใหม่โดยไม่ได้บอกว่าใครกดได้ ปฏิเสธไว้ก่อนดีกว่าเดา
+      throw new HttpsError("failed-precondition", "ขั้นนี้ยังไม่ได้กำหนดผู้มีสิทธิ์");
+    }
+
+    // ธงถูกประทับตอนยื่นตามเพดาน ณ วันนั้น — ตัวนี้อ่านอย่างเดียว ไม่คำนวณใหม่
+    // บังคับที่ **ทั้งสองขั้นของฝ่ายบัญชี**: ตั้งเบิกคือการผูกพันเงินก้อนนั้นและ
+    // เป็นจังหวะที่เอกสารถูกออก การให้ตั้งเบิกได้แล้วค่อยไปติดที่ปุ่มจ่าย แปลว่า
+    // เอกสารยอดใหญ่ถูกออกไปก่อนที่ CEO จะเห็น
+    if (row.needs_ceo === true && t.gate === GATE.FINANCE && role !== "CEO") {
       throw new HttpsError("permission-denied", "รายการนี้เกินเพดาน ต้องให้ CEO อนุมัติ");
     }
 
     const now = Date.now();
+    const historyKey = db.ref(`rider_expenses/${id}/history`).push().key;
 
-    if (!approve) {
-      await rowRef.update({
-        status: "rejected",
-        reviewed_by_staff_id: reviewer.id,
-        reviewed_by_name: reviewer.name || "",
-        reviewed_at: now,
-        reject_reason: reason,
-      });
-      await pushToRider(
-        db,
-        row.rider_id,
-        {
-          notification: {
-            title: "คำขอเบิกค่าใช้จ่ายถูกปฏิเสธ",
-            body: reason,
+    if (!t.movesMoney) {
+      await db.ref().update(
+        buildTransitionUpdates({
+          id, action, from, to: t.to, actor, now, reason, historyKey,
+        })
+      );
+
+      const push = RIDER_PUSH[action];
+      if (push) {
+        const p = push(0, reason);
+        await pushToRider(
+          db,
+          row.rider_id,
+          {
+            notification: { title: p.title, body: p.body },
+            data: { type: p.type, expenseId: id },
           },
-          data: { type: "rider_expense_rejected", expenseId: id },
-        },
-        "rider-expense-rejected"
-      ).catch(() => undefined);
-      return { ok: true, status: "rejected" };
+          `rider-expense-${action}`
+        ).catch(() => undefined);
+      }
+
+      // ใบที่ผ่านหัวหน้าแล้วต้องมีคนรู้ว่ามันมาถึงคิวบัญชี ไม่งั้นมันนอนรอ
+      // โดยที่ไรเดอร์คิดว่าอนุมัติแล้ว — badge ฝั่งบัญชีนับ `approved` ให้
+      if (action === "ops_approve" && staffIdsByRoles && dispatchAdminPush) {
+        try {
+          const targets = await staffIdsByRoles(db, ["CEO", "FINANCE"]);
+          if (targets.size > 0) {
+            await dispatchAdminPush(
+              {
+                data: {
+                  type: "rider_expense_finance_queue",
+                  expenseId: id,
+                  title: "ใบเบิกไรเดอร์รอฝ่ายบัญชี",
+                  body: `฿${(Number(row.amount_thb) || 0).toLocaleString("th-TH")} — ${
+                    CATEGORY_LABEL_TH[row.category] || CATEGORY_LABEL_TH.other
+                  }`,
+                  click_action: "/rider-expenses",
+                },
+              },
+              `adminReviewExpense(${id})`,
+              "admin",
+              targets
+            );
+          }
+        } catch (e) {
+          // แจ้งเตือนพลาดต้องไม่ทำให้การอนุมัติที่สำเร็จแล้วดูเหมือนล้มเหลว
+          console.error(`[riderExpense] finance queue push failed ${id}: ${e && e.message}`);
+        }
+      }
+
+      return { ok: true, status: t.to };
     }
 
+    // --- ขั้นเดียวที่เงินขยับ ------------------------------------------------
     const taxable =
       (await db.ref("settings/rider_expense/reimbursement_taxable").get()).val() === true;
 
-    const { updates, amount } = buildApprovalUpdates({
+    const { updates, amount } = buildPaymentUpdates({
       id,
       row,
-      reviewer: { id: reviewer.id, name: reviewer.name || "" },
+      actor,
       txKey: db.ref("transactions").push().key,
       expenseKey: db.ref("expenses").push().key,
       now,
       taxable,
+      from,
+      to: t.to,
+      historyKey,
     });
 
     await db.ref().update(updates);
 
+    const p = RIDER_PUSH.pay(amount);
     await pushToRider(
       db,
       row.rider_id,
       {
-        notification: {
-          title: "อนุมัติคืนเงินสำรองจ่ายแล้ว",
-          body: `฿${amount.toLocaleString("th-TH")} เข้ากระเป๋าเรียบร้อย`,
-        },
-        data: { type: "rider_expense_approved", expenseId: id },
+        notification: { title: p.title, body: p.body },
+        data: { type: p.type, expenseId: id },
       },
-      "rider-expense-approved"
+      "rider-expense-paid"
     ).catch(() => undefined);
 
-    return { ok: true, status: "paid", amount };
+    return { ok: true, status: t.to, amount };
   });
 
   return { adminReviewExpense };
@@ -206,7 +356,9 @@ function registerRiderExpenses({ dispatchAdminPush, pushToRider, staffIdsByRoles
 
 module.exports = {
   registerRiderExpenses,
-  buildApprovalUpdates,
+  buildTransitionUpdates,
+  buildPaymentUpdates,
   CATEGORY_LABEL_TH,
   EXPENSE_ACCOUNT_CATEGORY,
+  OPS_ROLES,
 };
