@@ -514,16 +514,17 @@ const TRANSITIONS = {
     methods: [RECEIVE_METHOD.PICKUP],
   },
   // No paid-money check here, and that is a finding rather than an omission:
-  // paid_at is auto-stamped only on entry to PAID_STATUSES ("Paid", "PAID",
-  // "Payment Completed") — 'Waiting For Handover' is not one of them, so the
-  // 21 live jobs sitting at that status carry no timestamp at all. Requiring
-  // one would refuse the return leg for every job the legacy finance writer
-  // created, which is a rider stranded at the customer's door.
+  // the legacy client finance writer stamped paid_at itself, but the trigger's
+  // auto-stamp only fires on entry to the Paid family — 'Waiting For Handover'
+  // is not in it — so rows that reached this status through any other path
+  // may carry no timestamp at all. Requiring one would refuse the return leg
+  // for those jobs, which is a rider stranded at the customer's door.
   //
   // The from-list is the real guard anyway: both statuses already mean the
-  // transfer happened. Once finance moves onto the engine, payment_confirmed
-  // stamps paid_at on the way into Waiting For Handover and the field becomes
-  // trustworthy — at which point a money check here would be worth adding.
+  // transfer happened. Since 4 Sep 2026 finance IS on the engine
+  // (confirmPayoutTransfer -> payment_confirmed stamps paid_at on the way into
+  // Waiting For Handover), so every NEW row here carries the field; a money
+  // check becomes worth adding once no live row predates that cutover.
   rider_return_started: {
     from: [S.PAID, S.WAITING_FOR_HANDOVER],
     to: S.RIDER_RETURNING,

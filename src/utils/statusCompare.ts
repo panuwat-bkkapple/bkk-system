@@ -3,8 +3,9 @@
 // ที่มา (4 ก.ย. 2569, docs/reports/2026-09-04-status-literal-compare-survey.md):
 // DB มีสองสะกดของสถานะเดียวกันอยู่ถาวร — canonical จาก status engine
 // ('Sent To QC Lab', 'Ready To Sell', 'Paid', 'Rider Assigned', ...) และสะกดเก่า
-// จากแถวก่อน P2/P3 + writer ที่ยังไม่ผ่าน engine (payoutTransfer.ts: 'Payment
-// Completed' / 'Waiting for Handover'). reader ที่เทียบ literal สะกดเดียวมองไม่เห็น
+// จากแถวก่อน P2/P3 และจาก writer จ่ายเงินตัวเก่า (payoutTransfer.ts: 'Payment
+// Completed' / 'Waiting for Handover' — ย้ายขึ้น engine แล้ว 4 ก.ย. 2569 เป็น callable
+// confirmPayoutTransfer แถวเก่าที่มันเขียนไว้ยังอยู่ถาวร). reader ที่เทียบ literal สะกดเดียวมองไม่เห็น
 // อีกสะกด และมันไม่พัง มันแค่ว่างลงเงียบๆ (#709 /qc-station, #711 /inventory + POS,
 // #713 ล็อต B2B ที่จ่ายแล้วไม่ล็อก)
 //
