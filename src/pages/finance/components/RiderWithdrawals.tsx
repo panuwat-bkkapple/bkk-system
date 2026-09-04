@@ -1,15 +1,16 @@
 // src/pages/finance/components/RiderWithdrawals.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { useAuth } from '../../../hooks/useAuth';
 import { useFinanceGate } from '../../../hooks/useFinanceGate';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { uploadImageToFirebase } from '../../../utils/uploadImage'; // ✅ ใช้ Utility
 import { Search, CheckCircle2, X, Copy, Check, Bike, Upload, FileText, Loader2 } from 'lucide-react';
-import { ref, update, push, child } from 'firebase/database';
+import { ref, update, push, child, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../../../api/firebase';
 import { useToast } from '../../../components/ui/ToastProvider';
 import { computeRiderWht, readRiderWhtConfig } from '../../../utils/riderWht';
+import { splitPendingWithdrawal, type LedgerRow, type WithdrawalSplit } from '../../../utils/riderCostSplit';
 
 export const RiderWithdrawals = () => {
   const toast = useToast();
@@ -34,15 +35,49 @@ export const RiderWithdrawals = () => {
     (Array.isArray(riders) ? riders : []).forEach((r: any) => { if (r?.id) m[r.id] = r; });
     return m;
   }, [riders]);
+  // ฐานภาษี = ค่าจ้างล้วน ไม่รวมเงินคืนค่าทดรองที่ปนอยู่ในกระเป๋า (นักบัญชี
+  // ยืนยัน 4 ก.ย. 2569 ว่าเงินคืนไม่ใช่เงินได้) — แยกด้วย splitPendingWithdrawal
+  // จาก ledger ของไรเดอร์คนนั้น (query ตาม index rider_id ตอนเปิดใบ ไม่ subscribe
+  // ทั้งโหนด) ยังโหลดไม่เสร็จ = null = หักบนยอดเต็ม (ทิศหักเกิน และปุ่มโอนถูกล็อก
+  // ไว้จนโหลดเสร็จ ดู splitReady)
+  const [split, setSplit] = useState<WithdrawalSplit | null>(null);
+  const [splitReady, setSplitReady] = useState(false);
   const whtFor = (tx: any) =>
     computeRiderWht(
       Number(tx?.withdraw_amount || 0),
       riderById[tx?.rider_id]?.employment?.type,
       whtCfg,
+      { taxableBase: split ? split.labour : null },
     );
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTx, setSelectedTx] = useState<any>(null);
+
+  useEffect(() => {
+    // ไม่ต้องรู้ฐานภาษีเมื่อระบบหักภาษีปิดอยู่ — ไม่ยิง query เปล่า
+    if (!selectedTx || !whtCfg.enabled) return;
+    let cancelled = false;
+    const riderId = String(selectedTx.rider_id || '');
+    const amount = Number(selectedTx.withdraw_amount || 0);
+    get(query(ref(db, 'transactions'), orderByChild('rider_id'), equalTo(riderId)))
+      .then((snap) => {
+        if (cancelled) return;
+        const rows: LedgerRow[] = [];
+        snap.forEach((c) => { rows.push({ id: c.key as string, ...(c.val() || {}) }); return false; });
+        setSplit(splitPendingWithdrawal(rows, amount, Date.now()));
+        setSplitReady(true);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // อ่าน ledger ไม่ได้ = ไม่รู้ฐาน → ไม่ให้โอน (โอนแล้วหักผิดคือของที่แก้ยาก)
+        console.error('[RiderWithdrawals] ledger read failed:', e);
+        setSplit(null);
+        setSplitReady(false);
+        toast.error('อ่าน ledger ของไรเดอร์ไม่ได้ จึงคำนวณฐานภาษีไม่ได้ — ลองปิดแล้วเปิดใบใหม่');
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTx?.id, whtCfg.enabled]);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   
   // 📸 State สำหรับอัปโหลดสลิป
@@ -84,10 +119,18 @@ export const RiderWithdrawals = () => {
       toast.error('ไรเดอร์รายนี้ยังไม่ระบุสถานะการจ้าง — ไปกรอกที่หน้าจัดการไรเดอร์ก่อนจึงจะโอนได้');
       return;
     }
+    // ระบบหักภาษีเปิดอยู่แต่ยังไม่รู้ฐาน = ยังไม่ให้โอน (หักผิดแล้วแก้ยากกว่ารอ)
+    if (whtCfg.enabled && !splitReady) {
+      toast.error('กำลังคำนวณฐานภาษีจาก ledger ของไรเดอร์ — รอสักครู่แล้วกดใหม่');
+      return;
+    }
     if (!confirm(
       wht.applies
         ? `ยืนยันการโอนเงิน ${formatCurrency(wht.net)} ให้ไรเดอร์?\n\n` +
-          `ยอดขอถอน ${formatCurrency(wht.gross)}\nหักภาษี ณ ที่จ่าย ${wht.ratePercent}% = ${formatCurrency(wht.wht)}\n` +
+          `ยอดขอถอน ${formatCurrency(wht.gross)}\n` +
+          (wht.exempt > 0 ? `ส่วนที่เป็นเงินคืนค่าทดรอง (ไม่หัก) ${formatCurrency(wht.exempt)}\n` : '') +
+          `ฐานภาษี (ค่าจ้าง) ${formatCurrency(wht.taxableBase)}\n` +
+          `หักภาษี ณ ที่จ่าย ${wht.ratePercent}% = ${formatCurrency(wht.wht)}\n` +
           `โอนจริง ${formatCurrency(wht.net)}`
         : `ยืนยันการโอนเงิน ${formatCurrency(selectedTx.withdraw_amount)} ให้ไรเดอร์?`
     )) return;
@@ -127,12 +170,21 @@ export const RiderWithdrawals = () => {
         ref_job_id: selectedTx.id,
         slip_url: slipUrl,
         ...(wht.applies
-          ? { wht_amount: wht.wht, wht_rate_percent: wht.ratePercent, net_paid: wht.net }
+          ? {
+              wht_amount: wht.wht,
+              wht_rate_percent: wht.ratePercent,
+              net_paid: wht.net,
+              // ฐานที่คูณอัตราจริง — หนังสือรับรอง 50 ทวิ อ่านค่านี้เป็น "เงินได้ที่จ่าย"
+              // ไม่ใช่ยอดถอน (ยอดถอนรวมเงินคืนที่ไม่ใช่เงินได้)
+              wht_base: wht.taxableBase,
+              wht_exempt: wht.exempt,
+            }
           : { net_paid: Number(selectedTx.withdraw_amount) }),
       };
       if (wht.applies) {
         updates[`withdrawals/${selectedTx.id}/wht_amount`] = wht.wht;
         updates[`withdrawals/${selectedTx.id}/wht_rate_percent`] = wht.ratePercent;
+        updates[`withdrawals/${selectedTx.id}/wht_base`] = wht.taxableBase;
         updates[`withdrawals/${selectedTx.id}/net_paid`] = wht.net;
       }
       await update(ref(db), updates);
@@ -201,7 +253,7 @@ export const RiderWithdrawals = () => {
                     <span className="font-black text-red-500 text-lg bg-red-50 px-3 py-1 rounded-xl">-{formatCurrency(tx.withdraw_amount)}</span>
                  </td>
                  <td className="p-6 text-right pr-10">
-                    <button onClick={() => { setSelectedTx(tx); setSlipFile(null); }} className="px-6 py-3 bg-gray-900 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-black active:scale-95 transition-all">โอนเงิน</button>
+                    <button onClick={() => { setSelectedTx(tx); setSlipFile(null); setSplit(null); setSplitReady(false); }} className="px-6 py-3 bg-gray-900 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-black active:scale-95 transition-all">โอนเงิน</button>
                  </td>
                </tr>
             ))}
@@ -226,9 +278,16 @@ export const RiderWithdrawals = () => {
                          {w.applies ? 'ยอดที่ต้องโอนจริง' : 'Withdrawal Amount'}
                        </p>
                        <h1 className="text-6xl font-black text-red-500">-{formatCurrency(w.net)}</h1>
+                       {whtCfg.enabled && !splitReady && (
+                         <p className="mt-2 text-[11px] font-bold text-slate-400">กำลังคำนวณฐานภาษีจาก ledger ของไรเดอร์...</p>
+                       )}
                        {w.applies ? (
                          <div className="mt-3 inline-block text-left bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 text-xs font-bold text-amber-800 space-y-1">
                            <div className="flex justify-between gap-6"><span>ยอดขอถอน</span><span>{formatCurrency(w.gross)}</span></div>
+                           {w.exempt > 0 && (
+                             <div className="flex justify-between gap-6 text-amber-600"><span>เงินคืนค่าทดรอง (ไม่ใช่เงินได้ ไม่หัก)</span><span>{formatCurrency(w.exempt)}</span></div>
+                           )}
+                           <div className="flex justify-between gap-6"><span>ฐานภาษี (ค่าจ้าง)</span><span>{formatCurrency(w.taxableBase)}</span></div>
                            <div className="flex justify-between gap-6"><span>หักภาษี ณ ที่จ่าย {w.ratePercent}%</span><span>−{formatCurrency(w.wht)}</span></div>
                            <div className="flex justify-between gap-6 pt-1 border-t border-amber-200 font-black"><span>โอนจริง</span><span>{formatCurrency(w.net)}</span></div>
                            <p className="pt-1 font-bold text-amber-600">ระบบจะออกหนังสือรับรองหักภาษี ณ ที่จ่าย (50 ทวิ) ให้อัตโนมัติ</p>
@@ -274,7 +333,7 @@ export const RiderWithdrawals = () => {
                  )}
                  <button 
                     onClick={handleConfirmTransfer}
-                    disabled={isUploading || (whtCfg.enabled && !riderById[selectedTx.rider_id]?.employment?.type)}
+                    disabled={isUploading || (whtCfg.enabled && (!riderById[selectedTx.rider_id]?.employment?.type || !splitReady))}
                     className={`w-full text-white py-6 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl transition-all uppercase ${isUploading ? 'bg-slate-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-black active:scale-95'}`}
                  >
                     {isUploading ? <Loader2 size={24} className="animate-spin"/> : <CheckCircle2 size={24}/>} 

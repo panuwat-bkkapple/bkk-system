@@ -960,7 +960,14 @@ async function buildWhtCertificatePdf({ rider, cert, company }) {
   drawRight(thb(cert.gross), width - M, 11);
   y -= 16;
   draw("(ค่าตอบแทนงานรับ-ส่งอุปกรณ์)", M + 12, 9, { color: gray });
-  y -= 20;
+  y -= 14;
+  // ยอดถอนที่มีเงินคืนค่าทดรองปน — บอกให้ชัดว่าส่วนนั้นไม่ใช่เงินได้และไม่ได้ถูกหัก
+  // ไม่งั้นไรเดอร์เทียบกับสลิปแล้วเห็นว่า "จ่าย 1,065 แต่หนังสือรับรองบอก 1,000"
+  if (Number(cert.exempt) > 0) {
+    draw(`ยอดที่จ่ายรวม ${thb(cert.withdrawal_amount)} บาท มีเงินคืนค่าใช้จ่ายที่ผู้รับสำรองจ่าย ${thb(cert.exempt)} บาท ซึ่งไม่ใช่เงินได้พึงประเมินและไม่ได้หักภาษี`, M + 12, 9, { color: gray });
+    y -= 14;
+  }
+  y -= 6;
   hr(y + 6); y -= 14;
   draw("รวมเงินที่จ่าย", M, 11, { color: gray });
   drawRight(thb(cert.gross), width - M, 11, { color: gray });
@@ -1614,5 +1621,163 @@ async function buildHrLetterPdf({ type, employee, priv, doc, company }) {
   return Buffer.from(await pdf.save());
 }
 
+/**
+ * ใบสำคัญเงินสดย่อย (petty cash voucher) — ออกตอนฝ่ายบัญชีกดจ่ายใบเบิกไรเดอร์
+ *
+ * ทำไมเป็นเอกสารนี้ ไม่ใช่ใบเสร็จ: นักบัญชียืนยัน (4 ก.ย. 2569) ว่าค่าทางด่วน/
+ * ที่จอดรถที่ไรเดอร์สำรองจ่ายเป็นเงินสดย่อย ไม่ต้องมีใบเสร็จในนามบริษัท ไม่หัก
+ * 3% แต่**ต้องมีใบสำคัญ**แนบกับสลิปการจ่าย เอกสารนี้จึงเป็นสิ่งที่ทำให้รายการ
+ * เบิกกลายเป็นรายจ่ายที่อธิบายได้ตอนถูกตรวจ
+ *
+ * **ตัวเลขทุกตัวมาจากแถวที่จ่ายไปแล้ว ไม่คำนวณใหม่** — ใบสำคัญที่คิดเลขเองคือ
+ * สูตรสำเนาที่สอง วันหนึ่งจะไม่ตรงกับยอดที่เข้ากระเป๋าไรเดอร์
+ *
+ * **ลำดับผู้อนุมัติพิมพ์จาก `history` ของใบ** (หัวหน้าตรวจงาน → บัญชีตั้งเบิก →
+ * บัญชีจ่าย) เพราะนั่นคือสิ่งที่ผู้ตรวจถาม: ใครยืนยันว่างานวิ่งจริง และใครอนุมัติ
+ * ให้จ่าย — ฟิลด์เดี่ยว `reviewed_by_name` ตอบได้แค่คนสุดท้าย
+ *
+ * **หลักฐานอ้างเป็นจำนวนรูปและ id ในระบบ ไม่ฝังรูปลง PDF** — รูปสลิปอยู่ใน
+ * Storage ใต้ rider_expenses/{id} อยู่แล้ว ฝังลงเอกสารทำให้ไฟล์โตหลายเท่าและ
+ * ไม่ได้เพิ่มความน่าเชื่อถือ (ผู้ตรวจเปิดจากระบบได้)
+ */
+async function buildPettyCashVoucherPdf({ voucher, expense, rider, company }) {
+  const { regular, bold } = loadFonts();
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const font = await pdf.embedFont(regular, { subset: true });
+  const fontB = await pdf.embedFont(bold, { subset: true });
+
+  const page = pdf.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const M = 50;
+  const contentW = width - M * 2;
+  const black = rgb(0.1, 0.1, 0.1);
+  const gray = rgb(0.42, 0.45, 0.5);
+  const lineColor = rgb(0.85, 0.86, 0.88);
+  const CO = { ...companyOf({}), ...(company || {}) };
+  const v = voucher || {};
+  const ex = expense || {};
+  const rd = rider || {};
+
+  let y = height - M;
+  const widthOf = (t, size, f = font) => f.widthOfTextAtSize(String(t == null ? "" : t), size);
+  const draw = (t, x, size, opts = {}) => {
+    const f = opts.bold ? fontB : font;
+    page.drawText(String(t == null ? "" : t), { x, y: opts.y != null ? opts.y : y, size, font: f, color: opts.color || black });
+  };
+  const drawRight = (t, rightX, size, opts = {}) => draw(t, rightX - widthOf(t, size, opts.bold ? fontB : font), size, opts);
+  const hr = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: width - M, y: yy }, thickness: 0.8, color: lineColor });
+  const wrap = (t, size, f, maxW) => {
+    const str = String(t == null ? "" : t);
+    const out = []; let cur = "";
+    for (const ch of str) {
+      if (cur && widthOf(cur + ch, size, f) > maxW) { out.push(cur); cur = ch; } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [""];
+  };
+  const drawWrapped = (t, x, size, maxW, lineH, opts = {}) => {
+    for (const ln of wrap(t, size, opts.bold ? fontB : font, maxW)) { draw(ln, x, size, opts); y -= lineH; }
+  };
+
+  // หัวเอกสาร
+  const title = "ใบสำคัญเงินสดย่อย";
+  draw(title, (width - widthOf(title, 18, fontB)) / 2, 18, { bold: true });
+  y -= 18;
+  const sub = "ใบสำคัญแทนใบเสร็จรับเงิน สำหรับค่าใช้จ่ายที่พนักงานสำรองจ่าย";
+  draw(sub, (width - widthOf(sub, 10, font)) / 2, 10, { color: gray });
+  y -= 26;
+
+  draw(`เลขที่: ${v.number || "-"}`, M, 11, { bold: true });
+  drawRight(`วันที่จ่าย: ${formatDate(v.paid_at) || "-"}`, width - M, 11);
+  y -= 22;
+
+  // ผู้จ่าย
+  hr(y + 6); y -= 14;
+  draw("ผู้จ่ายเงิน", M, 11, { bold: true });
+  y -= 16;
+  draw(CO.legalName, M + 12, 11);
+  y -= 15;
+  draw(`เลขประจำตัวผู้เสียภาษี ${CO.taxId} (${CO.branch || "สำนักงานใหญ่"})`, M + 12, 10, { color: gray });
+  y -= 14;
+  drawWrapped(CO.address, M + 12, 10, contentW - 12, 13, { color: gray });
+  y -= 10;
+
+  // ผู้รับเงิน
+  hr(y + 6); y -= 14;
+  draw("ผู้รับเงิน (ผู้สำรองจ่าย)", M, 11, { bold: true });
+  y -= 16;
+  draw(rd.name || "-", M + 12, 11);
+  y -= 15;
+  draw(`ไรเดอร์ รหัสในระบบ ${rd.id || "-"}`, M + 12, 10, { color: gray });
+  y -= 18;
+
+  // รายการ
+  hr(y + 6); y -= 14;
+  draw("รายการ", M, 11, { bold: true, color: gray });
+  drawRight("จำนวนเงิน (บาท)", width - M, 11, { bold: true, color: gray });
+  y -= 8; hr(y + 2); y -= 16;
+  draw(v.item_label || "ค่าใช้จ่ายสำรองจ่าย", M, 11);
+  drawRight(thb(v.amount), width - M, 11);
+  y -= 15;
+  const details = [
+    `วันที่จ่ายจริง ${formatDate(ex.occurred_at) || "-"}`,
+    ex.job_ref ? `งาน ${ex.job_ref}` : "ไม่ผูกกับงาน",
+  ];
+  draw(details.join(" • "), M + 12, 9, { color: gray });
+  y -= 13;
+  if (ex.note) { drawWrapped(`รายละเอียด: ${ex.note}`, M + 12, 9, contentW - 12, 12, { color: gray }); }
+  y -= 8;
+  hr(y + 6); y -= 16;
+  draw("รวมจ่าย", M, 13, { bold: true });
+  drawRight(thb(v.amount), width - M, 13, { bold: true });
+  y -= 18;
+  const words = bahtText(v.amount);
+  if (words) { draw(`จำนวนเงิน (ตัวอักษร): (${words})`, M, 11); y -= 20; }
+
+  // วิธีจ่าย + หลักฐาน — บอกตามความจริง: เงินเข้ากระเป๋าในระบบ สลิปโอนจริงคือ
+  // ตอนไรเดอร์ถอน ไม่ใช่ตอนนี้ ห้ามเขียนว่า "โอนเงินแล้ว" ถ้ายังไม่โอน
+  hr(y + 6); y -= 14;
+  draw("การจ่ายและหลักฐาน", M, 11, { bold: true });
+  y -= 16;
+  drawWrapped(
+    `จ่ายโดยเครดิตเข้ากระเป๋าไรเดอร์ในระบบ (รายการ ${v.tx_id || "-"}) — ยอดนี้ถูกโอนเข้าบัญชีธนาคารของผู้รับพร้อมค่าตอบแทนรอบถัดไปที่ผู้รับกดถอน สลิปโอนอยู่ที่รายการถอนนั้น`,
+    M + 12, 10, contentW - 12, 13, { color: gray },
+  );
+  drawWrapped(
+    `หลักฐานการจ่ายเงินของผู้สำรองจ่าย: รูปสลิป/ใบเสร็จ ${Number(v.evidence_count) || 0} รูป เก็บในระบบที่รายการเบิก ${ex.id || "-"}`,
+    M + 12, 10, contentW - 12, 13, { color: gray },
+  );
+  drawWrapped(
+    "ไม่มีใบเสร็จในนามบริษัท (ค่าทางด่วน/ค่าที่จอดรถ ผู้ให้บริการไม่ออกใบเสร็จในนามนิติบุคคล) จึงออกใบสำคัญฉบับนี้แทนใบเสร็จรับเงิน",
+    M + 12, 10, contentW - 12, 13, { color: gray },
+  );
+  y -= 8;
+
+  // ผู้อนุมัติแต่ละขั้น — จากประวัติจริง ไม่ใช่ช่องเซ็นว่างที่ไม่มีใครเซ็น
+  hr(y + 6); y -= 14;
+  draw("การอนุมัติ", M, 11, { bold: true });
+  y -= 16;
+  const approvals = Array.isArray(v.approvals) ? v.approvals : [];
+  if (approvals.length === 0) { draw("-", M + 12, 10, { color: gray }); y -= 14; }
+  for (const a of approvals) {
+    draw(`${a.label}: ${a.by || "-"}`, M + 12, 10);
+    drawRight(formatDate(a.at) || "-", width - M, 10, { color: gray });
+    y -= 14;
+  }
+  y -= 6;
+
+  // ลายเซ็นผู้มีอำนาจจ่ายเงิน — เส้นเดียว (ผู้รับเงินรับผ่านระบบ ไม่มีวันมาเซ็น
+  // กระดาษ เส้นที่ไม่มีวันถูกเซ็นคือคำโกหกบนเอกสาร — บทเรียนใบสำคัญรับเงิน)
+  const sigY = Math.max(y - 60, 120);
+  const cx = width - M - 75;
+  page.drawLine({ start: { x: cx - 75, y: sigY }, end: { x: cx + 75, y: sigY }, thickness: 0.8, color: lineColor });
+  const lbl = "ผู้มีอำนาจจ่ายเงิน";
+  page.drawText(lbl, { x: cx - widthOf(lbl, 9, font) / 2, y: sigY - 15, size: 9, font, color: black });
+
+  page.drawText(`${CO.legalName} • ออกโดยระบบอัตโนมัติ`, { x: M, y: 50, size: 8, font, color: gray });
+  return Buffer.from(await pdf.save());
+}
+
 module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf,
-  buildEmploymentContractPdf, buildHrLetterPdf, hrLetterBody };
+  buildEmploymentContractPdf, buildHrLetterPdf, hrLetterBody, buildPettyCashVoucherPdf };

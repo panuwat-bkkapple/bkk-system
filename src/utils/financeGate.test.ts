@@ -1,45 +1,37 @@
+// ตารางความจริงของ `isFinanceActor`
+//
+// **เคสชุดนี้ซ้ำกับ `functions/test/rider-expenses.test.mjs` โดยตั้งใจ** —
+// ตัวตัดสินจริงคือ `financeActorVerdict` ใน `functions/finance-claims.js`
+// ส่วนตัวนี้เป็นมิเรอร์ฝั่งหน้าจอ (functions import TS ไม่ได้ รวมเป็นตัวเดียว
+// ไม่ได้) การเขียนเคสเดียวกันสองที่ทำให้ drift โผล่เป็นสีแดงข้างเดียว
+// ไม่ใช่ความเงียบแบบที่ `ADJUSTMENT` เคยหลุดมาแล้ว
+
 import { describe, it, expect } from 'vitest';
-import { evaluateFinanceGate } from './financeGate';
+import { evaluateFinanceGate, isFinanceActor } from './financeGate';
 
-describe('evaluateFinanceGate', () => {
-  it('CEO ผ่านเสมอ แม้ไม่มี claim และเปิด enforcement แล้ว', () => {
-    expect(evaluateFinanceGate({ role: 'CEO', hasClaim: false, enforce: true }))
-      .toEqual({ allowed: true, reason: 'ceo' });
+describe('isFinanceActor — ใครทำขั้นของฝ่ายบัญชีได้', () => {
+  const cases: [string, { role?: string | null; hasClaim: boolean }, boolean][] = [
+    ['CEO ผ่านเสมอแม้ไม่มี claim', { role: 'CEO', hasClaim: false }, true],
+    ['FINANCE ผ่านด้วย role', { role: 'FINANCE', hasClaim: false }, true],
+    ['ใครก็ตามที่มี claim ผ่าน', { role: 'STAFF', hasClaim: true }, true],
+    ['MANAGER ไม่ใช่ฝ่ายบัญชี', { role: 'MANAGER', hasClaim: false }, false],
+    ['STAFF ไม่ผ่าน', { role: 'STAFF', hasClaim: false }, false],
+    ['ไม่มี role ไม่ผ่าน', { role: null, hasClaim: false }, false],
+  ];
+
+  it.each(cases)('%s', (_label, state, want) => {
+    expect(isFinanceActor(state)).toBe(want);
   });
 
-  it('CEO ตัวพิมพ์เล็กก็ยังเป็น CEO (role ใน session ไม่ได้ normalize ทุกทาง)', () => {
-    expect(evaluateFinanceGate({ role: 'ceo', hasClaim: false, enforce: true }).allowed).toBe(true);
+  it('role พิมพ์เล็กก็ต้องอ่านออก (staff record ไม่ได้บังคับตัวพิมพ์)', () => {
+    expect(isFinanceActor({ role: 'finance', hasClaim: false })).toBe(true);
   });
 
-  it('มี claim = ผ่าน แม้ role ไม่ใช่ CEO — นี่คือทางที่ตั้งใจให้ FINANCE ใช้', () => {
-    expect(evaluateFinanceGate({ role: 'FINANCE', hasClaim: true, enforce: true }))
-      .toEqual({ allowed: true, reason: 'claim' });
-  });
-
-  // ข้อนี้คือทั้งหมดของ dual-read: คนเดิมต้องทำงานได้ปกติในวันที่ deploy
-  it('ไม่มี claim + ยังไม่เปิด enforcement = ผ่านแบบ legacy', () => {
-    expect(evaluateFinanceGate({ role: 'MANAGER', hasClaim: false, enforce: false }))
-      .toEqual({ allowed: true, reason: 'legacy_admin' });
-  });
-
-  it('ไม่มี claim + เปิด enforcement แล้ว = ถูกปฏิเสธ พร้อมข้อความไทย', () => {
-    const v = evaluateFinanceGate({ role: 'MANAGER', hasClaim: false, enforce: true });
-    expect(v.allowed).toBe(false);
-    expect(v.reason).toBe('no_claim');
-    expect(v.message).toBeTruthy();
-  });
-
-  it('role ที่หายไป/ว่าง ไม่ถูกเข้าใจผิดว่าเป็น CEO', () => {
-    expect(evaluateFinanceGate({ role: undefined, hasClaim: false, enforce: true }).allowed).toBe(false);
-    expect(evaluateFinanceGate({ role: null, hasClaim: false, enforce: true }).allowed).toBe(false);
-    expect(evaluateFinanceGate({ role: '', hasClaim: false, enforce: true }).allowed).toBe(false);
-  });
-
-  // ลำดับความสำคัญต้องแยกได้จริง ไม่ใช่กฎสองข้อที่กลบกันเอง:
-  // ถ้าสลับข้อ 1 กับ 4 เคสนี้จะเปลี่ยนคำตอบทันที
-  it('เหตุผลที่คืนมาบอกได้ว่าผ่านมาทางไหน ไม่ใช่แค่ผ่าน', () => {
-    expect(evaluateFinanceGate({ role: 'CEO', hasClaim: true, enforce: true }).reason).toBe('ceo');
-    expect(evaluateFinanceGate({ role: 'STAFF', hasClaim: true, enforce: false }).reason).toBe('claim');
-    expect(evaluateFinanceGate({ role: 'STAFF', hasClaim: false, enforce: false }).reason).toBe('legacy_admin');
+  // ข้อที่สำคัญที่สุดของไฟล์นี้: สองฟังก์ชันนี้ตอบคนละคำถาม การหยิบผิดตัวคือ
+  // การขึ้นปุ่มให้คนที่ server จะปฏิเสธ ซึ่งเป็นปุ่มที่โกหกคนกด
+  it('ต่างจาก evaluateFinanceGate ที่ปล่อย admin ทุกคนผ่านระหว่างยังไม่บังคับ', () => {
+    const state = { role: 'STAFF', hasClaim: false, enforce: false };
+    expect(evaluateFinanceGate(state).allowed).toBe(true);
+    expect(isFinanceActor(state)).toBe(false);
   });
 });

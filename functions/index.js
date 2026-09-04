@@ -6957,6 +6957,12 @@ Object.assign(exports, require("./ops-dashboard").registerOpsDashboard());
 Object.assign(exports, require("./rider-wht-issue").registerRiderWhtIssue());
 
 // =============================================================================
+// ใบสำคัญเงินสดย่อยของใบเบิกไรเดอร์ — ออกอัตโนมัติเมื่อฝ่ายบัญชีกดจ่าย
+// (logic อยู่ rider-expense-voucher.js)
+// =============================================================================
+Object.assign(exports, require("./rider-expense-voucher").registerRiderExpenseVoucher());
+
+// =============================================================================
 // Rider lifecycle (อนุมัติ/ปฏิเสธ/ระงับ/ปลดระงับ) — CEO/MANAGER gate ฝั่ง
 // server + ปิดบัญชี Auth จริงตอนระงับ + บันทึกประวัติการเปลี่ยนสถานะ
 // (logic อยู่ rider-accounts.js). ก่อนหน้านี้หน้า /riders เขียน RTDB ตรงและ

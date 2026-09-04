@@ -37,7 +37,35 @@ const FINANCE_ACTIONS = [
   "job_mark_paid",          // ปุ่ม "จ่ายเงินแล้ว (Paid)" บนหน้า ticket
   "rider_withdrawal",       // ยืนยันโอนเงินถอนของไรเดอร์
   "sales_void",             // void บิลขาย (ย้อนรายการเงินเข้า)
+  "rider_expense_pay",      // จ่ายคืนเงินสำรองจ่ายของไรเดอร์ (ขั้นสุดท้ายของใบเบิก)
 ];
+
+/**
+ * ใครทำขั้นของฝ่ายบัญชีได้ — **ตัวนี้บังคับฝั่ง server จริง ไม่ใช่ซ่อนปุ่ม**
+ *
+ * ต่างจาก `evaluateFinanceGate` (`src/utils/financeGate.ts`) ตรงที่**ไม่มีทาง
+ * legacy**: ฟังก์ชันนั้นปล่อย admin เดิมผ่านเมื่อ `settings/finance_gate/enforce`
+ * ยังไม่เปิด เพราะมันคุม action ที่มีคนใช้ทำงานอยู่แล้วตั้งแต่ก่อนมีสิทธิ์นี้
+ * ส่วนขั้นบัญชีของใบเบิกเป็นเส้นทางที่**เพิ่งเกิด** ไม่มีใครทำงานค้างอยู่บนมัน
+ * จึงไม่มีอะไรให้ grandfather และการเปิด dual-read ไว้เฉยๆ แปลว่าประตูบานนี้
+ * ปิดไม่ลงจนกว่าจะมีคนไปเปิดสวิตช์ ซึ่งเป็นสิ่งที่ลืมได้เงียบที่สุด
+ *
+ * `role` มาจาก `/staff` ที่ resolve ฝั่ง server (`lookupStaffByAuth`) ไม่ใช่จาก
+ * sessionStorage ของเบราว์เซอร์ จึงเชื่อได้ — คนละกรณีกับ role ฝั่ง client
+ *
+ * @param {{role?: unknown}|null} staff
+ * @param {{[k: string]: unknown}|null|undefined} token  auth token ของผู้เรียก
+ * @returns {{allowed: boolean, reason: 'ceo'|'claim'|'finance_role'|'denied'}}
+ */
+function financeActorVerdict(staff, token) {
+  const role = String((staff && staff.role) || "").toUpperCase();
+  // CEO ผ่านเสมอด้วย hardcode — กันสภาพ "CEO ตั้ง claim ให้ตัวเองยังไม่เสร็จ
+  // แล้วจ่ายเงินไม่ได้" (เหตุผลเดียวกับหัวไฟล์)
+  if (role === "CEO") return { allowed: true, reason: "ceo" };
+  if (token && token[CLAIM_KEY] === true) return { allowed: true, reason: "claim" };
+  if (role === "FINANCE") return { allowed: true, reason: "finance_role" };
+  return { allowed: false, reason: "denied" };
+}
 
 /**
  * adminFinanceSetClaim — CEO ตั้ง/ถอนสิทธิ์จ่ายเงินออกให้บัญชีพนักงาน
@@ -146,3 +174,4 @@ exports.adminFinanceAudit = onCall({ region: REGION }, async (request) => {
 
 exports.FINANCE_ACTIONS = FINANCE_ACTIONS;
 exports.CLAIM_KEY = CLAIM_KEY;
+exports.financeActorVerdict = financeActorVerdict;

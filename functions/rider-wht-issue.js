@@ -133,15 +133,22 @@ function registerRiderWhtIssue() {
         const { ym } = bangkokYM(paidAt);
         const { number } = await allocateWhtNumber(db, ym);
 
+        // `gross` บนหนังสือรับรอง = **เงินได้ที่จ่าย** ซึ่งคือฐานภาษี (wht_base) ไม่ใช่
+        // ยอดถอน — ยอดถอนมีเงินคืนค่าทดรองปนอยู่ซึ่งไม่ใช่เงินได้ (P4, 4 ก.ย. 2569)
+        // แถวเก่าที่ไม่มี wht_base (ก่อน P4) = หักบนยอดเต็ม จึงใช้ amount ตามเดิม
+        const withdrawal = Number(tx.amount) || 0;
+        const base = tx.wht_base != null ? Number(tx.wht_base) : withdrawal;
         const cert = {
           number,
           period: ym,
           rider_id: tx.rider_id || null,
           rider_name: rider.name || null,
           rider_tax_id: rider.tax_id || null,
-          gross: Number(tx.amount) || 0,
+          gross: Number.isFinite(base) ? base : withdrawal,
+          withdrawal_amount: withdrawal,
+          exempt: Math.max(0, withdrawal - (Number.isFinite(base) ? base : withdrawal)),
           wht,
-          net: Number(tx.net_paid) || (Number(tx.amount) || 0) - wht,
+          net: Number(tx.net_paid) || withdrawal - wht,
           rate_percent: Number(tx.wht_rate_percent) || 3,
           paid_at: paidAt,
           // ชื่อฟิลด์เดิมคงไว้ (ทะเบียน wht_certificates มีคนอ่าน/รายงานแล้ว)
@@ -197,4 +204,4 @@ function registerRiderWhtIssue() {
   return { onRiderWhtWithheld };
 }
 
-module.exports = { registerRiderWhtIssue, allocateWhtNumber, bangkokYM };
+module.exports = { registerRiderWhtIssue, allocateWhtNumber, bangkokYM, archivePdf };
