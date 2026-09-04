@@ -11,13 +11,14 @@
 // **สองรูปเพราะคนอ่านสองคนใช้ต่างกัน:** archive ต้อง query ตาม index status
 // (ห้ามกวาด /jobs — กฎค่า RTDB) จึงต้องมี**ทุกสะกดที่อยู่ใน DB จริง** เป็นค่า
 // query แยกกัน (`TERMINAL_QUERY_STATUSES`); ส่วน trigger ได้ค่าเดียวมาแล้วเทียบ
-// ผ่าน normalize (`isTerminalStatus`). สะกดเก่าใน query list เขียนไว้ตรงๆ เพราะ
-// generated vocab ไม่ export ตาราง alias — เทสตรวจว่าทุก alias ในไฟล์ enum ที่
-// normalize มาลงเซ็ตนี้อยู่ใน query list ครบ (ลืมเมื่อไหร่แดง)
+// ผ่าน normalize (`isTerminalStatus`). query list กางจาก LEGACY_ALIAS ผ่าน
+// queryStatusesFor (status-match.js) — ไม่ต้องจำสะกดเก่าเอง เทสยังตรวจกับ
+// ตาราง alias ในไฟล์ enum จริงอีกชั้น
 //
 // "Withdrawal Completed" ไม่อยู่ใน enum (งานถอนเงินของไรเดอร์ใช้คำศัพท์ของตัวเอง)
 // จึงเทียบค่าดิบต่อไปเหมือนเดิม
 const { JOB_STATUS, normalizeStatus } = require("./status-vocab.generated");
+const { queryStatusesFor } = require("./status-match");
 
 const TERMINAL_CANONICAL = [
   JOB_STATUS.COMPLETED,
@@ -41,7 +42,6 @@ function isTerminalStatus(status) {
 }
 
 /** ทุกสะกดที่ต้อง query ตาม index status เพื่อให้ archive เห็นแถวเก่าด้วย */
-const LEGACY_TERMINAL_SPELLINGS = ["Returned"];
-const TERMINAL_QUERY_STATUSES = [...TERMINAL_CANONICAL, ...LEGACY_TERMINAL_SPELLINGS, ...RAW_TERMINAL];
+const TERMINAL_QUERY_STATUSES = [...queryStatusesFor(TERMINAL_CANONICAL), ...RAW_TERMINAL];
 
 module.exports = { TERMINAL_CANONICAL, TERMINAL_QUERY_STATUSES, isTerminalStatus };

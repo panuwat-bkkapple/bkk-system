@@ -5,7 +5,8 @@
 // INJECTION RESULTS (ทำทีละตัว วัดหลังรัน):
 //   1. isTerminalStatus เทียบ raw === ไม่ normalize          -> แดง 3
 //   2. ตัด RETURN_CONFIRMED ออกจาก TERMINAL_CANONICAL          -> แดง 4
-//   3. ตัด "Returned" ออกจาก LEGACY_TERMINAL_SPELLINGS         -> แดง 1 (alias ที่ query ไม่ครบ)
+//   3. queryStatusesFor (status-match.js) ไม่กาง alias        -> แดง 1 (alias ที่ query ไม่ครบ)
+//      (เดิม query list เขียน "Returned" ไว้ตรงๆ — ย้ายไปกางจาก LEGACY_ALIAS แล้ว)
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

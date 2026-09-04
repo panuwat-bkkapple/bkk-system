@@ -765,6 +765,11 @@ async function computeRiderFeeForAssignee(db, job) {
 // "Returned" สะกดเก่าตัวเดียว งานที่ engine เขียน 'Return Confirmed' จึงไม่เคย
 // ถูก archive และ amendment บนงานนั้นไม่เคยถูกปิด (ดูหัวไฟล์นั้น)
 const { TERMINAL_QUERY_STATUSES, isTerminalStatus } = require("./terminal-statuses");
+// ตัวเทียบสถานะ normalize สองฝั่ง (./status-match.js — mirror ของ src/utils/statusCompare.ts)
+// reader ในไฟล์นี้เขียนเซ็ตด้วย JOB_STATUS.* แล้วถามผ่านตัวนี้ ห้ามเทียบ literal
+// (ด่าน functions/test/status-literal-census.test.mjs)
+const { statusIs, statusIn, rawStatusIs, queryStatusesFor, canonicalStatus } = require("./status-match");
+const { JOB_STATUS, JOB_STATUS_B2B } = require("./status-vocab.generated");
 const ARCHIVE_THRESHOLD_DAYS = 90;
 
 /**
@@ -1689,11 +1694,9 @@ exports.onNewTicketCreated = onValueCreated(
       const jobId = event.params.jobId;
       const db = getDatabase();
 
-      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Lead).
-      // Accept both legacy "Active Leads" (plural) and the canonical
-      // "Active Lead" so the trigger keeps firing through Phase 2D's
-      // writer rename. functions/ can't import the canonical TS enum.
-      const newStatuses = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
+      // เฉพาะ ticket ใหม่ (New Lead / New B2B Lead / Active Lead) — statusIs
+      // normalize ให้ 'Active Leads' สะกดเก่ามาลง ACTIVE_LEAD เอง
+      const newStatuses = [JOB_STATUS.NEW_LEAD, JOB_STATUS_B2B.NEW_B2B_LEAD, JOB_STATUS.ACTIVE_LEAD];
 
       // Dispatch the admin push FIRST — before any external I/O. The
       // rider-fee estimate below calls the Google Routes API, which can be
@@ -1704,7 +1707,7 @@ exports.onNewTicketCreated = onValueCreated(
       // ("บางครั้งก็แจ้งเตือน") while status-change pushes (which do no
       // network call before dispatch) always arrived. Sending the push
       // first decouples delivery from the Routes API entirely.
-      if (newStatuses.includes(job.status)) {
+      if (statusIs(job, ...newStatuses)) {
         const model = job.model || "ไม่ระบุรุ่น";
         // Offer request — ลูกค้าส่งออเดอร์ทั้งที่สเปกยังไม่มีราคากลาง (price 0,
         // ธงจาก validateAndCreateOrder ฝั่ง bkk-frontend-next) ต้องติดต่อกลับ
@@ -1940,9 +1943,9 @@ async function writeAccountingDocument(db, docId, record) {
   }
 }
 
-// Mirror onNewTicketCreated's "new order" status set (functions/ can't import
-// the canonical TS enum). Accept both "Active Lead" and legacy "Active Leads".
-const ORDER_CREATED_STATUSES = ["New Lead", "New B2B Lead", "Active Leads", "Active Lead"];
+// Mirror onNewTicketCreated's "new order" status set — canonical only, statusIs
+// folds the legacy "Active Leads" spelling in.
+const ORDER_CREATED_STATUSES = [JOB_STATUS.NEW_LEAD, JOB_STATUS_B2B.NEW_B2B_LEAD, JOB_STATUS.ACTIVE_LEAD];
 
 exports.onJobCreatedSendEmails = onValueCreated(
   {
@@ -1957,7 +1960,7 @@ exports.onJobCreatedSendEmails = onValueCreated(
       const db = getDatabase();
 
       if (job.is_test) return;
-      if (!ORDER_CREATED_STATUSES.includes(job.status)) return;
+      if (!statusIs(job, ...ORDER_CREATED_STATUSES)) return;
 
       // Master gate: do nothing until an admin enables the system.
       const acct = await loadAccountingSettings(db);
@@ -2641,13 +2644,9 @@ const NOTIFY_STATUS_MAP = {
   // The earlier "double push" concern that omitted Rider Accepted was wrong
   // for the broadcast/self-claim path — user reported "ตอนรับงานไม่เด้ง".
   "Rider Assigned": "📋 จ่ายงานให้ไรเดอร์",
-  Assigned: "📋 จ่ายงานให้ไรเดอร์",
   "Rider Accepted": "✋ ไรเดอร์รับงาน",
-  Accepted: "✋ ไรเดอร์รับงาน",
   "Rider En Route": "🛣️ ไรเดอร์ออกเดินทาง",
-  "Heading to Customer": "🛣️ ไรเดอร์ออกเดินทาง",
   "Rider Arrived": "📍 ไรเดอร์ถึงจุดนัดหมาย",
-  Arrived: "📍 ไรเดอร์ถึงจุดนัดหมาย",
   // Drop-off / Mail-in arrival — owner needs to know device reached the shop
   "Drop-off Received": "📥 ลูกค้านำเครื่องมาส่งที่สาขาแล้ว",
   "Parcel In Transit": "📦 พัสดุอยู่ระหว่างขนส่ง",
@@ -2658,21 +2657,19 @@ const NOTIFY_STATUS_MAP = {
   "Pending QC": "📦 ไรเดอร์ส่งมอบเครื่อง — รอ QC",
   // Payout
   "Payout Processing": "💵 รอจ่ายเงิน — บัญชีต้อง action",
+  // Keyed by CANONICAL only — buildAdminStatusLabel normalizes `after` first
+  // (4 Sep 2026). Before that the map carried a second key for every legacy
+  // spelling by hand, and the one it missed ("Waiting for Handover") made the
+  // B2C payout push die silently for months. Legacy rows still resolve here
+  // through LEGACY_ALIAS; 'In-Transit' splits by receive_method inside
+  // normalizeStatus, which is why the lookup takes the job, not just the string.
   "Waiting For Handover": "🤝 จ่ายเงินแล้ว — รอส่งมอบเครื่องกลับ",
-  // Legacy lowercase 'for' — this is what Finance ACTUALLY writes on every B2C
-  // payout (TradeInPayouts.tsx / MobileFinancePage.tsx: `'Waiting for Handover'`).
-  // The capital-F key above never matched it, so the payout push silently died
-  // (buildAdminStatusLabel does an exact, case-sensitive map hit). Keep both
-  // spellings until job-statuses.ts unifies the writer (Phase 2D).
-  "Waiting for Handover": "🤝 จ่ายเงินแล้ว — รอส่งมอบเครื่องกลับ",
   Paid: "💸 จ่ายเงินเรียบร้อย",
   "Rider Returning": "🔙 ไรเดอร์กำลังกลับสาขา",
-  "In-Transit": "🔙 ไรเดอร์กำลังกลับสาขา", // Pickup overload — guarded below
   // Terminal happy-path
   Completed: "🎉 ปิดงานสมบูรณ์",
   // Returns / refunds
-  Returned: "ตีเครื่องกลับ",
-  "Return Confirmed": "ตีเครื่องกลับ", // canonical of "Returned"
+  "Return Confirmed": "ตีเครื่องกลับ",
   "Returning To Customer": "↩️ กำลังตีเครื่องคืนลูกค้า",
   "Withdrawal Requested": "💱 ขอถอนเงิน",
   // เงินไหลกลับมาหาบริษัท (พบปัญหาหลังจ่าย) ไม่ใช่บริษัทจ่ายเพิ่ม — ดู
@@ -2694,7 +2691,9 @@ const NOTIFY_STATUS_MAP = {
   "PO Issued": "ออก PO เรียบร้อย (B2B)",
   "Waiting for Invoice/Tax Inv.": "รอใบกำกับภาษี (B2B)",
   "Pending Finance Approval": "รอบัญชีตรวจสอบ (B2B)",
-  "Payment Completed": "ชำระเงินเสร็จ (B2B)",
+  // "Payment Completed" (legacy B2B payout spelling) normalizes to Paid and gets
+  // that label — the B2B-specific wording it used to have is gone on purpose:
+  // one status, one label, whichever writer produced it.
   // INTENTIONALLY OMITTED — inventory-churn statuses fire after the owning
   // agent's responsibility ends (device already inside the shop, sales team
   // owns it now). Adding them would dilute the meaningful signal:
@@ -2753,12 +2752,12 @@ function buildAdminStatusLabel(after, job) {
     return null;
   }
 
-  return NOTIFY_STATUS_MAP[after] || null;
+  return NOTIFY_STATUS_MAP[canonicalStatus(after, job.receive_method) || after] || null;
 }
 
-// Status family the overdue scheduler keys off — needs paid_at to be
-// authoritative regardless of which client wrote the status.
-const PAID_STATUSES = ["Paid", "PAID", "Payment Completed"];
+// paid_at must be authoritative regardless of which client wrote the status —
+// every spelling of "paid" (Paid / PAID / Payment Completed) normalizes to
+// JOB_STATUS.PAID, which is what rawStatusIs below compares against.
 
 // IMPORTANT: keep the export name globally unique across the bkk-system and
 // rider-notifications codebases. Firebase Cloud Functions identifies functions
@@ -2790,7 +2789,7 @@ exports.onAdminJobStatusNotify = onValueUpdated(
     // "จ่ายเงินแล้ว" button only writes status, so the overdue scheduler
     // wouldn't have an anchor without this. Finance payouts already stamp
     // explicitly — guard against overwriting their timestamp.
-    if (PAID_STATUSES.includes(after) && !PAID_STATUSES.includes(before)) {
+    if (rawStatusIs(after, null, JOB_STATUS.PAID) && !rawStatusIs(before, null, JOB_STATUS.PAID)) {
       const paidAtRef = db.ref(`jobs/${jobId}/paid_at`);
       const existing = await paidAtRef.once("value");
       if (!existing.exists()) {
@@ -2803,11 +2802,11 @@ exports.onAdminJobStatusNotify = onValueUpdated(
     if (!jobSnap.exists()) return;
     const job = jobSnap.val();
 
-    // 'In-Transit' is overloaded by receive_method: Pickup → rider returning
-    // (admin wants to know), Mail-in → parcel in transit (Thailand Post
-    // tracking trigger handles parcel updates separately).
-    if (after === "In-Transit" && job.receive_method !== "Pickup") return;
-
+    // 'In-Transit' is overloaded by receive_method (Pickup → Rider Returning,
+    // Mail-in → Parcel In Transit). buildAdminStatusLabel normalizes with the
+    // job's receive_method, so a legacy Mail-in 'In-Transit' now gets the same
+    // "พัสดุอยู่ระหว่างขนส่ง" push that the canonical 'Parcel In Transit' row
+    // already got — the old `return` here only ever silenced the legacy spelling.
     const statusLabel = buildAdminStatusLabel(after, job);
     if (!statusLabel) return;
 
@@ -2823,12 +2822,9 @@ exports.onAdminJobStatusNotify = onValueUpdated(
     // the job owner; because this trigger fires server-side on the DB it keeps
     // working regardless of which app wrote the status. Non-payout transitions
     // keep the existing all-admin broadcast.
-    const PAYOUT_NOTIFY_STATUSES = [
-      "Waiting for Handover", "Waiting For Handover", // B2C payout (legacy + canonical spelling)
-      "Payment Completed",                            // B2B payout
-      "Paid", "PAID",                                 // mobile "จ่ายเงินแล้ว" shortcut
-    ];
-    const isPayout = PAYOUT_NOTIFY_STATUSES.includes(after);
+    // B2C payout lands on Waiting For Handover; B2B payout and the mobile
+    // "จ่ายเงินแล้ว" shortcut land on Paid (every spelling normalizes there).
+    const isPayout = statusIs(job, JOB_STATUS.WAITING_FOR_HANDOVER, JOB_STATUS.PAID);
 
     // Net amount paid out. Prefer the stored net_payout; fall back to the same
     // formula the client/email use (base − pickup_fee[Pickup only] + coupon) so
@@ -4142,10 +4138,12 @@ exports.onCustomerOfferDecided = onValueWritten(
 // RTDB cost: ใช้ fetchJobsByStatuses (query ตาม .indexOn: status) เฉพาะ status
 // ต้นไปป์ไลน์ที่ pending offer อยู่ได้จริง — ห้ามกวาด /jobs ทั้งก้อน (กฎบิล)
 // =============================================================================
-const OFFER_PENDING_STATUSES = [
-  "New Lead", "Active Lead", "Active Leads", "Following Up",
-  "Appointment Set", "Waiting Drop-off", "Awaiting Shipping",
-];
+// canonical only — queryStatusesFor expands every legacy spelling the index
+// still holds ('Active Leads') so the query stays complete without a hand list
+const OFFER_PENDING_STATUSES = queryStatusesFor([
+  JOB_STATUS.NEW_LEAD, JOB_STATUS.ACTIVE_LEAD, JOB_STATUS.FOLLOWING_UP,
+  JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF, JOB_STATUS.AWAITING_SHIPPING,
+]);
 
 exports.checkPendingCustomerOffers = onSchedule(
   {
@@ -4526,12 +4524,7 @@ exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
 /** Status set in which the rider has committed time/fuel and deserves
  *  a time-loss fee if the customer cancels. (RIDER_ACCEPTED alone
  *  doesn't count — rider hasn't departed yet.) */
-const RIDER_DEPARTED_STATUSES = new Set([
-  "Heading to Customer",
-  "Rider En Route",
-  "Arrived",
-  "Rider Arrived",
-]);
+const RIDER_DEPARTED_STATUSES = new Set([JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_ARRIVED]);
 
 // Hard-coded default removed in favour of forcing admin to configure
 // settings/rider_compensation/customer_cancel_time_loss via the
@@ -4609,7 +4602,7 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
       // pays nothing and may deduct rider points. Only kicks in once
       // the rider has actually departed — RIDER_ACCEPTED alone doesn't
       // qualify since they haven't burned fuel yet.
-      if (job && RIDER_DEPARTED_STATUSES.has(job.status)) {
+      if (job && statusIn(job, RIDER_DEPARTED_STATUSES)) {
         const fee = riderCompensation && typeof riderCompensation.customer_cancel_time_loss === "number"
           ? riderCompensation.customer_cancel_time_loss
           : null;
@@ -5147,12 +5140,12 @@ const DEFAULT_FLAG_THRESHOLDS = {
   min_sample_size: 10,
 };
 
+const COMPLETED_FOR_RIDER_STATS = [
+  JOB_STATUS.PAID, JOB_STATUS.SENT_TO_QC_LAB, JOB_STATUS.READY_TO_SELL,
+  JOB_STATUS.SOLD, JOB_STATUS.IN_STOCK, JOB_STATUS.COMPLETED,
+];
 function statusIsCompleted(s) {
-  // Both spellings of the QC-lab/ready statuses on purpose: live writers
-  // emit 'Sent to QC Lab' / 'Ready to Sell' while the canonical enum says
-  // 'Sent To QC Lab' / 'Ready To Sell' — matching only the enum spelling
-  // made these buckets silently never match.
-  return ["Paid", "Payment Completed", "Sent To QC Lab", "Sent to QC Lab", "Ready To Sell", "Ready to Sell", "Sold", "In Stock", "Completed"].includes(s);
+  return rawStatusIs(s, null, ...COMPLETED_FOR_RIDER_STATS);
 }
 
 exports.autoFlagRiders = onSchedule(
@@ -5324,10 +5317,11 @@ exports.autoFlagRiders = onSchedule(
 // (single integer, minutes). One push per job — overdue_notified_at stamp
 // prevents the cron from spamming the same job on every tick.
 // =============================================================================
-const STILL_OUT_STATUSES = [
-  "Paid", "PAID", "Payment Completed",
-  "Rider Returning", "In-Transit",
-];
+// query list expands to every stored spelling (PAID / Payment Completed /
+// In-Transit); the loop below re-checks with statusIs so a Mail-in 'In-Transit'
+// (= Parcel In Transit) that the index cannot tell apart is dropped
+const STILL_OUT_CANONICAL = [JOB_STATUS.PAID, JOB_STATUS.RIDER_RETURNING];
+const STILL_OUT_STATUSES = queryStatusesFor(STILL_OUT_CANONICAL);
 
 exports.checkOverdueReturns = onSchedule(
   {
@@ -5359,6 +5353,7 @@ exports.checkOverdueReturns = onSchedule(
     const overdue = [];
     for (const [id, job] of jobs) {
       if (!job || typeof job.paid_at !== "number") continue;
+      if (!statusIs(job, ...STILL_OUT_CANONICAL)) continue;
       if (job.paid_at < lookback || job.paid_at > cutoff) continue;
       if (job.overdue_notified_at) continue; // already alerted once
       if (!job.rider_id) continue; // store-in / mail-in skip — no rider in the loop

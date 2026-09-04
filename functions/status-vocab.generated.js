@@ -306,3 +306,7 @@ const RECEIVE_METHOD = {
   isTerminal,
   normalizeStatus
 });
+
+// Appended by scripts/generate-status-vocab.mjs: the alias table for
+// functions/status-match.js (query lists must name every stored spelling).
+module.exports.LEGACY_ALIAS = LEGACY_ALIAS;
