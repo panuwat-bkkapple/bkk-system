@@ -480,17 +480,27 @@ function registerHr() {
   // adminHrEmployeeEvents — ประวัติการจ้างของคนหนึ่งคน
   // query ตาม index employee_id ไม่กวาดทั้งโหนด (กฎค่า RTDB)
   // -------------------------------------------------------------------------
+// เพดานเหตุการณ์ต่อคน — ปกติคนหนึ่งมีไม่กี่สิบรายการตลอดอายุการจ้าง
+  //
+  // **หมายเหตุค่า RTDB: `employee_events` ยังไม่มี `.indexOn: "employee_id"`**
+  // (rules อยู่ที่ `bkk-frontend-next/database.rules.json` ซึ่งต้อง deploy จาก
+  // รีโปนั้น) ไม่มี index = RTDB อ่านทั้งโหนดมากรองเอง วันนี้โหนดยังเล็กมากจึงยัง
+  // ไม่เจ็บ แต่ถ้าจำนวนพนักงานหรืออายุระบบโตขึ้น ต้องเพิ่ม index หรือย้ายไปเก็บ
+  // ซ้อนใต้ `employee_events/{employeeId}` แบบเดียวกับ `hr_documents`
+  const MAX_EVENTS = 200;
   const adminHrEmployeeEvents = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
     await requireStaffRole(db, request.auth, HR_ROLES);
     const employeeId = String((request.data || {}).employeeId || "");
     if (!employeeId) throw new HttpsError("invalid-argument", "ต้องระบุพนักงาน");
+    // เพดานต้องบอกออกไป ไม่ใช่ตัดเงียบ — ไทม์ไลน์ที่ขาดท่อนต้นโดยไม่บอกคือ
+    // ไทม์ไลน์ที่ตอบผิดเรื่อง "เริ่มงานเมื่อไหร่"
     const snap = await db.ref("employee_events")
-      .orderByChild("employee_id").equalTo(employeeId).limitToLast(200).once("value");
+      .orderByChild("employee_id").equalTo(employeeId).limitToLast(MAX_EVENTS).once("value");
     const items = [];
     snap.forEach((c) => { items.push({ id: c.key, ...c.val() }); return false; });
     items.sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
-    return { items };
+    return { items, capped: items.length >= MAX_EVENTS };
   });
 
   return {
