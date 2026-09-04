@@ -10,6 +10,8 @@ import {
   Store, Truck, Package
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/formatters';
+import { JOB_STATUS, JOB_STATUS_B2B } from '../../types/job-statuses';
+import { statusIs } from '../../utils/statusCompare';
 
 const mapContainerStyle = { width: '100%', height: '100%', borderRadius: '1rem' };
 
@@ -64,11 +66,15 @@ export const CustomerTracking = ({ jobId }: { jobId: string }) => {
 
   const getCurrentStep = () => {
     if (!job || !job.status) return 0;
-    const s = String(job.status).trim().toUpperCase();
-    if (slipUrl || ['PAYMENT COMPLETED', 'PAID', 'IN STOCK', 'READY TO SELL', 'COMPLETED', 'DEAL CLOSED', 'DEAL CLOSED (NEGOTIATED)'].includes(s)) return 4;
-    if (['PRICE ACCEPTED', 'REVISED OFFER', 'PAYOUT PROCESSING', 'PENDING FINANCE APPROVAL', 'PENDING FINANCE', 'APPROVED'].includes(s)) return 3;
-    if (['ARRIVED', 'PENDING QC', 'QC REVIEW', 'BEING INSPECTED'].includes(s)) return 2;
-    if (['ACCEPTED', 'IN-TRANSIT', 'APPOINTMENT SET', 'WAITING DROP-OFF'].includes(s)) return 1;
+    // สถานะที่ enum รู้จักเทียบผ่าน statusIs (normalize ทั้งสองสะกด) ส่วนค่าเก่าที่ไม่ใช่
+    // สถานะของ enum ('DEAL CLOSED', 'PENDING FINANCE', 'APPROVED') ยังเทียบตัวพิมพ์ใหญ่ตามเดิม
+    const up = String(job.status).trim().toUpperCase();
+    if (slipUrl || statusIs(job, JOB_STATUS.PAID, JOB_STATUS.IN_STOCK, JOB_STATUS.READY_TO_SELL, JOB_STATUS.COMPLETED)
+        || ['DEAL CLOSED', 'DEAL CLOSED (NEGOTIATED)'].includes(up)) return 4;
+    if (statusIs(job, JOB_STATUS.PRICE_ACCEPTED, JOB_STATUS.REVISED_OFFER, JOB_STATUS.PAYOUT_PROCESSING, JOB_STATUS_B2B.PENDING_FINANCE_APPROVAL)
+        || ['PENDING FINANCE', 'APPROVED'].includes(up)) return 3;
+    if (statusIs(job, JOB_STATUS.RIDER_ARRIVED, JOB_STATUS.PENDING_QC, JOB_STATUS.QC_REVIEW, JOB_STATUS.BEING_INSPECTED)) return 2;
+    if (statusIs(job, JOB_STATUS.RIDER_ACCEPTED, JOB_STATUS.RIDER_RETURNING, JOB_STATUS.PARCEL_IN_TRANSIT, JOB_STATUS.APPOINTMENT_SET, JOB_STATUS.WAITING_DROP_OFF)) return 1;
     return 0;
   };
   const currentStep = getCurrentStep();
