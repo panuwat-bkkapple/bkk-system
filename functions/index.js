@@ -6926,6 +6926,8 @@ Object.assign(exports, require("./hr-payroll-api").registerHrPayroll());
 // =============================================================================
 Object.assign(exports, require("./hr-tax-api").registerHrTax());
 
+Object.assign(exports, require("./hr-filing-api").registerHrFiling());
+
 // =============================================================================
 // ปฏิทินกำหนดยื่นแบบ (/tax-filings) — ภ.ง.ด.1/3, ประกันสังคม, ภ.พ.30, ภ.ง.ด.1ก
 // รวมยอดจาก payroll_runs/wht_certificates/accounting_documents ที่มีอยู่แล้ว

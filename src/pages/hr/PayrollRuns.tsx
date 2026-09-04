@@ -8,10 +8,15 @@
 // เพราะสิ่งที่ป้องกันการจ่ายผิดไม่ใช่ความมั่นใจในสูตร แต่คือคนที่อ่านมันก่อน
 // กดอนุมัติ
 //
-// ส่งออกเป็น CSV สองใบ (ภ.ง.ด.1 / ประกันสังคม) — **ไม่ใช่ไฟล์ e-filing ของ
-// กรมสรรพากรหรือประกันสังคม** เป็นตารางตัวเลขต่อคนสำหรับกรอก/อัปโหลดต่อ
-// การเดารูปแบบไฟล์ราชการโดยไม่มีสเปกจริงคือการส่งของที่ดูเหมือนใช้ได้แต่
-// ยื่นไม่ผ่าน ซึ่งแย่กว่าการบอกตรงๆ ว่ายังไม่มี
+// ส่งออกเป็น CSV สองใบ (ภ.ง.ด.1 / สปส.1-10) ผ่าน `adminHrFilingRows` ซึ่งมี
+// **ทุกช่องที่แบบต้องการ เรียงตามลำดับของแบบ รวมเลขประจำตัวประชาชน** —
+// ก่อนหน้านี้ CSV มีแค่รหัสพนักงาน ซึ่งยื่นไม่ได้จริงเพราะแบบทั้งสองฉบับผูก
+// กับเลขบัตร 13 หลัก คนยื่นจึงต้องเปิดแฟ้มลับหาทีละคน
+//
+// **แต่ยังไม่ใช่ไฟล์ text สำหรับอัปโหลดเข้า e-Filing โดยตรง** — layout ของ
+// ไฟล์นั้นต้องตรงทุกไบต์ระบบถึงจะรับ และเราไม่มีสเปกฉบับจริงหรือไฟล์ตัวอย่าง
+// มายืนยัน การเดาแล้วติดป้ายว่า "พร้อมอัปโหลด" แย่กว่าการไม่มีไฟล์เลย เพราะ
+// คนจะเอาไปอัปโหลดตอนใกล้ครบกำหนดยื่นแล้วเจอว่าถูกปฏิเสธ
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../../api/firebase';
@@ -237,32 +242,50 @@ export const PayrollRuns = () => {
     } finally { setBusy(false); }
   };
 
-  const exportWht = () => {
+  // ── ตารางยื่นแบบ ─────────────────────────────────────────────────────────
+  //
+  // ยิง `adminHrFilingRows` แทนการประกอบจากแถวที่หน้านี้ถืออยู่ เพราะแบบยื่น
+  // ต้องมี **เลขประจำตัวประชาชน** ซึ่งจงใจไม่ส่งมากับแถวรอบจ่าย (ดูหัวไฟล์
+  // functions/hr-filing-api.js) — และเพราะกติกาว่าใครยื่นได้/ไม่ได้ต้องมี
+  // สำเนาเดียวและอยู่ฝั่ง server
+  const exportFiling = async (kind: 'pnd1' | 'sso') => {
     if (!run) return;
-    const rows: (string | number)[][] = [
-      ['รหัสพนักงาน', 'ชื่อ-สกุล', 'เงินได้ที่ต้องเสียภาษี', 'ภาษีหัก ณ ที่จ่าย', 'ประมาณการเงินได้ทั้งปี', 'เงินได้สุทธิทั้งปี', 'ภาษีทั้งปี', 'จำนวนงวด'],
-      ...items.map((i) => [
-        i.employee_code || '', i.name || '', i.taxable_income, i.wht,
-        i.wht_basis?.annual_income ?? '', i.wht_basis?.net_income ?? '',
-        i.wht_basis?.annual_tax ?? '', i.wht_basis?.periods ?? '',
-      ]),
-      [], ['รวม', '', run.totals?.gross ?? '', run.totals?.wht ?? ''],
-    ];
-    download(`pnd1-${run.id}.csv`, toCsv(rows));
-  };
+    setBusy(true);
+    try {
+      const res = await call<{
+        columns: string[];
+        rows: (string | number)[][];
+        excluded: { employee_code: string | null; reasons: string[] }[];
+        totals: { count: number; wage: number; amount: number };
+      }>('adminHrFilingRows', { period: run.id, kind });
 
-  const exportSso = () => {
-    if (!run) return;
-    const rows: (string | number)[][] = [
-      ['รหัสพนักงาน', 'ชื่อ-สกุล', 'ค่าจ้างที่ใช้คำนวณ', 'เงินสมทบลูกจ้าง', 'เงินสมทบนายจ้าง', 'รวม'],
-      ...items.map((i) => [
-        i.employee_code || '', i.name || '', i.sso_wage, i.sso_employee, i.sso_employer,
-        Math.round((i.sso_employee + i.sso_employer) * 100) / 100,
-      ]),
-      [], ['รวม', '', '', run.totals?.sso_employee ?? '', run.totals?.sso_employer ?? '',
-        Math.round(((run.totals?.sso_employee || 0) + (run.totals?.sso_employer || 0)) * 100) / 100],
-    ];
-    download(`sso-${run.id}.csv`, toCsv(rows));
+      const title = kind === 'pnd1' ? 'ภ.ง.ด.1' : 'สปส.1-10';
+      const rows: (string | number)[][] = [
+        [`${title} รอบ ${run.id}`],
+        [],
+        res.columns,
+        ...res.rows,
+        [],
+        ['รวม', '', '', '', '', ...(kind === 'pnd1' ? [''] : []), res.totals.wage, res.totals.amount],
+        [`จำนวนคนในแบบ ${res.totals.count} คน`],
+      ];
+
+      // **คนที่ยื่นไม่ได้ต้องอยู่ในไฟล์เดียวกัน ไม่ใช่แค่ toast ที่ปิดไปแล้วหาย**
+      // แบบที่ขาดคนไปหนึ่งคนยังส่งได้และดูปกติ กว่าจะรู้คือตอนลูกจ้างไปเช็ค
+      // สิทธิ์แล้วไม่มีชื่อตัวเอง
+      if (res.excluded.length) {
+        rows.push([], [`ยื่นไม่ได้ ${res.excluded.length} คน — ต้องแก้ข้อมูลก่อนยื่น`]);
+        rows.push(['รหัสพนักงาน', 'เหตุผล']);
+        for (const x of res.excluded) rows.push([x.employee_code || '', x.reasons.join(' · ')]);
+        toast.error(`มี ${res.excluded.length} คนที่ยังยื่นไม่ได้ — ดูท้ายไฟล์`);
+      }
+
+      download(`${kind}-${run.id}.csv`, toCsv(rows));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'ออกตารางยื่นแบบไม่สำเร็จ');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const locked = run?.status !== 'draft';
@@ -351,11 +374,13 @@ export const PayrollRuns = () => {
                 )}
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={exportWht} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
+                <button onClick={() => void exportFiling('pnd1')} disabled={busy}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
                   <Download size={15} /> ภ.ง.ด.1 (CSV)
                 </button>
-                <button onClick={exportSso} className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
-                  <Download size={15} /> ประกันสังคม (CSV)
+                <button onClick={() => void exportFiling('sso')} disabled={busy}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50">
+                  <Download size={15} /> สปส.1-10 (CSV)
                 </button>
                 {run.status === 'draft' && (
                   <button onClick={() => void approve()} disabled={busy || incomplete.length > 0}
@@ -539,8 +564,10 @@ export const PayrollRuns = () => {
           </div>
 
           <p className="text-xs text-gray-400 leading-relaxed">
-            ไฟล์ CSV ที่ส่งออกเป็น <b>ตารางตัวเลขต่อคน</b> สำหรับใช้กรอกหรืออัปโหลดต่อ
-            ไม่ใช่ไฟล์ e-filing ของกรมสรรพากรหรือประกันสังคมโดยตรง ·
+            ไฟล์ CSV มี<b>ทุกช่องที่แบบต้องการ เรียงตามลำดับของแบบ รวมเลขประจำตัวประชาชน</b>
+            สำหรับคีย์หรือวางเข้าเทมเพลตของกรมสรรพากร/ประกันสังคม —
+            <b>ยังไม่ใช่ไฟล์อัปโหลดเข้า e-Filing โดยตรง</b> (รูปแบบไฟล์นั้นต้องตรงทุกไบต์ ต้องมีสเปกฉบับจริงก่อน) ·
+            คนที่ข้อมูลไม่ครบจนยื่นไม่ได้จะอยู่ท้ายไฟล์พร้อมเหตุผล ·
             ไรเดอร์และผู้รับจ้างอิสระไม่อยู่ในรอบนี้ เพราะถูกจ่ายผ่านกระเป๋าเงินและหัก 3% ตอนถอนอยู่แล้ว
           </p>
         </>
