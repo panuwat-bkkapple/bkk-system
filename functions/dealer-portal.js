@@ -37,6 +37,7 @@ const { getDatabase } = require("firebase-admin/database");
 const { getStorage } = require("firebase-admin/storage");
 const { sendEmail, esc, formatTHB } = require("./email");
 const { buildQuotationPdf, buildCreditNotePdf } = require("./voucher-pdf");
+const { sellableVerdict } = require("./dealer-sellable");
 
 // ─── แบรนด์ฝั่งขายส่ง ────────────────────────────────────────────────────────
 // BKK APPLE = แบรนด์ฝั่ง "รับซื้อ" (B2C) เท่านั้น — การเสนอขายส่งให้ดีลเลอร์ทำใน
@@ -86,7 +87,6 @@ const DEALER_TIERS = ["A", "B", "C"];
 // dealer-portal/src/types.ts (TIER_LABEL). internal key ยังเป็น A/B/C เสมอ
 const TIER_RANK = { A: 3, B: 2, C: 1 };
 const TIER_LABEL = { A: "Gold", B: "Silver", C: "Bronze" };
-const SELLABLE_STATUSES = ["In Stock", "Ready to Sell"];
 const LOT_BID_MODES = ["whole_lot", "per_item", "both"];
 // Lot lifecycle: draft → open → closed → awarding → awarded → completed | cancelled
 // Order lifecycle: pending_payment → payment_review → paid → preparing → shipped
@@ -412,21 +412,12 @@ async function readLotJobs(db, itemIds) {
 }
 
 // ตรวจว่าเครื่องยังขายเข้า lot ได้ — เรียกทั้งตอน create (feedback เร็ว) และ
-// ตอน publish (กันสถานะเปลี่ยนระหว่างที่ draft ค้างอยู่)
+// ตอน publish (กันสถานะเปลี่ยนระหว่างที่ draft ค้างอยู่). กติกาอยู่ที่
+// ./dealer-sellable.js (pure, normalize ทั้งสองสะกดของ Ready To Sell — ลิสต์
+// literal เดิมปฏิเสธเครื่องที่ engine เขียนทุกใบ)
 function assertJobSellable(jobId, job, lotId) {
-  if (!job) throw new HttpsError("not-found", `ไม่พบเครื่อง ${jobId} ในระบบ`);
-  const type = String(job.type || "");
-  if (type === "B2B Trade-in" || type === "Withdrawal") {
-    throw new HttpsError("failed-precondition", `เครื่อง ${job.ref_no || jobId} ไม่ใช่สินค้าสต๊อก`);
-  }
-  if (job.lot_id && job.lot_id !== lotId) {
-    throw new HttpsError("failed-precondition", `เครื่อง ${job.ref_no || jobId} ติดอยู่ใน lot อื่น (${job.lot_no || job.lot_id})`);
-  }
-  const st = String(job.status || "");
-  const ok = SELLABLE_STATUSES.includes(st) || (st === "Reserved" && job.lot_id === lotId);
-  if (!ok) {
-    throw new HttpsError("failed-precondition", `เครื่อง ${job.ref_no || jobId} สถานะ "${st}" ขายเข้า lot ไม่ได้`);
-  }
+  const blocked = sellableVerdict(jobId, job, lotId);
+  if (blocked) throw new HttpsError(blocked.code, blocked.message);
 }
 
 function sanitizeVisibleTiers(raw) {
