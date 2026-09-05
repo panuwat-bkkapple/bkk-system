@@ -16,10 +16,11 @@
  *   Waived  = ตัดสินใจไม่จ่าย (บัญชีเจ้าของ / ไม่มีไรเดอร์ / เหตุผลอื่นที่ระบุ)
  *             ไม่มีแถวในกระเป๋า `rider_fee` ยังอยู่เพื่อให้ย้อนดูได้ว่าเคยคิดเท่าไร
  */
+// ลำดับต้องตรงกับสำเนา TS ทั้งสอง (parity test เทียบ values ตามลำดับ) — PAID อยู่ท้าย
 const RIDER_FEE_STATUS = Object.freeze({
   PENDING: "Pending",
-  PAID: "Paid",
   WAIVED: "Waived",
+  PAID: "Paid",
 });
 
 const RIDER_FEE_STATUS_VALUES = Object.freeze(Object.values(RIDER_FEE_STATUS));

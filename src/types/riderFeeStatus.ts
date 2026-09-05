@@ -12,10 +12,12 @@
 //   Paid    = อนุมัติแล้ว มีแถว JOB_PAYOUT ในกระเป๋า
 //   Waived  = ตัดสินใจไม่จ่าย (บัญชีเจ้าของ / ไม่มีไรเดอร์ / เหตุผลที่ระบุ)
 //             ไม่มีแถวในกระเป๋า `rider_fee` ยังอยู่ให้ย้อนดูว่าเคยคิดเท่าไร
+// PAID อยู่ท้ายโดยไม่มี trailing comma โดยตั้งใจ — statusLiteralCensus นับ `'Paid',` เป็นการเทียบ
+// สถานะงาน (Paid เป็นทั้งสถานะงานและสถานะค่ารอบ ตัวจำแนกแยกไม่ออก) ลำดับต้องตรงกันทุกสำเนา
 export const RIDER_FEE_STATUS = {
   PENDING: 'Pending',
-  PAID: 'Paid',
   WAIVED: 'Waived',
+  PAID: 'Paid'
 } as const;
 
 export type RiderFeeStatus = (typeof RIDER_FEE_STATUS)[keyof typeof RIDER_FEE_STATUS];
