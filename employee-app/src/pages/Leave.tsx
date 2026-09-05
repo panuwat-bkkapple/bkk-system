@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarPlus, Loader2, X, Pencil, Save } from 'lucide-react';
-import { call, errorText, type LeaveRequestRow, type LeaveTypeRow } from '../api';
+import {
+  call, errorText,
+  type LeaveBalanceRow, type LeaveRequestRow, type LeaveTypeRow,
+} from '../api';
+import { thaiDateRange } from '../geo';
 import { STATUS_LABEL, STATUS_TONE } from '../requestStatus';
 import DateField from '../DateField';
 
 interface ListRes {
   year: string;
   types: LeaveTypeRow[];
-  balances: unknown;
+  balances: LeaveBalanceRow[];
   requests: LeaveRequestRow[];
 }
 interface PreviewRes {
@@ -17,12 +21,23 @@ interface PreviewRes {
 
 const EMPTY = { type: '', from: '', to: '', reason: '' };
 
+/** ตัวเลขบนกล่องสิทธิ์ — สามสถานะที่ **ห้ามเขียนเป็น "0"** เหมือนกันหมด
+ *  เพราะแต่ละอันแปลว่าคนละเรื่อง (ยังไม่ครบอายุงาน / ไม่มีเพดานตามกฎหมาย /
+ *  ชนิดนี้ไม่ได้ค่าจ้างอยู่แล้ว) */
+function balanceText(b: LeaveBalanceRow): { val: string; sub: string } {
+  if (b.locked === 'service') return { val: '—', sub: 'ยังไม่ครบอายุงาน 1 ปี' };
+  if (b.entitled_paid_days == null) return { val: '—', sub: 'ตามที่แพทย์กำหนด' };
+  if (b.entitled_paid_days === 0) return { val: '—', sub: 'ลาได้ แต่ไม่ได้ค่าจ้าง' };
+  return { val: String(b.remaining_paid_days ?? 0), sub: `จาก ${b.entitled_paid_days} วัน` };
+}
+
 export default function Leave() {
   const [data, setData] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY);
   // ใบที่กำลังแก้อยู่ — null = กำลังยื่นใบใหม่
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [allBalances, setAllBalances] = useState(false);
   const [preview, setPreview] = useState<PreviewRes | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
@@ -101,58 +116,122 @@ export default function Leave() {
 
   if (loading && !data) return <div className="card center"><Loader2 size={20} className="spin" /></div>;
 
+  // ชนิดที่ยังไม่มีสิทธิ์และยังไม่เคยใช้ ไม่ต้องกินที่บนจอ
+  const shown = (data?.balances || []).filter((b) => (
+    (b.entitled_paid_days ?? 0) > 0 || b.entitled_paid_days == null
+    || b.used_paid_days > 0 || b.used_unpaid_days > 0 || b.pending_days > 0
+  ));
+  const visible = allBalances ? shown : shown.slice(0, 3);
+
   return (
     <>
       {msg && <div className={`note ${msg.tone}`}>{msg.text}</div>}
 
-      <div className="card">
+      {shown.length > 0 && (
+        <div className="section">
+          <h2 style={{ justifyContent: 'space-between' }}>
+            <span>สิทธิ์ลาที่ได้ค่าจ้าง ปี {data?.year}</span>
+            {shown.length > 3 && (
+              <button className="opt" style={{ padding: '4px 12px', fontSize: 12 }}
+                onClick={() => setAllBalances((v) => !v)}>
+                {allBalances ? 'ย่อ' : 'ดูทั้งหมด'}
+              </button>
+            )}
+          </h2>
+          <div className="grid3">
+            {visible.map((b) => {
+              const t = balanceText(b);
+              return (
+                <div className="tile" key={b.type}>
+                  <div className="muted" style={{ fontSize: 11.5 }}>{b.label}</div>
+                  {/* ชื่อชนิดลายาวไม่เท่ากัน ถ้าไม่ดันส่วนนี้ชิดล่าง ตัวเลขของแต่ละ
+                      กล่องจะอยู่คนละระดับจนอ่านเทียบกันไม่ได้ (เห็นตอนวาดจริง) */}
+                  <div className="btm">
+                    <div className="num" style={{ fontSize: 21, marginTop: 6 }}>{t.val}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{t.sub}</div>
+                    {b.pending_days > 0 && (
+                      <div className="muted" style={{ fontSize: 11 }}>รออนุมัติ {b.pending_days} วัน</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* กันการอ่านผิดที่แพงที่สุดของหน้านี้ — เลขคือเพดานค่าจ้าง ไม่ใช่เพดานวันลา */}
+          <div className="muted" style={{ marginTop: 8, padding: '0 2px' }}>
+            ตัวเลขคือวันที่ยัง<b>ได้รับค่าจ้าง</b> — ลาป่วยตามกฎหมายลาได้ตามที่ป่วยจริง
+            แม้เกินจำนวนนี้ แต่ส่วนที่เกินจะไม่ได้ค่าจ้าง
+          </div>
+        </div>
+      )}
+
+      <div className="section">
         <h2>
           {editingId ? <Pencil size={13} /> : <CalendarPlus size={13} />}
-          {editingId ? ' แก้ใบลา' : ' ขอลา'}
+          {editingId ? 'แก้ใบลา' : 'ยื่นใบลา'}
         </h2>
-        <form onSubmit={submit}>
-          <label htmlFor="lt">ประเภทการลา</label>
-          <select id="lt" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} required>
-            {(data?.types || []).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-          <label htmlFor="lf">ตั้งแต่วันที่</label>
-          <DateField id="lf" value={form.from} onChange={(v) => setForm({ ...form, from: v })} />
-          <label htmlFor="lto">ถึงวันที่</label>
-          <DateField id="lto" value={form.to} onChange={(v) => setForm({ ...form, to: v })} />
-          <label htmlFor="lr">เหตุผล</label>
-          <textarea id="lr" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
-
-          {preview && (
-            <div className={`note ${preview.ok ? 'ok' : 'bad'}`} style={{ marginTop: 12 }}>
-              {preview.ok ? (
-                <>ลา {preview.days} วัน · ได้ค่าจ้าง {preview.paid_days} วัน · ไม่ได้ค่าจ้าง {preview.unpaid_days} วัน</>
-              ) : (preview.errors.join(' · ') || 'ยื่นใบนี้ไม่ได้')}
-              {preview.warnings?.length > 0 && <div style={{ marginTop: 4 }}>{preview.warnings.join(' · ')}</div>}
+        <div className="card">
+          <form onSubmit={submit}>
+            <label>ประเภทการลา</label>
+            <div className="chips">
+              {(data?.types || []).map((t) => (
+                <button type="button" key={t.id} className="opt"
+                  aria-pressed={form.type === t.id}
+                  onClick={() => setForm({ ...form, type: t.id })}>
+                  {t.label}
+                </button>
+              ))}
             </div>
-          )}
 
-          <button className="btn" type="submit" disabled={busy || (preview ? !preview.ok : true)} style={{ marginTop: 12 }}>
-            {busy ? <Loader2 size={17} className="spin" /> : editingId ? <Save size={17} /> : <CalendarPlus size={17} />}
-            {editingId ? ' บันทึกการแก้ไข' : ' ส่งใบลา'}
-          </button>
-          {editingId && (
-            <button className="btn ghost" type="button" disabled={busy} onClick={resetForm} style={{ marginTop: 8 }}>
-              เลิกแก้ไข
+            <label htmlFor="lf">ตั้งแต่วันที่</label>
+            <DateField id="lf" value={form.from} onChange={(v) => setForm({ ...form, from: v })} />
+            <label htmlFor="lto">ถึงวันที่</label>
+            <DateField id="lto" value={form.to} onChange={(v) => setForm({ ...form, to: v })} />
+            <label htmlFor="lr">เหตุผล</label>
+            <textarea id="lr" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+
+            {preview && (
+              <div className={`note ${preview.ok ? 'ok' : 'bad'}`} style={{ marginTop: 14, marginBottom: 0 }}>
+                {preview.ok ? (
+                  <div className="split">
+                    <span>รวมวันลา</span>
+                    <b className="num">{preview.days} วัน</b>
+                  </div>
+                ) : (preview.errors.join(' · ') || 'ยื่นใบนี้ไม่ได้')}
+                {preview.ok && (
+                  <div style={{ fontSize: 12, marginTop: 2 }}>
+                    ได้ค่าจ้าง {preview.paid_days} วัน · ไม่ได้ค่าจ้าง {preview.unpaid_days} วัน
+                  </div>
+                )}
+                {preview.warnings?.length > 0 && (
+                  <div style={{ fontSize: 12, marginTop: 4 }}>{preview.warnings.join(' · ')}</div>
+                )}
+              </div>
+            )}
+
+            <button className="btn" type="submit" disabled={busy || (preview ? !preview.ok : true)} style={{ marginTop: 16 }}>
+              {busy ? <Loader2 size={17} className="spin" /> : editingId ? <Save size={17} /> : <CalendarPlus size={17} />}
+              {editingId ? 'บันทึกการแก้ไข' : 'ส่งใบลา'}
             </button>
-          )}
-        </form>
+            {editingId && (
+              <button className="btn ghost" type="button" disabled={busy} onClick={resetForm} style={{ marginTop: 10 }}>
+                เลิกแก้ไข
+              </button>
+            )}
+          </form>
+        </div>
       </div>
 
-      <div className="card">
+      <div className="section">
         <h2>ใบลาของฉัน ปี {data?.year}</h2>
         {(data?.requests || []).length === 0 ? (
-          <div className="muted">ยังไม่มีใบลาในปีนี้</div>
+          <div className="card"><div className="muted">ยังไม่มีใบลาในปีนี้</div></div>
         ) : (
           <div className="list">
             {(data?.requests || []).map((r) => (
               <div className="row" key={r.id}>
                 <div className="top">
-                  <b style={{ fontSize: 13 }}>{r.from} - {r.to}</b>
+                  <b style={{ fontSize: 14, fontWeight: 600 }}>{thaiDateRange(r.from, r.to)}</b>
                   <span className={`pill ${STATUS_TONE[r.status] || 'grey'}`}>{STATUS_LABEL[r.status] || r.status}</span>
                 </div>
                 <div className="muted">

@@ -12,6 +12,7 @@ import { appGate, sessionVerdict, type SessionFailure, type EmployeeMe } from '.
 type SessionResolved = SessionFailure | { kind: 'employee'; me: EmployeeMe };
 import { call } from './api';
 import AppHeader from './AppHeader';
+import GateShell from './GateShell';
 import Login from './pages/Login';
 import GpsGate from './pages/GpsGate';
 import Home from './pages/Home';
@@ -110,25 +111,24 @@ export default function App() {
   });
 
   if (view.screen === 'loading') {
-    return <div className="gate center"><Loader2 size={22} className="spin" /></div>;
+    return <GateShell title="กำลังเตรียมข้อมูลของคุณ" icon={<Loader2 size={22} className="spin" />} />;
   }
   if (view.screen === 'login') return <Login notice={view.notice} />;
   if (view.screen === 'session_error') {
     return (
-      <div className="gate">
-        <div style={{ maxWidth: 380, width: '100%', margin: '0 auto' }}>
-          <ShieldAlert size={38} strokeWidth={1.6} />
-          <h2>เชื่อมต่อระบบไม่ได้</h2>
-          <p>{view.message}</p>
-          {/* ไม่เตะออกจากระบบ — ยังไม่รู้ว่าไม่ใช่พนักงาน รู้แค่ว่าถามไม่สำเร็จ */}
-          <button className="btn ghost" onClick={retryIdentify}>
-            <RefreshCw size={16} /> ลองใหม่
-          </button>
-          <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => void logout()}>
-            <LogOut size={13} /> ออกจากระบบ
-          </button>
-        </div>
-      </div>
+      <GateShell
+        icon={<ShieldAlert size={22} strokeWidth={2} />}
+        title="เชื่อมต่อระบบไม่ได้"
+        detail={view.message}
+      >
+        {/* ไม่เตะออกจากระบบ — ยังไม่รู้ว่าไม่ใช่พนักงาน รู้แค่ว่าถามไม่สำเร็จ */}
+        <button className="btn" onClick={retryIdentify}>
+          <RefreshCw size={16} /> ลองใหม่
+        </button>
+        <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => void logout()}>
+          <LogOut size={15} /> ออกจากระบบ
+        </button>
+      </GateShell>
     );
   }
   if (view.screen === 'geo') return <GpsGate block={view.block} onAct={geo.request} />;
@@ -151,13 +151,16 @@ export default function App() {
         {tab === 'history' && <History />}
       </div>
 
+      {/* แท่นลอย (ดีไซน์ต้นทางเป็นแคปซูลขาวลอยเหนือพื้น ไม่ใช่แถบติดขอบจอ) */}
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} aria-current={tab === t.id} onClick={() => setTab(t.id)}>
-            <t.icon size={19} strokeWidth={tab === t.id ? 2.4 : 1.8} />
-            {t.label}
-          </button>
-        ))}
+        <div className="dock">
+          {TABS.map((t) => (
+            <button key={t.id} aria-current={tab === t.id} onClick={() => setTab(t.id)}>
+              <t.icon size={19} strokeWidth={tab === t.id ? 2.3 : 1.8} />
+              {t.label}
+            </button>
+          ))}
+        </div>
       </nav>
     </div>
   );

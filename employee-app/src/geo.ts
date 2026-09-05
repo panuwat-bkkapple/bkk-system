@@ -194,3 +194,53 @@ export function shiftTimeText(startMin: number | null, endMin: number | null): s
   };
   return `${fmt(startMin)} - ${fmt(endMin)}`;
 }
+
+/** ชื่อเดือนย่อภาษาไทย (index = เดือน 0-11) */
+const THAI_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const THAI_MONTH_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+export const THAI_DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+/** แยกส่วนของวันที่รูป `YYYY-MM-DD` เป็นตัวเลข — คืน null ถ้ารูปไม่ตรง
+ *
+ * **อ่านเป็นเวลาท้องถิ่น ไม่ใช่ UTC โดยตั้งใจ** — `new Date('2026-09-05')`
+ * ตีความเป็น UTC เที่ยงคืน ซึ่งในไทย (UTC+7) ยังเป็นวันเดียวกันก็จริง แต่
+ * โซนที่ติดลบจะเลื่อนไปหนึ่งวัน. ค่าที่ server ส่งมาคือ "วันที่ของกะ" ตาม
+ * ปฏิทินไทยอยู่แล้ว ห้ามให้เขตเวลาของเครื่องมาขยับมัน
+ */
+function ymd(date: string): { y: number; m: number; d: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]) - 1, d: Number(m[3]) };
+}
+
+/** `2026-09-05` -> `5 ก.ย. 2569` (พ.ศ.) — ใช้แสดงผลเท่านั้น
+ *  ฟอร์มยังส่งค่ารูป ISO ให้ server เหมือนเดิม */
+export function thaiDate(date: string): string {
+  const p = ymd(date);
+  if (!p) return String(date || '');
+  return `${p.d} ${THAI_MONTH[p.m]} ${p.y + 543}`;
+}
+
+/** ช่วงวันที่ — ยุบส่วนที่ซ้ำกัน (`12 - 13 ก.ย. 2569`) ให้อ่านเร็วขึ้น */
+export function thaiDateRange(from: string, to: string): string {
+  const a = ymd(from);
+  const b = ymd(to);
+  if (!a || !b) return from === to ? thaiDate(from) : `${thaiDate(from)} - ${thaiDate(to)}`;
+  if (a.y === b.y && a.m === b.m && a.d === b.d) return thaiDate(from);
+  if (a.y === b.y && a.m === b.m) return `${a.d} - ${b.d} ${THAI_MONTH[b.m]} ${b.y + 543}`;
+  if (a.y === b.y) return `${a.d} ${THAI_MONTH[a.m]} - ${b.d} ${THAI_MONTH[b.m]} ${b.y + 543}`;
+  return `${thaiDate(from)} - ${thaiDate(to)}`;
+}
+
+/** วันในสัปดาห์ + เลขวันที่ สำหรับคอลัมน์ซ้ายของแถวประวัติ */
+export function thaiDayParts(date: string): { dow: string; num: string; month: string } {
+  const p = ymd(date);
+  if (!p) return { dow: '', num: String(date || '').slice(-2), month: '' };
+  return {
+    dow: THAI_DOW[new Date(p.y, p.m, p.d).getDay()] || '',
+    num: String(p.d).padStart(2, '0'),
+    month: `${THAI_MONTH_FULL[p.m]} ${p.y + 543}`,
+  };
+}

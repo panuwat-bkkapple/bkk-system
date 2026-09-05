@@ -84,10 +84,26 @@ export interface LeaveRequestRow {
 
 export interface LeaveTypeRow { id: string; label: string; paid_days: number | null; counts: string }
 
+/** ยอดสิทธิ์ลารายชนิด (รูปเดียวกับ `leaveBalances` ใน functions/hr-leave.js)
+ *
+ * **`entitled_paid_days` คือเพดาน *ค่าจ้าง* ไม่ใช่เพดานวันลา** — ลาป่วยตาม
+ * ม.32 ลาได้ตามที่ป่วยจริงไม่จำกัด แต่ได้ค่าจ้างไม่เกิน 30 วัน หน้าจอจึงห้าม
+ * เขียนว่า "วันลาคงเหลือ" ลอยๆ กับตัวเลขนี้
+ * `null` = ไม่มีเพดานในกฎหมาย (ลาทำหมัน — ตามที่แพทย์กำหนด)
+ * `locked: 'service'` = สิทธิ์เป็น 0 เพราะยังไม่ครบอายุงาน **ไม่ใช่เพราะใช้หมด**
+ */
 export interface LeaveBalanceRow {
-  type?: string; id?: string; label?: string;
-  used_paid?: number; used_unpaid?: number; remaining?: number | null;
-  entitled?: number | null;
+  type: string;
+  label: string;
+  basis?: string | null;
+  counts?: string;
+  entitled_paid_days: number | null;
+  used_paid_days: number;
+  used_unpaid_days: number;
+  pending_days: number;
+  remaining_paid_days: number | null;
+  locked: string | null;
+  service_state: string | null;
 }
 
 export interface ShiftRequestRow {

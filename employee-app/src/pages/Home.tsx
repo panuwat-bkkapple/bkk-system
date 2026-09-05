@@ -7,6 +7,12 @@ import { clockTime, durationText, formatDistance, shiftTimeText, type GeoFix } f
 //
 // **ระยะห่างต้องโชว์ก่อนกด** — ปุ่มที่กดแล้วค่อยรู้ว่าไกลไป คือปุ่มที่คนกดซ้ำๆ
 // ตอนยืนอยู่หน้าร้าน แล้วสรุปว่าระบบพัง
+//
+// ดีไซน์ต้นทาง (02) มีแผนที่ geofence · ปุ่มสแกน QR · ปุ่มเช็คอินนอกสถานที่ ·
+// แถบเลื่อนยืนยัน — **ไม่ได้ทำทั้งสี่อย่าง** เพราะระบบยังไม่มี QR ไม่มีเส้นทาง
+// เช็คอินนอกสถานที่ และการวาดแผนที่ต้องโหลด Maps JS ซึ่งเป็นค่าใช้จ่ายจริง
+// ต่อการเปิดแอปหนึ่งครั้งเพื่อภาพประกอบที่ไม่ได้เปลี่ยนคำตอบ (ตัวเลขระยะทาง
+// บอกสิ่งเดียวกันและ server เป็นคนตัดสินอยู่แล้ว)
 export default function Home({ fix }: { fix: GeoFix }) {
   const [data, setData] = useState<AttendanceStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,83 +73,115 @@ export default function Home({ fix }: { fix: GeoFix }) {
   const inRange = nearest ? nearest.d <= data.radius_m : false;
   const accuracyOk = fix.accuracy_m <= data.min_accuracy_m;
 
+  const statusPill = rec.status === 'empty' ? { tone: 'grey', text: 'ยังไม่ลงเวลา' }
+    : rec.status === 'open' ? { tone: 'ok', text: 'อยู่ระหว่างกะ' }
+      : { tone: 'ok', text: 'ลงเวลาครบแล้ว' };
+
   return (
     <>
       {msg && <div className={`note ${msg.tone}`}>{msg.text}</div>}
 
-      <div className="card">
-        <div className="kv">
-          <span className="k">กะวันนี้</span>
-          <span className="v">
-            {data.shift ? `${data.shift.label} · ${shiftTimeText(data.shift.start, data.shift.end)}` : 'ยังไม่ได้จัดเวร'}
-          </span>
-        </div>
-        {!data.shift && (
-          // ไม่มีกะยังลงเวลาได้ (server ยอม) แต่ต้องบอกให้รู้ ไม่ใช่เงียบ
-          <div className="muted">ยังไม่มีตารางเวรของวันนี้ ลงเวลาได้ตามปกติ แต่ระบบจะไม่คิดว่าสายหรือไม่</div>
-        )}
-        {data.shift?.crosses_midnight && (
-          <div className="muted">กะนี้ข้ามเที่ยงคืน — ลงเวลาออกงานเช้าวันถัดไปยังนับเป็นกะเดียวกัน</div>
-        )}
-      </div>
-
-      <div className="card center">
-        <div className="muted">
-          {rec.status === 'empty' ? 'ยังไม่ได้ลงเวลา' : rec.status === 'open' ? 'เข้างานเมื่อ' : 'ทำงานวันนี้'}
-        </div>
-        <div className="big">
-          {rec.status === 'empty' ? '--:--'
-            : rec.status === 'open' ? clockTime(rec.in_at)
-              : durationText(rec.worked_min)}
-        </div>
-        {rec.status === 'closed' && (
-          <div className="muted">{clockTime(rec.in_at)} - {clockTime(rec.out_at)}</div>
-        )}
-        {rec.status !== 'empty' && rec.late_min !== null && rec.late_min > 0 && (
-          <div style={{ marginTop: 6 }}>
-            <span className={`pill ${rec.within_grace ? 'warn' : 'bad'}`}>
-              เข้างานช้า {rec.late_min} นาที{rec.within_grace ? ' (ในช่วงผ่อนผัน)' : ''}
-            </span>
+      <div className="section"><h2>สถานะวันนี้</h2>
+        <div className="card">
+          <div className="split">
+            <div>
+              <div className="muted">
+                {data.shift ? `กะวันนี้ · ${data.shift.label}` : 'กะวันนี้'}
+              </div>
+              <div style={{ fontSize: 23, fontWeight: 600, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+                {data.shift ? shiftTimeText(data.shift.start, data.shift.end) : 'ยังไม่ได้จัดเวร'}
+              </div>
+            </div>
+            <span className={`pill ${statusPill.tone}`}>{statusPill.text}</span>
           </div>
-        )}
 
-        <div style={{ marginTop: 14 }}>
-          {rec.status === 'closed' ? (
-            <div className="pill ok">ลงเวลาครบแล้ววันนี้</div>
-          ) : (
-            <button
-              className={`btn ${rec.status === 'open' ? 'out' : 'in'}`}
-              disabled={busy || (rec.status === 'empty' && (!inRange || !accuracyOk))}
-              onClick={() => void punch(rec.status === 'open' ? 'out' : 'in')}
-            >
-              {busy ? <Loader2 size={18} className="spin" />
-                : rec.status === 'open' ? <LogOut size={18} /> : <LogIn size={18} />}
-              {' '}{rec.status === 'open' ? 'ลงเวลาออกงาน' : 'ลงเวลาเข้างาน'}
-            </button>
+          <div className="center" style={{ margin: '18px 0 4px' }}>
+            <div className="muted">
+              {rec.status === 'empty' ? 'ยังไม่ได้ลงเวลา' : rec.status === 'open' ? 'เข้างานเมื่อ' : 'ทำงานวันนี้'}
+            </div>
+            <div className="big">
+              {rec.status === 'empty' ? '--:--'
+                : rec.status === 'open' ? clockTime(rec.in_at)
+                  : durationText(rec.worked_min)}
+            </div>
+            {rec.status === 'closed' && (
+              <div className="muted">{clockTime(rec.in_at)} - {clockTime(rec.out_at)}</div>
+            )}
+          </div>
+
+          {rec.status !== 'empty' && rec.late_min !== null && rec.late_min > 0 && (
+            <div className={`note ${rec.within_grace ? 'warn' : 'bad'}`} style={{ marginTop: 12, marginBottom: 0 }}>
+              เข้างานช้า {rec.late_min} นาที{rec.within_grace ? ' (อยู่ในช่วงผ่อนผัน)' : ''}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16 }}>
+            {rec.status === 'closed' ? (
+              <div className="center"><span className="pill ok">ลงเวลาครบแล้ววันนี้</span></div>
+            ) : (
+              <button
+                className={`btn ${rec.status === 'open' ? 'out' : 'in'}`}
+                disabled={busy || (rec.status === 'empty' && (!inRange || !accuracyOk))}
+                onClick={() => void punch(rec.status === 'open' ? 'out' : 'in')}
+              >
+                {busy ? <Loader2 size={18} className="spin" />
+                  : rec.status === 'open' ? <LogOut size={18} /> : <LogIn size={18} />}
+                {rec.status === 'open' ? 'ลงเวลาออกงาน' : 'ลงเวลาเข้างาน'}
+              </button>
+            )}
+          </div>
+
+          {!data.shift && (
+            // ไม่มีกะยังลงเวลาได้ (server ยอม) แต่ต้องบอกให้รู้ ไม่ใช่เงียบ
+            <div className="muted" style={{ marginTop: 10 }}>
+              ยังไม่มีตารางเวรของวันนี้ ลงเวลาได้ตามปกติ แต่ระบบจะไม่คิดว่าสายหรือไม่
+            </div>
+          )}
+          {data.shift?.crosses_midnight && (
+            <div className="muted" style={{ marginTop: 10 }}>
+              กะนี้ข้ามเที่ยงคืน — ลงเวลาออกงานเช้าวันถัดไปยังนับเป็นกะเดียวกัน
+            </div>
           )}
         </div>
-
-        <div className="muted" style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-          <MapPin size={13} />
-          {nearest
-            ? <>ห่างจาก{nearest.s.name} {formatDistance(nearest.d)} (ต้องอยู่ในระยะ {data.radius_m} ม.)</>
-            : <>ยังไม่ได้ตั้งพิกัดสาขาสำหรับลงเวลา</>}
-        </div>
-        {!accuracyOk && (
-          // บอกว่า "รอสัญญาณ" ไม่ใช่ "อยู่ผิดที่" — ข้อความเดียวกับฝั่ง server
-          <div className="muted">สัญญาณ GPS ยังไม่แม่นพอ (คลาดเคลื่อน {Math.round(fix.accuracy_m)} ม.) รอสักครู่</div>
-        )}
-        {rec.status === 'open' && (
-          <div className="muted">ออกงานกดได้แม้ไม่ได้อยู่ที่สาขา ระบบจะบันทึกระยะไว้ให้หัวหน้าเห็น</div>
-        )}
       </div>
 
-      <div className="card">
-        <h2><Clock size={13} /> รายละเอียดวันนี้</h2>
-        <div className="kv"><span className="k">วันที่ของกะ</span><span className="v">{data.attendance_date}</span></div>
-        <div className="kv"><span className="k">เข้างาน</span><span className="v">{clockTime(rec.in_at)}{rec.in_site_name ? ` · ${rec.in_site_name}` : ''}</span></div>
-        <div className="kv"><span className="k">ออกงาน</span><span className="v">{clockTime(rec.out_at)}{rec.out_site_name ? ` · ${rec.out_site_name}` : ''}</span></div>
-        {rec.out_outside && <div className="muted">ลงเวลาออกงานนอกพื้นที่สาขา</div>}
+      <div className="section"><h2>ตำแหน่งของคุณ</h2>
+        <div className="card">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span className={`dot ${nearest ? (inRange ? 'ok' : 'bad') : ''}`} />
+            <b style={{ fontSize: 15, fontWeight: 600 }}>
+              {nearest
+                ? (inRange ? `อยู่ในพื้นที่${nearest.s.name}` : `อยู่นอกพื้นที่${nearest.s.name}`)
+                : 'ยังไม่ได้ตั้งพิกัดสาขา'}
+            </b>
+          </div>
+          <div className="muted" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <MapPin size={13} />
+            {nearest
+              ? <>ห่างจากจุดลงเวลา {formatDistance(nearest.d)} · ต้องอยู่ในระยะ {data.radius_m} ม. · ความแม่นยำ {Math.round(fix.accuracy_m)} ม.</>
+              : <>ยังไม่ได้ตั้งพิกัดสาขาสำหรับลงเวลา</>}
+          </div>
+          {!accuracyOk && (
+            // บอกว่า "รอสัญญาณ" ไม่ใช่ "อยู่ผิดที่" — ข้อความเดียวกับฝั่ง server
+            <div className="note warn" style={{ marginTop: 12, marginBottom: 0 }}>
+              สัญญาณ GPS ยังไม่แม่นพอ (คลาดเคลื่อน {Math.round(fix.accuracy_m)} ม.) รอสักครู่แล้วลองใหม่
+            </div>
+          )}
+          {rec.status === 'open' && (
+            <div className="muted" style={{ marginTop: 10 }}>
+              ออกงานกดได้แม้ไม่ได้อยู่ที่สาขา ระบบจะบันทึกระยะไว้ให้หัวหน้าเห็น
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="section"><h2><Clock size={13} /> รายละเอียดวันนี้</h2>
+        <div className="card">
+          <div className="kv"><span className="k">วันที่ของกะ</span><span className="v">{data.attendance_date}</span></div>
+          <div className="kv"><span className="k">เข้างาน</span><span className="v">{clockTime(rec.in_at)}{rec.in_site_name ? ` · ${rec.in_site_name}` : ''}</span></div>
+          <div className="kv"><span className="k">ออกงาน</span><span className="v">{clockTime(rec.out_at)}{rec.out_site_name ? ` · ${rec.out_site_name}` : ''}</span></div>
+          {rec.out_outside && <div className="muted" style={{ marginTop: 8 }}>ลงเวลาออกงานนอกพื้นที่สาขา</div>}
+        </div>
       </div>
     </>
   );

@@ -20,7 +20,7 @@ export default function AppHeader({ name, sub, onLogout }: {
           <h1>{name}</h1>
           <div className="sub">{sub}</div>
         </div>
-        <button className="btn ghost sm" onClick={onLogout}>
+        <button className="chip" onClick={onLogout}>
           <LogOut size={13} /> ออก
         </button>
       </div>
