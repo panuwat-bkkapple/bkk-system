@@ -80,7 +80,6 @@ async function main() {
     'settle-pending-rider-fees.cjs DEPRECATED ตั้งแต่ 2026-09-05: /rider-audit อนุมัติใบ Pending ได้จาก UI แล้ว (#643) ' +
       'และสคริปต์นี้ไม่มี lock กันจ่ายซ้ำ — ดู bkk-frontend-next/docs/reports/2026-09-05-rider-wallet-status-survey.md',
   );
-  // eslint-disable-next-line no-unreachable
   const admin = require(path.join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin'));
   if (!admin.apps.length) {
     admin.initializeApp({

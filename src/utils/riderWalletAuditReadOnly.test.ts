@@ -59,23 +59,47 @@ const at = (ymd: string, hhmm = '12:00') => Date.parse(`${ymd}T${hhmm}:00Z`) - B
 
 // ตัวแทนของ walletLedger.ts สำหรับเทส pure — ใช้เฉพาะเมื่อไม่มี checkout จริง (ดูส่วนที่สาม)
 // กติกาที่จำลอง: allowlist 8 หมวด, amount ต้องเป็นเลข finite, CREDIT บวก DEBIT ลบ
+type TxLike = { type?: unknown; category?: unknown; amount?: unknown };
+type WdLike = { status?: unknown; withdraw_amount?: unknown };
+
 const STAND_IN_LEDGER = {
   RIDER_WALLET_CATEGORIES: ['JOB_PAYOUT', 'WITHDRAWAL', 'PENALTY', 'BONUS', 'ADJUSTMENT', 'EXPENSE_REIMBURSEMENT', 'COMPANY_ADVANCE', 'RIDER_DEPOSIT'] as const,
-  isRiderWalletTx(t: any) {
+  isRiderWalletTx(t: TxLike | null | undefined) {
     if (!t || (t.type !== 'CREDIT' && t.type !== 'DEBIT')) return false;
     if (!(STAND_IN_LEDGER.RIDER_WALLET_CATEGORIES as readonly string[]).includes(String(t.category ?? ''))) return false;
     if (typeof t.amount !== 'number' && typeof t.amount !== 'string') return false;
     return Number.isFinite(Number(t.amount));
   },
-  walletBalance(rows: any[]) {
+  walletBalance(rows: readonly TxLike[]) {
     return rows.reduce((acc, t) => (t.type === 'CREDIT' ? acc + Number(t.amount) : acc - Number(t.amount)), 0);
   },
-  pendingWithdrawalHold(rows: any[]) {
+  pendingWithdrawalHold(rows: readonly WdLike[]) {
     return rows.reduce((acc, w) => (w.status === 'requested' ? acc + Number(w.withdraw_amount) : acc), 0);
   },
 };
 
 const CASE_ID = '-P0QekIHDPBe7phJhabu';
+
+// รูปแถวของ T6/T7 ที่เทสแตะ (สคริปต์เป็น CJS ไม่มี type ให้ import)
+interface LedgerRef { id: string; amount: number | null; writer?: string; type?: string }
+interface T6Job { job_id: string; rider_fee: number | null; payouts: LedgerRef[]; adjustments: LedgerRef[]; diff: number | null; approved_by: string | null }
+interface T1Row { rider_id: string; rows: number; balance: number; balanceLegacy: number; diff: number; hold: number; available: number; perCategory: Record<string, { count: number; sum: number; bad: number }> }
+interface Flagged { id: string; flags: string[] }
+interface PayoutRef { id: string; rider_id: string }
+interface Report {
+  meta: { currentAllowlist: string[] };
+  t1: T1Row[];
+  ridersWithoutLedger: string[];
+  t2: Flagged[];
+  t3: { windowInverted: boolean; amount150: PayoutRef[]; inWindow: PayoutRef[]; reasonNotCalculated: PayoutRef[]; paidNotEqualFee: PayoutRef[] };
+  t4: { withdrawalTotal: number; backfillSettle: PayoutRef[]; batchTagged: number; withdrawalsNode: Record<string, number> };
+  t5: { owner: PendingJob[]; rider: PendingJob[]; noFee: PendingJob[]; ownerSum: number; riderSum: number };
+  t6: T6Job[];
+  caseFound: boolean;
+  t7: { verdicts: Verdict[]; decisions: string[] };
+}
+interface PendingJob { job_id: string; dateField: string; labelMismatch?: boolean }
+interface Verdict { rider_id: string; trusted: boolean; reasons: string[] }
 
 const fixture = () => ({
   tx: {
@@ -119,8 +143,8 @@ const fixture = () => ({
 
 describe('analyze — ตารางจาก fixture ที่สร้างจากเคสจริง', () => {
   const audit = require(SCRIPT);
-  const r = audit.analyze(fixture());
-  const t1 = Object.fromEntries(r.t1.map((x: any) => [x.rider_id, x]));
+  const r = audit.analyze(fixture()) as Report;
+  const t1 = Object.fromEntries(r.t1.map((x) => [x.rider_id, x]));
 
   it('T1: balance มาจากสูตรที่ส่งเข้ามา, LOGISTICS_REVENUE ไม่เข้ากระเป๋า, จองค้างหักออก', () => {
     // RIDER: 182 −100 (withdraw) −10 (wrong-dir bonus DEBIT) +10 +10 +10 +10 (bonus rows) −25 (adjust)
@@ -140,7 +164,7 @@ describe('analyze — ตารางจาก fixture ที่สร้าง�
   });
 
   it('T2: จับแถวผิดปกติทุกชนิดพร้อม key', () => {
-    const flagsOf = (id: string) => (r.t2.find((a: any) => a.id === id) || { flags: [] }).flags;
+    const flagsOf = (id: string) => (r.t2.find((a) => a.id === id) || { flags: [] }).flags;
     expect(flagsOf('tx_bad_amount')).toContain('amount_not_finite');
     expect(flagsOf('tx_negative')).toContain('negative_amount');
     expect(flagsOf('tx_wrong_dir')).toContain('type_DEBIT_but_category_expects_CREDIT');
@@ -154,42 +178,44 @@ describe('analyze — ตารางจาก fixture ที่สร้าง�
   });
 
   it('T3: แถว 150, หน้าต่างกลับด้าน, fallback reason, ยอดไม่ตรง rider_fee', () => {
-    expect(r.t3.amount150.map((x: any) => x.id)).toEqual(['tx_payout_150']);
+    expect(r.t3.amount150.map((x) => x.id)).toEqual(['tx_payout_150']);
     expect(r.t3.windowInverted).toBe(true);
     expect(r.t3.inWindow).toEqual([]);
-    expect(r.t3.reasonNotCalculated.map((x: any) => x.id)).toEqual(['tx_payout_150']);
-    expect(r.t3.paidNotEqualFee.map((x: any) => x.id)).toEqual(['tx_payout_backfill']); // 200 vs 210
+    expect(r.t3.reasonNotCalculated.map((x) => x.id)).toEqual(['tx_payout_150']);
+    expect(r.t3.paidNotEqualFee.map((x) => x.id)).toEqual(['tx_payout_backfill']); // 200 vs 210
     // หน้าต่างที่ปลายอยู่หลังต้น ต้องเจอแถวในช่วง
-    const r2 = audit.analyze({ ...fixture(), opts: { ownerRider: OWNER, windowEnd: '2026-08-31' } });
+    const r2 = audit.analyze({ ...fixture(), opts: { ownerRider: OWNER, windowEnd: '2026-08-31' } }) as Report;
     expect(r2.t3.windowInverted).toBe(false);
-    expect(r2.t3.inWindow.map((x: any) => x.id).sort()).toEqual(['tx_payout_150', 'tx_payout_backfill']);
+    expect(r2.t3.inWindow.map((x) => x.id).sort()).toEqual(['tx_payout_150', 'tx_payout_backfill']);
   });
 
   it('T4: นับ WITHDRAWAL และป้าย [Backfill Settle]', () => {
     expect(r.t4.withdrawalTotal).toBe(1);
-    expect(r.t4.backfillSettle.map((x: any) => x.id)).toEqual(['tx_payout_backfill']);
+    expect(r.t4.backfillSettle.map((x) => x.id)).toEqual(['tx_payout_backfill']);
     expect(r.t4.batchTagged).toBe(1);
     expect(r.t4.withdrawalsNode).toEqual({ total: 3, requested: 1, paid: 1, rejected: 1, other: 0 });
   });
 
   it('T5: แยก OWNER/RIDER ด้วย completed_at ก่อน created_at, ป้ายไม่ตรง, ใบไม่มี fee', () => {
-    expect(r.t5.owner.map((j: any) => j.job_id)).toEqual(['job_pending_owner', 'job_pending_owner_by_created']);
-    expect(r.t5.owner.find((j: any) => j.job_id === 'job_pending_owner_by_created').dateField).toBe('created_at');
+    const ids = (list: PendingJob[]) => list.map((j) => j.job_id);
+    const byJob = (list: PendingJob[], id: string) => list.find((j) => j.job_id === id) as PendingJob;
+    expect(ids(r.t5.owner)).toEqual(['job_pending_owner', 'job_pending_owner_by_created']);
+    expect(byJob(r.t5.owner, 'job_pending_owner_by_created').dateField).toBe('created_at');
     expect(r.t5.ownerSum).toBe(200);
-    expect(r.t5.rider.map((j: any) => j.job_id)).toEqual(['job_pending_rider', 'job_pending_rider_label_mismatch', 'job_rider_era_unpaid']);
-    expect(r.t5.rider.find((j: any) => j.job_id === 'job_pending_rider_label_mismatch').labelMismatch).toBe(true);
+    expect(ids(r.t5.rider)).toEqual(['job_pending_rider', 'job_pending_rider_label_mismatch', 'job_rider_era_unpaid']);
+    expect(byJob(r.t5.rider, 'job_pending_rider_label_mismatch').labelMismatch).toBe(true);
     expect(r.t5.riderSum).toBe(390);
-    expect(r.t5.noFee.map((j: any) => j.job_id)).toEqual(['job_pending_no_fee']);
+    expect(ids(r.t5.noFee)).toEqual(['job_pending_no_fee']);
   });
 
   it('T6: งานเคส + งานยุคไรเดอร์ พร้อมแถว ledger ที่ชี้มาและส่วนต่าง', () => {
-    const byId = Object.fromEntries(r.t6.map((j: any) => [j.job_id, j]));
+    const byId = Object.fromEntries(r.t6.map((j: T6Job) => [j.job_id, j])) as Record<string, T6Job | undefined>;
     expect(r.caseFound).toBe(true);
-    const c = byId[CASE_ID];
+    const c = byId[CASE_ID] as T6Job;
     expect(c.rider_fee).toBe(182);
-    expect(c.payouts.map((p: any) => p.amount)).toEqual([182]);
+    expect(c.payouts.map((p) => p.amount)).toEqual([182]);
     expect(c.payouts[0].writer).toContain('UI');
-    expect(c.adjustments.map((a: any) => a.amount)).toEqual([25]);
+    expect(c.adjustments.map((a) => a.amount)).toEqual([25]);
     expect(c.diff).toBe(-25); // 182 − 25 − 182
     expect(c.approved_by).toBe('ADMIN_UID');
     // งานของ OWNER ในยุคไรเดอร์ไม่เข้า T6 แม้เกิดหลัง 1 ก.ย.
@@ -198,9 +224,9 @@ describe('analyze — ตารางจาก fixture ที่สร้าง�
   });
 
   it('T7: คำตัดสินต่อ rider และรายการที่ต้องตัดสินใจ — ไม่มีข้อเสนอทางแก้', () => {
-    const v = Object.fromEntries(r.t7.verdicts.map((x: any) => [x.rider_id, x]));
-    expect(v[RIDER].trusted).toBe(false);
-    expect(v[OWNER].trusted).toBe(false);
+    const v = Object.fromEntries(r.t7.verdicts.map((x: Verdict) => [x.rider_id, x])) as Record<string, Verdict | undefined>;
+    expect(v[RIDER]?.trusted).toBe(false);
+    expect(v[OWNER]?.trusted).toBe(false);
     expect(v.SYSTEM).toBeUndefined();
     expect(r.t7.decisions.some((d: string) => d.includes('[Backfill Settle]'))).toBe(true);
     expect(r.t7.decisions.some((d: string) => d.includes('OWNER'))).toBe(true);
@@ -229,7 +255,7 @@ describe('loader — สูตรของแอปไรเดอร์ตั�
     expect(ledger.isRiderWalletTx({ type: 'CREDIT', category: 'LOGISTICS_REVENUE', amount: 1 })).toBe(false);
     expect(ledger.isRiderWalletTx({ type: 'CREDIT', category: 'JOB_PAYOUT', amount: null })).toBe(false);
     expect(ledger.walletBalance([{ type: 'CREDIT', amount: 10 }, { type: 'DEBIT', amount: 4 }])).toBe(6);
-    const r = audit.analyze({ ...fixture(), ledger });
+    const r = audit.analyze({ ...fixture(), ledger }) as Report;
     expect(r.meta.currentAllowlist.length).toBeGreaterThanOrEqual(4);
   });
 });
