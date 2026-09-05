@@ -12,7 +12,7 @@
 // พอเพิ่มชนิดที่สามจึงต้องรวมเป็น seam เดียว. `stockChildren.test.ts` สแกนว่าไม่มี
 // ไฟล์ไหนใน src/ เทียบชนิดพวกนี้เองอีก
 //
-// MIRROR: `STOCK_CHILD_TYPES` ใน functions/b2c-unpack.js — เทสอ่านไฟล์นั้นมาเทียบ
+// MIRROR: `STOCK_CHILD_TYPES` ใน functions/stock-child-types.js (ผ่าน b2c-unpack-core.js) — เทสอ่านไฟล์นั้นมาเทียบ
 import { JOB_STATUS } from '../types/job-statuses';
 
 export const B2B_UNPACKED_JOB_TYPE = 'B2B-Unpacked';
@@ -26,7 +26,7 @@ export const STOCK_CHILD_TYPES: readonly string[] = [
 ];
 
 // สถานะที่ trigger ฝั่ง server แตกงานหลายเครื่อง ("เครื่องถึงร้านแล้ว") — การ์ดบน
-// ตั๋วใช้ตัดสินว่าควรมีปุ่มรันซ้ำไหม. MIRROR: ENTRY_STATUSES ใน functions/b2c-unpack.js
+// ตั๋วใช้ตัดสินว่าควรมีปุ่มรันซ้ำไหม. MIRROR: ENTRY_STATUSES ใน functions/b2c-unpack-core.js
 // (ซึ่ง = FEE_TRIGGER_CANONICAL ของค่ารอบไรเดอร์) — เทสเทียบสองสำเนา
 export const MULTI_UNPACK_ENTRY_STATUSES: readonly string[] = [
   JOB_STATUS.PENDING_QC,

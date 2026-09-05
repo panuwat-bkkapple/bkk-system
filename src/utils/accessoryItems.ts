@@ -96,7 +96,7 @@ export const accessoryModelsForDevice = (modelsData: any, deviceModel: any): any
  * แถวงานลูกอุปกรณ์เสริม + stamp บนงานแม่ เป็น multi-path ล้วน — `keys` คือ push id
  * ที่ผู้เรียกจองไว้ (ทำให้เทสตรึงรูปได้โดยไม่ต้องมี DB)
  *
- * MIRROR: `buildAccessoryChildUpdates` ใน functions/b2c-unpack.js — งานหลายเครื่อง
+ * MIRROR: `buildAccessoryChildUpdates` ใน functions/b2c-unpack-core.js — งานหลายเครื่อง
  * ถูกแตกฝั่ง server และแม่ปิดที่ Completed โดยไม่ผ่านปุ่ม In Stock ที่ helper นี้
  * เกาะอยู่ server จึงต้องแตกอุปกรณ์เสริมเองด้วยรูปเดียวกันเป๊ะ. ด่าน:
  * accessoryUnpackParity.test.ts รันทั้งสองบน fixture เดียวกันแล้ว diff

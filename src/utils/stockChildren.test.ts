@@ -20,14 +20,14 @@ import {
 import { ACCESSORY_JOB_TYPE } from './accessoryItems';
 
 const require = createRequire(import.meta.url);
-const functionsMod = require(resolve(__dirname, '../../functions/b2c-unpack.js')) as {
+const functionsMod = require(resolve(__dirname, '../../functions/b2c-unpack-core.js')) as {
   STOCK_CHILD_TYPES: string[];
   CHILD_TYPE: string;
   ENTRY_STATUSES: string[];
 };
 
 describe('stock child types', () => {
-  it('สองสำเนา (TS ↔ functions/b2c-unpack.js) ถือรายการเดียวกัน', () => {
+  it('สองสำเนา (TS ↔ functions/b2c-unpack-core.js) ถือรายการเดียวกัน', () => {
     expect([...STOCK_CHILD_TYPES].sort()).toEqual([...functionsMod.STOCK_CHILD_TYPES].sort());
     expect(B2C_UNPACKED_JOB_TYPE).toBe(functionsMod.CHILD_TYPE);
     expect(ACCESSORY_CHILD_JOB_TYPE).toBe(ACCESSORY_JOB_TYPE);

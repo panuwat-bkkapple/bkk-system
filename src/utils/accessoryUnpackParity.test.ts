@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 import { buildAccessoryChildUpdates } from './accessoryItems';
 
 const require = createRequire(import.meta.url);
-const server = require(resolve(__dirname, '../../functions/b2c-unpack.js')) as {
+const server = require(resolve(__dirname, '../../functions/b2c-unpack-core.js')) as {
   buildAccessoryChildUpdates: (job: unknown, keys: string[], by: string, now: number) => Record<string, unknown>;
 };
 
@@ -44,7 +44,7 @@ const fixtures: Array<[string, Record<string, unknown>]> = [
   }],
 ];
 
-describe('accessory child builder parity (TS ↔ functions/b2c-unpack.js)', () => {
+describe('accessory child builder parity (TS ↔ functions/b2c-unpack-core.js)', () => {
   for (const [name, job] of fixtures) {
     it(name, () => {
       const keys = ['a1', 'a2', 'a3'];
