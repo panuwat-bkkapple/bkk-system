@@ -6961,3 +6961,7 @@ Object.assign(exports, require("./hr-attendance-api").registerHrAttendance());
 // หัวหน้าอนุมัติได้เฉพาะลูกน้องตรงของตัวเอง (`employees/{id}/supervisor_id`)
 // =============================================================================
 Object.assign(exports, require("./hr-employee-portal").registerHrEmployeePortal());
+
+// เส้นทาง "ข้อมูลของฉัน" ของแอปพนักงาน (ตารางกะ · สลิป · แฟ้มเอกสาร · โปรไฟล์)
+// แยกไฟล์จาก portal เพราะเป็นเส้นทางอ่านที่ยืมข้อมูลของโมดูล HR ตัวอื่นมาแสดง
+Object.assign(exports, require("./hr-employee-self").registerHrEmployeeSelf());

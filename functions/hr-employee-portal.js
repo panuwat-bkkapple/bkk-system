@@ -84,13 +84,27 @@ function registerHrEmployeePortal() {
   const employeeMe = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
     const { id, employee } = await requireEmployeeCaller(db, request.auth);
+
+    // **หัวหน้ามาด้วยตั้งแต่ตอนเปิดแอป** — ฟอร์มขอลาต้องบอกได้ว่าใบนี้จะไปถึงใคร
+    // ก่อนกดส่ง (ดีไซน์ 05 บรรทัด "ผู้อนุมัติ") และถ้ายังไม่ได้ตั้ง `supervisor_id`
+    // พนักงานต้องเห็นตั้งแต่ตอนนั้นว่ายังไม่มีใครอนุมัติจากแอปได้ ไม่ใช่รู้ตอน
+    // ใบค้างอยู่หลายวัน. เป็นการอ่านโหนดเดี่ยวเพิ่มหนึ่งครั้งต่อการเปิดแอป
+    // และส่งออกแค่ชื่อกับตำแหน่ง ไม่ใช่แฟ้มของหัวหน้าทั้งใบ
+    const supervisorId = str(employee.supervisor_id, 80);
+    const supSnap = supervisorId
+      ? await db.ref(`employees/${supervisorId}`).once("value")
+      : null;
+    const sup = supSnap && supSnap.exists() ? supSnap.val() : null;
+
     return {
       id,
       name: employee.name || null,
       employee_code: employee.employee_code || null,
       position: employee.position || null,
+      department: employee.department || null,
       photo_url: employee.photo_url || null,
       status: employee.status || null,
+      supervisor: sup ? { name: sup.name || null, position: sup.position || null } : null,
     };
   });
 
