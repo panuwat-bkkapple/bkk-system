@@ -48,6 +48,7 @@ const DiscrepancyReports = lazy(() => import('./pages/fleet/DiscrepancyReports')
 const RiderPerformance = lazy(() => import('./pages/fleet/RiderPerformance').then(m => ({ default: m.RiderPerformance })));
 const RiderAuditPage = lazy(() => import('./pages/fleet/RiderAuditPage').then(m => ({ default: m.RiderAuditPage })));
 const RiderPerformanceDetail = lazy(() => import('./pages/fleet/RiderPerformanceDetail').then(m => ({ default: m.RiderPerformanceDetail })));
+const RiderStatementPage = lazy(() => import('./pages/fleet/RiderStatementPage').then(m => ({ default: m.RiderStatementPage })));
 const CustomerTracking = lazy(() => import('./pages/tracking/CustomerTracking').then(m => ({ default: m.CustomerTracking })));
 const B2CWorkspacePage = lazy(() => import('@/pages/admin/B2CWorkspacePage').then(m => ({ default: m.B2CWorkspacePage })));
 const InvoicePage = lazy(() => import('./features/trade-in/pages/InvoicePage').then(m => ({ default: m.InvoicePage })));
@@ -165,6 +166,9 @@ export default function App() {
               <Route path="/rider-performance" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformance /> : <Navigate to="/" replace />} />
               <Route path="/rider-audit" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' || currentUser?.role === 'FINANCE' ? <RiderAuditPage /> : <Navigate to="/" replace />} />
               <Route path="/rider-performance/:riderId" element={currentUser?.role === 'CEO' || currentUser?.role === 'MANAGER' ? <RiderPerformanceDetail /> : <Navigate to="/" replace />} />
+              {/* สมุดบัญชีไรเดอร์ (อ่านอย่างเดียว) — role เท่ากับหน้าจ่ายถอน /finance */}
+              <Route path="/riders/statement" element={['CEO', 'MANAGER', 'FINANCE'].includes(String(currentUser?.role || '')) ? <RiderStatementPage /> : <Navigate to="/" replace />} />
+              <Route path="/riders/:riderId/statement" element={['CEO', 'MANAGER', 'FINANCE'].includes(String(currentUser?.role || '')) ? <RiderStatementPage /> : <Navigate to="/" replace />} />
               <Route path="/discrepancy-reports" element={<DiscrepancyReports />} />
               <Route path="/crm" element={<CustomerCRM />} />
               <Route path="/customer-crm" element={<Navigate to="/crm" replace />} />
