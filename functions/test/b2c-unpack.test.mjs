@@ -9,8 +9,16 @@
 // payout that never happened.
 //
 // INJECTION RESULTS — each applied alone (checkpoint committed first), then
-// restored. Counts are red checks in THIS file unless noted:
-//   see the table at the bottom of the file (filled in after measuring)
+// restored. Measured 5 Sep 2026; counts are red checks across this file +
+// status-engine.test.mjs:
+//   1. isMultiDeviceRetailJob lets a stock child be split again -> 1
+//   2. child row copies the parent's uid                         -> 1 (ORDER_ONLY_KEYS)
+//   3. child price = the order total instead of the device's     -> 1
+//   4. paidEvidenceOf reads paid_at only (drops the trail)       -> 1
+//   5. engine row loses `requires: ["multi_unpack"]`             -> 2 (engine + wiring)
+//   6. engine row also allows `from: Paid`                        -> 3 (engine ×2 + drift)
+//   7. defined() stops stripping undefined                        -> 1
+//   8. children enter at In Stock instead of Pending QC           -> 1
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

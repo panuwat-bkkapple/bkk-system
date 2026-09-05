@@ -6,7 +6,7 @@
 //
 // INJECTION (วัดจริง 5 ก.ย. 2569 — แต่ละตัวถอดเดี่ยวแล้ว restore):
 //   1. ลบ 'B2C-Unpacked' ออกจาก STOCK_CHILD_TYPES ฝั่ง TS      -> แดง 2 (parity + isStockChildJob)
-//   2. ลบ 'B2C-Unpacked' ออกจาก STOCK_CHILD_TYPES ฝั่ง JS      -> แดง 1 (parity)
+//   2. ลบ 'B2C-Unpacked' ออกจาก STOCK_CHILD_TYPES ฝั่ง JS      -> แดง 1 (parity; b2c-unpack.test.mjs ยังเขียวเพราะมันวนลิสต์ที่เหลือ)
 //   3. คืน `j.type !== 'Accessory'` กลับเข้า Analytics.tsx        -> แดง 1 (สแกน src/)
 //   4. multiUnpackState คืน 'done' เมื่อ written แต่แม่ยังไม่ Completed -> แดง 1
 import { describe, it, expect } from 'vitest';

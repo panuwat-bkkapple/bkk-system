@@ -6,8 +6,9 @@
 // รูปเดียวกัน — ถ้าสองรูปต่างกัน Pencil ที่มาจากงานสองเครื่องจะหน้าตาไม่เหมือน
 // Pencil ที่มาจากงานเครื่องเดียวในคลังเดียวกัน
 //
-// INJECTION (วัดจริง 5 ก.ย. 2569): เปลี่ยน ref suffix ฝั่ง JS จาก -A เป็น -X -> แดง 2
-//   ถอด stock_cost ออกจากฝั่ง TS -> แดง 2
+// INJECTION (วัดจริง 5 ก.ย. 2569 — ตอนร่างเดาไว้ 2 ทั้งคู่ วัดแล้วได้ 4):
+//   เปลี่ยน ref suffix ฝั่ง JS จาก -A เป็น -X -> แดง 4 (parity 3 fixture ที่มีลูก + ของ b2c-unpack.test.mjs 1)
+//   ถอด stock_cost ออกจากฝั่ง TS          -> แดง 4 (parity 3 + ชั้นตรึงรูป 1)
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
