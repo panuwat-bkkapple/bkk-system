@@ -9,13 +9,19 @@
  *
  * ตาราง injection (วัดจริง 5 ก.ย. 2569 — ตัวเลขคือจำนวนข้อที่แดง):
  *   เพิ่ม "draft" เข้า VISIBLE_RUN_STATUSES                    -> แดง 1
- *   ให้ employeePayslipGet รับ employeeId จาก body             -> แดง 1
+ *   ให้ employeePayslipGet รับ employeeId จาก body             -> แดง 1 (หลังอุดรู)
  *   ถอด requireEmployeeCaller ออกจาก callable ตัวใดตัวหนึ่ง     -> แดง 1
  *   ใส่ signed_contract เข้า EMPLOYEE_UPLOAD_KINDS              -> แดง 1
  *   ใส่ warning เข้า SELF_VISIBLE_DOC_TYPES                     -> แดง 1
  *   ให้ countLeaveDays หักครึ่งวันโดยไม่ดูว่าวันนั้นถูกนับไหม     -> แดง 1
  *   ให้ใบวันเดียวที่ติดธงสองตัวหักเต็มวัน                         -> แดง 1
  *   ถอดการปัดทศนิยมของ splitPaidDays                            -> เขียว (ดูหมายเหตุ)
+ *
+ * **รูที่ injection จับได้ในตัวด่านเอง (5 ก.ย. 2569):** ข้อ "รับ employeeId จาก
+ * body" รอบแรก **เขียว** เพราะ assert เขียนเป็น `/data\.employeeId/` แต่
+ * injection เขียน `(request.data || {}).employeeId` ซึ่งข้างหน้าจุดเป็นวงเล็บปิด
+ * — `git status` สะอาด จึงไม่ใช่เคสงานหาย แต่เป็นรูของด่านจริง แก้เป็น
+ * "ไม่มีการอ่าน `.employeeId` เลย" ซึ่งตรงกับความจริงของไฟล์นี้ แล้วมันแดงทันที
  *
  * **หมายเหตุข้อที่เขียว และเขียวถูกแล้ว:** ค่าที่ใช้จริงมีแค่ .0 กับ .5 ซึ่งเก็บ
  * ใน binary ได้ตรง การปัดจึงไม่เปลี่ยนผลของ fixture ชุดไหนเลย — มันเป็นการกัน
@@ -108,8 +114,14 @@ test("ทุก callable ของเส้นทางนี้มีด่า�
   assert.ok(names.length >= 8, `เจอ callable แค่ ${names.length} ตัว`);
   for (const [name, body] of Object.entries(bodies)) {
     assert.ok(body.includes("requireEmployeeCaller"), `${name} ไม่มีด่านตัวตน`);
-    assert.ok(!/data\.employeeId|d\.employeeId/.test(body),
-      `${name} รับ employeeId จาก body — id ที่ผู้เรียกระบุเองได้ = สลิปของเพื่อนร่วมงาน`);
+    // **เขียนเป็น "ไม่มีการอ่านฟิลด์นี้เลย" ไม่ใช่ไล่จับรูปที่นึกออก** — รอบแรก
+    // เขียนเป็น /data\.employeeId/ แล้ว injection ที่เขียน
+    // `(request.data || {}).employeeId` **ลอดผ่านไปได้** เพราะข้างหน้าจุดเป็น
+    // วงเล็บปิด ไม่ใช่คำว่า data. โค้ดจริงของไฟล์นี้ไม่เคยอ่าน `.employeeId`
+    // จากอะไรเลย (ตัวตนมาจาก token เสมอ) การห้ามทั้งรูปจึงตรงกับความจริง
+    // และไม่มีทางลอดด้วยการเปลี่ยนวิธีเขียน
+    assert.ok(!/\.employeeId\b/.test(body),
+      `${name} อ่าน employeeId จากอินพุต — id ที่ผู้เรียกระบุเองได้ = สลิปของเพื่อนร่วมงาน`);
   }
 });
 
