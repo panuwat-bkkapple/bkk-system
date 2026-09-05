@@ -1,13 +1,13 @@
 {
-  "name": "BKK APPLE — แอปพนักงาน",
+  "name": "getmobie — แอปพนักงาน",
   "short_name": "พนักงาน",
   "description": "ลงเวลาเข้า-ออกงาน ขอลา และขอเปลี่ยนกะ",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b1220",
-  "theme_color": "#0b1220",
+  "background_color": "#f5f7fc",
+  "theme_color": "#f5f7fc",
   "lang": "th",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

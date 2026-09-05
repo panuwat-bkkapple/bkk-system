@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { LogIn, Loader2 } from 'lucide-react';
+import { LogIn, Loader2, UserRound } from 'lucide-react';
 import { auth } from '../firebase';
+import GateShell from '../GateShell';
+import Wordmark from '../Wordmark';
 
 // เข้าสู่ระบบด้วยบัญชีเดียวกับที่ฝ่ายบุคคลออกให้ตอนเริ่มงาน
 // **แอปนี้ไม่มีทางสมัครเอง** — บัญชีเกิดจากการจ้างเท่านั้น (ดู adminStaffCreate)
+//
+// ดีไซน์ต้นทางมีปุ่ม SSO บริษัท / Face ID / "จำฉันไว้ในเครื่องนี้" — **ไม่ได้ทำ**
+// เพราะระบบยังไม่มีสามอย่างนั้นจริง ปุ่มที่กดแล้วไม่เกิดอะไรแย่กว่าไม่มีปุ่ม
 export default function Login({ notice }: { notice?: string | null }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -26,33 +32,36 @@ export default function Login({ notice }: { notice?: string | null }) {
   };
 
   return (
-    <div className="gate">
-      <div style={{ maxWidth: 380, width: '100%', margin: '0 auto' }}>
-        <div style={{ fontSize: 12, letterSpacing: '0.18em', opacity: 0.7, fontWeight: 800 }}>BKK APPLE</div>
-        <h2>แอปพนักงาน</h2>
-        <p>ลงเวลาเข้า-ออกงาน ขอลา และขอเปลี่ยนกะ</p>
+    <GateShell
+      icon={<UserRound size={22} strokeWidth={2} />}
+      brand={<><Wordmark /> · แอปพนักงาน</>}
+      title="เข้าสู่ระบบด้วยบัญชีพนักงาน"
+      detail="ใช้อีเมลบริษัทที่ฝ่ายบุคคลออกให้ตอนเริ่มงาน"
+      foot="ยังไม่มีบัญชี หรือลืมรหัสผ่าน ติดต่อฝ่ายบุคคล — แอปนี้สมัครเองไม่ได้"
+    >
+      {/* เหตุผลที่เพิ่งถูกเตะออก (เช่น บัญชีนี้ไม่ใช่บัญชีพนักงาน) — ต้องขึ้น
+          ก่อนฟอร์ม ไม่งั้นคนจะกรอกซ้ำแล้วเจอผลเดิมโดยไม่รู้ว่าทำไม */}
+      {notice && <div className="note warn">{notice}</div>}
 
-        {/* เหตุผลที่เพิ่งถูกเตะออก (เช่น บัญชีนี้ไม่ใช่บัญชีพนักงาน) — ต้องขึ้น
-            ก่อนฟอร์ม ไม่งั้นคนจะกรอกซ้ำแล้วเจอผลเดิมโดยไม่รู้ว่าทำไม */}
-        {notice && <div className="note warn" style={{ marginBottom: 4 }}>{notice}</div>}
+      <form onSubmit={submit}>
+        <label htmlFor="em">อีเมลบริษัท</label>
+        <input id="em" type="email" autoComplete="username" inputMode="email"
+          value={email} onChange={(e) => setEmail(e.target.value)} required />
 
-        <form onSubmit={submit}>
-          <label htmlFor="em">อีเมล</label>
-          <input id="em" type="email" autoComplete="username" inputMode="email"
-            value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <label htmlFor="pw">รหัสผ่าน</label>
-          <input id="pw" type="password" autoComplete="current-password"
-            value={password} onChange={(e) => setPassword(e.target.value)} required />
-          {err && <div className="note bad" style={{ marginTop: 12 }}>{err}</div>}
-          <button className="btn" type="submit" disabled={busy} style={{ marginTop: 16 }}>
-            {busy ? <Loader2 size={18} className="spin" /> : <LogIn size={18} />} เข้าสู่ระบบ
-          </button>
-        </form>
+        <label htmlFor="pw">รหัสผ่าน</label>
+        <input id="pw" type={show ? 'text' : 'password'} autoComplete="current-password"
+          value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <button type="button" className="opt" style={{ marginTop: 8 }}
+          aria-pressed={show} onClick={() => setShow((v) => !v)}>
+          {show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+        </button>
 
-        <p style={{ marginTop: 18, fontSize: 12.5 }}>
-          ยังไม่มีบัญชี หรือลืมรหัสผ่าน ติดต่อฝ่ายบุคคล — แอปนี้สมัครเองไม่ได้
-        </p>
-      </div>
-    </div>
+        {err && <div className="note bad" style={{ marginTop: 14 }}>{err}</div>}
+
+        <button className="btn" type="submit" disabled={busy} style={{ marginTop: 18 }}>
+          {busy ? <Loader2 size={17} className="spin" /> : <LogIn size={17} />} เข้าสู่ระบบ
+        </button>
+      </form>
+    </GateShell>
   );
 }

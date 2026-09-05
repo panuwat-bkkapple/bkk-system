@@ -21,8 +21,12 @@ export interface EmployeeMe {
   name: string | null;
   employee_code: string | null;
   position: string | null;
+  department: string | null;
   photo_url: string | null;
   status: string | null;
+  /** หัวหน้าที่จะได้รับใบลาของคนนี้ — `null` = ยังไม่ได้ตั้ง ซึ่งแปลว่าไม่มีใคร
+   *  อนุมัติจากแอปได้ และฟอร์มขอลาต้องบอกตั้งแต่ก่อนกดส่ง */
+  supervisor: { name: string | null; position: string | null } | null;
 }
 
 export type SessionState =

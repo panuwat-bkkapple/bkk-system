@@ -183,15 +183,30 @@ const MAX_SPAN_DAYS = 366;
  * คืน `null` เมื่ออินพุตใช้ไม่ได้ — **ห้ามคืน 0** เพราะ 0 อ่านว่า "ลาศูนย์วัน"
  * ซึ่งเป็นคำตอบที่ผ่านการตรวจต่อไปได้ ส่วน null บังคับให้คนเรียกจัดการ
  */
-function countLeaveDays({ from, to, counts, calendar }) {
+function countLeaveDays({ from, to, counts, calendar, halfStart, halfEnd }) {
   const a = dayNumber(from);
   const b = dayNumber(to);
   if (a == null || b == null || b < a) return null;
   if (b - a + 1 > MAX_SPAN_DAYS) return null;
-  if (counts === "calendar_days") return b - a + 1;
+
+  const dayCounts = (d) => (counts === "calendar_days" ? true : isWorkingDay(d, calendar));
   let n = 0;
-  for (let d = a; d <= b; d += 1) if (isWorkingDay(d, calendar)) n += 1;
-  return n;
+  for (let d = a; d <= b; d += 1) if (dayCounts(d)) n += 1;
+
+  // **ครึ่งวันหักได้เฉพาะวันที่ถูกนับอยู่แล้ว** — ลาครึ่งวันในวันที่ร้านปิด
+  // ไม่ได้ทำให้ยอดติดลบ มันแค่ไม่มีอะไรให้หัก (ชนิด working_days)
+  let half = 0;
+  if (a === b) {
+    // ใบวันเดียว: ธงสองตัวหมายถึงวันเดียวกัน หักได้ครั้งเดียว ไม่ใช่สองครั้ง
+    if ((halfStart || halfEnd) && dayCounts(a)) half = 0.5;
+  } else {
+    if (halfStart && dayCounts(a)) half += 0.5;
+    if (halfEnd && dayCounts(b)) half += 0.5;
+  }
+
+  // ปัดหนึ่งตำแหน่ง — ค่าที่ใช้จริงมีแค่ .0 กับ .5 ซึ่งเก็บใน binary ได้ตรง
+  // แต่การบวกสะสมของยอดใช้ไปแล้วผ่านหลายใบไม่ควรพาเศษไปโผล่บนจอ
+  return Math.round((n - half) * 10) / 10;
 }
 
 /** หาชนิดการลาจาก id — คืน `null` ถ้าไม่รู้จัก (ห้าม fallback เป็นชนิดใดชนิดหนึ่ง) */
@@ -268,7 +283,8 @@ function splitPaidDays({ type, days, usedPaid }) {
   }
   const remaining = Math.max(0, Number(type.paid_days) - Math.max(0, Number(usedPaid) || 0));
   const paid = Math.min(n, remaining);
-  return { paid, unpaid: n - paid };
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return { paid: r1(paid), unpaid: r1(n - paid) };
 }
 
 /** ใบที่ยังกินสิทธิ์อยู่ ของพนักงานคนนั้น ชนิดนั้น ปีนั้น */
@@ -348,9 +364,13 @@ function validateLeaveRequest({ employee, draft, requests, overrides, calendar, 
 
   if (errors.length) return { ok: false, errors };
 
-  const days = countLeaveDays({ from, to, counts: type.counts, calendar });
+  // ครึ่งวันเป็นธงของ "วันหัวและวันท้าย" ไม่ใช่ชนิดการลา — ลายาวห้าวันแล้วเริ่ม
+  // ครึ่งวันบ่ายวันแรกเป็นเรื่องปกติ การผูกไว้กับใบทั้งใบจะแทนเคสนั้นไม่ได้
+  const halfStart = d.half_start === true;
+  const halfEnd = d.half_end === true;
+  const days = countLeaveDays({ from, to, counts: type.counts, calendar, halfStart, halfEnd });
   if (days == null) return { ok: false, errors: ["ช่วงวันลาไม่ถูกต้อง"] };
-  if (days === 0) {
+  if (days <= 0) {
     return { ok: false, errors: ["ช่วงที่เลือกไม่มีวันทำงานเลย (ตรงวันหยุดทั้งช่วง)"] };
   }
 
@@ -410,6 +430,8 @@ function validateLeaveRequest({ employee, draft, requests, overrides, calendar, 
     paid_days: split.paid,
     unpaid_days: split.unpaid,
     counts: type.counts,
+    half_start: halfStart,
+    half_end: halfEnd,
   };
 }
 

@@ -11,7 +11,8 @@
     "check:status-vocab": "node scripts/generate-status-vocab.mjs --check",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify": "bash scripts/verify.sh"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",

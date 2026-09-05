@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Home as HomeIcon, CalendarPlus, Repeat, Inbox as InboxIcon, CalendarDays,
-  LogOut, Loader2, RefreshCw, ShieldAlert,
-} from 'lucide-react';
+import { LogOut, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useEmployeeSession } from './hooks/useEmployeeSession';
 import { useGeolocation } from './hooks/useGeolocation';
 import { geoBlockReason } from './geo';
@@ -12,28 +9,36 @@ import { appGate, sessionVerdict, type SessionFailure, type EmployeeMe } from '.
 type SessionResolved = SessionFailure | { kind: 'employee'; me: EmployeeMe };
 import { call } from './api';
 import AppHeader from './AppHeader';
+import TabBar from './TabBar';
+import { backTarget, titleOf, type Screen } from './nav';
+import { APP_NAME } from './appName';
+import GateShell from './GateShell';
 import Login from './pages/Login';
+import Splash from './pages/Splash';
+import Onboarding from './pages/Onboarding';
+import { onboardingSeen, shouldShowOnboarding } from './onboarding';
 import GpsGate from './pages/GpsGate';
 import Home from './pages/Home';
+import CheckIn from './pages/CheckIn';
+import Roster from './pages/Roster';
+import Swap from './pages/Swap';
+import Payslip from './pages/Payslip';
+import Documents from './pages/Documents';
+import Profile from './pages/Profile';
 import Leave from './pages/Leave';
 import ShiftChange from './pages/ShiftChange';
 import Inbox from './pages/Inbox';
 import History from './pages/History';
-
-type Tab = 'home' | 'leave' | 'shift' | 'inbox' | 'history';
-
-const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
-  { id: 'home', label: 'ลงเวลา', icon: HomeIcon },
-  { id: 'leave', label: 'ขอลา', icon: CalendarPlus },
-  { id: 'shift', label: 'เปลี่ยนกะ', icon: Repeat },
-  { id: 'inbox', label: 'อนุมัติ', icon: InboxIcon },
-  { id: 'history', label: 'ประวัติ', icon: CalendarDays },
-];
+import type { SupervisorInbox } from './api';
 
 export default function App() {
   const { user, ready, logout } = useEmployeeSession();
   const geo = useGeolocation();
-  const [tab, setTab] = useState<Tab>('home');
+  const [screen, setScreen] = useState<Screen>('home');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // เมนู "อนุมัติ" ขึ้นเฉพาะคนที่มีลูกน้องจริง — ถามครั้งเดียวตอนเข้าแอป
+  // และล้มได้เงียบๆ (ไม่มีเมนู ดีกว่าหน้าแรกพังเพราะถามเรื่องรองไม่สำเร็จ)
+  const [isSup, setIsSup] = useState(false);
   // **ผูกผลการตรวจไว้กับ uid ที่ตรวจ** — เก็บเป็น state เปล่าๆ แล้วล้างตอน user
   // เปลี่ยน จะมีช่วงหนึ่งที่ผลของ *คนก่อนหน้า* ยังค้างอยู่บนจอของคนใหม่
   // (และการล้างใน effect คือ setState ตอน render ซึ่ง lint จับถูกแล้ว)
@@ -41,6 +46,8 @@ export default function App() {
   // lazy initializer — `useState(Date.now())` เรียกฟังก์ชันที่ไม่บริสุทธิ์
   // ตอน render ทุกครั้ง (ค่าถูกทิ้ง แต่ lint จับได้ถูกแล้ว)
   const [now, setNow] = useState(() => Date.now());
+  // อ่านครั้งเดียวตอน mount — localStorage อ่านทุก render ไม่มีประโยชน์
+  const [seenOnb, setSeenOnb] = useState(() => onboardingSeen());
 
   // นาฬิกาเดินเองทุก 15 วินาที เพื่อให้ "พิกัดเก่า" ถูกจับได้จริง — ถ้าคำนวณ
   // อายุพิกัดครั้งเดียวตอน render แรก หน้าจอจะค้างอยู่ที่ "ผ่าน" ตลอดไป
@@ -93,6 +100,15 @@ export default function App() {
 
   const loginNotice = session?.state.kind === 'rejected' ? session.state.message : null;
 
+  useEffect(() => {
+    if (!ready || !user || state?.kind !== 'employee') return;
+    let alive = true;
+    void call<SupervisorInbox>('supervisorInbox')
+      .then((r) => { if (alive) setIsSup(Boolean(r.is_supervisor)); })
+      .catch(() => { /* ไม่มีเมนูอนุมัติ ดีกว่าหน้าแรกพัง */ });
+    return () => { alive = false; };
+  }, [ready, user, state]);
+
   const view = appGate({
     authReady: ready,
     signedIn: Boolean(user),
@@ -109,56 +125,67 @@ export default function App() {
     loginNotice,
   });
 
-  if (view.screen === 'loading') {
-    return <div className="gate center"><Loader2 size={22} className="spin" /></div>;
+  if (view.screen === 'loading') return <Splash />;
+  // หน้าแนะนำแทรกก่อนหน้าล็อกอินเท่านั้น และ **ไม่ขอสิทธิ์อะไรจากเครื่อง**
+  // (ตัวขอสิทธิ์ตำแหน่งยังอยู่หลัง `employeeMe` เหมือนเดิม — บั๊ก #726)
+  if (shouldShowOnboarding(view.screen, seenOnb)) {
+    return <Onboarding onDone={() => setSeenOnb(true)} />;
   }
   if (view.screen === 'login') return <Login notice={view.notice} />;
   if (view.screen === 'session_error') {
     return (
-      <div className="gate">
-        <div style={{ maxWidth: 380, width: '100%', margin: '0 auto' }}>
-          <ShieldAlert size={38} strokeWidth={1.6} />
-          <h2>เชื่อมต่อระบบไม่ได้</h2>
-          <p>{view.message}</p>
-          {/* ไม่เตะออกจากระบบ — ยังไม่รู้ว่าไม่ใช่พนักงาน รู้แค่ว่าถามไม่สำเร็จ */}
-          <button className="btn ghost" onClick={retryIdentify}>
-            <RefreshCw size={16} /> ลองใหม่
-          </button>
-          <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => void logout()}>
-            <LogOut size={13} /> ออกจากระบบ
-          </button>
-        </div>
-      </div>
+      <GateShell
+        icon={<ShieldAlert size={22} strokeWidth={2} />}
+        title="เชื่อมต่อระบบไม่ได้"
+        detail={view.message}
+      >
+        {/* ไม่เตะออกจากระบบ — ยังไม่รู้ว่าไม่ใช่พนักงาน รู้แค่ว่าถามไม่สำเร็จ */}
+        <button className="btn" onClick={retryIdentify}>
+          <RefreshCw size={16} /> ลองใหม่
+        </button>
+        <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => void logout()}>
+          <LogOut size={15} /> ออกจากระบบ
+        </button>
+      </GateShell>
     );
   }
   if (view.screen === 'geo') return <GpsGate block={view.block} onAct={geo.request} />;
 
   const me = state?.kind === 'employee' ? state.me : null;
+  const back = backTarget(screen);
 
   return (
     <div className="app">
       <AppHeader
-        name={me?.name || 'แอปพนักงาน'}
-        sub={`${me?.employee_code || 'BKK APPLE'}${me?.position ? ` · ${me.position}` : ''}`}
+        name={me?.name || APP_NAME}
+        sub={`${me?.employee_code || APP_NAME}${me?.position ? ` · ${me.position}` : ''}`}
+        photoUrl={me?.photo_url}
         onLogout={() => void logout()}
+        title={titleOf(screen)}
+        onBack={back ? () => setScreen(back) : undefined}
       />
 
       <div className="main">
-        {tab === 'home' && geo.fix && <Home fix={geo.fix} />}
-        {tab === 'leave' && <Leave />}
-        {tab === 'shift' && <ShiftChange />}
-        {tab === 'inbox' && <Inbox />}
-        {tab === 'history' && <History />}
+        {screen === 'home' && <Home onGo={setScreen} isSupervisor={isSup} />}
+        {screen === 'checkin' && geo.fix && <CheckIn fix={geo.fix} />}
+        {screen === 'roster' && <Roster onGo={setScreen} />}
+        {screen === 'swap' && <Swap />}
+        {screen === 'shift' && <ShiftChange />}
+        {screen === 'leave' && <Leave supervisorName={me?.supervisor?.name} />}
+        {screen === 'payslip' && <Payslip />}
+        {screen === 'documents' && <Documents onGo={setScreen} />}
+        {screen === 'profile' && <Profile onGo={setScreen} onLogout={() => void logout()} />}
+        {screen === 'inbox' && <Inbox />}
+        {screen === 'history' && <History />}
       </div>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} aria-current={tab === t.id} onClick={() => setTab(t.id)}>
-            <t.icon size={19} strokeWidth={tab === t.id ? 2.4 : 1.8} />
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <TabBar
+        screen={screen}
+        onSelect={setScreen}
+        sheetOpen={sheetOpen}
+        onToggleSheet={setSheetOpen}
+      />
+
     </div>
   );
 }

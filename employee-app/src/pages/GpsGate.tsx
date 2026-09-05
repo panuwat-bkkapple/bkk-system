@@ -1,5 +1,6 @@
 import { MapPin, MapPinOff, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { GeoBlock } from '../geo';
+import GateShell from '../GateShell';
 
 // จอที่ปิดทั้งแอปเมื่อใช้ตำแหน่งไม่ได้
 //
@@ -15,26 +16,22 @@ export default function GpsGate({ block, onAct }: { block: GeoBlock; onAct: () =
     : block.code === 'needs_gesture' ? MapPin : MapPinOff;
   const isAsk = block.code === 'needs_gesture' || block.code === 'denied';
   return (
-    <div className="gate">
-      <div style={{ maxWidth: 380, width: '100%', margin: '0 auto' }}>
-        <Icon size={38} strokeWidth={1.6} />
-        <h2>{block.title}</h2>
-        <p>{block.detail}</p>
-        {block.action ? (
-          <button className={isAsk ? 'btn' : 'btn ghost'} onClick={onAct}
-            style={isAsk ? { background: '#059669' } : undefined}>
-            {isAsk ? <MapPin size={16} /> : <RefreshCw size={16} />} {block.action}
-          </button>
-        ) : (
-          // เหลือไว้เฉพาะเคสที่กดแล้วไม่มีทางสำเร็จจริงๆ (ไม่รองรับ / http)
-          <p style={{ fontSize: 12.5, opacity: 0.75 }}>
-            แก้ตามขั้นตอนด้านบนแล้วปิดแอปเปิดใหม่อีกครั้ง
-          </p>
-        )}
-        {/* รหัสเหตุผลไว้ให้บอกทางโทรศัพท์ได้ว่าติดตรงไหน — ไล่ปัญหาตำแหน่ง
-            ด้วยคำบรรยายของผู้ใช้อย่างเดียวแทบเป็นไปไม่ได้ */}
-        <p style={{ fontSize: 11, opacity: 0.4, marginTop: 20 }}>รหัส: {block.code}</p>
-      </div>
-    </div>
+    <GateShell
+      icon={<Icon size={22} strokeWidth={2} />}
+      title={block.title}
+      detail={block.detail}
+      /* รหัสเหตุผลไว้ให้บอกทางโทรศัพท์ได้ว่าติดตรงไหน — ไล่ปัญหาตำแหน่ง
+         ด้วยคำบรรยายของผู้ใช้อย่างเดียวแทบเป็นไปไม่ได้ */
+      foot={`รหัส: ${block.code}`}
+    >
+      {block.action ? (
+        <button className={isAsk ? 'btn' : 'btn ghost'} onClick={onAct}>
+          {isAsk ? <MapPin size={16} /> : <RefreshCw size={16} />} {block.action}
+        </button>
+      ) : (
+        // เหลือไว้เฉพาะเคสที่กดแล้วไม่มีทางสำเร็จจริงๆ (ไม่รองรับ / http)
+        <div className="note">แก้ตามขั้นตอนด้านบนแล้วปิดแอปเปิดใหม่อีกครั้ง</div>
+      )}
+    </GateShell>
   );
 }

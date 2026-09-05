@@ -5,32 +5,52 @@
  * พนักงานหายไปจากหัวแอป เหลือกล่องขาวเปล่าๆ **ไม่มีอะไรพัง ไม่มี error ไม่มี
  * เทสแดง** สาเหตุคือหัวแอปใช้ `className="row"` ซึ่งชนกับ `.row` ที่เป็น
  * **การ์ดในลิสต์** (พื้นขาว มีขอบ) สไตล์การ์ดจึงทาทับหัวแอปสีกรม แล้วตัวหนังสือ
- * สีขาวก็อยู่บนพื้นขาว — วัดจริงในเบราว์เซอร์: bg `rgb(255,255,255)` คู่กับ
- * color `rgb(255,255,255)`
+ * สีขาวก็อยู่บนพื้นขาว
  *
- * ตาราง injection (วัดจริง ไม่ได้เดา):
- *   ย้อน `.list .row` -> `.row`                            -> แดง 1
- *   ย้อน `className="bar"` -> `"row"` (เดี่ยว)             -> **เขียว** (ดูหมายเหตุ)
- *   ย้อนทั้งสองข้อข้างบนพร้อมกัน = บั๊กจริงเป๊ะๆ            -> แดง 3
- *   `.head` ทาพื้นสีอ่อนโดยตัวหนังสือยังขาว                 -> แดง 1 (เฉพาะชั้นเบราว์เซอร์)
- *   App.tsx เขียนมาร์กอัปหัวแอปเองซ้ำ                       -> แดง 1
- *   ถอด `var(--safe-t)` ออกจาก `.head`                      -> แดง 1
- *   ถอด `var(--safe-t)` ออกจาก `.gate`                      -> แดง 1
- *   ถอดกฎ `.datefield.empty > input::-webkit-datetime-edit`  -> แดง 1
- *   ถอดการติดคลาส `empty` ใน DateField.tsx                   -> แดง 1
- *   หน้าใดหน้าหนึ่งเขียน `input type="date"` เองแทน DateField  -> แดง 1
- *   ลบ `viewport-fit=cover` ออกจาก index.html                -> เขียว (ดูหมายเหตุ)
+ * ตาราง injection (วัดจริงทั้ง 12 ข้อ 5 ก.ย. 2569 หลังเปลี่ยนมาใช้ธีมการ์ดนุ่ม
+ * — ตัวเลขคือ **จำนวนเทสที่แดง** ไม่ใช่จำนวน assertion):
+ *   ย้อน `.list .row` -> `.row`                              -> แดง 1
+ *   `.head` ทาพื้นเข้มโดยไม่แก้สีตัวอักษร                     -> แดง 1 (ชั้นเบราว์เซอร์)
+ *   `.gate` ทาพื้นเข้มโดยไม่แก้สีตัวอักษร                     -> แดง 1 (ชั้นเบราว์เซอร์)
+ *   App.tsx เขียนมาร์กอัปหัวแอปเองซ้ำ                         -> แดง 1
+ *   หน้าใดหน้าหนึ่งเขียน `<div className="gate">` เอง          -> แดง 1
+ *   ถอด `var(--safe-t)` ออกจาก `.head`                        -> แดง 1
+ *   ถอด `var(--safe-t)` ออกจาก `.gate`                        -> แดง 1
+ *   ถอดกฎ `.datefield.empty > input::-webkit-datetime-edit`   -> แดง 1
+ *   ถอดการติดคลาส `empty` ใน DateField.tsx                     -> แดง 1
+ *   หน้าใดหน้าหนึ่งเขียน `input type="date"` เองแทน DateField   -> แดง 1
+ *   ตั้ง `--warn` เป็นสีอ่อน (#d9a441) บนพื้น warn เดิม        -> แดง 1 (ชั้นเบราว์เซอร์)
+ *   ลบ `viewport-fit=cover` ออกจาก index.html                  -> เขียว (ดูหมายเหตุ)
  *
- * **หมายเหตุสองข้อที่เขียว และทั้งคู่เขียวถูกแล้ว ไม่ใช่รูของด่าน:**
- * - เปลี่ยนหัวแอปกลับไปใช้ `row` เดี่ยวๆ ไม่ทำให้พัง เพราะ `.row` ถูก scope ไว้
- *   ใต้ `.list` แล้ว มันจึงเอื้อมมาไม่ถึง — **บั๊กเดิมต้องการสองข้อพร้อมกัน**
- *   (กับดัก injection ข้อ 1: ต้องถอดเป็นคู่ด้วย ไม่ใช่ทีละตัวอย่างเดียว)
- * - ลบ `viewport-fit=cover` ทำให้เว็บวิวเลิกกินพื้นที่ใต้แถบสถานะ = บั๊กหายไป
- *   เอง เทสจึงเขียวถูกแล้ว และกฎเรื่อง `--safe-t` เขียนเป็นเงื่อนไขตามนั้น
+ * **หมายเหตุที่เขียวและเขียวถูกแล้ว ไม่ใช่รูของด่าน:** ลบ `viewport-fit=cover`
+ * ทำให้เว็บวิวเลิกกินพื้นที่ใต้ขอบจอ = การเผื่อไม่จำเป็นอีก กฎเรื่อง `--safe-t`
+ * จึงเขียนเป็นเงื่อนไขตามนั้น (บังคับตลอดไป = อ้างเกินกว่าที่เรารู้)
+ *
+ * **ปุ่มกลมเปลี่ยนสถานะที่วัด (5 ก.ย. 2569):** ตอนแถบล่างเปลี่ยนเป็นสี่แท่น +
+ * ปุ่มกางแผงทางลัด ปุ่มกลมเลิกมี `aria-current` แล้ว — injection ที่ถอด
+ * `.fab[aria-current]` จึง **เขียว** เพราะกฎนั้นไม่มีวันถูกเรียกอีก ไม่ใช่เพราะ
+ * ด่านมีรู. ตามกฎ "ด่านที่ไปไม่ถึง ให้ลบ ไม่ใช่ ship" จึงย้ายไปเป็น
+ * `[aria-expanded='true']` ซึ่งเป็นสถานะที่เกิดจริง แล้ว injection ตัวเดิม
+ * (ทาสีตัวอักษรเท่าพื้น) แดงทันทีที่ 1.00:1
+ *
+ * **บั๊กปุ่มกลมต้องถอดสองอย่างพร้อมกันถึงจะกลับมา** (กับดัก injection ข้อ 1
+ * ของ CLAUDE.md เป๊ะๆ — ถอดเป็นคู่ ไม่ใช่ทีละตัว): การ scope
+ * `.tabs .dock button[aria-current]` กันไม่ให้กฎแท็บเอื้อมถึงปุ่มกลม **และ**
+ * `.tabs .fab[aria-current]` ที่ประกาศ `color` ของตัวเองมี specificity (0,3,0)
+ * ชนะกฎแท็บ (0,2,1) — แต่ละอย่างกันบั๊กได้ด้วยตัวเอง ถอดทีละตัวจึงเขียว
+ * **ถูกแล้ว** ไม่ใช่รูของด่าน. เก็บไว้ทั้งสองข้างเพราะ scope เป็นสิ่งที่ถูก
+ * ด้วยตัวมันเอง (กฎที่เขียนให้ป้ายแท็บไม่ควรเอื้อมไปโดนปุ่มคนละชนิด)
  *
  * **ชั้นเบราว์เซอร์ไม่ใช่ของซ้ำซ้อนกับชั้นสตริง** — injection ที่ทา `.head` เป็น
  * สีอ่อนโดยไม่แตะ `.row` เลย ทำให้ชั้นสตริงเขียวสนิท (ไม่มีกฎไหนผิดรูป) แต่
  * ตัวหนังสือขาวไปนั่งบนพื้นสว่าง = อ่านไม่ออกจริง ชั้นเบราว์เซอร์จับได้ตัวเดียว
+ *
+ * **สิ่งที่ด่านนี้ยัง*ไม่*ครอบ และไม่แกล้งทำเป็นครอบ:** หน้าในแอป (Home/Leave/
+ * ShiftChange/Inbox/History) import `../api` ซึ่งลาก Firebase มาด้วย จึง SSR
+ * ไม่ได้ ชั้นเบราว์เซอร์เลยวัดได้แค่ `AppHeader` · `TabBar` · `GpsGate`
+ * (ซึ่งผ่าน `GateShell`) — ส่วนสีของป้ายและกล่องข้อความที่หน้าพวกนั้นใช้ ถูกคุมด้วย
+ * "ทุกรูปแบบที่ประกาศไว้ใน CSS ต้องอ่านออก" แทน ซึ่งครอบโดยโครงสร้าง
+ * ไม่ใช่ครอบเท่าที่เรานึกออก
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs';
@@ -38,12 +58,17 @@ import { tmpdir } from 'node:os';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import AppHeader from './AppHeader';
+import TabBar from './TabBar';
+import GpsGate from './pages/GpsGate';
+import Splash from './pages/Splash';
 import { join } from 'node:path';
 
 const here = join(__dirname);
 const css = readFileSync(join(here, 'styles.css'), 'utf8');
 const appTsx = readFileSync(join(here, 'App.tsx'), 'utf8');
 const headerTsx = readFileSync(join(here, 'AppHeader.tsx'), 'utf8');
+const tabBarTsx = readFileSync(join(here, 'TabBar.tsx'), 'utf8');
+const gateTsx = readFileSync(join(here, 'GateShell.tsx'), 'utf8');
 const dateFieldTsx = readFileSync(join(here, 'DateField.tsx'), 'utf8');
 
 /** ไฟล์ .tsx ทุกไฟล์ของแอป (ไม่รวมเทส) — กฎบางข้อต้องตรวจ *ทั้งแอป*
@@ -74,41 +99,49 @@ function rules(source: string): { selector: string; body: string }[] {
   return out;
 }
 
-/** คลาสที่ถูกใช้กับ element ที่อยู่ "ข้างใน" หัวแอป (ไม่รวมตัว .head เอง) */
-function classesInsideHead(tsx: string): string[] {
-  const start = tsx.indexOf('<div className="head">');
-  expect(start, 'หา <div className="head"> ใน AppHeader.tsx ไม่เจอ').toBeGreaterThan(-1);
-  const block = tsx.slice(start + '<div className="head">'.length)
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+/** คลาสที่ถูกใช้กับ element ที่อยู่ "ข้างใน" คอนเทนเนอร์หนึ่ง (ไม่รวมตัวมันเอง) */
+function classesInside(tsx: string, root: string): string[] {
+  const open = `<div className="${root}">`;
+  const start = tsx.indexOf(open);
+  expect(start, `หา ${open} ไม่เจอ`).toBeGreaterThan(-1);
+  const block = tsx.slice(start + open.length).replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
   const found = new Set<string>();
   for (const m of block.matchAll(/className="([^"]+)"/g)) {
     for (const c of m[1].split(/\s+/).filter(Boolean)) found.add(c);
   }
-  found.delete('head');
+  found.delete(root);
   return [...found];
 }
 
-describe('เปลือกแอปพนักงาน — กติกาที่จับได้เฉพาะตอนวาดจริง', () => {
-  it('คลาสในหัวแอปที่ทาสีพื้น ต้องกำหนดสีตัวอักษรของตัวเองด้วย', () => {
-    // **นี่คือรูปของบั๊กจริงเป๊ะๆ** — หัวแอปตั้ง `color: #fff` ไว้ ลูกทุกตัวจึง
-    // ได้ตัวหนังสือสีขาวมาโดยการสืบทอด. กฎที่ทา `background` ให้คลาสในนั้นแต่
-    // **ไม่ตั้ง `color` ของตัวเอง** = ตัวหนังสือขาวไปนั่งบนพื้นที่อาจสว่าง
-    // (`.row` ทาพื้นขาวโดยไม่ตั้งสี -> ขาวบนขาว) ส่วน `.btn.ghost` ทาพื้นขาว
-    // **พร้อมตั้ง `color: var(--ink)`** จึงอ่านออกและไม่ถือว่าผิดกฎ
-    const inHead = classesInsideHead(headerTsx);
-    expect(inHead.length).toBeGreaterThan(0);
-    const offenders: string[] = [];
-    for (const rule of rules(css)) {
-      if (!/(^|[^-])background\s*:/.test(rule.body)) continue;
-      if (/(^|[^-])color\s*:/.test(rule.body)) continue;
-      for (const sel of rule.selector.split(',').map((s) => s.trim())) {
-        // สนใจเฉพาะ selector ที่เป็นคลาสเดี่ยวๆ ไม่มีบรรพบุรุษกำกับ — ตัวที่มี
-        // บรรพบุรุษ (เช่น `.list .row`) เอื้อมมาถึงหัวแอปไม่ได้อยู่แล้ว
-        const bare = /^\.([A-Za-z0-9_-]+)$/.exec(sel);
-        if (bare && inHead.includes(bare[1])) offenders.push(`${sel} -> ${rule.body.trim()}`);
-      }
+/** คลาสที่ทาพื้นโดยไม่ตั้งสีตัวอักษรของตัวเอง = รูปของบั๊กขาวบนขาว */
+function bgWithoutColor(names: string[]): string[] {
+  const offenders: string[] = [];
+  for (const rule of rules(css)) {
+    if (!/(^|[^-])background\s*:/.test(rule.body)) continue;
+    if (/(^|[^-])color\s*:/.test(rule.body)) continue;
+    for (const sel of rule.selector.split(',').map((s) => s.trim())) {
+      // สนใจเฉพาะ selector ที่เป็นคลาสเดี่ยวๆ ไม่มีบรรพบุรุษกำกับ — ตัวที่มี
+      // บรรพบุรุษ (เช่น `.list .row`) เอื้อมมาถึงเปลือกไม่ได้อยู่แล้ว
+      const bare = /^\.([A-Za-z0-9_-]+)$/.exec(sel);
+      if (bare && names.includes(bare[1])) offenders.push(`${sel} -> ${rule.body.trim()}`);
     }
-    expect(offenders, 'คลาสในหัวแอปทาพื้นโดยไม่ตั้งสีตัวอักษร = เสี่ยงขาวบนขาว').toEqual([]);
+  }
+  return offenders;
+}
+
+describe('เปลือกแอปพนักงาน — กติกาที่จับได้เฉพาะตอนวาดจริง', () => {
+  it('คลาสในหัวแอปและจอเต็มที่ทาสีพื้น ต้องกำหนดสีตัวอักษรของตัวเองด้วย', () => {
+    // **นี่คือรูปของบั๊กจริงเป๊ะๆ** — เปลือกตั้งสีตัวอักษรไว้ ลูกทุกตัวจึงได้สี
+    // นั้นมาโดยการสืบทอด. กฎที่ทา `background` ให้คลาสในนั้นแต่ **ไม่ตั้ง `color`
+    // ของตัวเอง** = ตัวหนังสืออาจไปนั่งบนพื้นที่กลืนกับมัน (`.row` ทาพื้นขาว
+    // โดยไม่ตั้งสี -> ขาวบนขาว) ส่วน `.chip`/`.btn.ghost` ทาพื้นขาว **พร้อมตั้ง
+    // `color`** จึงอ่านออกและไม่ถือว่าผิดกฎ
+    const inHead = classesInside(headerTsx, 'head');
+    const inGate = classesInside(gateTsx, 'gate');
+    expect(inHead.length).toBeGreaterThan(0);
+    expect(inGate.length).toBeGreaterThan(0);
+    expect(bgWithoutColor([...inHead, ...inGate]),
+      'คลาสในเปลือกทาพื้นโดยไม่ตั้งสีตัวอักษร = เสี่ยงกลืนพื้น').toEqual([]);
   });
 
   it('App.tsx ใช้หัวแอปที่แยกไฟล์ไว้ ไม่ได้เขียนมาร์กอัปเองซ้ำ', () => {
@@ -117,6 +150,28 @@ describe('เปลือกแอปพนักงาน — กติกา�
     expect(appTsx).toMatch(/<AppHeader\b/);
     expect(appTsx.includes('<div className="head">'),
       'App.tsx ต้องไม่เขียนมาร์กอัปหัวแอปเอง — ใช้ <AppHeader /> เท่านั้น').toBe(false);
+  });
+
+  it('App.tsx ใช้แถบล่างที่แยกไฟล์ไว้ ไม่ได้เขียนมาร์กอัปเองซ้ำ', () => {
+    // เหตุผลเดียวกับ AppHeader: ตอนแถบล่างยังอยู่ใน App.tsx (ซึ่ง import
+    // Firebase จึง SSR ไม่ได้) ชั้นเบราว์เซอร์มองไม่เห็นมันเลย บั๊กคอนทราสต์
+    // ของปุ่มกลม (1.16:1) จึงลอดออกมาได้ทั้งที่ด่านเขียวครบ
+    expect(appTsx).toMatch(/<TabBar\b/);
+    expect(appTsx.includes('<nav className="tabs">'),
+      'App.tsx ต้องไม่เขียนมาร์กอัปแถบล่างเอง — ใช้ <TabBar /> เท่านั้น').toBe(false);
+    expect(tabBarTsx).toMatch(/<nav className="tabs">/);
+  });
+
+  it('จอเต็มทุกใบผ่าน GateShell ที่เดียว', () => {
+    // เหตุผลเดียวกับ DateField: ล็อกอิน / สิทธิ์ตำแหน่ง / ถามตัวตนไม่สำเร็จ /
+    // กำลังโหลด เคยเขียนเปลือกของตัวเองคนละไฟล์ แก้ที่หนึ่งอีกที่ยังพัง
+    const offenders = allTsx(here)
+      .filter((f) => f.path !== 'GateShell.tsx')
+      .filter((f) => /<div className="gate"/.test(f.src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')))
+      .map((f) => f.path);
+    expect(offenders, 'ต้องใช้ <GateShell /> แทน').toEqual([]);
+    const users = allTsx(here).filter((f) => /<GateShell\b/.test(f.src)).map((f) => f.path);
+    expect(users.length, 'ไม่มีใครใช้ GateShell เลย').toBeGreaterThan(0);
   });
 
   it('การ์ดในลิสต์ถูก scope ไว้ใต้ .list', () => {
@@ -130,13 +185,12 @@ describe('เปลือกแอปพนักงาน — กติกา�
     }
   });
 
-  it('หัวแอปกับจอเต็มเผื่อพื้นที่ใต้แถบสถานะ (viewport-fit=cover + black-translucent)', () => {
-    // **กฎนี้มีเงื่อนไขโดยตั้งใจ** — สองหัวนี้คือสิ่งที่ทำให้เว็บวิวกินพื้นที่
-    // ใต้แถบสถานะ ถ้าวันหนึ่งถอดออก การเผื่อก็ไม่จำเป็นอีก จึงไม่บังคับให้ต้อง
-    // มีทั้งคู่ตลอดไป (บังคับ = อ้างเกินกว่าที่เรารู้)
-    const edgeToEdge = indexHtml.includes('viewport-fit=cover')
-      && indexHtml.includes('black-translucent');
-    if (!edgeToEdge) return;
+  it('หัวแอปกับจอเต็มเผื่อพื้นที่ปลอดภัยของขอบจอ (viewport-fit=cover)', () => {
+    // **กฎนี้มีเงื่อนไขโดยตั้งใจ** — `viewport-fit=cover` คือสิ่งที่ทำให้เลย์เอาต์
+    // กินพื้นที่ขอบจอทั้งบนและล่าง ถ้าวันหนึ่งถอดออก การเผื่อก็ไม่จำเป็นอีก
+    // (แถบสถานะเปลี่ยนเป็น `default` ตอนย้ายมาธีมสว่างแล้ว เพราะ
+    // `black-translucent` บังคับตัวอักษรสีขาวซึ่งอ่านไม่ออกบนหัวแอปสว่าง)
+    if (!indexHtml.includes('viewport-fit=cover')) return;
     expect(css).toMatch(/--safe-t:\s*env\(safe-area-inset-top/);
     for (const sel of ['.head', '.gate']) {
       const rule = rules(css).find((r) => r.selector === sel);
@@ -206,20 +260,66 @@ function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-describe('หัวแอปวาดจริงในเบราว์เซอร์', () => {
+/** ทุกรูปแบบของป้าย/กล่องข้อความที่ **CSS ประกาศไว้** — ครอบโดยโครงสร้าง
+ *  ไม่ใช่ครอบเท่าที่เรานึกออก (`.pill.ok`, `.note.bad`, ...) */
+function toneVariants(base: 'pill' | 'note'): string[] {
+  const out = new Set<string>([base]);
+  for (const r of rules(css)) {
+    for (const sel of r.selector.split(',').map((s) => s.trim())) {
+      const m = new RegExp(`^\\.${base}\\.([A-Za-z0-9_-]+)$`).exec(sel);
+      if (m) out.add(`${base} ${m[1]}`);
+    }
+  }
+  return [...out];
+}
+
+describe('เปลือกแอปวาดจริงในเบราว์เซอร์', () => {
   let browser: import('playwright').Browser | undefined;
   let url = '';
   let skipReason = '';
 
   beforeAll(async () => {
     const dir = mkdtempSync(join(tmpdir(), 'employee-chrome-'));
-    const markup = renderToStaticMarkup(
+    const header = renderToStaticMarkup(
       createElement(AppHeader, { name: 'ปณุวัฒน์ ทดสอบ', sub: 'EMP-0001 · ผู้จัดการ' }),
     );
-    const file = join(dir, 'head.html');
+    // `GpsGate` เป็นจอเต็มจริงใบเดียวที่ SSR ได้ (ไม่ลาก Firebase) จึงใช้มัน
+    // วัดเปลือก `GateShell` แทนที่จะประกอบมาร์กอัปปลอมขึ้นมาเอง
+    const gate = renderToStaticMarkup(createElement(GpsGate, {
+      block: {
+        code: 'denied',
+        title: 'แอปยังไม่ได้รับสิทธิ์ตำแหน่ง',
+        detail: 'กดปุ่มด้านล่างเพื่อขอสิทธิ์อีกครั้ง',
+        action: 'ขอสิทธิ์ตำแหน่ง',
+      },
+      onAct: () => {},
+    }));
+    // แถบล่างสามสถานะ — แท่นแรก / แท่นอื่น / แผงทางลัดกางอยู่
+    // ต้องวัด **ทุกสถานะ** เพราะบั๊กคอนทราสต์ของปุ่มกลมโผล่เฉพาะบางสถานะ
+    // (ตอนนั้นคือ aria-current=true; วันนี้ปุ่มกลมเปลี่ยนสีตอนแผงกางแทน)
+    const splash = renderToStaticMarkup(createElement(Splash, {}));
+    const dockOpts = { onSelect: () => {}, onToggleSheet: () => {} };
+    const dockHome = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'home' as const, sheetOpen: false, ...dockOpts }));
+    const dockRoster = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'roster' as const, sheetOpen: false, ...dockOpts }));
+    const dockSheet = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'home' as const, sheetOpen: true, ...dockOpts }));
+    // ป้ายและกล่องข้อความ วัดบนพื้นสองแบบที่มันถูกใช้จริง (พื้นหน้า และในการ์ด)
+    const tones = [...toneVariants('pill'), ...toneVariants('note')]
+      .map((cls) => `<div class="${cls}" data-tone="${cls}">ตัวอย่าง</div>`).join('');
+    const file = join(dir, 'chrome.html');
     writeFileSync(file,
       `<!doctype html><html lang="th"><head><meta charset="utf-8">` +
-      `<style>${css}</style></head><body><div class="app">${markup}</div></body></html>`);
+      `<style>${css}</style></head><body>` +
+      `<div class="app">${header}<div class="main" id="on-bg">${tones}</div>` +
+      `<div class="main"><div class="card" id="on-card">${tones}</div></div></div>` +
+      `<div id="gate">${gate}</div>` +
+      `<div id="splash">${splash}</div>` +
+      `<div class="app" id="dock-home" style="position:relative">${dockHome}</div>` +
+      `<div class="app" id="dock-roster" style="position:relative">${dockRoster}</div>` +
+      `<div class="app" id="dock-sheet" style="position:relative">${dockSheet}</div>` +
+      `</body></html>`);
     url = `file://${file}`;
 
     try {
@@ -238,11 +338,14 @@ describe('หัวแอปวาดจริงในเบราว์เซ�
 
   afterAll(async () => { await browser?.close(); });
 
-  it('ชื่อและรหัสพนักงานอ่านออกจริง (ไม่ใช่ขาวบนขาว)', async () => {
-    if (!browser) { expect(skipReason).not.toBe(''); return; }
-    const page = await browser.newPage({ viewport: { width: 390, height: 400 } });
+  /** `allowEmptyText` = องค์ประกอบที่เป็นไอคอนล้วนโดยตั้งใจ (ปุ่มกลมมี
+   *  aria-label แทนข้อความ) — ประกาศไว้ตรงๆ ดีกว่าปล่อยให้เงื่อนไขหลวมทั้งชุด */
+  const measure = async (
+    sels: Record<string, string>, allowEmptyText = false, min = 4.5,
+  ) => {
+    const page = await browser!.newPage({ viewport: { width: 390, height: 900 } });
     await page.goto(url);
-    const seen = await page.evaluate(() => {
+    const seen = await page.evaluate((map: Record<string, string>) => {
       // พื้นหลังที่ *มีผลจริง* คือตัวแรกที่ไม่โปร่งใสเมื่อไล่ขึ้นไปหาบรรพบุรุษ
       const effectiveBg = (el: Element | null): string => {
         for (let n: Element | null = el; n; n = n.parentElement) {
@@ -251,22 +354,107 @@ describe('หัวแอปวาดจริงในเบราว์เซ�
         }
         return 'rgb(255, 255, 255)';
       };
-      const pick = (sel: string) => {
+      const out: Record<string, { color: string; bg: string; text: string } | null> = {};
+      for (const [name, sel] of Object.entries(map)) {
         const el = document.querySelector(sel);
-        if (!el) return null;
-        return { color: getComputedStyle(el).color, bg: effectiveBg(el),
-          text: (el.textContent || '').trim() };
-      };
-      return { h1: pick('.head h1'), sub: pick('.head .sub'), out: pick('.head button') };
-    });
+        out[name] = el
+          ? { color: getComputedStyle(el).color, bg: effectiveBg(el), text: (el.textContent || '').trim() }
+          : null;
+      }
+      return out;
+    }, sels);
     await page.close();
 
     for (const [what, got] of Object.entries(seen)) {
-      expect(got, `หา ${what} ในหัวแอปไม่เจอ`).toBeTruthy();
-      expect(got!.text.length, `${what} ไม่มีข้อความ`).toBeGreaterThan(0);
+      expect(got, `หา ${what} ไม่เจอ`).toBeTruthy();
+      if (!allowEmptyText) {
+        expect(got!.text.length, `${what} ไม่มีข้อความ`).toBeGreaterThan(0);
+      }
       const ratio = contrastRatio(got!.color, got!.bg);
       expect(ratio, `${what}: ${got!.color} บน ${got!.bg} = ${ratio.toFixed(2)}:1`)
-        .toBeGreaterThanOrEqual(4.5);
+        .toBeGreaterThanOrEqual(min);
     }
+  };
+
+  it('ชื่อและรหัสพนักงานอ่านออกจริง (ไม่ใช่ขาวบนขาว)', async () => {
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    await measure({
+      'หัวแอป h1': '.head h1',
+      'หัวแอป sub': '.head .sub',
+      'หัวแอป ปุ่มออก': '.head button',
+    });
+  }, 60_000);
+
+  it('จอเต็ม (GateShell) อ่านออกจริงทุกส่วน', async () => {
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    await measure({
+      'จอเต็ม หัวข้อ': '#gate .gate h2',
+      'จอเต็ม คำอธิบาย': '#gate .gate p',
+      'จอเต็ม ปุ่มหลัก': '#gate .gate .btn',
+      'จอเต็ม รหัสเหตุผล': '#gate .gate .foot',
+    });
+  }, 60_000);
+
+  it('แถบเมนูล่างอ่านออกทุกปุ่มทุกสถานะ รวมปุ่มกลม', async () => {
+    // **ด่านนี้เกิดจากบั๊กจริง** — `.tabs button[aria-current='true']` (0,2,1)
+    // ชนะ `.tabs .fab` (0,2,0) แล้วทับสีตัวอักษรของปุ่มกลมจนเหลือ 1.16:1
+    // ชั้นสตริงจับไม่ได้เพราะไม่มีกฎไหน "ผิดรูป" — มันเป็นเรื่องของ specificity
+    // ซึ่งต้องให้เบราว์เซอร์คำนวณเท่านั้น
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    await measure({
+      'ปุ่มกลม (แผงปิด)': '#dock-home .fab',
+      'ปุ่มกลม (แผงกาง)': '#dock-sheet .fab',
+    }, true);
+    await measure({
+      'แท็บที่กำลังเปิด': '#dock-roster .dock button[aria-current="true"]',
+      'แท็บที่ไม่ได้เปิด': '#dock-home .dock button:not([aria-current="true"])',
+      // แผงทางลัดเป็นพื้นผิวใหม่ที่ลอยอยู่เหนือทุกอย่าง — ถ้าไม่วัด มันคือ
+      // ของใหม่ที่ด่านมองไม่เห็น ซึ่งเป็นรูปเดิมของบั๊กสี่ตัวก่อนหน้าเป๊ะๆ
+      'ปุ่มในแผงทางลัด': '#dock-sheet .sheet button',
+    });
+  }, 60_000);
+
+  it('ชื่อแอปบนจอโลโก้อ่านออก และยังใหญ่พอที่จะใช้เกณฑ์ตัวอักษรใหญ่ได้', async () => {
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    // **เกณฑ์ 3:1 ไม่ใช่ 4.5:1 โดยตั้งใจ และมีเงื่อนไขกำกับ** — WCAG ให้
+    // ตัวอักษรใหญ่ (>=24px หรือ >=18.66px ตัวหนา) ใช้ 3:1 ได้. สีครึ่งหลัง
+    // (#8fe0d3 บน #0e6f63) เป็นสีของต้นฉบับ วัดจริงได้ **3.97:1** ซึ่งผ่าน
+    // เกณฑ์ตัวอักษรใหญ่ แต่จะไม่ผ่านถ้าใครย่อขนาดลง — จึงตรวจ "ขนาดต้องใหญ่พอ"
+    // ควบไปด้วย ไม่ใช่ผ่อนเกณฑ์ทิ้งไว้เฉยๆ
+    const page = await browser.newPage({ viewport: { width: 402, height: 874 } });
+    await page.goto(url);
+    const size = await page.evaluate(() => {
+      const el = document.querySelector('#splash .wordmark');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { px: parseFloat(cs.fontSize), weight: Number(cs.fontWeight) };
+    });
+    await page.close();
+    expect(size, 'หา .wordmark บนจอโลโก้ไม่เจอ').toBeTruthy();
+    const isLarge = size!.px >= 24 || (size!.px >= 18.66 && size!.weight >= 700);
+    expect(isLarge, `ชื่อแอป ${size!.px}px/${size!.weight} เล็กเกินกว่าจะใช้เกณฑ์ 3:1`).toBe(true);
+    await measure({
+      'ชื่อแอป ครึ่งแรก': '#splash .wordmark',
+      'ชื่อแอป ครึ่งหลัง': '#splash .wordmark > span',
+    }, false, 3);
+    // ข้อความอื่นบนจอโลโก้เป็นตัวเล็ก ใช้เกณฑ์เต็ม
+    await measure({
+      'จอโลโก้ คำโปรย': '#splash .splash-tag',
+      'จอโลโก้ สถานะ': '#splash .splash-note',
+      'จอโลโก้ ท้ายจอ': '#splash .splash-foot',
+    });
+  }, 60_000);
+
+  it('ป้ายและกล่องข้อความทุกรูปแบบที่ประกาศไว้ อ่านออกทั้งบนพื้นหน้าและในการ์ด', async () => {
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    const variants = [...toneVariants('pill'), ...toneVariants('note')];
+    expect(variants.length).toBeGreaterThan(4);
+    const sels: Record<string, string> = {};
+    for (const cls of variants) {
+      const attr = `[data-tone="${cls}"]`;
+      sels[`${cls} (พื้นหน้า)`] = `#on-bg ${attr}`;
+      sels[`${cls} (ในการ์ด)`] = `#on-card ${attr}`;
+    }
+    await measure(sels);
   }, 60_000);
 });

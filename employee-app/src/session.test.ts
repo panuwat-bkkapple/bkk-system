@@ -20,15 +20,16 @@
 //   | ยังไม่รู้ว่าเป็นใครก็ปล่อยเข้าแอป                           | แดง 2 |
 
 import { describe, it, expect } from 'vitest';
-import { sessionVerdict, appGate, type GateInput, type SessionState } from './session';
+import { sessionVerdict, appGate, type GateInput, type SessionState, type EmployeeMe } from './session';
 import type { GeoBlock } from './geo';
 
 const BLOCK: GeoBlock = {
   code: 'denied', title: 'ต้องอนุญาต', detail: 'x', action: 'อนุญาต',
 };
-const ME = {
+const ME: EmployeeMe = {
   id: 'e1', name: 'สมชาย', employee_code: 'EMP-1',
-  position: null, photo_url: null, status: 'active',
+  position: null, department: null, photo_url: null, status: 'active',
+  supervisor: null,
 };
 const employee: SessionState = { kind: 'employee', me: ME };
 
