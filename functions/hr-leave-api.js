@@ -94,6 +94,16 @@ const publicRequest = (r) => ({
   // แก้หลังยื่น — หัวหน้าที่เห็นใบนี้ในกล่องอนุมัติต้องรู้ว่ามันไม่ใช่ใบที่
   // ยื่นมาแบบนี้ตั้งแต่แรก (เขียนโดย employeeLeaveUpdate)
   edited_at: Number(r.edited_at) || null,
+  // ครึ่งวันหัว/ท้าย — ต้องส่งออกมาด้วย ไม่งั้นหน้าจอที่โชว์ "2.5 วัน" อธิบาย
+  // ไม่ได้ว่าครึ่งวันนั้นอยู่วันไหน และตอนกดแก้ใบ ธงจะหายไปเงียบๆ
+  half_start: r.half_start === true,
+  half_end: r.half_end === true,
+  // ไฟล์แนบ = ตัวชี้ไปที่ `employee_files` ไม่ใช่ URL — คนที่มีสิทธิ์เปิด
+  // (เจ้าตัว หรือหัวหน้าของเขา) ขอ base64 ผ่าน callable อีกที
+  attachments: Array.isArray(r.attachments)
+    ? r.attachments.map((a) => ({ id: a && a.id, filename: (a && a.filename) || null }))
+      .filter((a) => a.id)
+    : [],
 });
 
 function registerHrLeave() {

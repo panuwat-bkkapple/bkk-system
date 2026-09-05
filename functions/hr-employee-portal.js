@@ -15,6 +15,7 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { getDatabase } = require("firebase-admin/database");
+const { getStorage } = require("firebase-admin/storage");
 
 const { requireEmployeeCaller } = require("./hr-employee-auth");
 const { validateLeaveRequest, leaveBalances, REQUEST_STATUSES } = require("./hr-leave");
@@ -37,8 +38,13 @@ const publicShiftRequest = (r) => ({
   employee_id: r.employee_id,
   date: r.date,
   from_shift_id: r.from_shift_id || null,
+  from_shift_label: r.from_shift_label || null,
   to_shift_id: r.to_shift_id || null,
   to_shift_label: r.to_shift_label || null,
+  // ขาสลับกับเพื่อน — ไม่มีสามฟิลด์นี้ = คำขอเปลี่ยนกะเดี่ยวแบบเดิม
+  swap_with_employee_id: r.swap_with_employee_id || null,
+  swap_with_name: r.swap_with_name || null,
+  peer_accepted_at: Number(r.peer_accepted_at) || null,
   reason: r.reason || null,
   status: r.status,
   requested_at: Number(r.requested_at) || null,
@@ -52,6 +58,38 @@ async function loadShiftRequests(db, employeeId) {
   const out = [];
   snap.forEach((c) => { out.push({ id: c.key, employee_id: employeeId, ...c.val() }); return false; });
   out.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  return out;
+}
+
+/** เพดานไฟล์แนบต่อใบลา — ใบรับรองแพทย์ปกติหนึ่งใบ เผื่อถ่ายหลายหน้า */
+const MAX_ATTACHMENTS = 5;
+
+/**
+ * รับ id ไฟล์ที่พนักงานอัปโหลดไว้แล้ว มาผูกกับใบลา
+ *
+ * **ไม่รับตัวไฟล์มาที่นี่ และไม่รับ path** — พนักงานอัปโหลดผ่าน
+ * `employeeFileUpload` ก่อน (ซึ่งตรวจชนิด/ขนาด/นามสกุลไว้แล้ว) แล้วส่งแต่ id
+ * มา ใบลาจึงเก็บแค่ "ชี้ไปที่ไฟล์ไหน" ไม่ได้เก็บสำเนาที่สองของเอกสารเดียวกัน
+ *
+ * การตรวจว่าเป็นของเจ้าตัวเป็น**เชิงโครงสร้าง**: อ่านใต้
+ * `employee_files/{employeeId}` เท่านั้น id ของคนอื่นจึงหาไม่เจอ ไม่ใช่เพราะ
+ * มี `if` ที่ลืมได้
+ */
+async function claimLeaveAttachments(db, employeeId, raw) {
+  const ids = Array.isArray(raw) ? raw.map((x) => str(x, 60)).filter(Boolean) : [];
+  if (!ids.length) return [];
+  if (ids.length > MAX_ATTACHMENTS) {
+    throw new HttpsError("invalid-argument", `แนบไฟล์ได้ไม่เกิน ${MAX_ATTACHMENTS} ไฟล์`);
+  }
+  const snaps = await Promise.all(
+    ids.map((id) => db.ref(`employee_files/${employeeId}/${id}`).once("value")),
+  );
+  const out = [];
+  snaps.forEach((snap, i) => {
+    if (!snap.exists()) throw new HttpsError("not-found", "ไม่พบไฟล์ที่แนบมา");
+    const v = snap.val() || {};
+    out.push({ id: ids[i], filename: v.filename || null, content_type: v.content_type || null });
+  });
   return out;
 }
 
@@ -144,6 +182,7 @@ function registerHrEmployeePortal() {
       // `id` = ใบที่กำลังแก้อยู่ — validator ข้ามใบนี้ตอนเช็คช่วงทับและตอนรวม
       // วันที่ใช้ไปแล้ว ไม่งั้นการแก้ใบเดิมจะชนกับตัวเองเสมอ
       draft: { type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10),
+        half_start: d.halfStart === true, half_end: d.halfEnd === true,
         id: str(d.requestId, 60) || undefined },
       requests, overrides: policy.overrides, calendar: policy.calendar,
     });
@@ -164,6 +203,7 @@ function registerHrEmployeePortal() {
 
     const draft = {
       type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10),
+      half_start: d.halfStart === true, half_end: d.halfEnd === true,
       document_note: str(d.documentNote, 200),
     };
     const v = validateLeaveRequest({
@@ -171,9 +211,13 @@ function registerHrEmployeePortal() {
     });
     if (!v.ok) throw new HttpsError("failed-precondition", v.errors.join(" · "));
 
+    const attachments = await claimLeaveAttachments(db, employeeId, d.attachments);
+
     const ref = db.ref(`leave_requests/${employeeId}`).push();
     const row = {
       type: draft.type, from: draft.from, to: draft.to,
+      half_start: draft.half_start, half_end: draft.half_end,
+      attachments: attachments.length ? attachments : null,
       // ตัวเลขทั้งสามมาจาก server เท่านั้น ไม่รับจาก client
       days: v.days, paid_days: v.paid_days, unpaid_days: v.unpaid_days,
       reason: str(d.reason, 400) || null,
@@ -219,6 +263,7 @@ function registerHrEmployeePortal() {
     const draft = {
       id: requestId,
       type: str(d.type, 40), from: str(d.from, 10), to: str(d.to, 10),
+      half_start: d.halfStart === true, half_end: d.halfEnd === true,
       document_note: str(d.documentNote, 200),
     };
     const v = validateLeaveRequest({
@@ -228,6 +273,7 @@ function registerHrEmployeePortal() {
 
     const patch = {
       type: draft.type, from: draft.from, to: draft.to,
+      half_start: draft.half_start, half_end: draft.half_end,
       days: v.days, paid_days: v.paid_days, unpaid_days: v.unpaid_days,
       reason: str(d.reason, 400) || null,
       document_note: draft.document_note || null,
@@ -315,6 +361,197 @@ function registerHrEmployeePortal() {
     return { ok: true, id: ref.key, request: publicShiftRequest({ id: ref.key, employee_id: employeeId, ...row }) };
   });
 
+  // -------------------------------------------------------------------------
+  // employeeSwapCandidates — "ใครสลับกะกับฉันวันนั้นได้บ้าง" (ดีไซน์ 04)
+  //
+  // **รายชื่อจำกัดที่ทีมเดียวกัน (หัวหน้าคนเดียวกัน) หรือสาขาเดียวกัน** ไม่ใช่
+  // ทั้งบริษัท — รายชื่อพนักงานทุกคนพร้อมกะของแต่ละคนเป็นข้อมูลที่ไม่มีเหตุผล
+  // ให้ทุกคนเห็น และการสลับกะข้ามสาขาก็ไม่ใช่สิ่งที่ตารางเวรรองรับอยู่แล้ว
+  //
+  // **คนที่สลับไม่ได้ยังถูกส่งมาพร้อมเหตุผล ไม่ใช่ถูกกรองทิ้ง** — ดีไซน์ต้นทาง
+  // แสดงแถวจางๆ ว่า "ลาวันนั้น · ไม่สามารถสลับ" ซึ่งถูก: การหายไปเฉยๆ ทำให้คน
+  // ไล่หาชื่อเพื่อนที่รู้ว่ามีตัวตนแล้วสรุปว่าแอปพัง
+  // -------------------------------------------------------------------------
+  const employeeSwapCandidates = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { id: employeeId, employee } = await requireEmployeeCaller(db, request.auth);
+    const date = str((request.data || {}).date, 10);
+    if (!DATE_RE.test(date)) throw new HttpsError("invalid-argument", "วันที่ไม่ถูกต้อง");
+
+    const [hrSnap, empSnap] = await Promise.all([
+      db.ref("settings/hr").once("value"),
+      db.ref("employees").once("value"),
+    ]);
+    const { shifts } = A.normalizeShifts((hrSnap.val() || {}).shifts);
+    const employees = empSnap.exists() ? empSnap.val() : {};
+
+    const myRosterSnap = await db.ref(`shift_roster/${employeeId}/${date}`).once("value");
+    const mine = A.resolveShift({
+      shifts, roster: { [date]: myRosterSnap.val() }, employee, iso: date,
+    }).shift;
+    if (!mine) throw new HttpsError("failed-precondition", "วันนั้นคุณไม่มีกะ จึงไม่มีอะไรให้สลับ");
+
+    const myBranch = str(employee.branch, 120);
+    const mySup = str(employee.supervisor_id, 80);
+    const peers = Object.entries(employees).filter(([id, e]) => (
+      id !== employeeId && e && e.status === "ACTIVE"
+      && ((mySup && str(e.supervisor_id, 80) === mySup) || (myBranch && str(e.branch, 120) === myBranch))
+    )).slice(0, MAX_REPORTS);
+
+    const rows = await Promise.all(peers.map(async ([id, e]) => {
+      const [rSnap, leaves] = await Promise.all([
+        db.ref(`shift_roster/${id}/${date}`).once("value"),
+        loadRequests(db, id),
+      ]);
+      const theirs = A.resolveShift({
+        shifts, roster: { [date]: rSnap.val() }, employee: e, iso: date,
+      }).shift;
+      // ใบลาที่ยัง "กินสิทธิ์" (รออนุมัติ หรืออนุมัติแล้ว) คลุมวันนั้นอยู่ไหม
+      const onLeave = leaves.some((l) => (
+        (l.status === "pending" || l.status === "approved")
+        && String(l.from || "") <= date && date <= String(l.to || "")
+      ));
+      let blocked = null;
+      if (onLeave) blocked = "ลาวันนั้น";
+      else if (!theirs) blocked = "วันนั้นไม่มีกะ";
+      else if (theirs.id === mine.id) blocked = "อยู่กะเดียวกัน";
+      return {
+        id,
+        name: e.name || null,
+        employee_code: e.employee_code || null,
+        same_team: Boolean(mySup && str(e.supervisor_id, 80) === mySup),
+        shift: theirs ? { id: theirs.id, label: theirs.label, start: theirs.start, end: theirs.end } : null,
+        blocked,
+      };
+    }));
+
+    rows.sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0)
+      || (b.same_team ? 1 : 0) - (a.same_team ? 1 : 0)
+      || String(a.name || "").localeCompare(String(b.name || "")));
+
+    return {
+      date,
+      my_shift: { id: mine.id, label: mine.label, start: mine.start, end: mine.end },
+      candidates: rows,
+    };
+  });
+
+  // -------------------------------------------------------------------------
+  // employeeShiftSwapCreate — ขอสลับกะกับเพื่อน (ดีไซน์ 04)
+  //
+  // **สองขั้น ไม่ใช่ขั้นเดียว**: เพื่อนตอบรับก่อน (`awaiting_peer`) แล้วค่อยเข้า
+  // กล่องหัวหน้า (`pending`) — คำขอที่หัวหน้าอนุมัติได้ทันทีโดยเพื่อนไม่เคยรู้
+  // คือการเปลี่ยนกะของคนอื่นลับหลังเขา ซึ่งแย่กว่าไม่มีฟีเจอร์นี้เลย
+  //
+  // เก็บในโหนดเดิม `shift_requests/{ผู้ขอ}` โดยตั้งใจ — หัวหน้าคนเดิมอนุมัติ
+  // ด้วยเส้นทางเดิม และคำขอเปลี่ยนกะเดี่ยวก็ยังเป็นแถวรูปเดียวกันที่ไม่มีขาสลับ
+  // -------------------------------------------------------------------------
+  const employeeShiftSwapCreate = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { id: employeeId, employee } = await requireEmployeeCaller(db, request.auth);
+    const d = request.data || {};
+    const date = str(d.date, 10);
+    const peerId = str(d.peerId, 80);
+    if (!DATE_RE.test(date)) throw new HttpsError("invalid-argument", "วันที่ไม่ถูกต้อง");
+    if (!peerId) throw new HttpsError("invalid-argument", "ต้องเลือกคนที่จะสลับด้วย");
+    if (peerId === employeeId) throw new HttpsError("invalid-argument", "สลับกับตัวเองไม่ได้");
+    if (date < A.bangkokIso(nowMs())) {
+      throw new HttpsError("failed-precondition", "ขอสลับกะย้อนหลังไม่ได้");
+    }
+
+    const [hrSnap, peerSnap, myRoster, peerRoster, mineReqs, peerReqs, peerLeaves] = await Promise.all([
+      db.ref("settings/hr").once("value"),
+      db.ref(`employees/${peerId}`).once("value"),
+      db.ref(`shift_roster/${employeeId}/${date}`).once("value"),
+      db.ref(`shift_roster/${peerId}/${date}`).once("value"),
+      loadShiftRequests(db, employeeId),
+      loadShiftRequests(db, peerId),
+      loadRequests(db, peerId),
+    ]);
+    if (!peerSnap.exists()) throw new HttpsError("not-found", "ไม่พบเพื่อนร่วมงานคนนี้");
+    const peer = peerSnap.val();
+    if (peer.status !== "ACTIVE") throw new HttpsError("failed-precondition", "คนนี้ไม่ได้อยู่ในสถานะทำงาน");
+
+    const { shifts } = A.normalizeShifts((hrSnap.val() || {}).shifts);
+    const mine = A.resolveShift({ shifts, roster: { [date]: myRoster.val() }, employee, iso: date }).shift;
+    const theirs = A.resolveShift({ shifts, roster: { [date]: peerRoster.val() }, employee: peer, iso: date }).shift;
+    if (!mine) throw new HttpsError("failed-precondition", "วันนั้นคุณไม่มีกะ");
+    if (!theirs) throw new HttpsError("failed-precondition", "วันนั้นเขาไม่มีกะ");
+    if (mine.id === theirs.id) throw new HttpsError("failed-precondition", "อยู่กะเดียวกันอยู่แล้ว");
+
+    if (peerLeaves.some((l) => (l.status === "pending" || l.status === "approved")
+      && String(l.from || "") <= date && date <= String(l.to || ""))) {
+      throw new HttpsError("failed-precondition", "เขาลาวันนั้น สลับไม่ได้");
+    }
+    // ค้างใบเดียวต่อวันต่อคน — ทั้งฝั่งเราและฝั่งเขา ไม่งั้นตารางเวรของวันเดียว
+    // จะมีคำขอสองใบที่ขัดกันเองรออยู่
+    const openStatuses = ["pending", "awaiting_peer"];
+    if (mineReqs.some((r) => r.date === date && openStatuses.includes(r.status))) {
+      throw new HttpsError("failed-precondition", "มีคำขอของวันนี้ค้างอยู่แล้ว");
+    }
+    if (peerReqs.some((r) => r.date === date && openStatuses.includes(r.status))) {
+      throw new HttpsError("failed-precondition", "เขามีคำขอของวันนี้ค้างอยู่แล้ว");
+    }
+
+    const ref = db.ref(`shift_requests/${employeeId}`).push();
+    const row = {
+      date,
+      from_shift_id: mine.id,
+      from_shift_label: mine.label,
+      to_shift_id: theirs.id,
+      to_shift_label: theirs.label,
+      swap_with_employee_id: peerId,
+      swap_with_name: peer.name || null,
+      reason: str(d.reason, 400) || null,
+      status: "awaiting_peer",
+      requested_at: nowMs(),
+      requested_by_uid: request.auth.uid,
+      requested_by_name: employee.name || null,
+      supervisor_id: str(employee.supervisor_id, 80) || null,
+    };
+    // **ตัวชี้ในกล่องของเพื่อน** — ไม่งั้นการหา "ใครขอสลับกับฉันบ้าง" ต้องไล่อ่าน
+    // `shift_requests` ของทุกคน ซึ่งเป็นการกวาดโหนดที่กฎค่า RTDB ห้ามไว้
+    await db.ref(`shift_swap_inbox/${peerId}/${ref.key}`).set({
+      requester_id: employeeId, date, at: row.requested_at,
+    });
+    await ref.set(row);
+    return { ok: true, id: ref.key, request: publicShiftRequest({ id: ref.key, employee_id: employeeId, ...row }) };
+  });
+
+  // -------------------------------------------------------------------------
+  // employeeShiftSwapRespond — เพื่อนกดรับ/ปฏิเสธคำขอสลับ
+  //
+  // ผู้ตอบต้องเป็น `swap_with_employee_id` ของใบนั้นเท่านั้น — ตรวจจากใบ ไม่ใช่
+  // จากพารามิเตอร์ที่ผู้เรียกส่งมา
+  // -------------------------------------------------------------------------
+  const employeeShiftSwapRespond = onCall({ region: REGION }, async (request) => {
+    const db = getDatabase();
+    const { id: employeeId, employee } = await requireEmployeeCaller(db, request.auth);
+    const d = request.data || {};
+    const requesterId = str(d.requesterId, 80);
+    const requestId = str(d.requestId, 60);
+    const accept = d.accept === true;
+    if (!requesterId || !requestId) throw new HttpsError("invalid-argument", "ต้องระบุคำขอ");
+
+    const ref = db.ref(`shift_requests/${requesterId}/${requestId}`);
+    const snap = await ref.once("value");
+    if (!snap.exists()) throw new HttpsError("not-found", "ไม่พบคำขอ");
+    const cur = snap.val();
+    if (str(cur.swap_with_employee_id, 80) !== employeeId) {
+      throw new HttpsError("permission-denied", "คำขอนี้ไม่ได้ส่งถึงคุณ");
+    }
+    if (cur.status !== "awaiting_peer") {
+      throw new HttpsError("failed-precondition", "คำขอนี้ถูกตอบไปแล้ว");
+    }
+
+    await ref.update(accept
+      ? { status: "pending", peer_accepted_at: nowMs(), peer_responded_by_name: employee.name || null }
+      : { status: "declined_by_peer", peer_declined_at: nowMs(), peer_responded_by_name: employee.name || null });
+    // ตอบแล้วออกจากกล่อง ไม่ว่าตอบว่าอะไร — กล่องนี้คือ "รอฉันตอบ" ไม่ใช่ประวัติ
+    await db.ref(`shift_swap_inbox/${employeeId}/${requestId}`).remove();
+    return { ok: true, status: accept ? "pending" : "declined_by_peer" };
+  });
+
   const employeeShiftChangeList = onCall({ region: REGION }, async (request) => {
     const db = getDatabase();
     const { id: employeeId } = await requireEmployeeCaller(db, request.auth);
@@ -323,9 +560,26 @@ function registerHrEmployeePortal() {
       loadShiftRequests(db, employeeId),
     ]);
     const { shifts } = A.normalizeShifts((hrSnap.val() || {}).shifts);
+
+    // คำขอสลับที่รอ *ฉัน* ตอบ — อ่านผ่านตัวชี้ในกล่องของตัวเอง ทีละใบ
+    const inboxSnap = await db.ref(`shift_swap_inbox/${employeeId}`).once("value");
+    const pointers = [];
+    inboxSnap.forEach((c) => { pointers.push({ id: c.key, ...(c.val() || {}) }); return false; });
+    const incoming = (await Promise.all(pointers.slice(0, MAX_ROWS).map(async (ptr) => {
+      const rid = str(ptr.requester_id, 80);
+      if (!rid) return null;
+      const snap = await db.ref(`shift_requests/${rid}/${ptr.id}`).once("value");
+      if (!snap.exists()) return null;
+      const v = snap.val();
+      // ตัวชี้ค้างได้ถ้าคำขอถูกตอบด้วยเส้นทางอื่น — ไม่โชว์ ไม่ใช่ error
+      if (v.status !== "awaiting_peer") return null;
+      return { ...publicShiftRequest({ id: ptr.id, employee_id: rid, ...v }), requester_id: rid };
+    }))).filter(Boolean);
+
     return {
       shifts: shifts.map((s) => ({ id: s.id, label: s.label, start: s.start, end: s.end })),
       requests: rows.slice(0, MAX_ROWS).map(publicShiftRequest),
+      incoming,
       capped: rows.length > MAX_ROWS,
     };
   });
@@ -355,6 +609,46 @@ function registerHrEmployeePortal() {
     shift.sort((a, b) => (a.date < b.date ? -1 : 1));
 
     return { is_supervisor: reports.length > 0, reports, leave, shift };
+  });
+
+  // -------------------------------------------------------------------------
+  // supervisorLeaveAttachment — เปิดไฟล์แนบของใบลาที่กำลังจะอนุมัติ
+  //
+  // **แคบกว่า "หัวหน้าเปิดแฟ้มลูกน้องได้"** โดยตั้งใจ — ตรวจสามชั้น: เป็นลูกน้อง
+  // ตรงจริง · ใบลานั้นเป็นของเขาจริง · และไฟล์ที่ขอ **ถูกแนบไว้กับใบนั้น**
+  // (ชั้นที่สามคือชั้นที่สำคัญ ไม่งั้นมันจะกลายเป็นประตูอ่านสำเนาบัตรประชาชน
+  // ของลูกน้องทุกคน โดยอ้างว่าจะอนุมัติใบลา)
+  // -------------------------------------------------------------------------
+  const supervisorLeaveAttachment = onCall({ region: REGION, memory: "512MiB" }, async (request) => {
+    const db = getDatabase();
+    const { id: supervisorId } = await requireEmployeeCaller(db, request.auth);
+    const d = request.data || {};
+    const targetId = str(d.employeeId, 80);
+    const requestId = str(d.requestId, 60);
+    const fileId = str(d.fileId, 60);
+    if (!targetId || !requestId || !fileId) throw new HttpsError("invalid-argument", "ข้อมูลไม่ครบ");
+
+    const empSnap = await db.ref(`employees/${targetId}`).once("value");
+    if (!empSnap.exists()) throw new HttpsError("not-found", "ไม่พบพนักงาน");
+    if (str(empSnap.val().supervisor_id, 80) !== supervisorId) {
+      throw new HttpsError("permission-denied", "เปิดได้เฉพาะไฟล์ของลูกน้องในสายของตัวเอง");
+    }
+
+    const reqSnap = await db.ref(`leave_requests/${targetId}/${requestId}`).once("value");
+    if (!reqSnap.exists()) throw new HttpsError("not-found", "ไม่พบใบลา");
+    const listed = (reqSnap.val().attachments || []).some((a) => a && a.id === fileId);
+    if (!listed) throw new HttpsError("permission-denied", "ไฟล์นี้ไม่ได้แนบกับใบลานี้");
+
+    const fileSnap = await db.ref(`employee_files/${targetId}/${fileId}`).once("value");
+    if (!fileSnap.exists()) throw new HttpsError("not-found", "ไม่พบไฟล์");
+    const row = fileSnap.val() || {};
+    if (!row.storage_path) throw new HttpsError("not-found", "ไฟล์นี้ไม่มีข้อมูลแนบ");
+    const [buf] = await getStorage().bucket().file(row.storage_path).download();
+    return {
+      filename: row.filename || "document",
+      content_type: row.content_type || "application/octet-stream",
+      base64: buf.toString("base64"),
+    };
   });
 
   // -------------------------------------------------------------------------
@@ -404,12 +698,19 @@ function registerHrEmployeePortal() {
     });
 
     if (kind === "shift" && status === "approved") {
-      await db.ref(`shift_roster/${targetId}/${cur.date}`).set({
-        shift_id: cur.to_shift_id,
-        at,
-        by_name: supervisor.name || null,
-        source: "shift_request",
-      });
+      const stamp = { at, by_name: supervisor.name || null, source: "shift_request" };
+      const peerId = str(cur.swap_with_employee_id, 80);
+      if (peerId) {
+        // **สลับต้องเขียนสองฝั่งในคำสั่งเดียว** — เขียนทีละฝั่งแล้วล้มกลางทาง
+        // แปลว่าวันนั้นมีสองคนอยู่กะเดียวกันและอีกกะไม่มีใคร ซึ่งไม่มีใครเห็น
+        // จนกว่าจะถึงวันงาน. `update()` หลาย path ของ RTDB เป็น atomic
+        await db.ref().update({
+          [`shift_roster/${targetId}/${cur.date}`]: { shift_id: cur.to_shift_id, ...stamp },
+          [`shift_roster/${peerId}/${cur.date}`]: { shift_id: cur.from_shift_id, ...stamp },
+        });
+      } else {
+        await db.ref(`shift_roster/${targetId}/${cur.date}`).set({ shift_id: cur.to_shift_id, ...stamp });
+      }
     }
     return { ok: true };
   });
@@ -423,7 +724,11 @@ function registerHrEmployeePortal() {
     employeeLeaveCancel,
     employeeShiftChangeCreate,
     employeeShiftChangeList,
+    employeeSwapCandidates,
+    employeeShiftSwapCreate,
+    employeeShiftSwapRespond,
     supervisorInbox,
+    supervisorLeaveAttachment,
     supervisorDecide,
   };
 }
