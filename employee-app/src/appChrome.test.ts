@@ -26,14 +26,22 @@
  * ทำให้เว็บวิวเลิกกินพื้นที่ใต้ขอบจอ = การเผื่อไม่จำเป็นอีก กฎเรื่อง `--safe-t`
  * จึงเขียนเป็นเงื่อนไขตามนั้น (บังคับตลอดไป = อ้างเกินกว่าที่เรารู้)
  *
+ * **บั๊กปุ่มกลมต้องถอดสองอย่างพร้อมกันถึงจะกลับมา** (กับดัก injection ข้อ 1
+ * ของ CLAUDE.md เป๊ะๆ — ถอดเป็นคู่ ไม่ใช่ทีละตัว): การ scope
+ * `.tabs .dock button[aria-current]` กันไม่ให้กฎแท็บเอื้อมถึงปุ่มกลม **และ**
+ * `.tabs .fab[aria-current]` ที่ประกาศ `color` ของตัวเองมี specificity (0,3,0)
+ * ชนะกฎแท็บ (0,2,1) — แต่ละอย่างกันบั๊กได้ด้วยตัวเอง ถอดทีละตัวจึงเขียว
+ * **ถูกแล้ว** ไม่ใช่รูของด่าน. เก็บไว้ทั้งสองข้างเพราะ scope เป็นสิ่งที่ถูก
+ * ด้วยตัวมันเอง (กฎที่เขียนให้ป้ายแท็บไม่ควรเอื้อมไปโดนปุ่มคนละชนิด)
+ *
  * **ชั้นเบราว์เซอร์ไม่ใช่ของซ้ำซ้อนกับชั้นสตริง** — injection ที่ทา `.head` เป็น
  * สีอ่อนโดยไม่แตะ `.row` เลย ทำให้ชั้นสตริงเขียวสนิท (ไม่มีกฎไหนผิดรูป) แต่
  * ตัวหนังสือขาวไปนั่งบนพื้นสว่าง = อ่านไม่ออกจริง ชั้นเบราว์เซอร์จับได้ตัวเดียว
  *
  * **สิ่งที่ด่านนี้ยัง*ไม่*ครอบ และไม่แกล้งทำเป็นครอบ:** หน้าในแอป (Home/Leave/
  * ShiftChange/Inbox/History) import `../api` ซึ่งลาก Firebase มาด้วย จึง SSR
- * ไม่ได้ ชั้นเบราว์เซอร์เลยวัดได้แค่ `AppHeader` กับ `GpsGate` (ซึ่งผ่าน
- * `GateShell`) — ส่วนสีของป้ายและกล่องข้อความที่หน้าพวกนั้นใช้ ถูกคุมด้วย
+ * ไม่ได้ ชั้นเบราว์เซอร์เลยวัดได้แค่ `AppHeader` · `TabBar` · `GpsGate`
+ * (ซึ่งผ่าน `GateShell`) — ส่วนสีของป้ายและกล่องข้อความที่หน้าพวกนั้นใช้ ถูกคุมด้วย
  * "ทุกรูปแบบที่ประกาศไว้ใน CSS ต้องอ่านออก" แทน ซึ่งครอบโดยโครงสร้าง
  * ไม่ใช่ครอบเท่าที่เรานึกออก
  */
@@ -43,6 +51,7 @@ import { tmpdir } from 'node:os';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import AppHeader from './AppHeader';
+import TabBar from './TabBar';
 import GpsGate from './pages/GpsGate';
 import { join } from 'node:path';
 
@@ -50,6 +59,7 @@ const here = join(__dirname);
 const css = readFileSync(join(here, 'styles.css'), 'utf8');
 const appTsx = readFileSync(join(here, 'App.tsx'), 'utf8');
 const headerTsx = readFileSync(join(here, 'AppHeader.tsx'), 'utf8');
+const tabBarTsx = readFileSync(join(here, 'TabBar.tsx'), 'utf8');
 const gateTsx = readFileSync(join(here, 'GateShell.tsx'), 'utf8');
 const dateFieldTsx = readFileSync(join(here, 'DateField.tsx'), 'utf8');
 
@@ -132,6 +142,16 @@ describe('เปลือกแอปพนักงาน — กติกา�
     expect(appTsx).toMatch(/<AppHeader\b/);
     expect(appTsx.includes('<div className="head">'),
       'App.tsx ต้องไม่เขียนมาร์กอัปหัวแอปเอง — ใช้ <AppHeader /> เท่านั้น').toBe(false);
+  });
+
+  it('App.tsx ใช้แถบล่างที่แยกไฟล์ไว้ ไม่ได้เขียนมาร์กอัปเองซ้ำ', () => {
+    // เหตุผลเดียวกับ AppHeader: ตอนแถบล่างยังอยู่ใน App.tsx (ซึ่ง import
+    // Firebase จึง SSR ไม่ได้) ชั้นเบราว์เซอร์มองไม่เห็นมันเลย บั๊กคอนทราสต์
+    // ของปุ่มกลม (1.16:1) จึงลอดออกมาได้ทั้งที่ด่านเขียวครบ
+    expect(appTsx).toMatch(/<TabBar\b/);
+    expect(appTsx.includes('<nav className="tabs">'),
+      'App.tsx ต้องไม่เขียนมาร์กอัปแถบล่างเอง — ใช้ <TabBar /> เท่านั้น').toBe(false);
+    expect(tabBarTsx).toMatch(/<nav className="tabs">/);
   });
 
   it('จอเต็มทุกใบผ่าน GateShell ที่เดียว', () => {
@@ -266,6 +286,10 @@ describe('เปลือกแอปวาดจริงในเบราว�
       },
       onAct: () => {},
     }));
+    // แถบล่างสองสถานะ — `home` ทำให้ปุ่มกลม active, `leave` ทำให้มัน idle
+    // ต้องวัด **ทั้งสองสถานะ** เพราะบั๊กจริงโผล่เฉพาะตอน aria-current=true
+    const dockHome = renderToStaticMarkup(createElement(TabBar, { tab: 'home', onSelect: () => {} }));
+    const dockLeave = renderToStaticMarkup(createElement(TabBar, { tab: 'leave', onSelect: () => {} }));
     // ป้ายและกล่องข้อความ วัดบนพื้นสองแบบที่มันถูกใช้จริง (พื้นหน้า และในการ์ด)
     const tones = [...toneVariants('pill'), ...toneVariants('note')]
       .map((cls) => `<div class="${cls}" data-tone="${cls}">ตัวอย่าง</div>`).join('');
@@ -276,6 +300,8 @@ describe('เปลือกแอปวาดจริงในเบราว�
       `<div class="app">${header}<div class="main" id="on-bg">${tones}</div>` +
       `<div class="main"><div class="card" id="on-card">${tones}</div></div></div>` +
       `<div id="gate">${gate}</div>` +
+      `<div class="app" id="dock-home" style="position:relative">${dockHome}</div>` +
+      `<div class="app" id="dock-leave" style="position:relative">${dockLeave}</div>` +
       `</body></html>`);
     url = `file://${file}`;
 
@@ -295,7 +321,9 @@ describe('เปลือกแอปวาดจริงในเบราว�
 
   afterAll(async () => { await browser?.close(); });
 
-  const measure = async (sels: Record<string, string>) => {
+  /** `allowEmptyText` = องค์ประกอบที่เป็นไอคอนล้วนโดยตั้งใจ (ปุ่มกลมมี
+   *  aria-label แทนข้อความ) — ประกาศไว้ตรงๆ ดีกว่าปล่อยให้เงื่อนไขหลวมทั้งชุด */
+  const measure = async (sels: Record<string, string>, allowEmptyText = false) => {
     const page = await browser!.newPage({ viewport: { width: 390, height: 900 } });
     await page.goto(url);
     const seen = await page.evaluate((map: Record<string, string>) => {
@@ -320,7 +348,9 @@ describe('เปลือกแอปวาดจริงในเบราว�
 
     for (const [what, got] of Object.entries(seen)) {
       expect(got, `หา ${what} ไม่เจอ`).toBeTruthy();
-      expect(got!.text.length, `${what} ไม่มีข้อความ`).toBeGreaterThan(0);
+      if (!allowEmptyText) {
+        expect(got!.text.length, `${what} ไม่มีข้อความ`).toBeGreaterThan(0);
+      }
       const ratio = contrastRatio(got!.color, got!.bg);
       expect(ratio, `${what}: ${got!.color} บน ${got!.bg} = ${ratio.toFixed(2)}:1`)
         .toBeGreaterThanOrEqual(4.5);
@@ -343,6 +373,22 @@ describe('เปลือกแอปวาดจริงในเบราว�
       'จอเต็ม คำอธิบาย': '#gate .gate p',
       'จอเต็ม ปุ่มหลัก': '#gate .gate .btn',
       'จอเต็ม รหัสเหตุผล': '#gate .gate .foot',
+    });
+  }, 60_000);
+
+  it('แถบเมนูล่างอ่านออกทุกปุ่มทุกสถานะ รวมปุ่มกลม', async () => {
+    // **ด่านนี้เกิดจากบั๊กจริง** — `.tabs button[aria-current='true']` (0,2,1)
+    // ชนะ `.tabs .fab` (0,2,0) แล้วทับสีตัวอักษรของปุ่มกลมจนเหลือ 1.16:1
+    // ชั้นสตริงจับไม่ได้เพราะไม่มีกฎไหน "ผิดรูป" — มันเป็นเรื่องของ specificity
+    // ซึ่งต้องให้เบราว์เซอร์คำนวณเท่านั้น
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    await measure({
+      'ปุ่มกลม (กำลังเปิด)': '#dock-home .fab',
+      'ปุ่มกลม (ไม่ได้เปิด)': '#dock-leave .fab',
+    }, true);
+    await measure({
+      'แท็บที่กำลังเปิด': '#dock-leave .dock button[aria-current="true"]',
+      'แท็บที่ไม่ได้เปิด': '#dock-home .dock button:not([aria-current="true"])',
     });
   }, 60_000);
 

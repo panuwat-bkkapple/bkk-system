@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, LogIn, LogOut, MapPin, Loader2, RefreshCw } from 'lucide-react';
+import { Clock, MapPin, Loader2, RefreshCw } from 'lucide-react';
 import { call, errorText, type AttendanceStatus, type PunchResult } from '../api';
 import { clockTime, durationText, formatDistance, shiftTimeText, type GeoFix } from '../geo';
+import SlideConfirm from '../SlideConfirm';
 
 // หน้าลงเวลา — ปุ่มเดียวที่เปลี่ยนความหมายตามสถานะ (เข้า -> ออก -> จบแล้ว)
 //
 // **ระยะห่างต้องโชว์ก่อนกด** — ปุ่มที่กดแล้วค่อยรู้ว่าไกลไป คือปุ่มที่คนกดซ้ำๆ
 // ตอนยืนอยู่หน้าร้าน แล้วสรุปว่าระบบพัง
 //
-// ดีไซน์ต้นทาง (02) มีแผนที่ geofence · ปุ่มสแกน QR · ปุ่มเช็คอินนอกสถานที่ ·
-// แถบเลื่อนยืนยัน — **ไม่ได้ทำทั้งสี่อย่าง** เพราะระบบยังไม่มี QR ไม่มีเส้นทาง
-// เช็คอินนอกสถานที่ และการวาดแผนที่ต้องโหลด Maps JS ซึ่งเป็นค่าใช้จ่ายจริง
-// ต่อการเปิดแอปหนึ่งครั้งเพื่อภาพประกอบที่ไม่ได้เปลี่ยนคำตอบ (ตัวเลขระยะทาง
-// บอกสิ่งเดียวกันและ server เป็นคนตัดสินอยู่แล้ว)
+// ดีไซน์ต้นทาง (02) มีแผนที่ geofence · ปุ่มสแกน QR · ปุ่มเช็คอินนอกสถานที่ —
+// **สามอย่างนี้ยังไม่ได้ทำ** เพราะระบบไม่มี QR ไม่มีเส้นทางเช็คอินนอกสถานที่
+// และการวาดแผนที่ต้องโหลด Maps JS ทุกการเปิดแอปเพื่อภาพประกอบที่ไม่ได้เปลี่ยน
+// คำตอบ (ตัวเลขระยะทางบอกสิ่งเดียวกัน และ server เป็นคนตัดสินอยู่แล้ว)
+// ส่วน **แถบเลื่อนยืนยันทำแล้ว** — ดู `SlideConfirm`
 export default function Home({ fix }: { fix: GeoFix }) {
   const [data, setData] = useState<AttendanceStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,15 +120,18 @@ export default function Home({ fix }: { fix: GeoFix }) {
             {rec.status === 'closed' ? (
               <div className="center"><span className="pill ok">ลงเวลาครบแล้ววันนี้</span></div>
             ) : (
-              <button
-                className={`btn ${rec.status === 'open' ? 'out' : 'in'}`}
-                disabled={busy || (rec.status === 'empty' && (!inRange || !accuracyOk))}
-                onClick={() => void punch(rec.status === 'open' ? 'out' : 'in')}
-              >
-                {busy ? <Loader2 size={18} className="spin" />
-                  : rec.status === 'open' ? <LogOut size={18} /> : <LogIn size={18} />}
-                {rec.status === 'open' ? 'ลงเวลาออกงาน' : 'ลงเวลาเข้างาน'}
-              </button>
+              <>
+                <SlideConfirm
+                  label={rec.status === 'open' ? 'ลงเวลาออกงาน' : 'ลงเวลาเข้างาน'}
+                  tone={rec.status === 'open' ? 'dark' : 'brand'}
+                  busy={busy}
+                  disabled={rec.status === 'empty' && (!inRange || !accuracyOk)}
+                  onConfirm={() => void punch(rec.status === 'open' ? 'out' : 'in')}
+                />
+                <div className="muted center" style={{ marginTop: 8 }}>
+                  ลากไปทางขวาเพื่อยืนยัน
+                </div>
+              </>
             )}
           </div>
 

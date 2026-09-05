@@ -183,26 +183,35 @@ export default function Leave() {
               ))}
             </div>
 
-            <label htmlFor="lf">ตั้งแต่วันที่</label>
-            <DateField id="lf" value={form.from} onChange={(v) => setForm({ ...form, from: v })} />
-            <label htmlFor="lto">ถึงวันที่</label>
-            <DateField id="lto" value={form.to} onChange={(v) => setForm({ ...form, to: v })} />
+            {/* เริ่ม–ถึง เรียงข้างกันในการ์ดเดียว (ดีไซน์ 05) พร้อมแถบรวมวันลา
+                ใต้มัน — ตัวเลขในแถบมาจาก `employeeLeavePreview` ซึ่งเป็นตัว
+                คำนวณเดียวกับตอนบันทึกจริง ไม่ได้นับเองฝั่งหน้าจอ */}
+            <label style={{ marginBottom: 8 }}>ช่วงวันที่ลา</label>
+            <div className="datecard">
+              <div className="half">
+                <label htmlFor="lf">เริ่ม</label>
+                <DateField id="lf" value={form.from} onChange={(v) => setForm({ ...form, from: v })} />
+              </div>
+              <div className="half">
+                <label htmlFor="lto">ถึง</label>
+                <DateField id="lto" value={form.to} onChange={(v) => setForm({ ...form, to: v })} />
+              </div>
+            </div>
+            {preview?.ok && preview.days !== null && (
+              <div className="totalrow">
+                <span>รวมวันลา</span>
+                <span className="num" style={{ fontSize: 17 }}>{preview.days} วัน</span>
+              </div>
+            )}
+
             <label htmlFor="lr">เหตุผล</label>
             <textarea id="lr" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
 
             {preview && (
               <div className={`note ${preview.ok ? 'ok' : 'bad'}`} style={{ marginTop: 14, marginBottom: 0 }}>
-                {preview.ok ? (
-                  <div className="split">
-                    <span>รวมวันลา</span>
-                    <b className="num">{preview.days} วัน</b>
-                  </div>
-                ) : (preview.errors.join(' · ') || 'ยื่นใบนี้ไม่ได้')}
-                {preview.ok && (
-                  <div style={{ fontSize: 12, marginTop: 2 }}>
-                    ได้ค่าจ้าง {preview.paid_days} วัน · ไม่ได้ค่าจ้าง {preview.unpaid_days} วัน
-                  </div>
-                )}
+                {preview.ok
+                  ? <>ได้ค่าจ้าง {preview.paid_days} วัน · ไม่ได้ค่าจ้าง {preview.unpaid_days} วัน</>
+                  : (preview.errors.join(' · ') || 'ยื่นใบนี้ไม่ได้')}
                 {preview.warnings?.length > 0 && (
                   <div style={{ fontSize: 12, marginTop: 4 }}>{preview.warnings.join(' · ')}</div>
                 )}

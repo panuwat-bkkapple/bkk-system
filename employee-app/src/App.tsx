@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Home as HomeIcon, CalendarPlus, Repeat, Inbox as InboxIcon, CalendarDays,
-  LogOut, Loader2, RefreshCw, ShieldAlert,
-} from 'lucide-react';
+import { LogOut, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useEmployeeSession } from './hooks/useEmployeeSession';
 import { useGeolocation } from './hooks/useGeolocation';
 import { geoBlockReason } from './geo';
@@ -12,24 +9,19 @@ import { appGate, sessionVerdict, type SessionFailure, type EmployeeMe } from '.
 type SessionResolved = SessionFailure | { kind: 'employee'; me: EmployeeMe };
 import { call } from './api';
 import AppHeader from './AppHeader';
+import TabBar from './TabBar';
+import { type Tab } from './tabs';
 import GateShell from './GateShell';
 import Login from './pages/Login';
+import Splash from './pages/Splash';
+import Onboarding from './pages/Onboarding';
+import { onboardingSeen, shouldShowOnboarding } from './onboarding';
 import GpsGate from './pages/GpsGate';
 import Home from './pages/Home';
 import Leave from './pages/Leave';
 import ShiftChange from './pages/ShiftChange';
 import Inbox from './pages/Inbox';
 import History from './pages/History';
-
-type Tab = 'home' | 'leave' | 'shift' | 'inbox' | 'history';
-
-const TABS: { id: Tab; label: string; icon: typeof HomeIcon }[] = [
-  { id: 'home', label: 'ลงเวลา', icon: HomeIcon },
-  { id: 'leave', label: 'ขอลา', icon: CalendarPlus },
-  { id: 'shift', label: 'เปลี่ยนกะ', icon: Repeat },
-  { id: 'inbox', label: 'อนุมัติ', icon: InboxIcon },
-  { id: 'history', label: 'ประวัติ', icon: CalendarDays },
-];
 
 export default function App() {
   const { user, ready, logout } = useEmployeeSession();
@@ -42,6 +34,8 @@ export default function App() {
   // lazy initializer — `useState(Date.now())` เรียกฟังก์ชันที่ไม่บริสุทธิ์
   // ตอน render ทุกครั้ง (ค่าถูกทิ้ง แต่ lint จับได้ถูกแล้ว)
   const [now, setNow] = useState(() => Date.now());
+  // อ่านครั้งเดียวตอน mount — localStorage อ่านทุก render ไม่มีประโยชน์
+  const [seenOnb, setSeenOnb] = useState(() => onboardingSeen());
 
   // นาฬิกาเดินเองทุก 15 วินาที เพื่อให้ "พิกัดเก่า" ถูกจับได้จริง — ถ้าคำนวณ
   // อายุพิกัดครั้งเดียวตอน render แรก หน้าจอจะค้างอยู่ที่ "ผ่าน" ตลอดไป
@@ -110,8 +104,11 @@ export default function App() {
     loginNotice,
   });
 
-  if (view.screen === 'loading') {
-    return <GateShell title="กำลังเตรียมข้อมูลของคุณ" icon={<Loader2 size={22} className="spin" />} />;
+  if (view.screen === 'loading') return <Splash />;
+  // หน้าแนะนำแทรกก่อนหน้าล็อกอินเท่านั้น และ **ไม่ขอสิทธิ์อะไรจากเครื่อง**
+  // (ตัวขอสิทธิ์ตำแหน่งยังอยู่หลัง `employeeMe` เหมือนเดิม — บั๊ก #726)
+  if (shouldShowOnboarding(view.screen, seenOnb)) {
+    return <Onboarding onDone={() => setSeenOnb(true)} />;
   }
   if (view.screen === 'login') return <Login notice={view.notice} />;
   if (view.screen === 'session_error') {
@@ -140,6 +137,7 @@ export default function App() {
       <AppHeader
         name={me?.name || 'แอปพนักงาน'}
         sub={`${me?.employee_code || 'BKK APPLE'}${me?.position ? ` · ${me.position}` : ''}`}
+        photoUrl={me?.photo_url}
         onLogout={() => void logout()}
       />
 
@@ -151,17 +149,8 @@ export default function App() {
         {tab === 'history' && <History />}
       </div>
 
-      {/* แท่นลอย (ดีไซน์ต้นทางเป็นแคปซูลขาวลอยเหนือพื้น ไม่ใช่แถบติดขอบจอ) */}
-      <nav className="tabs">
-        <div className="dock">
-          {TABS.map((t) => (
-            <button key={t.id} aria-current={tab === t.id} onClick={() => setTab(t.id)}>
-              <t.icon size={19} strokeWidth={tab === t.id ? 2.3 : 1.8} />
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+      <TabBar tab={tab} onSelect={setTab} />
+
     </div>
   );
 }
