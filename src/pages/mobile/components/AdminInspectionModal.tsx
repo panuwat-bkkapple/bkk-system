@@ -384,7 +384,9 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                         {isDone ? <CheckCircle2 size={24} /> : <Smartphone size={24} />}
                       </div>
                       <div>
-                        <div className="font-semibold text-sm text-gray-900 leading-tight">{device.model}</div>
+                        {/* #N เฉพาะเมื่อมีหลายเครื่อง — สองเครื่องเหมือนกัน (ปุ่ม "เพิ่มเครื่องแบบเดียวกัน")
+                            ต้องบอกได้ว่ากำลังตรวจใบไหน เลขตรงกับ devices[] / อีเมล / ใบสำคัญรับเงิน */}
+                        <div className="font-semibold text-sm text-gray-900 leading-tight">{devicesList.length > 1 ? `#${index + 1} ` : ''}{device.model}</div>
                         {isDone
                           ? <div className="text-xs font-medium text-emerald-600 mt-1">ตรวจแล้ว · ฿{inspectedDevicesData[index].final_price.toLocaleString()}</div>
                           : <div className="text-xs font-medium text-amber-500 mt-1">รอตรวจสอบ</div>
