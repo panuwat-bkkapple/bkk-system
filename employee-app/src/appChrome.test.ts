@@ -287,11 +287,17 @@ describe('เปลือกแอปวาดจริงในเบราว�
       },
       onAct: () => {},
     }));
-    // แถบล่างสองสถานะ — `home` ทำให้ปุ่มกลม active, `leave` ทำให้มัน idle
-    // ต้องวัด **ทั้งสองสถานะ** เพราะบั๊กจริงโผล่เฉพาะตอน aria-current=true
+    // แถบล่างสามสถานะ — แท่นแรก / แท่นอื่น / แผงทางลัดกางอยู่
+    // ต้องวัด **ทุกสถานะ** เพราะบั๊กคอนทราสต์ของปุ่มกลมโผล่เฉพาะบางสถานะ
+    // (ตอนนั้นคือ aria-current=true; วันนี้ปุ่มกลมเปลี่ยนสีตอนแผงกางแทน)
     const splash = renderToStaticMarkup(createElement(Splash, {}));
-    const dockHome = renderToStaticMarkup(createElement(TabBar, { tab: 'home', onSelect: () => {} }));
-    const dockLeave = renderToStaticMarkup(createElement(TabBar, { tab: 'leave', onSelect: () => {} }));
+    const dockOpts = { onSelect: () => {}, onToggleSheet: () => {} };
+    const dockHome = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'home' as const, sheetOpen: false, ...dockOpts }));
+    const dockRoster = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'roster' as const, sheetOpen: false, ...dockOpts }));
+    const dockSheet = renderToStaticMarkup(createElement(TabBar,
+      { screen: 'home' as const, sheetOpen: true, ...dockOpts }));
     // ป้ายและกล่องข้อความ วัดบนพื้นสองแบบที่มันถูกใช้จริง (พื้นหน้า และในการ์ด)
     const tones = [...toneVariants('pill'), ...toneVariants('note')]
       .map((cls) => `<div class="${cls}" data-tone="${cls}">ตัวอย่าง</div>`).join('');
@@ -304,7 +310,8 @@ describe('เปลือกแอปวาดจริงในเบราว�
       `<div id="gate">${gate}</div>` +
       `<div id="splash">${splash}</div>` +
       `<div class="app" id="dock-home" style="position:relative">${dockHome}</div>` +
-      `<div class="app" id="dock-leave" style="position:relative">${dockLeave}</div>` +
+      `<div class="app" id="dock-roster" style="position:relative">${dockRoster}</div>` +
+      `<div class="app" id="dock-sheet" style="position:relative">${dockSheet}</div>` +
       `</body></html>`);
     url = `file://${file}`;
 
@@ -388,12 +395,15 @@ describe('เปลือกแอปวาดจริงในเบราว�
     // ซึ่งต้องให้เบราว์เซอร์คำนวณเท่านั้น
     if (!browser) { expect(skipReason).not.toBe(''); return; }
     await measure({
-      'ปุ่มกลม (กำลังเปิด)': '#dock-home .fab',
-      'ปุ่มกลม (ไม่ได้เปิด)': '#dock-leave .fab',
+      'ปุ่มกลม (แผงปิด)': '#dock-home .fab',
+      'ปุ่มกลม (แผงกาง)': '#dock-sheet .fab',
     }, true);
     await measure({
-      'แท็บที่กำลังเปิด': '#dock-leave .dock button[aria-current="true"]',
+      'แท็บที่กำลังเปิด': '#dock-roster .dock button[aria-current="true"]',
       'แท็บที่ไม่ได้เปิด': '#dock-home .dock button:not([aria-current="true"])',
+      // แผงทางลัดเป็นพื้นผิวใหม่ที่ลอยอยู่เหนือทุกอย่าง — ถ้าไม่วัด มันคือ
+      // ของใหม่ที่ด่านมองไม่เห็น ซึ่งเป็นรูปเดิมของบั๊กสี่ตัวก่อนหน้าเป๊ะๆ
+      'ปุ่มในแผงทางลัด': '#dock-sheet .sheet button',
     });
   }, 60_000);
 
