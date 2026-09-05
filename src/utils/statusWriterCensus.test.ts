@@ -57,7 +57,7 @@ import { join, resolve } from 'node:path';
  * คือฟังก์ชันตัวเดียวนั้น ไม่ใช่ผู้เรียก **ตัวเลขที่นิ่งไม่ใช่สัญญาณว่าไม่มี
  * ความคืบหน้า และไม่ใช่เหตุผลให้ไปลดเพดานเอาเอง**
  */
-const MAX_DIRECT_JOB_WRITES = 77; // 88 -> 77: payoutTransfer.ts (10 path-form) ย้ายขึ้น server 4 ก.ย. 2569
+const MAX_DIRECT_JOB_WRITES = 74; // 77 -> 74: buildRiderFeeApproval (3 path-form ใน riderSettlement.ts) ย้ายขึ้น server 5 ก.ย. 2569
 
 const require = createRequire(import.meta.url);
 

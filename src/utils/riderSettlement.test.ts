@@ -5,96 +5,82 @@
 //
 // ด่านที่ชุดนี้ตรึงไว้: ห้ามมีค่า default — ถ้าใครใส่ `|| 150` (หรือเลขอื่นใด)
 // กลับเข้ามา เคส "ยังไม่มีค่ารอบ" จะแดงทันที เพราะหน้านี้จ่ายเงินจริง
+//
+// ส่วน buildRiderFeeApproval ย้ายไป functions/rider-fee-guard.js (5 ก.ย. 2569) —
+// เทสของมันอยู่ functions/test/rider-fee-guard.test.mjs. ที่นี่เหลือด่าน UX
+// (riderFeeBlockReason) ซึ่งเป็น MIRROR ของ JS ตัวจริง จึงรันสองสำเนาบน fixture
+// เดียวกันแบบเดียวกับ riderCostSplitParity
 import { describe, it, expect } from 'vitest';
-import { settledRiderFee, buildRiderFeeApproval } from './riderSettlement';
+import { createRequire } from 'node:module';
+import { settledRiderFee, riderFeeBlockReason, payoutRiderIdOf } from './riderSettlement';
+
+const require = createRequire(import.meta.url);
+const guard = require('../../functions/rider-fee-guard.js') as {
+  riderFeeBlockReason: typeof riderFeeBlockReason;
+  payoutRiderIdOf: typeof payoutRiderIdOf;
+  settledRiderFee: typeof settledRiderFee;
+};
 
 describe('settledRiderFee', () => {
   it('ค่ารอบที่ประทับแล้วคืนเป็นตัวเลข', () => {
-    expect(settledRiderFee({ rider_fee: 240 })).toBe(240);
-    expect(settledRiderFee({ rider_fee: 100 })).toBe(100);
+    expect(settledRiderFee({ rider_fee: 95 })).toBe(95);
+    expect(settledRiderFee({ rider_fee: 100.5 })).toBe(100.5);
   });
 
   it('ยังไม่มีค่ารอบ = null ห้ามคืนเลขที่แต่งขึ้น', () => {
     expect(settledRiderFee({})).toBeNull();
-    expect(settledRiderFee({ rider_fee: null })).toBeNull();
     expect(settledRiderFee({ rider_fee: undefined })).toBeNull();
+    expect(settledRiderFee({ rider_fee: null })).toBeNull();
     expect(settledRiderFee(null)).toBeNull();
   });
 
   it('0 และค่าติดลบไม่ใช่ค่ารอบที่จ่ายได้', () => {
-    // 0 มาจากงานที่ trigger ข้าม (ไม่ใช่ Pickup) — จ่าย 0 ไม่มีความหมาย
     expect(settledRiderFee({ rider_fee: 0 })).toBeNull();
-    expect(settledRiderFee({ rider_fee: -50 })).toBeNull();
+    expect(settledRiderFee({ rider_fee: -20 })).toBeNull();
   });
 
   it('ค่าที่ไม่ใช่ตัวเลขไม่ถูกตีความเป็นเงิน', () => {
-    expect(settledRiderFee({ rider_fee: 'ยังไม่คิด' })).toBeNull();
+    expect(settledRiderFee({ rider_fee: 'abc' })).toBeNull();
     expect(settledRiderFee({ rider_fee: NaN })).toBeNull();
-    // สตริงตัวเลขจาก RTDB ยังอ่านได้ (Number แปลงให้) — เป็นค่ารอบจริง
-    expect(settledRiderFee({ rider_fee: '240' })).toBe(240);
+    expect(settledRiderFee({ rider_fee: Infinity })).toBeNull();
   });
 
   it('rider_fee_estimate ไม่ใช่ค่ารอบที่จ่ายได้', () => {
-    // ประมาณการมาจากระยะทางจริงก็จริง แต่ไม่ใช่ค่าปิดงาน — หน้าจ่ายเงิน
-    // ต้องรอเลขที่ประทับตอนส่งมอบเท่านั้น (ดูคำอธิบายใน riderSettlement.ts)
-    expect(settledRiderFee({ rider_fee_estimate: 180 })).toBeNull();
+    expect(settledRiderFee({ rider_fee_estimate: 90 })).toBeNull();
   });
 });
 
-// ─── การอนุมัติค่ารอบ ────────────────────────────────────────────────────────
-//
-// โค้ดที่สร้างเงินเข้ากระเป๋าคน ต้องยิงเทสตรงได้
-describe('buildRiderFeeApproval', () => {
-  const job = { id: 'j1', ref_no: 'OID-1', model: 'iPhone 15', rider_id: 'r1', rider_fee: 95 };
-  const NOW = 1_756_000_000_000;
+const OWNER = 'owner-uid';
+const owners = new Set([OWNER]);
 
-  it('เขียน jobs กับ transactions พร้อมกันในชุดเดียว (atomic)', () => {
-    const u = buildRiderFeeApproval({ job, txKey: 't1', now: NOW })!;
-    expect(u['jobs/j1/rider_fee_status']).toBe('Paid');
-    expect(u['jobs/j1/settled_at']).toBe(NOW);
-    expect(u['transactions/t1']).toMatchObject({
-      rider_id: 'r1', amount: 95, type: 'CREDIT', category: 'JOB_PAYOUT', ref_job_id: 'j1',
-    });
+const CASES: [string, Record<string, unknown> | null, 'no_rider' | 'owner_rider' | null][] = [
+  ['ไรเดอร์จ้างปกติ', { id: 'j1', rider_id: 'r1' }, null],
+  ['บัญชีเจ้าของ', { id: 'j2', rider_id: OWNER }, 'owner_rider'],
+  ['rider_id ว่าง (undefined)', { id: 'j3' }, 'no_rider'],
+  ['rider_id ว่าง (null)', { id: 'j4', rider_id: null }, 'no_rider'],
+  ['rider_id สตริงว่าง — ปุ่ม batch รุ่นเก่าปล่อยผ่าน', { id: 'j5', rider_id: '' }, 'no_rider'],
+  ['rider_id ช่องว่างล้วน', { id: 'j6', rider_id: '   ' }, 'no_rider'],
+  ['ยกเลิกโดยไรเดอร์ — จ่ายให้คนที่ทำงานจริง', { id: 'j7', rider_id: null, cancelled_by: 'rider:r9' }, null],
+  ['ยกเลิกโดยเจ้าของ (rider:OWNER)', { id: 'j8', rider_id: null, cancelled_by: `rider:${OWNER}` }, 'owner_rider'],
+  ['ยกเลิกโดยลูกค้า — ไม่รู้ว่าจ่ายให้ใคร', { id: 'j9', rider_id: null, cancelled_by: 'customer' }, 'no_rider'],
+  ['งานว่างเปล่า', null, 'no_rider'],
+];
+
+describe('riderFeeBlockReason — ด่าน UX ต้องตอบเหมือน functions/rider-fee-guard.js', () => {
+  it.each(CASES)('%s', (_name, job, expected) => {
+    expect(riderFeeBlockReason(job, owners)).toBe(expected);
+    expect(guard.riderFeeBlockReason(job, owners)).toBe(expected);
+    expect(payoutRiderIdOf(job)).toBe(guard.payoutRiderIdOf(job));
   });
 
-  it('ยอดที่ลงกระเป๋าต้องเป็นค่ารอบที่ระบบประทับ ไม่ใช่ค่าประมาณ', () => {
-    const u = buildRiderFeeApproval({ job: { ...job, rider_fee_estimate: 500 }, txKey: 't1', now: NOW })!;
-    expect(u['transactions/t1'].amount).toBe(95);
+  it('รายชื่อเจ้าของว่าง = ไม่มีใครเป็นเจ้าของ (ฝั่ง server แยกต่างหากว่าไม่ตั้ง env = ปฏิเสธทั้งหมด)', () => {
+    expect(riderFeeBlockReason({ rider_id: OWNER }, new Set())).toBeNull();
+    expect(guard.riderFeeBlockReason({ rider_id: OWNER }, new Set())).toBeNull();
   });
 
-  it('ไม่มีค่ารอบที่ประทับ = จ่ายไม่ได้ คืน null', () => {
-    const { rider_fee, ...noFee } = job;
-    expect(buildRiderFeeApproval({ job: noFee, txKey: 't1', now: NOW })).toBeNull();
-    expect(buildRiderFeeApproval({ job: { ...noFee, rider_fee_estimate: 90 }, txKey: 't1', now: NOW })).toBeNull();
-  });
-
-  it('ค่ารอบศูนย์ต่างจากยังไม่คำนวณ — ทั้งคู่จ่ายไม่ได้แต่คนละเหตุผล', () => {
-    expect(buildRiderFeeApproval({ job: { ...job, rider_fee: 0 }, txKey: 't1', now: NOW })).toBeNull();
-  });
-
-  it('จ่ายไปแล้วต้องไม่จ่ายซ้ำ', () => {
-    expect(buildRiderFeeApproval({ job: { ...job, rider_fee_status: 'Paid' }, txKey: 't1', now: NOW })).toBeNull();
-  });
-
-  it('งานที่ไรเดอร์ยกเลิกแต่ยังมีค่าเสียเวลา จ่ายให้คนที่ทำงานจริงได้', () => {
-    const cancelled = { ...job, rider_id: null, cancelled_by: 'rider:r9', rider_fee: 40 };
-    const u = buildRiderFeeApproval({ job: cancelled, txKey: 't1', now: NOW })!;
-    expect(u['transactions/t1'].rider_id).toBe('r9');
-  });
-
-  it('ไม่รู้ว่าจ่ายให้ใคร = ไม่จ่าย (ห้ามสร้างแถวที่ไม่มีเจ้าของ)', () => {
-    expect(buildRiderFeeApproval({ job: { ...job, rider_id: null }, txKey: 't1', now: NOW })).toBeNull();
-    expect(buildRiderFeeApproval({ job: { ...job, rider_id: null, cancelled_by: 'customer' }, txKey: 't1', now: NOW })).toBeNull();
-  });
-
-  it('ไม่มี txKey = ไม่เขียน (กันแถวที่ทับกันเอง)', () => {
-    expect(buildRiderFeeApproval({ job, txKey: '', now: NOW })).toBeNull();
-  });
-
-  it('บันทึกคนอนุมัติเมื่อส่งมา และไม่เขียนคีย์เปล่าเมื่อไม่ส่ง', () => {
-    const withBy = buildRiderFeeApproval({ job, txKey: 't1', now: NOW, approvedBy: 'staff-7' })!;
-    expect(withBy['jobs/j1/rider_fee_approved_by']).toBe('staff-7');
-    const without = buildRiderFeeApproval({ job, txKey: 't1', now: NOW })!;
-    expect('jobs/j1/rider_fee_approved_by' in without).toBe(false);
+  it('settledRiderFee สองสำเนาตอบเท่ากัน', () => {
+    for (const v of [95, 0, -1, 'abc', undefined, null, NaN, Infinity, '80']) {
+      expect(settledRiderFee({ rider_fee: v })).toBe(guard.settledRiderFee({ rider_fee: v }));
+    }
   });
 });
