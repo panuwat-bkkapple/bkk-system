@@ -610,19 +610,45 @@ export default function GlobalSettings() {
         </div>
       </div>
 
-      {/* ค่าชดเชยไรเดอร์เวลาลูกค้ายกเลิก (Customer Cancel Compensation) */}
+      {/* ค่าชดเชยไรเดอร์เวลาลูกค้ายกเลิก (Customer Cancel Compensation)
+          ข้อความบนการ์ดต้องเล่ากติกาครบสามข้อ ไม่ใช่แค่ช่องที่ตั้งได้ — คนที่มาตั้ง
+          ค่านี้รอบหน้าต้องรู้ว่าตัวเลขนี้ใช้กับ "ยกเลิกระหว่างทาง" เท่านั้น อีกสองกรณี
+          ระบบตัดสินเองจากขั้นที่ไรเดอร์ไปถึง (bkk-system #741, functions/rider-fee-cancel.js) */}
       <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-6">
         <h2 className="text-lg font-black mb-2 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-4">
-          <XCircle className="text-rose-600" /> ค่าชดเชยไรเดอร์เมื่อลูกค้ายกเลิก
+          <XCircle className="text-rose-600" /> ค่ารอบไรเดอร์เมื่องานถูกยกเลิก
         </h2>
-        <p className="text-xs font-bold text-slate-500 mt-3 mb-5">
-          จ่ายให้ไรเดอร์เมื่อลูกค้ากดยกเลิกระหว่างที่ไรเดอร์ออกเดินทางแล้ว
-          (status: <code className="bg-slate-100 px-1 rounded text-[10px]">Heading to Customer</code> /
-          <code className="bg-slate-100 px-1 rounded text-[10px]">Rider En Route</code> /
-          <code className="bg-slate-100 px-1 rounded text-[10px]">Arrived</code> /
-          <code className="bg-slate-100 px-1 rounded text-[10px]">Rider Arrived</code>) — Cloud Function
-          <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">reviewAmendment</code> อ่านจาก
-          <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">settings/rider_compensation</code>
+        <p className="text-xs font-bold text-slate-500 mt-3 mb-3">
+          ระบบตัดสินอัตโนมัติทุกครั้งที่งาน Pickup เข้าสถานะ Cancelled ไม่ว่าใครเป็นคนยกเลิก
+          (ลูกค้ากดจากเว็บ / แอดมิน / ไรเดอร์ยื่นคำขอแทนลูกค้า) โดยดูว่าไรเดอร์ไปถึงขั้นไหนแล้ว
+        </p>
+        <div className="mb-5 overflow-x-auto">
+          <table className="w-full text-xs border border-slate-200 rounded-xl overflow-hidden">
+            <thead className="bg-slate-50 text-slate-500 uppercase tracking-widest text-[10px]">
+              <tr>
+                <th className="text-left px-3 py-2 font-bold">ยกเลิกตอนไหน</th>
+                <th className="text-left px-3 py-2 font-bold">ไรเดอร์ได้อะไร</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              <tr>
+                <td className="px-3 py-2 font-bold text-slate-700">รับงานแล้ว แต่ยังไม่กดออกเดินทาง</td>
+                <td className="px-3 py-2 text-slate-600">ไม่จ่าย — ยอดที่ตรึงไว้ตอนกดรับถูกประทับเป็นโมฆะ</td>
+              </tr>
+              <tr className="bg-rose-50/40">
+                <td className="px-3 py-2 font-bold text-slate-700">ออกเดินทางแล้ว ถูกยกเลิกระหว่างทาง</td>
+                <td className="px-3 py-2 text-slate-600">ค่าเสียเวลาตามช่องด้านล่างนี้ (เข้าคิวจ่ายค่ารอบตามปกติ)</td>
+              </tr>
+              <tr>
+                <td className="px-3 py-2 font-bold text-slate-700">ถึงหน้างาน ตรวจเครื่องแล้วไม่ผ่าน</td>
+                <td className="px-3 py-2 text-slate-600">ค่ารอบตามเรทปกติ (ยอดที่ตรึงตอนกดรับ หรือคิดจากระยะทาง)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-slate-400 font-bold mb-5">
+          ช่องนี้กำหนดเฉพาะกรณี "ยกเลิกระหว่างทาง" อีกสองกรณีไม่มีค่าให้ตั้ง — เก็บที่
+          <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px] ml-1">settings/rider_compensation</code>
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -641,7 +667,7 @@ export default function GlobalSettings() {
               />
             </div>
             <p className="text-[10px] text-slate-400 mt-1 font-bold">
-              บันทึกลง <code>jobs/&#123;id&#125;/rider_fee</code> + <code>rider_fee_breakdown.type = "time_loss_customer_cancel"</code>
+              ตั้ง 0 ได้ถ้าตั้งใจไม่จ่ายค่าเสียเวลา — แต่ถ้ายังไม่เคยบันทึกเลย ระบบจะไม่จ่ายและแจ้ง error แทนการเดาเลข
             </p>
           </div>
         </div>
@@ -650,8 +676,8 @@ export default function GlobalSettings() {
           <div className="mt-4 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-2 text-xs text-amber-800">
             <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" />
             <span className="font-bold leading-relaxed">
-              ค่ายังเป็น 0 หรือยังไม่เคยตั้ง — Cloud Function จะ throw error เมื่อมีคำขอยกเลิกของลูกค้าเข้ามา
-              เพื่อกันการจ่ายโดยไม่ตั้งใจ. กำหนดค่าก่อนเปิดให้ลูกค้ายกเลิกผ่านระบบ.
+              ค่ายังเป็น 0 หรือยังไม่เคยบันทึก — ถ้ายังไม่เคยบันทึก การยกเลิกระหว่างทางจะไม่จ่ายค่าเสียเวลา
+              และคำขอยกเลิกที่ไรเดอร์ยื่นแทนลูกค้าจะถูกปฏิเสธจนกว่าจะบันทึกค่านี้ (กันการจ่ายเลขที่ไม่มีใครตั้ง)
             </span>
           </div>
         )}
