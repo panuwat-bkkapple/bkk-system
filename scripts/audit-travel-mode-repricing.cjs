@@ -8,8 +8,9 @@
  *     node scripts/audit-travel-mode-repricing.cjs --archived      # รวม /jobs_archived
  *     node scripts/audit-travel-mode-repricing.cjs --json=out.json
  *
- * **READ-ONLY ทั้งไฟล์ ไม่มี write path ใดๆ** — ตัวแก้เงินคือ RiderSettlements
- * หรือ scripts/settle-pending-rider-fees.cjs ตามเดิม สคริปต์นี้แค่บอกว่าใบไหนต้องดู
+ * **READ-ONLY ทั้งไฟล์ ไม่มี write path ใดๆ** — ตัวแก้เงินคือหน้า /rider-audit
+ * (scripts/settle-pending-rider-fees.cjs DEPRECATED ตั้งแต่ 2026-09-05 รันไม่ได้แล้ว)
+ * สคริปต์นี้แค่บอกว่าใบไหนต้องดู
  *
  * ── ที่มา (เคสจริง 1 ก.ย. 2569 งาน OID-MTIAI3FH-851) ────────────────────────
  * ไรเดอร์กดรับงานตอน 13:32 เห็นค่ารอบ ฿182 พอปิดจ๊อบตอน 17:05 ได้ ฿157

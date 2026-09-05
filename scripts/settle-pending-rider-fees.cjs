@@ -1,5 +1,28 @@
 #!/usr/bin/env node
 /**
+ * ****************************************************************************
+ * **  DEPRECATED ตั้งแต่ 2026-09-05 — รันไม่ได้แล้ว (main() throw ทันที)      **
+ * ****************************************************************************
+ *
+ * เหตุผล:
+ *   1. /rider-audit อนุมัติใบ rider_fee_status = 'Pending' ได้จาก UI แล้วโดยไม่กรอง
+ *      สถานะงาน (#643 — RiderAuditPage แสดงทุกงานที่มีไรเดอร์เกี่ยวข้อง) งานที่สคริปต์
+ *      นี้เกิดมาเพื่อเก็บตก (ใบที่ปุ่มเดิมมองไม่เห็นเพราะสถานะเดินเลยไปแล้ว) จึงมีทาง
+ *      อนุมัติปกติแล้ว และเส้นทางนั้นประทับ rider_fee_approved_by ให้ย้อนดูได้
+ *   2. สคริปต์นี้ไม่มี lock กันจ่ายซ้ำ — กันด้วยเงื่อนไข "ใบยัง Pending" อย่างเดียว รันสอง
+ *      ครั้งพร้อมกัน หรือรันขณะมีคนกดอนุมัติจาก UI = เขียน JOB_PAYOUT ซ้ำได้ และแถวที่
+ *      เขียนแยกจากแถวของ UI ได้ด้วยคำว่า [Backfill Settle] ใน description เท่านั้น
+ *
+ * รายละเอียดใน bkk-frontend-next/docs/reports/2026-09-05-rider-wallet-status-survey.md
+ * (ส่วน D และคำถามข้อ 2). ตรวจว่าเคย apply ไปหรือไม่ด้วย scripts/rider-wallet-audit.cjs
+ * (T4 นับแถวที่มี [Backfill Settle])
+ *
+ * ไฟล์เก็บไว้เพื่อประวัติ + planSettlement ยัง export ให้เทส/อ้างอิงได้ ส่วนที่แตะ
+ * ฐานข้อมูลถูกตัดขาดที่บรรทัดแรกของ main()
+ *
+ * ---------------------------------------------------------------------------
+ * (คำอธิบายเดิม ก่อน deprecate)
+ *
  * Settle ค่ารอบค้างจ่ายที่เหลือ — งานที่ rider_fee ตั้งแล้วแต่ปุ่มอนุมัติใน
  * RiderSettlements ไม่เห็น (สถานะงานอยู่นอก filter ของหน้า) + รายงานงานที่
  * ยังไม่มี rider_fee เลย
@@ -53,6 +76,10 @@ function planSettlement(jobs) {
 const fmt = (n) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString('th-TH') : String(n));
 
 async function main() {
+  throw new Error(
+    'settle-pending-rider-fees.cjs DEPRECATED ตั้งแต่ 2026-09-05: /rider-audit อนุมัติใบ Pending ได้จาก UI แล้ว (#643) ' +
+      'และสคริปต์นี้ไม่มี lock กันจ่ายซ้ำ — ดู bkk-frontend-next/docs/reports/2026-09-05-rider-wallet-status-survey.md',
+  );
   const admin = require(path.join(__dirname, '..', 'functions', 'node_modules', 'firebase-admin'));
   if (!admin.apps.length) {
     admin.initializeApp({
