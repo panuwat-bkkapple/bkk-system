@@ -63,6 +63,9 @@ export default function Inbox() {
                   {r.from} - {r.to} · ได้ค่าจ้าง {r.paid_days} วัน · ไม่ได้ {r.unpaid_days} วัน
                 </div>
                 {r.reason && <div className="muted">เหตุผล: {r.reason}</div>}
+                {/* ใบที่ถูกแก้หลังยื่นต้องบอก — ไม่งั้นหัวหน้าอนุมัติสิ่งที่ต่างจาก
+                    ที่เคยเห็นตอนได้รับแจ้งโดยไม่รู้ตัว */}
+                {r.edited_at ? <div className="muted">แก้ไขหลังยื่นแล้ว</div> : null}
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   <button className="btn in sm" disabled={busy === r.id}
                     onClick={() => void decide('leave', r.employee_id, r.id, 'approved')}>
