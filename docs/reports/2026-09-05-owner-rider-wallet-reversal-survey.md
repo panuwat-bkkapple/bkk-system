@@ -215,3 +215,19 @@ Routes ล้มคืน `min_fee` + `routes_api_*`. `computeRiderFeeForAssigne
 5. **A4:** ให้เฟส B ปิดรูใน `onJobHandedOverCalcRiderFee` ด้วยไหม (ข้อ B5 นอกโจทย์เดิม) — ไม่ปิด = ใบ `no_rider` งอกใหม่หลังกลับรายการ
 6. **A3:** `Waived` เพิ่มเป็น union `'Pending' | 'Paid' | 'Waived'` ใน 2 repo (bkk-system ใหม่ + `bkk-rider-app/src/types/index.ts:47`) —
    frontend-next ไม่แตะเพราะไม่มีผู้อ่าน ตกลงตามนี้ไหม
+
+---
+
+## คำตอบของ Martens (5 ก.ย. 2569) และสิ่งที่เฟส B ทำตาม
+
+| ข้อ | คำตอบ | ทำใน PR #731 |
+|---|---|---|
+| 1 | `T4`: WITHDRAWAL มี 1 แถวทั้งระบบ เป็นของไรเดอร์จ้าง — ไม่มี 50 ทวิ/expense split ของ OWNER | สคริปต์แตะแค่ `/transactions` + `jobs/*/rider_fee_status` |
+| 2 | 104 คู่ ADJUSTMENT: CREDIT 1 / DEBIT 1 เท่ากัน หักกันเป็นศูนย์ | ปล่อยไว้ planner ไม่นับเป็นแถวกลับ (มีเทส) |
+| 3 | Waive เป็น callable ฝั่ง server role เท่าหน้า finance รับหลายใบ reason บังคับ multi-path ก้อนเดียว | `adminRiderFeeWaive` + อนุมัติก็ย้ายขึ้น `adminRiderFeeApprove` census 77 → 74 |
+| 4 | `OWNER_RIDER_IDS` อ่านจาก config/env ของ functions ไม่ hardcode | env + GitHub Secret, fail closed, สคริปต์ก็อ่าน env เดียวกัน |
+| 5 | ปิดรู A4 ในเฟส B | `feeCalcBlockReason` ทั้งสองทางเข้า (B5) |
+| 6 | union ใน 2 repo ไฟล์ shared + parity test; แอปไรเดอร์ห้ามเขียน Pending ทับ Paid/Waived (PR แยก) | `riderFeeStatus.ts` ×2 + `rider-fee-status.js` + parity 2 ทิศ; bkk-rider-app PR `handoverPatch` |
+| ขอบเขต | ทั้ง 129 แถวรวม 8 แถว 3–4 ก.ย. | planner กลับทุก JOB_PAYOUT/CREDIT ของ OWNER ไม่ดูวันที่ |
+| census | ห้ามเพิ่ม client write | ทุกการเขียนผ่าน callable/สคริปต์ |
+
