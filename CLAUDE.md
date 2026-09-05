@@ -461,7 +461,7 @@
 - **การ gate ทำฝั่ง server** ที่ `functions/notification-settings.js` (`shouldNotify`) — เสียบไว้ที่ choke point ทุกตัวที่ยิง push จริง: `dispatchAdminPush`, `pushToRider`, `dispatchTelegram`, `dispatchAmendmentPush` (มี branch ที่ยิง `getMessaging()` ตรง เลี่ยง dispatchAdminPush ได้) และ push ของ `sickw-daily`. **เพิ่มที่ยิง push ใหม่ = ต้องเสียบ gate ด้วย** ไม่งั้นสวิตช์ปิดแล้วยังเด้ง
 - **ตัดสินจาก `message.data.type`** ผ่าน map `EVENT_CATEGORY` → หมวดที่โชว์ใน UI. **fail-open ทุกทาง**: type ที่ไม่อยู่ใน map / ไม่มี node / อ่านพัง = ส่งตามเดิม มีแต่ `false` ที่แอดมินเขียนเองเท่านั้นที่ปิด. push ทดสอบ (`sendTestAdminPush`) ไม่ถูก gate โดยตั้งใจ — เป็นเครื่องมือ diagnose
 - **MIRROR 2 ที่:** หมวด/ช่องทาง/ค่า default อยู่ทั้ง `functions/notification-settings.js` (JS, ตัวที่ gate จริง) และ `src/utils/notificationSettings.ts` (TS, label ของ UI) — functions import TS ไม่ได้ **เพิ่มหมวดต้องแก้ทั้งคู่ + map `data.type` ฝั่ง server**
-- `settings/notifications` อยู่ใต้ `settings` จึงใช้ rule เดิม (read = auth, write = admin) **ไม่ต้อง deploy rules ใหม่**
+- `settings/notifications` อยู่ใต้ `settings` จึงใช้ rule เดิม (read + write = admin ตั้งแต่ #955 — **ไม่ใช่ `read = auth` แล้ว**) **ไม่ต้อง deploy rules ใหม่** เพราะแอดมินเป็นคนอ่านคนเดียว — คีย์ใหม่ที่ client ไม่ใช่แอดมินต้องอ่าน **ต้องเพิ่มกฎ** ดูหัวข้อ "คีย์ใหม่ใต้ `settings`"
 
 ## ค่าวิ่งไรเดอร์ แยกตามยานพาหนะ (motorcycle / car)
 - **อัตรา** อยู่ที่ `settings/logistics_rates/by_vehicle/{motorcycle|car}` (ตั้งที่ `/global-settings` แท็บยานพาหนะ) — ฟิลด์แบนที่ root ยังเป็น fallback ทีละฟิลด์ ระบบเดิมจึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะกรอก `by_vehicle`
@@ -595,7 +595,7 @@
   - **เป็น override ไม่ใช่ replace** — ช่องว่าง = ใช้ข้อความ default จากโค้ดพร้อมเงื่อนไขครบ (Pickup/Mail-in/Store-in พูดคนละอย่าง ซึ่ง textarea แทนไม่ได้). placeholder `{ref} {name} {model} {payout} {brand} {method} {branch}` **escape ค่าที่แทนเสมอ** (ข้อความมาจากแอดมิน แต่ค่าที่แทนมาจากข้อมูลลูกค้า)
   - **`LOCKED_COPY_KEYS` (ตอนนี้มี `paid`) = เปิด/ปิดได้แต่แก้ถ้อยคำไม่ได้** — ใบสำคัญรับเงิน/สรุปการซื้อขายเป็นเอกสารทางบัญชี-ภาษี แก้อิสระแล้วผิดสาระสำคัญได้
   - logic อยู่ `functions/email-templates.js` (load/gate/render) + `email-templates-admin.js` (callable `adminEmailTemplateList`). **รายการเทมเพลตมาจาก server ไม่ hardcode ฝั่ง UI** — เพิ่ม entry ใน `STATUS_COPY` แล้วหน้าตั้งค่าขึ้นเอง ไม่เกิด mirror ตัวที่ 3. ตัวอย่างอีเมล render จาก **งานสมมติ** ไม่ใช่งานจริง (PDPA) และโชว์ใน iframe `sandbox=""`
-  - `settings/email_templates` อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules**
+  - `settings/email_templates` อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules** (แอดมินอ่านคนเดียว — คีย์ใหม่ที่ client ไม่ใช่แอดมินต้องอ่าน **ต้องเพิ่มกฎ** ดูหัวข้อ "คีย์ใหม่ใต้ `settings`")
 - **Secrets ที่ต้องเพิ่ม:** `RESEND_API_KEY`, `EMAIL_FROM` (เช่น `BKK APPLE <noreply@bkkapple.com>`), `ORDER_NOTIFY_EMAIL` (อีเมลกลางแอดมิน). Optional: `EMAIL_REPLY_TO`, `CUSTOMER_TRACKING_BASE_URL` (ลิงก์ติดตามในอีเมลลูกค้า). ถ้าไม่ตั้ง `RESEND_API_KEY`/`EMAIL_FROM` → ระบบ skip การส่งเงียบๆ ไม่ crash
 
 ## Dealer Portal — ขายส่งยกล็อต + ประมูลปิดซอง (ส.ค. 2026)
@@ -682,14 +682,14 @@
 - **หน้าตั้งค่า:** `/global-settings` การ์ด "ราคาประเมิน และการยืนราคา" เขียน `settings/quote`: `checkout_ttl_min` (15 นาที ระหว่างกรอกฟอร์ม) / `lock_days` (7 วัน ยืนราคาหลังลงทะเบียน) / `assessment_gc_days` (30 วัน อายุรหัสที่ไม่กลายเป็นงาน)
 - **กันไว้ 2 เคสตอนบันทึก:** เวลากรอกฟอร์ม < 3 นาที (ลูกค้ากรอกเลขบัญชีไม่ทัน) และอายุรหัส < วันยืนราคา (รหัสถูกลบก่อนราคาหมดอายุ = อ้างอิงย้อนหลังไม่ได้)
 - **สิ่งที่ยืนคือราคาตลาด ไม่ใช่ผลตรวจ** — ป้ายใน `PricingSidebar` เขียนบอกไว้ตรงๆ ห้ามแก้ข้อความให้กำกวม เพราะแอดมินที่เข้าใจผิดว่า "ห้ามหักอะไรเลย" จะทำให้ QC ไม่กล้าหักตำหนิที่พบจริง
-- `settings/quote` อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules**
+- `settings/quote` อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules** (แอดมินอ่านคนเดียว — คีย์ใหม่ที่ client ไม่ใช่แอดมินต้องอ่าน **ต้องเพิ่มกฎ** ดูหัวข้อ "คีย์ใหม่ใต้ `settings`")
 
 ## ใบเสร็จขาย (settings/receipt) — คอมโพเนนต์เดียว สองขนาดกระดาษ
 
 - **`src/components/receipt/ReceiptTemplate.tsx` = หน้าตาใบเสร็จขายตัวเดียวของทั้งระบบ** ใช้ร่วมกัน 3 จุด: POS หลังจ่ายเงิน (`pages/sales/POS.tsx`), พรีวิวในประวัติการขาย และฉบับที่ส่งเข้าเครื่องพิมพ์ (`pages/sales/SalesHistory.tsx`) — **ห้ามก๊อปมาร์กอัปใบเสร็จไปไว้ที่อื่นอีก**
 - **ที่มา:** เดิมมาร์กอัปชุดนี้ถูกก๊อป 3 ที่แล้วเพี้ยนจากกันทีละจุด จน**ฉบับที่พิมพ์จริงกลายเป็นฉบับที่ข้อมูลน้อยที่สุด** (ไม่มีแคชเชียร์ ไม่มีชื่อลูกค้า และบิลที่ยกเลิกพิมพ์ออกมาสะอาดเหมือนบิลปกติ) ไม่มีใครรายงาน เพราะมันไม่พัง มันแค่พิมพ์ไม่ครบ
 - **สองขนาดกระดาษ = สอง layout ไม่ใช่ตัวเดียวยืด** — `ThermalBody` (80mm เรียงลงเป็นแถบเดียว คั่นเส้นประ) / `A4Body` (เอกสาร: หัวสองคอลัมน์ ตารางรายการมีหัวคอลัมน์ ยอดรวมชิดขวา). ดูหัวข้อ "ผลพิมพ์ (print)" ก่อนแตะ print CSS
-- **ค่าตั้งอยู่ RTDB `settings/receipt`** (ไม่ใช่ Firestore — แอดมินฝั่งนี้ไม่มี client Firestore เลย): `shopName` / `addressLine` / `taxId` / `footerLines[]` / `paperSize` / `fontSizePx` / `showImei`. อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules**
+- **ค่าตั้งอยู่ RTDB `settings/receipt`** (ไม่ใช่ Firestore — แอดมินฝั่งนี้ไม่มี client Firestore เลย): `shopName` / `addressLine` / `taxId` / `footerLines[]` / `paperSize` / `fontSizePx` / `showImei`. อยู่ใต้ `settings` ใช้ rule เดิม **ไม่ต้อง deploy rules** (แอดมินอ่านคนเดียว — คีย์ใหม่ที่ client ไม่ใช่แอดมินต้องอ่าน **ต้องเพิ่มกฎ** ดูหัวข้อ "คีย์ใหม่ใต้ `settings`")
 - **หน้าตั้งค่า `/settings/receipt`** (`src/pages/admin/ReceiptSettings.tsx`, CEO, กลุ่ม Basic ใน settingsNav) — พรีวิวใช้ `ReceiptTemplate` **ตัวเดียวกับที่พิมพ์จริง** ไม่ใช่ภาพจำลอง และ render จากงานสมมติ ไม่ใช่บิลจริง (PDPA)
 - **`useReceiptSettings` fail-soft ทุกทาง ห้ามทำให้ throw** — ไม่มี doc / อ่านไม่ได้ / เน็ตหลุด = คืนค่าตั้งต้น เพราะใบเสร็จคือสิ่งที่ลูกค้ายืนรออยู่หน้าเคาน์เตอร์ ไม่ใช่หน้าจอที่กด retry ได้. แคช module-level อ่านครั้งเดียวต่อการเปิดแอป หน้าตั้งค่าเรียก `primeReceiptSettings()` หลังบันทึก
 - **`normalizeReceiptSettings` แยก "ไม่มี doc" ออกจาก "ลบท้ายใบเสร็จหมดแล้ว"** — RTDB ลบคีย์ทิ้งเมื่อค่าเป็น array ว่าง ถ้าไม่แยกสองเคสนี้ ท้ายใบเสร็จที่แอดมินเพิ่งลบจะโผล่กลับมาเองเงียบๆ
@@ -701,6 +701,14 @@
 - **ห้าม scheduler อ่าน `/jobs` ทั้งก้อน** — ใช้ `fetchJobsByStatuses()` (query ตาม `.indexOn: status`) เสมอ. `checkOverdueReturns` รันทุก 5 นาที เคยกวาดทั้ง node = ~288 full download/วัน ลงบิลตรงๆ. ข้อยกเว้นที่ตั้งใจ: `autoFlagRiders` (วันละครั้ง ต้องดูทุกงานใน lookback) และ endpoint migration แบบ manual
 - **ห้าม client subscribe `/jobs` ทั้งก้อนจากอุปกรณ์จำนวนมาก** — rider ใช้ `useRiderJobs` (query rider_id + pool statuses). แอดมินใช้ shared keep-alive store ใน `useDatabase` (listener ต่อ path ตัวเดียวทั้งแอป ห้ามกลับไป subscribe/unsubscribe ต่อหน้า)
 - **แคตตาล็อกฝั่ง bkk-frontend-next = 3600s + on-demand invalidate** (`CATALOG_REVALIDATE_SECONDS` ใน `lib/cachePolicy.ts`) — **ห้ามลดกลับโดยไม่อ่านหัวข้อ "แคตตาล็อกสด" ใน CLAUDE.md ของ repo นั้นก่อน**: ความสดมาจากการ invalidate ตอนมีคนแก้ราคา ไม่ใช่จากนาฬิกา ตัวเลข 3600 เป็นตาข่ายกันตกเฉยๆ (ทุก revalidate = ดึง `/models.json` ทั้งก้อน). บรรทัดนี้เคยเขียนว่า 300s ซึ่งเป็นค่าเก่าก่อนเปลี่ยนจาก poll เป็น push
+
+## คีย์ใหม่ใต้ `settings` — "ไม่ต้อง deploy rules" ไม่ใช่สูตรอีกแล้ว (#955, 5 ก.ย. 2569)
+
+- **`settings` เป็น admin-only ทั้ง `.read`/`.write` แล้ว** เดิมเป็น `.read: "auth != null"` ซึ่งแปลว่า**ผู้เข้าเว็บลูกค้าทุกคน** (anonymous auth) ยิง `/settings.json` ได้ทั้งก้อน — รวม `dealer/payment_info` (บัญชีรับโอน) · `accounting` · `hr` · `finance_gate` · `rider_compensation` · `logistics_rates` · `email_templates` · `receipt`
+- **ประโยค "อยู่ใต้ `settings` ใช้ rule เดิม ไม่ต้อง deploy rules" ที่กระจายอยู่หลายหัวข้อในไฟล์นี้ยังถูก** — แต่ถูกเพราะคีย์เหล่านั้น**แอดมินอ่านคนเดียว** ไม่ใช่เพราะ `settings` เปิดกว้าง **ห้ามใช้เป็นสูตรกับคีย์ใหม่**
+- **เกณฑ์ตอนเพิ่มคีย์ใหม่ ถามข้อเดียว: ใครอ่านมัน** — แอดมิน + Admin SDK เท่านั้น = ไม่ต้องแตะกฎ · เว็บลูกค้า/ไรเดอร์/iOS อ่านด้วย = **ต้องเพิ่มกฎที่คีย์นั้นแล้ว deploy จาก `bkk-frontend-next`** · อ่านด้วย REST ที่ไม่มี token (Next server) = ต้องเป็น `.read: true` เท่านั้น
+- **อาการเวลาลืมอ่านยาก** — ผู้อ่านฝั่ง client ครอบด้วย `.catch()` เพราะ fail-soft หน้าจึงเรนเดอร์ปกติด้วยค่า default ตัวที่ฟ้องคือ `FIREBASE WARNING: Permission denied` ใน console เท่านั้น **ตรวจด้วย console ไม่ใช่ด้วยหน้าจอ**
+- **รายละเอียดเต็ม (ตารางสิทธิ์รายคีย์ + เกตไรเดอร์ + ที่มา) อยู่ที่ `bkk-frontend-next/CLAUDE.md` หัวข้อ "`settings` เป็น admin-only แล้ว"** — ไฟล์กฎอยู่รีโปนั้น ไม่ก๊อปตารางมาที่นี่โดยตั้งใจ (สองสำเนาของกฎเดียวกันคือของที่ drift)
 
 ## ทะเบียนงานค้าง (เก็บรอบหน้า)
 
@@ -747,6 +755,8 @@
   - **แยก codebase คือคำตอบเชิงสถาปัตยกรรมที่ถูก แต่ราคาสูงกับโค้ดชุดนี้** — `index.js` ต่อสายโมดูล 20+ ตัวด้วย dependency injection (`registerDealerPortal({dispatchAdminPush, ...})` · `registerHealthCheck(...)` · `registerHr()` …) และโมดูลเหล่านั้นใช้ helper ร่วมกัน (`staff-accounts` · `hr-core` · `notification-settings` · `status-engine`) ซึ่ง **ข้าม codebase ไม่ได้** ต้องยกเป็น shared package หรือทำสำเนา — และสำเนาคือสิ่งที่ไฟล์นี้ทั้งไฟล์เตือนไม่ให้ทำ
   - **ทำไมเลือกขอโควตาแทน:** ขอเพิ่มเป็น 400,000 milli vCPU ใช้เวลาอนุมัติ **1 นาที** และ**ไม่มีค่าใช้จ่ายเพิ่ม** (Cloud Run คิดตามที่ใช้จริง เพดานที่สูงขึ้นไม่ได้ทำให้จ่ายแพงขึ้น) เทียบกับการรื้อซึ่งกินเวลาหลายวันและเสี่ยงพังของที่ใช้งานอยู่
   - **จุดที่ควรกลับมาคิดจริงๆ ไม่ใช่ตอนโควตาเต็มอีกรอบ แต่คือตอนที่ *เวลา deploy เอง* กลายเป็นความเจ็บปวด** — ตอนนี้ ~8 นาทีต่อรอบ และโตเชิงเส้นตามจำนวนฟังก์ชัน ถ้าวันหนึ่งขึ้นไป 20 นาที ทุกคนจะเริ่มกลัวการ merge ซึ่งแพงกว่าค่าโควตามาก
+  - **ผลวัด coupling ที่ทำไปแล้วตอนนั้น อย่าวัดซ้ำ (grep 5 ก.ย. 2569):** `hr-*.js` ทั้งกอง**อ้างถึง `jobs/` ศูนย์ครั้ง** — แตะแค่ `employees` · `settings` · `payroll_runs` · `employee_files` · `hr_documents` **HR จึงเป็นก้อนเดียวที่แยกออกได้จริงตามข้อมูล** ส่วน `dealer-portal.js` อ้าง `jobs/` **29 ครั้ง** รวมการเขียน `status`/`lot_id`/`stock_no`/`sale_id` = แยกไม่ได้. ตัวเลขคู่นี้คือสิ่งที่ตอบคำถาม "แยก project ใน Firebase ไหม" ไปแล้วว่า**ไม่** (RTDB เป็นของ per-project — แยกแล้วอ่านข้ามโหนดไม่ได้ กฎ gate ด้วย `/admins` ไม่ได้ trigger ไม่ยิง)
+  - **สิ่งที่ยังไม่เคยคุยเลย และอย่าสับสนกับข้อบน:** การแยก HR เป็น bounded context ฝั่ง **server** (แยกรีโป / แยก codebase ของ functions / แยก data ownership) — ที่มีอยู่วันนี้คือ `employee-app/` ซึ่งแยกเป็น **Vite app** ต่างหากเท่านั้น ไม่ใช่การแยกโดเมนฝั่งหลังบ้าน
 
 ## Known Issues & Workarounds
 - **VAPID Key + atob():** Firebase SDK ใช้ `atob()` ภายใน `getToken()` ซึ่ง fail กับ base64url ไม่มี padding → ต้อง patch `window.atob` ชั่วคราว (ดู `useAdminPushNotifications.ts`)
