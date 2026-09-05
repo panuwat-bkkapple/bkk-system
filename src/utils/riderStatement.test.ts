@@ -6,13 +6,20 @@
 // ไว้อย่างเดียว) — ถ้าวันหนึ่งสูตรของแอปเปลี่ยน เลขที่พิมพ์ไว้จะแดง แต่ข้อ "ยอดท้ายตาราง =
 // walletBalance" ต้องเขียวตลอด นั่นคือสัญญาของหน้านี้
 //
-// ตาราง injection (วัดจริง 5 ก.ย. 2569 หลัง commit checkpoint):
-//   1. เปลี่ยน running ให้บวก/ลบเอง (ไม่ผ่าน walletBalance)         → แดง (ยอดท้ายตาราง)
-//   2. นับแถวนอก allowlist เข้ายอด                                 → แดง 3
-//   3. ตีแถว amount 'abc' เป็น 0 แล้วนับ                          → แดง 2
-//   4. (i) ลืมกรอง rider_fee_status !== 'Paid' (นับ Waived เป็น Paid)  → แดง 2
-//   5. (ii) ไม่เช็ค amount ≠ rider_fee                              → แดง 1
-//   6. WITHDRAWAL แสดง description ดิบ                              → แดง 1 (เลขบัญชี)
+// ตาราง injection (วัดจริง 5 ก.ย. 2569 หลัง commit checkpoint · รันสามไฟล์เทสของหน้านี้พร้อมกัน):
+//   1. running = reduce บวก/ลบเอง (ไม่ผ่าน walletBalance)            → **เขียวทั้ง 44** เพราะสูตรเท่ากัน
+//      ทางคณิตศาสตร์ — ตัวเลขแยกไม่ได้โดยนิยาม จึงเป็นด่านเชิงโครงสร้างใน riderStatementReadOnly
+//      ("running/balance ถูก assign จาก walletBalance เท่านั้น") ซึ่งแดง 1 หลังเพิ่ม
+//   2. นับแถวนอก allowlist เข้ายอด                                    → แดง 9
+//   3. ตีแถว amount 'abc' เป็น 0 แล้วนับ                             → แดง 11
+//   4. (i) นับ Waived เป็น Paid                                       → แดง 3
+//   5. (ii) ไม่เช็ค amount ≠ rider_fee                                → แดง 1
+//   6. WITHDRAWAL แสดง description ดิบ                                → แดง 2 (เลขบัญชีหลุดทั้ง JSON และ CSV)
+//   7. mirror: ถอด RIDER_DEPOSIT ออกจาก allowlist                     → แดง 5 (parity + ตัวเลขจริง)
+//   8. mirror: hold นับคำขอ paid ด้วย                                  → แดง 6
+//   9. page: เติม update(ref(db,...))                                 → แดง 1 (read-only)
+//  10. page: import logTransaction                                     → แดง 1 (read-only)
+//  11. view: อ่าน .description มาแสดง                                  → แดง 1 (read-only)
 import { describe, it, expect } from 'vitest';
 import { buildStatement, defaultRange, statementCsv, DEFAULT_RANGE_DAYS } from './riderStatement';
 import { isRiderWalletTx, walletBalance } from './riderWalletLedger';

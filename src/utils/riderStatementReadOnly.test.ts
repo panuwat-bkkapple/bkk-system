@@ -86,10 +86,20 @@ describe('สามไฟล์ของหน้า statement ไม่มี�
     }
   });
 
-  it('util คิดยอดผ่าน mirror เท่านั้น — ไม่มีสูตร balance ของตัวเอง', () => {
+  it('util คิดยอดผ่าน mirror เท่านั้น — running/balance ถูก assign จาก walletBalance เท่านั้น', () => {
+    // ข้อนี้ต้องเป็นด่านเชิงโครงสร้าง ไม่ใช่เชิงตัวเลข: injection ที่เขียน reduce บวก/ลบเองซึ่ง
+    // **เท่ากับ walletBalance ทางคณิตศาสตร์** ทำให้เทสตัวเลขทุกตัวเขียว (วัดจริง 5 ก.ย. 2569)
+    // — ไม่มี fixture ไหนแยกสองสูตรที่เท่ากันได้ สิ่งที่หน้านี้สัญญาคือ "สูตรเดียวกับแอป"
+    // ซึ่งพิสูจน์ได้ทางเดียวคือดูว่าเรียกฟังก์ชันตัวเดียวกันจริง
     expect(src.util).toMatch(/from '\.\/riderWalletLedger'/);
-    // ห้ามมี reduce ที่บวก/ลบ amount ตาม type เอง (นั่นคือ walletBalance ตัวที่สอง)
-    const own = codeLines(src.util).filter(({ line }) => /type === 'CREDIT' \? .*\+ .*amount/.test(line) && !/signed/.test(line));
+    const assigns = codeLines(src.util).filter(({ line }) => /(^|[^\w.])(running|balance)\s*=(?!=)/.test(line) && !/^\s*(let|const)?\s*(running|balance)\s*:\s*number/.test(line) && !/ledger:\s*balance|balance:\s*number/.test(line));
+    expect(assigns.length).toBeGreaterThanOrEqual(2);
+    for (const { line, n } of assigns) {
+      expect(line, `บรรทัด ${n}: ${line.trim()}`).toMatch(/(running|balance) = walletBalance\(/);
+    }
+    // และห้ามมี reduce ที่บวก/ลบ amount ตาม type เอง นอกเหนือจาก `signed` ของกล่อง reconcile
+    // รูปของสูตร = `type === 'CREDIT' ? +amount : -amount` (มีเครื่องหมายลบฝั่ง else) — ไม่ใช่การเลือกคอลัมน์ Dr/Cr
+    const own = codeLines(src.util).filter(({ line }) => /type === 'CREDIT' \?[^:]*amount[^:]*:\s*-/.test(line) && !/const signed/.test(line));
     expect(own, JSON.stringify(own)).toEqual([]);
   });
 
