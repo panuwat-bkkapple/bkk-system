@@ -716,8 +716,18 @@
 - **VAPID Key + atob():** Firebase SDK ใช้ `atob()` ภายใน `getToken()` ซึ่ง fail กับ base64url ไม่มี padding → ต้อง patch `window.atob` ชั่วคราว (ดู `useAdminPushNotifications.ts`)
 - **Service Worker Config:** `firebase-messaging-sw.js` ใช้ Firebase config แบบ hardcode (ไม่ใช่ env vars) — ถ้าเปลี่ยน Firebase project ต้องแก้ไฟล์นี้ด้วย
 
+## ตรวจงานก่อน push: `npm run verify` คำสั่งเดียว (บทเรียน 5 ก.ย. 2569)
+
+- **`npm run verify` (`scripts/verify.sh`) รันด่านชุดเดียวกับ CI ตามลำดับเดียวกัน** — tsc ของ root · status vocab · เทสทั้งรีโป (`REQUIRE_PRINT_CHECKS=1`) · **build แอปพนักงาน** · เทสออฟไลน์ของ functions · syntax ของ functions
+- **ที่มา: การรัน "ทีละอย่างตามที่จำได้" พลาดมาแล้วจริง (PR #730)** — ตรวจด้วย `npx tsc -b` ที่ root แล้ว `npx vite build` ใน `employee-app/` แล้วรายงานว่าเขียว **ทั้งสองคำสั่งไม่ตรวจ type ของแอปพนักงานเลยสักตัว**:
+  - `tsc -b` ที่ root อ่าน tsconfig ของ root ซึ่ง**ไม่ได้ reference `employee-app/`**
+  - `npx vite build` **ข้าม tsc** (สคริปต์จริงคือ `tsc -b && vite build`)
+  - CI จับได้สองข้อในนาทีเดียว (`requested_by_name` ที่ไม่มีใน type · fixture ของ `session.test.ts` ที่ขาดฟิลด์ใหม่) ทั้งที่ในเครื่องเขียวสนิท
+- **ความรู้ข้อนี้เขียนไว้แล้วใน `.github/workflows/ci.yml`** ("`npx tsc -b` ของ root มองไม่เห็นมันเลย") **แต่ไฟล์นั้นไม่ใช่ที่ที่คนเปิดอ่านตอนกำลังตรวจงานก่อน push** — รูปเดียวกับบทเรียน "เอกสารที่เตือนไว้แล้วช่วยไม่ได้ ถ้าไม่ได้เปิดอ่านตอนกำลังแก้" ของ `bkk-frontend-next` ทางแก้จึงเป็นการ**ย้ายกฎมาเป็นคำสั่งที่รันได้** ไม่ใช่เขียนเตือนเพิ่มอีกที่
+- **แอปย่อยทุกตัวมี tsconfig ของตัวเอง** (`employee-app/`, `dealer-portal/`) — เพิ่มแอปย่อยใหม่เมื่อไหร่ **ต้องเพิ่มขั้นตอน build ของมันเข้า `verify.sh` และเข้า `ci.yml` พร้อมกัน** ไม่งั้นมันจะไม่ถูกตรวจ type เลยจนกว่าจะ deploy
+
 ## Important Notes
-- ก่อน push ให้ตรวจสอบว่า TypeScript compile ผ่าน (`tsc --noEmit`)
+- ก่อน push ให้รัน **`npm run verify`** (ดูหัวข้อข้างบน) — `tsc --noEmit` หรือ `tsc -b` เปล่าๆ **ไม่ครอบแอปย่อย**
 - ถ้าแก้ Cloud Functions ต้องรอ GitHub Actions deploy functions ด้วย (ไม่ใช่แค่ hosting)
 - เทสบน Chrome DevTools ≠ เทสบน iPhone จริง (โดยเฉพาะ push notification)
 - iOS PWA มีข้อจำกัดเรื่อง service worker และ push ที่ต่างจาก Android/Chrome

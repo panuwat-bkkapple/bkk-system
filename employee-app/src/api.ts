@@ -126,6 +126,9 @@ export interface ShiftRequestRow {
   reason: string | null;
   status: string;
   requested_at: number | null;
+  // ชื่อผู้ขอ — กล่อง "รอคุณตอบ" ต้องบอกได้ว่าใครขอสลับกับเรา
+  // (server ส่งมาใน publicShiftRequest อยู่แล้ว ที่ขาดคือประกาศฝั่งนี้)
+  requested_by_name?: string | null;
   decided_at: number | null;
   decided_by_name: string | null;
   decision_note: string | null;
