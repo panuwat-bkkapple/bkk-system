@@ -171,10 +171,15 @@ function deviceLines(job) {
   if (devices.length === 0) {
     return job.model ? [{ name: job.model, price: job.price }] : [];
   }
-  return devices.map((d) => {
-    if (!d || typeof d !== "object") return { name: String(d || "อุปกรณ์"), price: null };
+  // Two identical devices on one order print as two identical rows; the
+  // customer cannot tell the document lists two handsets rather than one row
+  // duplicated. Number the rows whenever there is more than one — a single
+  // device keeps its bare name (no "#1" on a one-line order).
+  return devices.map((d, i) => {
+    const prefix = devices.length > 1 ? `#${i + 1} ` : "";
+    if (!d || typeof d !== "object") return { name: prefix + String(d || "อุปกรณ์"), price: null };
     return {
-      name: d.model || d.name || d.title || "อุปกรณ์",
+      name: prefix + (d.model || d.name || d.title || "อุปกรณ์"),
       // Offer-request device: price 0 is "not priced yet", not a real ฿0 quote
       // — blank the cell so the email never quotes ฿0 to the customer.
       price: d.offer_request === true ? null : (d.finalPrice ?? d.price ?? null),
@@ -1134,6 +1139,7 @@ function buildCustomerOfferDecisionEmail(job, offer) {
 
 module.exports = {
   sendEmail,
+  deviceLines,
   COMPANY,
   companyOf,
   bahtText,

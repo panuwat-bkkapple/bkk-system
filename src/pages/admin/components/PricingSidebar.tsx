@@ -119,7 +119,11 @@ function AssessmentCodes({ codes }: { codes: string[] }) {
   return (
     <div className="mt-3 pt-3 border-t border-white/10">
       <div className="text-[10px] font-bold text-slate-400 mb-1.5">รหัสประเมินของลูกค้า</div>
-      {codes.map((code) => {
+      {/* ลำดับรหัส = ลำดับ devices[] บนงาน (validateAndCreateOrder เขียน
+          assessment_codes จากตะกร้าชุดเดียวกับ devices) — สองเครื่องเหมือนกัน
+          จึงได้สองรหัสที่ราคา/คำตอบเหมือนกันทุกบรรทัด ป้าย "เครื่องที่ N" คือ
+          สิ่งเดียวที่บอกว่ารหัสไหนเป็นของช่องไหน ขึ้นเฉพาะเมื่อมีมากกว่าหนึ่ง */}
+      {codes.map((code, i) => {
         const row = data[code];
         return (
           <div key={code} className="mb-1.5">
@@ -127,7 +131,10 @@ function AssessmentCodes({ codes }: { codes: string[] }) {
               onClick={() => toggle(code)}
               className="w-full flex justify-between items-center text-[11px] font-bold text-slate-200 hover:text-white transition-colors"
             >
-              <span className="tracking-wider">{code}</span>
+              <span className="tracking-wider">
+                {codes.length > 1 && <span className="text-slate-400 mr-1.5">เครื่องที่ {i + 1}</span>}
+                {code}
+              </span>
               <span className="text-slate-400">{loading === code ? '...' : open === code ? 'ซ่อน' : 'ดูคำตอบ'}</span>
             </button>
             {open === code && row && (

@@ -56,9 +56,12 @@ function deviceLines(job) {
   if (devices.length === 0) {
     return job.model ? [{ name: job.model, price: job.price }] : [];
   }
-  return devices.map((d) => {
-    if (!d || typeof d !== "object") return { name: String(d || "อุปกรณ์"), price: null };
-    return { name: d.model || d.name || d.title || "อุปกรณ์", price: d.finalPrice ?? d.price ?? null };
+  // Numbered when there is more than one device — see email.js deviceLines:
+  // two identical devices must read as two handsets, not one row repeated.
+  return devices.map((d, i) => {
+    const prefix = devices.length > 1 ? `#${i + 1} ` : "";
+    if (!d || typeof d !== "object") return { name: prefix + String(d || "อุปกรณ์"), price: null };
+    return { name: prefix + (d.model || d.name || d.title || "อุปกรณ์"), price: d.finalPrice ?? d.price ?? null };
   });
 }
 
@@ -1779,5 +1782,5 @@ async function buildPettyCashVoucherPdf({ voucher, expense, rider, company }) {
   return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf,
+module.exports = { deviceLines, buildVoucherPdf, buildTaxInvoicePdf, buildSalesTaxInvoicePdf, buildQuotationPdf, buildCreditNotePdf, buildWhtCertificatePdf, buildPayslipPdf, buildEmployeeWhtCertificatePdf,
   buildEmploymentContractPdf, buildHrLetterPdf, hrLetterBody, buildPettyCashVoucherPdf };
