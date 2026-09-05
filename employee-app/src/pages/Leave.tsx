@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarPlus, Loader2, X, Pencil, Save } from 'lucide-react';
 import { call, errorText, type LeaveRequestRow, type LeaveTypeRow } from '../api';
 import { STATUS_LABEL, STATUS_TONE } from '../requestStatus';
+import DateField from '../DateField';
 
 interface ListRes {
   year: string;
@@ -15,24 +16,6 @@ interface PreviewRes {
 }
 
 const EMPTY = { type: '', from: '', to: '', reason: '' };
-
-/** ช่องวันที่ + ป้ายที่วางทับเมื่อยังว่าง
- *
- * iOS Safari วาด `input[type=date]` ที่ไม่มีค่าเป็น **กล่องเปล่าสนิท** ไม่มี
- * ตัวอักษรใดๆ (เดสก์ท็อป Chrome ขึ้น mm/dd/yyyy ให้ ซึ่งเป็นเหตุผลที่มองไม่
- * เห็นตอนพัฒนา) คนใช้จึงอ่านว่าแอปพัง ไม่ใช่ว่ายังไม่ได้เลือก
- */
-function DateField({ id, value, onChange }: {
-  id: string; value: string; onChange: (v: string) => void;
-}) {
-  return (
-    <div className={value ? 'datefield' : 'datefield empty'}>
-      <input id={id} type="date" value={value} required
-        onChange={(e) => onChange(e.target.value)} />
-      {!value && <span className="ph" aria-hidden="true">เลือกวันที่</span>}
-    </div>
-  );
-}
 
 export default function Leave() {
   const [data, setData] = useState<ListRes | null>(null);
