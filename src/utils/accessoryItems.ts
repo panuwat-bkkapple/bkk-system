@@ -101,21 +101,33 @@ export const accessoryModelsForDevice = (modelsData: any, deviceModel: any): any
  * เกาะอยู่ server จึงต้องแตกอุปกรณ์เสริมเองด้วยรูปเดียวกันเป๊ะ. ด่าน:
  * accessoryUnpackParity.test.ts รันทั้งสองบน fixture เดียวกันแล้ว diff
  */
+export interface AccessoryUnpackParent {
+  id?: string;
+  ref_no?: string;
+  cust_name?: string;
+  receive_method?: string;
+  price?: unknown;
+  final_price?: unknown;
+  accessories_unpacked_at?: unknown;
+  accessory_items?: unknown;
+}
+
 export const buildAccessoryChildUpdates = (
-  job: any,
+  job: AccessoryUnpackParent | null | undefined,
   keys: string[],
   by: string,
   now: number,
-): Record<string, any> => {
+): Record<string, unknown> => {
   const raw = job?.accessory_items;
-  const items: any[] = (Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw) : []).filter(Boolean);
-  const updates: Record<string, any> = {};
+  const items = (Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw as Record<string, unknown>) : [])
+    .filter(Boolean) as Partial<JobAccessoryItem>[];
+  const updates: Record<string, unknown> = {};
   if (!job?.id || items.length === 0 || job.accessories_unpacked_at) return updates;
   const total = Number(job.final_price) || Number(job.price) || 0;
   const parentRef = job.ref_no || job.id;
   let accessoryTotal = 0;
 
-  items.forEach((it: any, idx: number) => {
+  items.forEach((it, idx) => {
     const price = Number(it.price) || 0;
     accessoryTotal += price;
     updates[`jobs/${keys[idx]}`] = {
