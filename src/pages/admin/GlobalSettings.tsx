@@ -77,6 +77,9 @@ export default function GlobalSettings() {
     assessment_gc_days: 30,
     // ให้ลูกค้าพิมพ์รหัสประเมินกู้ตะกร้าข้ามเครื่อง — ปิดเป็นค่าเริ่มต้น
     allow_code_recovery: false,
+    // ปุ่ม "เพิ่มเครื่องแบบเดียวกัน" บน /cart + /checkout ของเว็บลูกค้า — remote flag
+    // ปิดเป็นค่าเริ่มต้น (server ของเว็บลูกค้าตรวจธงนี้เองใน duplicateAssessment)
+    allow_duplicate_line: false,
   });
   const [isSavingQuote, setIsSavingQuote] = useState(false);
   const [showQuoteSuccess, setShowQuoteSuccess] = useState(false);
@@ -116,6 +119,7 @@ export default function GlobalSettings() {
           lock_days: Number(v.lock_days) > 0 ? Number(v.lock_days) : prev.lock_days,
           assessment_gc_days: Number(v.assessment_gc_days) > 0 ? Number(v.assessment_gc_days) : prev.assessment_gc_days,
           allow_code_recovery: v.allow_code_recovery === true,
+          allow_duplicate_line: v.allow_duplicate_line === true,
         }));
       }
     });
@@ -418,6 +422,23 @@ export default function GlobalSettings() {
             <span className="block text-[11px] font-medium text-slate-400 mt-1 leading-relaxed">
               ปิดไว้เป็นค่าเริ่มต้น — แทบไม่มีลูกค้าจำรหัสข้ามอุปกรณ์จริง และช่องกรอกที่เปิดทิ้งไว้
               คือช่องให้เดารหัสของคนอื่น แอดมินเปิดดูรหัสจากตั๋วได้อยู่แล้วโดยไม่ต้องเปิดสวิตช์นี้
+            </span>
+          </span>
+        </label>
+
+        <label className="mt-3 flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={quote.allow_duplicate_line}
+            onChange={(e) => setQuote({ ...quote, allow_duplicate_line: e.target.checked })}
+            className="mt-0.5 w-4 h-4 accent-indigo-600 shrink-0"
+          />
+          <span>
+            <span className="block text-xs font-black text-slate-700">ปุ่ม "เพิ่มเครื่องแบบเดียวกัน" ในตะกร้าเว็บลูกค้า</span>
+            <span className="block text-[11px] font-medium text-slate-400 mt-1 leading-relaxed">
+              ลูกค้าเพิ่มเครื่องรุ่น/สภาพเดียวกันเป็นอีกแถวได้ทันทีโดยไม่ต้องประเมินซ้ำ (รหัสประเมินใหม่
+              ราคาคิดใหม่ ตรวจสภาพแยกเครื่อง เพดาน 10 เครื่องต่อตะกร้า) — ปิดได้ทันทีถ้าแถวแฝดทำให้
+              ตั๋ว/ไรเดอร์สับสน มีผลกับปุ่มบนเว็บและกับ server ที่ออกรหัสพร้อมกัน ไม่ต้อง deploy
             </span>
           </span>
         </label>
