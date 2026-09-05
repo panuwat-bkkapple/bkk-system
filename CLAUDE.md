@@ -446,6 +446,47 @@
 - **MIRROR 2 ที่:** หมวด/ช่องทาง/ค่า default อยู่ทั้ง `functions/notification-settings.js` (JS, ตัวที่ gate จริง) และ `src/utils/notificationSettings.ts` (TS, label ของ UI) — functions import TS ไม่ได้ **เพิ่มหมวดต้องแก้ทั้งคู่ + map `data.type` ฝั่ง server**
 - `settings/notifications` อยู่ใต้ `settings` จึงใช้ rule เดิม (read = auth, write = admin) **ไม่ต้อง deploy rules ใหม่**
 
+## ค่ารอบไรเดอร์ — สถานะ Waived + ด่านบัญชีเจ้าของ/ไม่มีไรเดอร์ (5 ก.ย. 2569, PR #731)
+
+> ที่มา: บัญชีไรเดอร์ของเจ้าของบริษัทได้ค่ารอบเข้ากระเป๋า 129 แถว (Σ ~45,659) จากปุ่ม batch รุ่นเก่า
+> ของ `RiderSettlements` (#522 `rider_fee || 150` ไม่กรองใคร) + การอนุมัติจาก `/rider-audit` และงาน
+> Store-in/Mail-in 26 ใบได้ค่ารอบขั้นต่ำจาก trigger ทั้งที่ไม่มีไรเดอร์ **กติกา: เจ้าของต้องไม่มีค่ารอบเข้า
+> กระเป๋าเลย ไม่ว่างานวันไหน** — survey เต็ม `docs/reports/2026-09-05-owner-rider-wallet-reversal-survey.md`
+
+- **`rider_fee_status` มี 3 ค่า `Pending | Paid | Waived`** ประกาศที่ `functions/rider-fee-status.js` (ตัวจริง) MIRROR
+  `src/types/riderFeeStatus.ts` + `bkk-rider-app/src/types/riderFeeStatus.ts` — ด่าน `src/utils/riderFeeStatusParity.test.ts`
+  (อ่านสำเนาแอปไรเดอร์เมื่อ checkout ข้างกัน; ฝั่งนั้นอ่านกลับผ่าน sparse-checkout ใน CI). **Paid/Waived เป็นปลายทาง**
+  ตัวเขียน Pending ทุกตัว (trigger, pin-dispute, แอปไรเดอร์ตอนส่งมอบ) ต้องไม่ทับ — ใช้ `pendingFeeStatusPatch`
+  - **PAID อยู่ท้าย object โดยไม่มี trailing comma โดยตั้งใจ** — `statusLiteralCensus.test.ts` นับ `'Paid',` เป็นการเทียบ
+    สถานะงาน (Paid เป็นทั้งสถานะงานและสถานะค่ารอบ ตัวจำแนกแยกไม่ออก) ลำดับ values ต้องตรงกันทุกสำเนา
+- **การอนุมัติ/ยกเว้นค่ารอบไม่เขียนจากเบราว์เซอร์อีกแล้ว** — `/rider-audit` เรียก callable `adminRiderFeeApprove`
+  (CEO/MANAGER) / `adminRiderFeeWaive` (CEO/MANAGER/FINANCE, reason บังคับ, หลายใบ) / `adminRiderFeeConfig`
+  (`functions/rider-fee-admin-api.js`) ผ่าน `src/utils/riderFeeAdmin.ts` ตัวเดียว. `buildRiderFeeApproval` ย้ายจาก
+  `src/utils/riderSettlement.ts` ไป `functions/rider-fee-guard.js` เพราะด่านในเบราว์เซอร์ข้ามได้ด้วย console (rules อนุญาต
+  admin เขียน `/transactions` ทุกรูป) ฝั่ง client เหลือ `riderFeeBlockReason` เป็น UX (ป้าย + ปิด checkbox) ที่ parity กับ JS
+  - `statusWriterCensus` ลด 77 → 74 ตามนั้น **ห้ามเพิ่ม client write ของงานค่ารอบกลับมา** ทุกอย่างผ่าน callable หรือสคริปต์ admin
+- **ด่านถาวร (`functions/rider-fee-guard.js`, pure):** rider_id ว่าง (รวมสตริงว่างที่ปุ่ม batch เก่าปล่อยผ่าน และ `cancelled_by`
+  ที่ไม่ใช่ `rider:{id}`) หรือ rider อยู่ใน **`OWNER_RIDER_IDS`** → `assertRiderFeePayable` throw. callable อนุมัติที่เจอใบชนด่าน
+  แม้ใบเดียว = **ปฏิเสธทั้งชุด ไม่เขียนอะไร** (เขียนครึ่งชุดแล้วรายงานว่าข้ามคือของที่ไม่มีใครอ่าน)
+  - **`OWNER_RIDER_IDS` อ่านจาก env ของ functions (คั่นด้วย `,`) ไม่มี uid ในโค้ด** — GitHub Secret ชื่อเดียวกัน CI เขียนลง
+    `functions/.env` (`firebase-hosting-deploy.yml`). **ไม่ตั้ง = callable อนุมัติปฏิเสธทุกใบ (fail closed)** และหน้า /rider-audit
+    ขึ้นป้ายแดง. เปลี่ยน secret แล้วต้อง Run workflow ด้วยมือ (กับดักเดิมในหัวข้อ env vars)
+- **`/rider-audit`:** ใบ Waived ซ่อน default (สวิตช์ "ดูใบที่ยกเว้น") · ใบไม่มีไรเดอร์แยกส่วน "ไม่มีไรเดอร์" **ไม่มีปุ่มจ่าย** มีแต่ยกเว้น ·
+  ใบบัญชีเจ้าของขึ้นป้าย ติ๊กจ่ายไม่ได้ · Waive ต่อใบ/หลายใบ ถาม reason ผ่าน prompt. `RiderSettlements` (แท็บ finance) อ่านอย่างเดียว
+  โดยโครงสร้าง — ไม่ import อะไรที่เขียน RTDB ได้
+- **`onJobHandedOverCalcRiderFee` มีด่านร่วมสองทางเข้าแล้ว** (`feeCalcBlockReason` ใน `rider-fee-trigger.js`): ไม่ใช่ Pickup หรือ
+  rider_id ว่าง = ไม่คำนวณ ไม่ตั้ง status. ก่อนหน้านี้สองด่านอยู่เฉพาะบล็อกตาข่าย ทางหลัก (Pending QC) จึงคิด `min_fee` ให้
+  Store-in/Mail-in (`computeRiderFee` ไม่มีทางคืน "ไม่มีค่ารอบ")
+- **กลับรายการของเก่า = `scripts/reverse-owner-rider-payouts.cjs`** (dry-run default, `--apply`, `--rider` ต้องอยู่ใน env
+  `OWNER_RIDER_IDS`): แถวคู่กลับ `ADJUSTMENT/DEBIT` amount เท่ากัน `taxable:false` `meta.reverses=<key เดิม>` **ไม่ลบไม่แก้แถวเดิม**
+  · งาน Paid/Pending ของเจ้าของ → `Waived` reason `owner_run` · Pending ไม่มีไรเดอร์ → `no_rider` · ไม่แตะ `rider_fee` · multi-path
+  ก้อนเดียว · idempotent ด้วย `meta.reverses` · balance ก่อน/หลังจาก `walletLedger.ts` ตัวจริง (loader ของ `rider-wallet-audit.cjs`).
+  **ลำดับ: deploy functions → deploy แอปไรเดอร์ (ตัวเขียน Pending ไม่ทับปลายทาง, bkk-rider-app PR) → dry-run → --apply → rider-wallet-audit**
+  · คู่ ADJUSTMENT เดิม 104 คู่ของเจ้าของหักกันเป็นศูนย์ ปล่อยไว้ · ไม่มี 50 ทวิ/expense split ให้กลับ (WITHDRAWAL 1 แถวทั้งระบบ ไม่ใช่ของเจ้าของ)
+- **ด่าน:** `functions/test/rider-fee-guard.test.mjs` · `functions/test/reverse-owner-rider-payouts.test.mjs` (fixture 3 แถว, รันสองรอบ
+  ได้แถวกลับชุดเดียว) · `rider-fee-trigger.test.mjs` (ข้อ 4-5) · `src/utils/riderSettlement.test.ts` (parity UX ↔ JS) · ตาราง injection
+  วัดจริงอยู่หัวไฟล์ทุกตัว
+
 ## ค่าวิ่งไรเดอร์ แยกตามยานพาหนะ (motorcycle / car)
 - **อัตรา** อยู่ที่ `settings/logistics_rates/by_vehicle/{motorcycle|car}` (ตั้งที่ `/global-settings` แท็บยานพาหนะ) — ฟิลด์แบนที่ root ยังเป็น fallback ทีละฟิลด์ ระบบเดิมจึงคิดเงินเท่าเดิมเป๊ะจนกว่าจะกรอก `by_vehicle`
 - **ยานพาหนะของไรเดอร์** อยู่ที่ `riders/{id}/vehicle_type` (+ mirror ที่ `riders/{id}/vehicle/type` ซึ่งเป็นตัวที่ลูกค้าอ่านได้ตามกฎ read ของ subtree `vehicle`) — ตั้งที่หน้า `/riders`

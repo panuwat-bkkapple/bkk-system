@@ -3,17 +3,19 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useDatabase } from '../../../hooks/useDatabase';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
-import { CheckCircle2, FileText, Zap } from 'lucide-react';
-import { ref, update, push, child } from 'firebase/database';
-import { db } from '../../../api/firebase';
-import { useToast } from '../../../components/ui/ToastProvider';
+import { FileText, Zap } from 'lucide-react';
 import { settledRiderFee } from '../../../utils/riderSettlement';
 import { JOB_STATUS } from '../../../types/job-statuses';
 import { statusIs } from '../../../utils/statusCompare';
 
 
+// **จอนี้ไม่มีทางเขียน RTDB โดยโครงสร้าง** (5 ก.ย. 2569) — ปุ่ม "อนุมัติทั้งหมด"
+// รุ่นเก่า (handleApproveAll, เขียน JOB_PAYOUT `[Batch]` 121 แถวให้บัญชีเจ้าของเมื่อ
+// 1 ก.ย. 2569 ด้วย `rider_fee || 150` โดยไม่กรองใคร) ถูกลบตั้งแต่ #643 แต่ import ของ
+// firebase/database ยังค้างอยู่จนถึงวันนี้ ทำให้อ่านแล้วเหมือนยังเขียนได้. ตอนนี้ไฟล์นี้
+// ไม่ import อะไรที่เขียน RTDB ได้เลย — การอนุมัติ/ยกเว้นอยู่ที่ /rider-audit ผ่าน
+// callable ที่มีด่านบัญชีเจ้าของ/ไม่มีไรเดอร์ (functions/rider-fee-admin-api.js)
 export const RiderSettlements = () => {
-  const toast = useToast();
   const { data: jobs, loading } = useDatabase('jobs');
   // สถานะการจ้างของไรเดอร์ตัดสินวิธีทางภาษีของเงินก้อนนี้ คนที่กดจ่ายจึงต้อง
   // เห็นก่อนกด — ไรเดอร์ที่ยังไม่ระบุสถานะแปลว่ายังไม่รู้ว่าต้องหัก ณ ที่จ่าย

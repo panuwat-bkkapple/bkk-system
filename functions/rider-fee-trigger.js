@@ -38,4 +38,22 @@ function isSafetyNetEntry(status, receiveMethod) {
   return canonicalOf(status, receiveMethod) !== JOB_STATUS.PENDING_QC;
 }
 
-module.exports = { FEE_TRIGGER_CANONICAL, isFeeTriggerStatus, isSafetyNetEntry };
+/**
+ * เหตุผลที่ห้ามคิดค่ารอบให้งานนี้เลย — `'not_pickup' | 'no_rider' | null`
+ *
+ * ใช้กับ**ทั้งสองทางเข้า**ของ onJobHandedOverCalcRiderFee (ทางหลัก Pending QC และ
+ * ตาข่าย). ก่อน 5 ก.ย. 2569 สองด่านนี้อยู่เฉพาะในบล็อกตาข่าย ทางหลักจึงคิดค่ารอบ
+ * ขั้นต่ำให้งาน Store-in/Mail-in ที่เข้า Pending QC (computeRiderFee ไม่มีทางคืน
+ * "ไม่มีค่ารอบ" — ไม่มีพิกัดลูกค้าก็คืน min_fee) แล้วตั้ง Pending ให้ใบที่ไม่มีใครให้จ่าย
+ * 26 ใบไปนั่งในคิวอนุมัติ (docs/reports/2026-09-05-owner-rider-wallet-reversal-survey.md A4)
+ *
+ * ด่านคือ "ไรเดอร์ไปรับ" (receive_method Pickup) + "มีไรเดอร์ถืองาน" (rider_id ไม่ว่าง)
+ * ไม่ผ่าน = ไม่คำนวณ ไม่ตั้ง rider_fee_status ใดๆ
+ */
+function feeCalcBlockReason(job) {
+  if (!job || job.receive_method !== "Pickup") return "not_pickup";
+  if (typeof job.rider_id !== "string" || !job.rider_id.trim()) return "no_rider";
+  return null;
+}
+
+module.exports = { FEE_TRIGGER_CANONICAL, isFeeTriggerStatus, isSafetyNetEntry, feeCalcBlockReason };

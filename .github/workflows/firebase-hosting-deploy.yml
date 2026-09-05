@@ -254,6 +254,7 @@ jobs:
             printf 'OVERVIEW_API_KEY=%s\n' "$OVERVIEW_API_KEY"
             printf 'MIGRATION_API_KEY=%s\n' "$MIGRATION_API_KEY"
             printf 'SEARCH_OVERVIEW_KEY=%s\n' "$SEARCH_OVERVIEW_KEY"
+            printf 'OWNER_RIDER_IDS=%s\n' "$OWNER_RIDER_IDS"
           } > functions/.env
         env:
           THAI_POST_KEY: ${{ secrets.THAILAND_POST_API_KEY }}
@@ -289,6 +290,8 @@ jobs:
           # DISABLED (503) rather than as an open Anthropic proxy. The same
           # value goes in the website's Vercel env as SEARCH_OVERVIEW_KEY.
           SEARCH_OVERVIEW_KEY: ${{ secrets.SEARCH_OVERVIEW_KEY }}
+          # ด่านถาวรค่ารอบ: uid บัญชีไรเดอร์ของเจ้าของ (คั่นด้วย ,) — ไม่ตั้ง = callable อนุมัติค่ารอบปฏิเสธทุกใบ
+          OWNER_RIDER_IDS: ${{ secrets.OWNER_RIDER_IDS }}
 
       # Deploy via firebase-tools directly (pinned), authenticating with the
       # SAME service-account secret the Hosting job uses successfully, exposed

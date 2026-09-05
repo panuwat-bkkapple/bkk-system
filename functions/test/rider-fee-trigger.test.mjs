@@ -7,6 +7,12 @@
 //   1. isFeeTriggerStatus เทียบ raw === แทน normalize   -> แดง 1 (เทส "ทั้งสองสะกด")
 //   2. ตัด SENT_TO_QC_LAB ออกจาก FEE_TRIGGER_CANONICAL  -> แดง 2
 //   3. isSafetyNetEntry คืน true เสมอ                    -> แดง 1 (ทางหลักถูกนับเป็นตาข่าย)
+//   4. feeCalcBlockReason ไม่เช็ค receive_method            -> แดง 1 (Store-in/Mail-in) — วัดจริง 5 ก.ย. 2569
+//   5. feeCalcBlockReason เช็ค `!job.rider_id` แทน trim     -> แดง 1 ('   ') — วัดจริง 5 ก.ย. 2569
+//
+// ด่าน 4-5 มาจากบั๊กจริง 5 ก.ย. 2569: ทางหลัก (Pending QC) ของ onJobHandedOverCalcRiderFee
+// ไม่เช็ค rider_id/receive_method เลย (สองด่านอยู่เฉพาะบล็อกตาข่าย) งาน Store-in/Mail-in
+// จึงได้ค่ารอบขั้นต่ำ + Pending ไปนั่งในคิวอนุมัติ 26 ใบ ทั้งที่ไม่มีใครให้จ่าย
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -14,7 +20,7 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const { FEE_TRIGGER_CANONICAL, isFeeTriggerStatus, isSafetyNetEntry } = require(
+const { FEE_TRIGGER_CANONICAL, isFeeTriggerStatus, isSafetyNetEntry, feeCalcBlockReason } = require(
   path.join(root, "functions/rider-fee-trigger.js")
 );
 const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
@@ -67,6 +73,20 @@ check("ทุกค่าที่ engine เขียนซึ่งตกใ�
     assert.equal(isFeeTriggerStatus(to), true, `${event} -> ${to} หลุดจากตัวจับ`);
   }
   assert.deepEqual(FEE_TRIGGER_CANONICAL, [JOB_STATUS.PENDING_QC, JOB_STATUS.SENT_TO_QC_LAB, JOB_STATUS.IN_STOCK]);
+});
+
+check("ด่านร่วมสองทางเข้า: ไรเดอร์ไปรับ + มีไรเดอร์ถืองาน เท่านั้นที่คิดค่ารอบ", () => {
+  assert.equal(feeCalcBlockReason({ receive_method: "Pickup", rider_id: "r1" }), null);
+  for (const method of ["Store-in", "Mail-in", "Corporate Pickup", undefined, null]) {
+    assert.equal(feeCalcBlockReason({ receive_method: method, rider_id: "r1" }), "not_pickup", `receive_method=${method}`);
+  }
+});
+
+check("Pickup ที่ไม่มีไรเดอร์ (ทุกรูปของค่าว่าง) = no_rider — ไม่คิด ไม่ตั้ง status", () => {
+  for (const rid of [undefined, null, "", "   ", 42]) {
+    assert.equal(feeCalcBlockReason({ receive_method: "Pickup", rider_id: rid }), "no_rider", `rider_id=${JSON.stringify(rid)}`);
+  }
+  assert.equal(feeCalcBlockReason(null), "not_pickup");
 });
 
 if (failures > 0) {

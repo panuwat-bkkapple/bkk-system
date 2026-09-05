@@ -734,7 +734,7 @@ async function riderVehicleType(db, job) {
 const { riderFeeMeta } = require("./rider-fee-meta");
 // สถานะที่ทำให้ onJobHandedOverCalcRiderFee คิดค่ารอบ — normalize ทั้งสองสะกด
 // (pure, มีเทส offline ที่ functions/test/rider-fee-trigger.test.mjs)
-const { isFeeTriggerStatus, isSafetyNetEntry } = require("./rider-fee-trigger");
+const { isFeeTriggerStatus, isSafetyNetEntry, feeCalcBlockReason } = require("./rider-fee-trigger");
 // ยอดที่ไรเดอร์เห็นตอนกดรับต้องเป็นยอดที่เขาได้ + ร่องรอยทุกครั้งที่ rider_fee เปลี่ยน
 // (pure, มีเทส offline ที่ functions/test/rider-fee-commitment.test.mjs)
 const {
@@ -3401,12 +3401,20 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
     }
     const job = jobSnap.val();
 
+    // ด่านร่วมของทั้งสองทางเข้า: ไรเดอร์ไปรับ (Pickup) และมีไรเดอร์ถืองาน — ไม่ผ่าน
+    // = ไม่คำนวณ ไม่ตั้ง status ใดๆ. ก่อน 5 ก.ย. 2569 สองด่านนี้อยู่เฉพาะในบล็อก
+    // ตาข่ายข้างล่าง ทางหลัก (Pending QC) จึงคิด min_fee ให้งาน Store-in/Mail-in
+    // ที่ไม่มีไรเดอร์แล้วส่งเข้าคิวอนุมัติ 26 ใบ (survey 5 ก.ย. 2569 ข้อ A4)
+    const blocked = feeCalcBlockReason(job);
+    if (blocked) {
+      console.log(`[riderFee] Job ${jobId} reached "${after}" but ${blocked} — no rider fee`);
+      return;
+    }
+
     // Safety-net path (entered via a non-"Pending QC" trigger): only fire for a
-    // Pickup job that skipped handover and still has an unpaid, rider-assigned
-    // fee. Everything else (Store-in/Mail-in, no rider, already paid) is a no-op.
+    // job that skipped handover and still has an unpaid fee. Already-priced jobs
+    // are a no-op.
     if (isSafetyNetEntry(after, job.receive_method)) {
-      if (job.receive_method !== "Pickup") return;
-      if (!job.rider_id) return;
       if (typeof job.rider_fee === "number" && job.rider_fee > 0) return;
       console.warn(`[riderFee] Job ${jobId} reached "${after}" without a handover — computing fee as safety net`);
     }
@@ -6829,6 +6837,13 @@ Object.assign(
     staffIdsByRoles,
   })
 );
+
+// =============================================================================
+// ค่ารอบไรเดอร์ — อนุมัติ / ยกเว้น (Waived) จาก /rider-audit ผ่าน callable
+// ด่านถาวร: บัญชีเจ้าของ (env OWNER_RIDER_IDS) กับงานที่ไม่มีไรเดอร์ห้ามได้ค่ารอบ
+// เข้ากระเป๋า (logic อยู่ rider-fee-guard.js + rider-fee-admin-api.js)
+// =============================================================================
+Object.assign(exports, require("./rider-fee-admin-api").registerRiderFeeAdmin());
 
 // =============================================================================
 // ตั้งค่าอีเมล (/email-settings) — callable ที่ส่ง "รายการอีเมลทั้งหมดที่ระบบ
