@@ -12,6 +12,11 @@
 //   5. ค่าเสียเวลาไม่ตั้ง = ตกไปใช้ยอดที่ตรึง แทน blocked                    -> แดง 1
 //   6. reopen ไม่ปลด Voided                                                  -> แดง 1
 //   7. index.js amendment กลับไปมีกฎ departed ของตัวเอง แทนเรียก decision     -> แดง 1
+//   (push ถึงไรเดอร์ — เพิ่มรอบสอง 5 ก.ย. 2569 วัดหลังรัน)
+//   8. cancelFeePushMessage คืนข้อความให้ void ด้วย                          -> แดง 1
+//   9. ถอด rider_fee_settled ออกจาก EVENT_CATEGORY                          -> แดง 1
+//  10. trigger ไม่เรียก pushToRider                                          -> แดง 1
+//  11. amendment ไม่ push ค่าเสียเวลา                                          -> แดง 1
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -22,6 +27,8 @@ const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const {
   FEE_STATUS,
+  RIDER_FEE_PUSH_TYPE,
+  cancelFeePushMessage,
   CANCEL_STAGE,
   cancelStageOf,
   cancelFeeDecision,
@@ -29,6 +36,7 @@ const {
   buildReopenFeeUpdates,
 } = require(path.join(root, "functions/rider-fee-cancel.js"));
 const { JOB_STATUS } = require(path.join(root, "functions/status-vocab.generated.js"));
+const { EVENT_CATEGORY } = require(path.join(root, "functions/notification-settings.js"));
 
 let failures = 0;
 function check(name, fn) {
@@ -173,6 +181,24 @@ check("reopen งานที่ค่ารอบ Pending/Paid หรือไ�
   assert.equal(buildReopenFeeUpdates(frozenAtAccept, 1), null);
 });
 
+// ── push ถึงไรเดอร์ ──────────────────────────────────────────────────────────
+check("ค่าเสียเวลา = push บอกยอดและเลขงาน ผ่าน type ที่สวิตช์แจ้งเตือนรู้จัก", () => {
+  const msg = cancelFeePushMessage({ kind: "time_loss", fee: 100, riderId: "R1" }, "job1", "OID-X-1");
+  assert.ok(msg);
+  assert.match(msg.notification.title, /100/);
+  assert.match(msg.notification.body, /OID-X-1/);
+  assert.equal(msg.data.type, RIDER_FEE_PUSH_TYPE);
+  assert.equal(msg.data.jobId, "job1");
+  assert.equal(EVENT_CATEGORY[RIDER_FEE_PUSH_TYPE], "approval", "type ต้องอยู่ใน EVENT_CATEGORY ไม่งั้นแอดมินปิดไม่ได้");
+});
+check("โมฆะ / ข้าม / blocked / เรทปกติ = ไม่ push (งานถูกยกเลิกมีแจ้งเตือนของตัวเองอยู่แล้ว)", () => {
+  for (const kind of ["void", "skip", "blocked", "normal"]) {
+    assert.equal(cancelFeePushMessage({ kind, fee: 324, riderId: "R1" }, "job1"), null, kind);
+  }
+  assert.equal(cancelFeePushMessage(null, "job1"), null);
+  assert.equal(cancelFeePushMessage({ kind: "time_loss", fee: null }, "job1"), null, "ไม่มียอด = ไม่มีอะไรจะบอก");
+});
+
 // ── ด่านต่อสาย: index.js ต้องเรียกใช้จริง ─────────────────────────────────────
 const indexSrc = readFileSync(path.join(root, "functions/index.js"), "utf8");
 check("trigger onJobCancelledSettleRiderFee มีอยู่ เกาะ jobs/{jobId}/status และเรียก cancelFeeDecision + buildReopenFeeUpdates", () => {
@@ -183,6 +209,15 @@ check("trigger onJobCancelledSettleRiderFee มีอยู่ เกาะ jobs
   assert.match(body, /cancelFeeDecision\(/);
   assert.match(body, /buildReopenFeeUpdates\(/);
   assert.match(body, /computeRiderFeeForAssignee\(/, "เรทปกติที่ไม่มียอดตรึงต้องคำนวณจากระยะทาง");
+  assert.match(body, /cancelFeePushMessage\(/, "ต้องบอกไรเดอร์เมื่อได้ค่าเสียเวลา");
+  assert.match(body, /pushToRider\(/, "push ต้องผ่าน pushToRider (สวิตช์แจ้งเตือน + data-only)");
+});
+check("amendment ที่เขียนค่าเสียเวลาเอง ก็ push ให้ไรเดอร์ด้วยข้อความชุดเดียวกัน", () => {
+  const start = indexSrc.indexOf('"amendment-applied-operational"');
+  const body = indexSrc.slice(start, indexSrc.indexOf("\nexports.", start));
+  assert.match(body, /time_loss_customer_cancel/);
+  assert.match(body, /cancelFeePushMessage\(/);
+  assert.match(body, /pushToRider\(/);
 });
 check("amendment customer_request_cancel ตัดสินผ่าน cancelFeeDecision ไม่มีกฎ 'departed' ของตัวเอง", () => {
   const start = indexSrc.indexOf('case "customer_request_cancel"');

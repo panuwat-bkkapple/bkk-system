@@ -32,6 +32,10 @@ const { finiteOrNull } = require("./rider-fee-meta");
 /** ค่าของ rider_fee_status ที่ไฟล์นี้เขียน/อ่าน — คนละคำศัพท์กับสถานะงาน */
 const FEE_STATUS = { PENDING: "Pending", PAID: "Paid", VOIDED: "Voided" };
 
+/** data.type ของ push ถึงไรเดอร์เมื่อค่ารอบของงานที่ยกเลิกเข้าคิวจ่าย — ต้องมีใน
+ *  EVENT_CATEGORY (notification-settings.js) ไม่งั้นสวิตช์แจ้งเตือนปิดมันไม่ได้ */
+const RIDER_FEE_PUSH_TYPE = "rider_fee_settled";
+
 /** ไรเดอร์ไปถึงขั้นไหนก่อนงานถูกยกเลิก */
 const CANCEL_STAGE = {
   NOT_DEPARTED: "not_departed",
@@ -247,8 +251,33 @@ function buildReopenFeeUpdates(job, now) {
   };
 }
 
+/**
+ * push ถึงไรเดอร์เมื่อได้ค่าเสียเวลา — คืน null สำหรับผลลัพธ์ที่ไม่ใช่เงินเข้าคิว
+ * (void/skip/blocked) เพราะ "งานถูกยกเลิก" เขามีแจ้งเตือนของตัวเองอยู่แล้ว
+ * (onAdminJobStatusNotify) และการเด้งซ้ำว่า "ไม่ได้อะไร" ไม่ได้บอกอะไรเพิ่ม
+ *
+ * ผู้เรียกสองราย: trigger onJobCancelledSettleRiderFee และทาง amendment ที่เขียน
+ * ค่าเสียเวลาเอง — ข้อความอยู่ที่นี่ที่เดียว ไรเดอร์เห็นประโยคเดียวกันไม่ว่าเงิน
+ * มาจากทางไหน. รูป `notification` ใช้ต่อได้ pushToRider ย้ายลง data ให้เอง
+ */
+function cancelFeePushMessage(decision, jobId, refNo) {
+  if (!decision || decision.kind !== "time_loss") return null;
+  const fee = finiteOrNull(decision.fee);
+  if (fee === null) return null;
+  const ref = refNo ? ` #${refNo}` : "";
+  return {
+    notification: {
+      title: `ได้ค่าเสียเวลา ${baht(fee)}`,
+      body: `ลูกค้ายกเลิกงาน${ref} หลังคุณออกเดินทางแล้ว — ค่าเสียเวลาเข้าคิวจ่ายค่ารอบตามปกติ`,
+    },
+    data: { type: RIDER_FEE_PUSH_TYPE, jobId: String(jobId || ""), fee: String(fee) },
+  };
+}
+
 module.exports = {
   FEE_STATUS,
+  RIDER_FEE_PUSH_TYPE,
+  cancelFeePushMessage,
   CANCEL_STAGE,
   DEPARTED_STATUSES,
   INSPECTED_STATUSES,

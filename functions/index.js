@@ -741,6 +741,7 @@ const {
   cancelFeeDecision,
   buildCancelFeeUpdates,
   buildReopenFeeUpdates,
+  cancelFeePushMessage,
 } = require("./rider-fee-cancel");
 // ยอดที่ไรเดอร์เห็นตอนกดรับต้องเป็นยอดที่เขาได้ + ร่องรอยทุกครั้งที่ rider_fee เปลี่ยน
 // (pure, มีเทส offline ที่ functions/test/rider-fee-commitment.test.mjs)
@@ -3543,6 +3544,12 @@ exports.onJobCancelledSettleRiderFee = onValueUpdated(
         `[riderFeeCancel] ${jobId}: ${decision.kind} (${decision.stage}) fee=฿${decision.fee} ` +
         `rider=${decision.riderId} prior="${before}"`
       );
+
+      // บอกไรเดอร์ว่าได้ค่าเสียเวลา — ก่อนหน้านี้เขารู้ได้จาก sheet ในหน้าประวัติ
+      // เท่านั้น (เจ้าของงานสั่ง 5 ก.ย. 2569). push หลังเขียนสำเร็จ และล้มได้โดย
+      // ไม่กระทบเงิน (pushToRider จับ error เองอยู่แล้ว)
+      const push = cancelFeePushMessage(decision, jobId, job.OID || job.ref_no);
+      if (push) await pushToRider(db, decision.riderId, push, "rider-fee-cancel");
     } catch (err) {
       console.error(`[riderFeeCancel] failed for ${jobId}:`, err);
     }
@@ -4906,6 +4913,20 @@ exports.reviewAmendment = onCall({ region: AMENDMENT_REGION }, async (request) =
     },
     "amendment-applied-operational"
   );
+
+  // ค่าเสียเวลาที่ทางนี้เขียนเอง (ดู buildAmendmentApplyUpdates) — trigger
+  // onJobCancelledSettleRiderFee เห็น Pending แล้วข้าม จึงไม่ได้ push ให้ ต้องบอก
+  // ไรเดอร์จากตรงนี้ด้วยข้อความชุดเดียวกัน (cancelFeePushMessage)
+  const timeLossFee = applyUpdates[`jobs/${am.job_id}/rider_fee`];
+  const breakdown = applyUpdates[`jobs/${am.job_id}/rider_fee_breakdown`];
+  if (breakdown && breakdown.type === "time_loss_customer_cancel" && am.requested_by_rider_uid) {
+    const push = cancelFeePushMessage(
+      { kind: "time_loss", fee: timeLossFee },
+      am.job_id,
+      job.OID || job.ref_no,
+    );
+    if (push) await pushToRider(db, am.requested_by_rider_uid, push, "rider-fee-cancel-amendment");
+  }
   return { ok: true };
 });
 

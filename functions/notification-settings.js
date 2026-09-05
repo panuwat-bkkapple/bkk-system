@@ -61,6 +61,7 @@ const EVENT_CATEGORY = {
   rider_expense_needs_info: "approval",
   rider_expense_approved: "approval",
   rider_expense_rejected: "approval",
+  rider_fee_settled: "approval",     // ค่าเสียเวลาเมื่อลูกค้ายกเลิกระหว่างทาง (rider-fee-cancel.js)
 
   job_withdrawn: "field_ops",
   appointment_rescheduled: "field_ops",
