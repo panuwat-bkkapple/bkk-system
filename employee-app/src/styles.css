@@ -357,8 +357,7 @@ textarea { min-height: 84px; resize: vertical; line-height: 1.6; }
   border: 7px solid var(--brand); border-right-color: var(--brand-deep);
   animation: spin 1s linear infinite;
 }
-.splash-word { font-size: 30px; font-weight: 600; letter-spacing: -0.01em; color: #ffffff; }
-.splash-word span { color: #8fe0d3; }
+.splash-word { font-size: 30px; color: #ffffff; }
 .splash-tag { font-size: 13px; color: #cdede7; }
 /* ต้นฉบับเป็นแถบค้างที่ 62% ซึ่งเป็นเปอร์เซ็นต์ที่เราไม่รู้จริง — ทำเป็นแถบวิ่ง
    บอกว่า "ยังทำงานอยู่" แทน ไม่อ้างความคืบหน้าที่ไม่มีใครวัด */
@@ -424,3 +423,11 @@ textarea { min-height: 84px; resize: vertical; line-height: 1.6; }
   width: 6px; height: 6px; border-radius: 999px; background: #cbd3e6; transition: width .2s;
 }
 .onb-dots span.on { width: 22px; background: var(--brand); }
+
+/* ── ชื่อแอป ────────────────────────────────────────────────────────────
+   ครึ่งหลังทาสีต่างจากครึ่งแรกตามต้นฉบับ — พื้นสว่างใช้เขียวแบรนด์
+   พื้นเข้ม (จอโลโก้) ใช้เขียวอ่อนตามสีของต้นฉบับ */
+.wordmark { font-weight: 600; letter-spacing: -0.01em; color: inherit; }
+.wordmark > span { color: var(--brand); }
+.splash-word > span { color: #8fe0d3; }
+.splash-foot { font-size: 10px; color: rgba(255, 255, 255, 0.85); margin-top: 26px; }

@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { LogIn, Loader2, UserRound } from 'lucide-react';
 import { auth } from '../firebase';
 import GateShell from '../GateShell';
+import Wordmark from '../Wordmark';
 
 // เข้าสู่ระบบด้วยบัญชีเดียวกับที่ฝ่ายบุคคลออกให้ตอนเริ่มงาน
 // **แอปนี้ไม่มีทางสมัครเอง** — บัญชีเกิดจากการจ้างเท่านั้น (ดู adminStaffCreate)
@@ -33,7 +34,7 @@ export default function Login({ notice }: { notice?: string | null }) {
   return (
     <GateShell
       icon={<UserRound size={22} strokeWidth={2} />}
-      brand="BKK APPLE · แอปพนักงาน"
+      brand={<><Wordmark /> · แอปพนักงาน</>}
       title="เข้าสู่ระบบด้วยบัญชีพนักงาน"
       detail="ใช้อีเมลบริษัทที่ฝ่ายบุคคลออกให้ตอนเริ่มงาน"
       foot="ยังไม่มีบัญชี หรือลืมรหัสผ่าน ติดต่อฝ่ายบุคคล — แอปนี้สมัครเองไม่ได้"

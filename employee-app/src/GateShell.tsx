@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 export default function GateShell({ icon, brand, title, detail, children, foot }: {
   icon?: ReactNode;
   /** ชื่อแอปข้างโลโก้ — ใส่เฉพาะจอที่ยังไม่รู้ว่าใครใช้อยู่ (ล็อกอิน) */
-  brand?: string;
+  brand?: ReactNode;
   title: string;
   detail?: string;
   children?: ReactNode;

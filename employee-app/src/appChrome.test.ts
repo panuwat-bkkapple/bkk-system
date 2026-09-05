@@ -53,6 +53,7 @@ import { createElement } from 'react';
 import AppHeader from './AppHeader';
 import TabBar from './TabBar';
 import GpsGate from './pages/GpsGate';
+import Splash from './pages/Splash';
 import { join } from 'node:path';
 
 const here = join(__dirname);
@@ -288,6 +289,7 @@ describe('เปลือกแอปวาดจริงในเบราว�
     }));
     // แถบล่างสองสถานะ — `home` ทำให้ปุ่มกลม active, `leave` ทำให้มัน idle
     // ต้องวัด **ทั้งสองสถานะ** เพราะบั๊กจริงโผล่เฉพาะตอน aria-current=true
+    const splash = renderToStaticMarkup(createElement(Splash, {}));
     const dockHome = renderToStaticMarkup(createElement(TabBar, { tab: 'home', onSelect: () => {} }));
     const dockLeave = renderToStaticMarkup(createElement(TabBar, { tab: 'leave', onSelect: () => {} }));
     // ป้ายและกล่องข้อความ วัดบนพื้นสองแบบที่มันถูกใช้จริง (พื้นหน้า และในการ์ด)
@@ -300,6 +302,7 @@ describe('เปลือกแอปวาดจริงในเบราว�
       `<div class="app">${header}<div class="main" id="on-bg">${tones}</div>` +
       `<div class="main"><div class="card" id="on-card">${tones}</div></div></div>` +
       `<div id="gate">${gate}</div>` +
+      `<div id="splash">${splash}</div>` +
       `<div class="app" id="dock-home" style="position:relative">${dockHome}</div>` +
       `<div class="app" id="dock-leave" style="position:relative">${dockLeave}</div>` +
       `</body></html>`);
@@ -323,7 +326,9 @@ describe('เปลือกแอปวาดจริงในเบราว�
 
   /** `allowEmptyText` = องค์ประกอบที่เป็นไอคอนล้วนโดยตั้งใจ (ปุ่มกลมมี
    *  aria-label แทนข้อความ) — ประกาศไว้ตรงๆ ดีกว่าปล่อยให้เงื่อนไขหลวมทั้งชุด */
-  const measure = async (sels: Record<string, string>, allowEmptyText = false) => {
+  const measure = async (
+    sels: Record<string, string>, allowEmptyText = false, min = 4.5,
+  ) => {
     const page = await browser!.newPage({ viewport: { width: 390, height: 900 } });
     await page.goto(url);
     const seen = await page.evaluate((map: Record<string, string>) => {
@@ -353,7 +358,7 @@ describe('เปลือกแอปวาดจริงในเบราว�
       }
       const ratio = contrastRatio(got!.color, got!.bg);
       expect(ratio, `${what}: ${got!.color} บน ${got!.bg} = ${ratio.toFixed(2)}:1`)
-        .toBeGreaterThanOrEqual(4.5);
+        .toBeGreaterThanOrEqual(min);
     }
   };
 
@@ -389,6 +394,37 @@ describe('เปลือกแอปวาดจริงในเบราว�
     await measure({
       'แท็บที่กำลังเปิด': '#dock-leave .dock button[aria-current="true"]',
       'แท็บที่ไม่ได้เปิด': '#dock-home .dock button:not([aria-current="true"])',
+    });
+  }, 60_000);
+
+  it('ชื่อแอปบนจอโลโก้อ่านออก และยังใหญ่พอที่จะใช้เกณฑ์ตัวอักษรใหญ่ได้', async () => {
+    if (!browser) { expect(skipReason).not.toBe(''); return; }
+    // **เกณฑ์ 3:1 ไม่ใช่ 4.5:1 โดยตั้งใจ และมีเงื่อนไขกำกับ** — WCAG ให้
+    // ตัวอักษรใหญ่ (>=24px หรือ >=18.66px ตัวหนา) ใช้ 3:1 ได้. สีครึ่งหลัง
+    // (#8fe0d3 บน #0e6f63) เป็นสีของต้นฉบับ วัดจริงได้ **3.97:1** ซึ่งผ่าน
+    // เกณฑ์ตัวอักษรใหญ่ แต่จะไม่ผ่านถ้าใครย่อขนาดลง — จึงตรวจ "ขนาดต้องใหญ่พอ"
+    // ควบไปด้วย ไม่ใช่ผ่อนเกณฑ์ทิ้งไว้เฉยๆ
+    const page = await browser.newPage({ viewport: { width: 402, height: 874 } });
+    await page.goto(url);
+    const size = await page.evaluate(() => {
+      const el = document.querySelector('#splash .wordmark');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { px: parseFloat(cs.fontSize), weight: Number(cs.fontWeight) };
+    });
+    await page.close();
+    expect(size, 'หา .wordmark บนจอโลโก้ไม่เจอ').toBeTruthy();
+    const isLarge = size!.px >= 24 || (size!.px >= 18.66 && size!.weight >= 700);
+    expect(isLarge, `ชื่อแอป ${size!.px}px/${size!.weight} เล็กเกินกว่าจะใช้เกณฑ์ 3:1`).toBe(true);
+    await measure({
+      'ชื่อแอป ครึ่งแรก': '#splash .wordmark',
+      'ชื่อแอป ครึ่งหลัง': '#splash .wordmark > span',
+    }, false, 3);
+    // ข้อความอื่นบนจอโลโก้เป็นตัวเล็ก ใช้เกณฑ์เต็ม
+    await measure({
+      'จอโลโก้ คำโปรย': '#splash .splash-tag',
+      'จอโลโก้ สถานะ': '#splash .splash-note',
+      'จอโลโก้ ท้ายจอ': '#splash .splash-foot',
     });
   }, 60_000);
 

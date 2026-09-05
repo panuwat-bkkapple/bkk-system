@@ -2,6 +2,11 @@
  * ตรรกะล้วนของชิ้นส่วน UI ที่เพิ่มมาพร้อมธีมการ์ดนุ่ม
  *
  * ตาราง injection (วัดจริง):
+ *   หน้าจอพิมพ์ชื่อแอปเองแทนอ่านจาก `APP_NAME`                 -> แดง 1
+ *   `manifest.webmanifest` ไม่ตรงกับ `APP_NAME`                -> แดง 1
+ *   `index.html` `<title>` ไม่ตรงกับ `APP_NAME`                 -> แดง 1
+ *   สไลด์กลับไปใช้คำของต้นฉบับที่ระบบยังไม่มี                   -> แดง 1
+ *   หน้าแนะนำโผล่ได้ทุกจอ (รวมจอขอสิทธิ์ตำแหน่ง)                -> แดง 1
  *   `initialsOf` คืนอักษรแรกของคำเดียวเสมอ (ไม่เอาคำที่สอง)  -> แดง 2
  *   `initialsOf` ใช้ `slice` บนสตริงแทน spread (นับ code unit) -> แดง 1
  *   `reachedConfirm` เทียบ `>` แทน `>=`                        -> แดง 1
@@ -11,6 +16,9 @@ import { describe, it, expect } from 'vitest';
 import { initialsOf } from './avatarText';
 import { reachedConfirm, CONFIRM_RATIO } from './slideConfirm';
 import { SLIDES, shouldShowOnboarding } from './onboarding';
+import { APP_NAME } from './appName';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('อักษรย่อบนวงกลมโปรไฟล์', () => {
   it('สองคำขึ้นไป = อักษรแรกของสองคำแรก', () => {
@@ -89,5 +97,41 @@ describe('หน้าแนะนำแอปครั้งแรก', () => {
       expect(s.body.trim().length, `${s.key} ไม่มีคำอธิบาย`).toBeGreaterThan(0);
       expect(s.art.trim().length, `${s.key} ไม่มีป้ายภาพประกอบ`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('ชื่อแอปมีเจ้าของที่เดียว', () => {
+  const dir = join(__dirname);
+  const tsxFiles = (d: string): { path: string; src: string }[] => {
+    const out: { path: string; src: string }[] = [];
+    for (const name of readdirSync(d)) {
+      const full = join(d, name);
+      if (statSync(full).isDirectory()) { out.push(...tsxFiles(full)); continue; }
+      if (!name.endsWith('.tsx') || name.includes('.test.')) continue;
+      out.push({ path: full.slice(dir.length + 1), src: readFileSync(full, 'utf8') });
+    }
+    return out;
+  };
+
+  it('ไม่มีคอมโพเนนต์ไหนพิมพ์ชื่อแอปเอง — ต้องอ่านจาก APP_NAME', () => {
+    // ชื่อแบรนด์ที่กระจายหลายไฟล์คือของที่วันหนึ่งจะไม่ตรงกัน — และรอบที่
+    // เปลี่ยนชื่อทั้งแอปก็เจอว่ามันกระจายอยู่ 5 ที่จริงๆ
+    const offenders = tsxFiles(dir)
+      // ตัดคอมเมนต์ทิ้งก่อน ไม่งั้นคำอธิบายจะถูกนับเป็นการใช้งาน
+      .filter((f) => new RegExp(APP_NAME, 'i')
+        .test(f.src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '')))
+      .map((f) => f.path);
+    expect(offenders, 'ต้องอ่านชื่อจาก APP_NAME / <Wordmark /> แทนการพิมพ์เอง').toEqual([]);
+  });
+
+  it('ชื่อในหน้าเว็บกับใน manifest ตรงกับชื่อในโค้ด', () => {
+    // สามที่นี้คนละไฟล์คนละภาษา ไม่มี type ไหนบังคับให้ตรงกัน — เปลี่ยนชื่อ
+    // แล้วลืม manifest = ชื่อบนหน้าจอโฮมของมือถือไม่ตรงกับในแอป
+    const html = readFileSync(join(dir, '..', 'index.html'), 'utf8');
+    const manifest = JSON.parse(
+      readFileSync(join(dir, '..', 'public', 'manifest.webmanifest'), 'utf8'),
+    ) as { name: string };
+    expect(html, 'index.html <title> ไม่ตรงกับ APP_NAME').toContain(`<title>${APP_NAME} —`);
+    expect(manifest.name.startsWith(`${APP_NAME} —`), `manifest.name = ${manifest.name}`).toBe(true);
   });
 });

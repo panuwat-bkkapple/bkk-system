@@ -11,6 +11,7 @@ import { call } from './api';
 import AppHeader from './AppHeader';
 import TabBar from './TabBar';
 import { type Tab } from './tabs';
+import { APP_NAME } from './appName';
 import GateShell from './GateShell';
 import Login from './pages/Login';
 import Splash from './pages/Splash';
@@ -136,7 +137,7 @@ export default function App() {
     <div className="app">
       <AppHeader
         name={me?.name || 'แอปพนักงาน'}
-        sub={`${me?.employee_code || 'BKK APPLE'}${me?.position ? ` · ${me.position}` : ''}`}
+        sub={`${me?.employee_code || APP_NAME}${me?.position ? ` · ${me.position}` : ''}`}
         photoUrl={me?.photo_url}
         onLogout={() => void logout()}
       />
