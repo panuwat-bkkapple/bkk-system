@@ -57,10 +57,11 @@ describe('accessory child builder parity (TS ↔ functions/b2c-unpack.js)', () =
   it('the shape the inventory page reads is pinned (not just equal on both sides)', () => {
     const [, job] = fixtures[0];
     const out = buildAccessoryChildUpdates(job, ['a1', 'a2'], 'system:test', NOW);
-    expect(out['jobs/a1'].ref_no).toBe('OID-ABC123-A1');
-    expect(out['jobs/a1'].type).toBe('Accessory');
-    expect(out['jobs/a1'].status).toBe('In Stock');
-    expect(out['jobs/a2'].price).toBe(4000);
+    const row = (k: string) => out[k] as Record<string, unknown>;
+    expect(row('jobs/a1').ref_no).toBe('OID-ABC123-A1');
+    expect(row('jobs/a1').type).toBe('Accessory');
+    expect(row('jobs/a1').status).toBe('In Stock');
+    expect(row('jobs/a2').price).toBe(4000);
     expect(out['jobs/job-1/stock_cost']).toBe(24000 - 6500);
     expect(out['jobs/job-1/accessories_unpacked_at']).toBe(NOW);
   });
