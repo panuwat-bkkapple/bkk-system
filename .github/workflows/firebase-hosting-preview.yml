@@ -90,6 +90,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+
+      # **ต้อง `npm ci` ที่ราก ไม่ใช่แค่ใน employee-app/** — `employee-app/
+      # tsconfig.json` ประกาศ `types: ["vite/client", "vitest/globals"]` แต่
+      # `vitest` เป็น dependency ของ **แพ็กเกจราก** ไม่ใช่ของแอปพนักงาน
+      # (แอปนี้ไม่ได้รันเทสเอง เทสถูกรันจากรากผ่าน vitest.config.ts) ถ้าไม่มี
+      # node_modules ที่ราก `tsc -b` จะล้มด้วย TS2688 "Cannot find type
+      # definition file for 'vitest/globals'" ตั้งแต่ขั้น build
+      # (เจอจริงตอนเพิ่ม job นี้ครั้งแรก — reproduce ในเครื่องแล้วได้ error
+      # เดียวกันเป๊ะโดยการซ่อน node_modules/vitest ที่ราก)
+      # ทั้ง firebase-hosting-deploy.yml และ ci.yml ก็ `npm ci` ที่รากก่อน
+      # build แอปพนักงานด้วยเหตุผลเดียวกันนี้
+      - run: npm ci
 
       - name: Prune stale preview channels (employee)
         continue-on-error: true
