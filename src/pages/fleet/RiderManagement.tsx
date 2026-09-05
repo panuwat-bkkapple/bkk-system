@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { ref, onValue, update, remove } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db, app } from '../../api/firebase';
@@ -326,6 +327,8 @@ export const RiderManagement = () => {
                     <td className="p-4">
                       <div className="text-sm font-semibold text-gray-700">{rider.phone || <span className="text-gray-300">-</span>}</div>
                       <div className="text-[10px] text-gray-400">{rider.email || '-'}</div>
+                      {/* สมุดบัญชี (statement) อ่านอย่างเดียว — เห็นได้ทุกสถานะรวมบัญชีที่ต้องตรวจย้อนหลัง */}
+                      <Link to={`/riders/${encodeURIComponent(rider.id)}/statement`} className="text-[10px] font-bold text-blue-600 hover:underline">สมุดบัญชี</Link>
                     </td>
                     <td className="p-4">
                       <div className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit">{rider.vehicle?.plate || '-'}</div>
