@@ -735,6 +735,13 @@ const { riderFeeMeta } = require("./rider-fee-meta");
 // สถานะที่ทำให้ onJobHandedOverCalcRiderFee คิดค่ารอบ — normalize ทั้งสองสะกด
 // (pure, มีเทส offline ที่ functions/test/rider-fee-trigger.test.mjs)
 const { isFeeTriggerStatus, isSafetyNetEntry } = require("./rider-fee-trigger");
+// ค่ารอบเมื่องานถูกยกเลิก — กติกาสามข้อ (ไม่จ่าย / ค่าเสียเวลา / เรทปกติ) อยู่ที่เดียว
+// ผู้เรียก: onJobCancelledSettleRiderFee + buildAmendmentApplyUpdates (pure, มีเทส)
+const {
+  cancelFeeDecision,
+  buildCancelFeeUpdates,
+  buildReopenFeeUpdates,
+} = require("./rider-fee-cancel");
 // ยอดที่ไรเดอร์เห็นตอนกดรับต้องเป็นยอดที่เขาได้ + ร่องรอยทุกครั้งที่ rider_fee เปลี่ยน
 // (pure, มีเทส offline ที่ functions/test/rider-fee-commitment.test.mjs)
 const {
@@ -3457,6 +3464,92 @@ exports.onJobHandedOverCalcRiderFee = onValueUpdated(
 );
 
 // =============================================================================
+// Job cancelled → settle the rider's fee by how far they got
+// -----------------------------------------------------------------------------
+// กติกาสามข้อของเจ้าของงาน (5 ก.ย. 2569) อยู่ที่ rider-fee-cancel.js:
+//   รับแล้วยังไม่ออกเดินทาง = โมฆะ · ยกเลิกระหว่างทาง = ค่าเสียเวลา ·
+//   ตรวจเครื่องแล้ว = เรทปกติ
+// เป็น trigger ไม่ใช่แก้ที่ writer เพราะคนเขียน Cancelled มีสี่ทาง (เว็บลูกค้า /
+// engine event `cancelled` / amendment / SLA) และจะมีทางที่ห้า — trigger ครอบทุก
+// ทางที่เดียว. amendment เขียนค่าเสียเวลาไว้ก่อนแล้ว (Pending) → decision ข้าม
+// ขากลับ (Cancelled → อื่น = reopen) ต้องปลด Voided ไม่งั้น handover trigger ไม่ตั้ง
+// Pending ให้ งานที่ทำจบจริงหลัง reopen จะไม่เข้าคิวจ่ายเงินเงียบๆ
+// ชื่อเฉพาะตามกฎ {region}/{name} เหมือนทุกตัว
+// =============================================================================
+exports.onJobCancelledSettleRiderFee = onValueUpdated(
+  {
+    ref: "/jobs/{jobId}/status",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data.before.val();
+    const after = event.data.after.val();
+    if (before === after) return;
+
+    const jobId = event.params.jobId;
+    const db = getDatabase();
+    const jobSnap = await db.ref(`jobs/${jobId}`).once("value");
+    if (!jobSnap.exists()) return;
+    const job = jobSnap.val();
+    const method = job.receive_method || null;
+    const enteredCancelled = rawStatusIs(after, method, JOB_STATUS.CANCELLED);
+    const leftCancelled = !enteredCancelled && rawStatusIs(before, method, JOB_STATUS.CANCELLED);
+    const now = Date.now();
+
+    if (leftCancelled) {
+      const reopen = buildReopenFeeUpdates(job, now);
+      if (!reopen) return;
+      await db.ref(`jobs/${jobId}`).update(reopen);
+      console.log(`[riderFeeCancel] ${jobId}: reopened — Voided fee status cleared`);
+      return;
+    }
+    if (!enteredCancelled) return;
+
+    try {
+      const compSnap = await db.ref("settings/rider_compensation").once("value");
+      const riderCompensation = compSnap.exists() ? compSnap.val() : null;
+      const decision = cancelFeeDecision({ job, priorStatus: before, riderCompensation });
+
+      if (decision.kind === "skip") {
+        console.log(`[riderFeeCancel] ${jobId}: skip (${decision.why})`);
+        return;
+      }
+      if (decision.kind === "blocked") {
+        // ห้ามเดาเลข และห้ามเงียบ — Finance เห็นงานนี้ค้างไม่มีค่ารอบใน RiderSettlements
+        // แล้วตั้งมือได้ ทางอื่นคือตั้งค่าใน Global Settings แล้วให้แอดมิน reopen+cancel
+        console.error(
+          `[riderFeeCancel] ${jobId}: rider ${decision.riderId} departed but ` +
+          "settings/rider_compensation/customer_cancel_time_loss is unset — no fee written"
+        );
+        return;
+      }
+
+      const extra = { priorStatus: before };
+      if (decision.kind === "normal" && decision.fee === null) {
+        // ไม่มียอดที่ตรึงตอนกดรับ (freeze ปฏิเสธเพราะ Routes ล้ม / ไม่มีพิกัด) —
+        // คิดจากระยะทางด้วยอัตราของยานพาหนะคนถืองาน เหมือนตอนส่งมอบ
+        const result = await computeRiderFeeForAssignee(db, job);
+        decision.fee = result.fee;
+        extra.distanceKm = result.distance_km;
+        extra.source = result.reason || "calculated";
+      }
+      const updates = buildCancelFeeUpdates(decision, job, now, extra);
+      if (!updates) {
+        console.error(`[riderFeeCancel] ${jobId}: decision ${decision.kind} produced no fee — nothing written`);
+        return;
+      }
+      await db.ref(`jobs/${jobId}`).update(updates);
+      console.log(
+        `[riderFeeCancel] ${jobId}: ${decision.kind} (${decision.stage}) fee=฿${decision.fee} ` +
+        `rider=${decision.riderId} prior="${before}"`
+      );
+    } catch (err) {
+      console.error(`[riderFeeCancel] failed for ${jobId}:`, err);
+    }
+  }
+);
+
+// =============================================================================
 // Rider assignment → re-estimate the rider's own payout at THEIR rate card
 // -----------------------------------------------------------------------------
 // `settings/logistics_rates/by_vehicle` lets an admin pay a car rider a
@@ -4478,10 +4571,6 @@ exports.requestAmendment = onCall({ region: AMENDMENT_REGION }, async (request) 
   return { ok: true, amendmentId };
 });
 
-/** Status set in which the rider has committed time/fuel and deserves
- *  a time-loss fee if the customer cancels. (RIDER_ACCEPTED alone
- *  doesn't count — rider hasn't departed yet.) */
-const RIDER_DEPARTED_STATUSES = new Set([JOB_STATUS.RIDER_EN_ROUTE, JOB_STATUS.RIDER_ARRIVED]);
 
 // Hard-coded default removed in favour of forcing admin to configure
 // settings/rider_compensation/customer_cancel_time_loss via the
@@ -4554,34 +4643,29 @@ function buildAmendmentApplyUpdates(am, job, now, riderCompensation) {
       u[`${jobBase}/cancel_reason`] = am.target.reason_detail || am.rider_note || "ลูกค้าขอยกเลิก";
       u[`${jobBase}/cancelled_at`] = now;
 
-      // Rider time-loss fee: customer cancelled mid-route. Different
-      // from rider self-cancel (handled by RejectModal flow) which
-      // pays nothing and may deduct rider points. Only kicks in once
-      // the rider has actually departed — RIDER_ACCEPTED alone doesn't
-      // qualify since they haven't burned fuel yet.
-      if (job && statusIn(job, RIDER_DEPARTED_STATUSES)) {
-        const fee = riderCompensation && typeof riderCompensation.customer_cancel_time_loss === "number"
-          ? riderCompensation.customer_cancel_time_loss
-          : null;
-        if (fee === null || !Number.isFinite(fee) || fee < 0) {
-          // No silent fallback — refuse to apply the amendment until
-          // admin sets the value via Global Settings. Avoids the
-          // previous failure mode where the function quietly paid out
-          // a hard-coded 100฿ that no longer reflected business policy.
+      // เงินไรเดอร์เมื่อลูกค้ายกเลิก — กติกาอยู่ที่ rider-fee-cancel.js ที่เดียว
+      // (ไม่จ่ายถ้ายังไม่ออกเดินทาง / ค่าเสียเวลาถ้ายกเลิกระหว่างทาง / เรทปกติ
+      // ถ้าตรวจเครื่องแล้ว) ทางนี้เขียนเฉพาะ **ค่าเสียเวลา** ใน multi-path
+      // เดียวกับสถานะ เพื่อคง failed-precondition เมื่อยังไม่ตั้งค่า — ห้ามจ่าย
+      // เลขที่เดาเอง และห้ามเงียบเมื่อจ่ายไม่ได้ (เคยจ่าย 100฿ ฮาร์ดโค้ดเงียบๆ)
+      // ส่วน "โมฆะ" กับ "เรทปกติ" ปล่อยให้ onJobCancelledSettleRiderFee ทำหลัง
+      // สถานะเข้า Cancelled (เรทปกติอาจต้องยิง Routes ซึ่งทำใน builder sync ไม่ได้)
+      // trigger เห็น rider_fee_status = Pending ที่เขียนตรงนี้แล้วข้ามเอง
+      if (job) {
+        const decision = cancelFeeDecision({ job, priorStatus: job.status, riderCompensation });
+        if (decision.kind === "blocked") {
           throw new HttpsError(
             "failed-precondition",
             "settings/rider_compensation/customer_cancel_time_loss ยังไม่ตั้งค่า — ตั้งค่าใน Global Settings ก่อน",
           );
         }
-        u[`${jobBase}/rider_fee`] = fee;
-        u[`${jobBase}/rider_fee_status`] = "Pending";
-        u[`${jobBase}/rider_fee_breakdown`] = {
-          type: "time_loss_customer_cancel",
-          amount: fee,
-          reason: `ลูกค้ายกเลิกระหว่างทาง (status: ${job.status}) — ค่าเสียเวลาไรเดอร์`,
-          computed_at: now,
-          source: "settings",
-        };
+        if (decision.kind === "time_loss") {
+          const feeUpdates = buildCancelFeeUpdates(decision, job, now, { priorStatus: job.status });
+          for (const [key, value] of Object.entries(feeUpdates)) {
+            if (key === "qc_logs" || key === "updated_at") continue; // caller เขียน log/updated_at เอง
+            u[`${jobBase}/${key}`] = value;
+          }
+        }
       }
       break;
     }
