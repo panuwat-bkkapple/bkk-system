@@ -80,6 +80,65 @@ jobs:
       # ด่านผลพิมพ์ต้องมีเบราว์เซอร์จริง เพราะมันวัดจาก PDF ที่ Chromium พ่นออกมา
       # ไม่ใช่จากสตริง CSS. ติดตั้งเฉพาะ chromium (ไม่เอา firefox/webkit) —
       # ~25 วินาที แลกกับบั๊กที่ไม่มีด่านอื่นในระบบมองเห็นได้เลย
+      # ── ด่านข้ามรีโป: สูตรกระเป๋าไรเดอร์ (MIRROR) ─────────────────────────────
+      #
+      # `src/utils/riderWalletLedger.ts` เป็นสำเนาของ `bkk-rider-app/src/utils/walletLedger.ts`
+      # (ตัวที่จอไรเดอร์ใช้) — `riderWalletLedgerParity.test.ts` transpile ไฟล์ของแอปจาก
+      # checkout ข้างๆ แล้วรัน fixture เดียวกันทั้งสองฝั่ง. ไม่มี checkout = เทส skip ตัวเอง
+      # ซึ่งบนเครื่อง dev ยอมรับได้ แต่ใน CI ต้องไม่เงียบ: ขั้นล่างวางรีโปข้างกันแล้วตั้ง
+      # REQUIRE_CROSS_REPO_CHECKS=1 ให้ "หาไฟล์ไม่เจอ" เป็นสอบตก
+      #
+      # รูปเดียวกับ ci.yml ของ bkk-rider-app ที่ checkout bkk-system มาเทียบ (มี
+      # continue-on-error เพราะวันที่รีโปข้างๆ เปลี่ยน visibility ขั้นนี้จะล้ม และ CI ที่นี่
+      # ต้องไม่แดงยกแผงเพราะเหตุนั้น — แต่ต้องขึ้น warning ให้เห็นบนหน้า PR ว่าด่านไม่ได้รัน)
+      - name: Checkout bkk-rider-app (สำหรับด่านข้ามรีโป)
+        id: sibling
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: panuwat-bkkapple/bkk-rider-app
+          path: bkk-rider-app-src
+          sparse-checkout: |
+            src/utils/walletLedger.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: วาง bkk-rider-app ไว้ข้างกัน
+        id: sibling_placed
+        run: |
+          missing=""
+          for f in src/utils/walletLedger.ts; do
+            [ -f "bkk-rider-app-src/$f" ] || missing="$missing $f"
+          done
+          if [ -z "$missing" ]; then
+            mv bkk-rider-app-src ../bkk-rider-app
+            echo "placed=true" >> "$GITHUB_OUTPUT"
+            echo "ด่านข้ามรีโป (bkk-rider-app): พร้อมรัน" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "placed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ด่านข้ามรีโปไม่ได้รัน — checkout bkk-rider-app outcome=${{ steps.sibling.outcome }} ไม่เจอ:$missing · riderWalletLedgerParity จะ skip ตัวเอง สองสำเนาของสูตรกระเป๋าจึงไม่ถูกเทียบในรอบนี้"
+            echo "ด่านข้ามรีโป (bkk-rider-app): **ไม่ได้รัน** — ไม่เจอ:$missing" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # เทสที่อ้างไฟล์ของ bkk-rider-app ต้องอยู่ใน sparse-checkout ข้างบนครบ — ไม่งั้นมันจะ
+      # skip ตัวเองเงียบๆ (บทเรียน #143 ของ bkk-rider-app). เทียบจากคำว่า `bkk-rider-app/`
+      # ในเครื่องหมายคำพูดเป็นต้นไป ไม่ใช่จำนวน `../` ข้างหน้า
+      - name: ตรวจว่า sparse-checkout ครอบไฟล์ที่เทสอ้างครบ
+        if: steps.sibling_placed.outputs.placed == 'true'
+        run: |
+          refs=$(grep -rhoE "['\"][^'\"]*bkk-rider-app/[A-Za-z0-9/._-]+" src/ \
+                 | grep -oE "bkk-rider-app/[A-Za-z0-9/._-]+" \
+                 | sed 's|^bkk-rider-app/||' | sort -u)
+          missing=""
+          for f in $refs; do
+            [ -f "../bkk-rider-app/$f" ] || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::เทสใน src/ อ้างไฟล์ของ bkk-rider-app ที่ไม่ได้อยู่ใน sparse-checkout:$missing — เพิ่มใน 'Checkout bkk-rider-app' และ missing-check ของขั้นถัดมา"
+            exit 1
+          fi
+          echo "sparse-checkout ครอบไฟล์ที่เทสอ้างครบ: $(echo $refs | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install Chromium for print checks
         run: npx playwright install --with-deps chromium
 
@@ -89,6 +148,8 @@ jobs:
       - name: Test
         env:
           REQUIRE_PRINT_CHECKS: '1'
+          # วางรีโปข้างกันสำเร็จ = ด่าน parity ของสูตรกระเป๋าไรเดอร์ห้าม skip
+          REQUIRE_CROSS_REPO_CHECKS: ${{ steps.sibling_placed.outputs.placed == 'true' && '1' || '' }}
         run: npm test
 
       # functions/ is plain JS and cannot import the canonical TS enum, so its
