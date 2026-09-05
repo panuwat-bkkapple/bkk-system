@@ -6,10 +6,11 @@
 // INJECTION RESULTS (ทำทีละตัว วัดหลังรัน):
 //   1. alreadyReversedKeys คืนเซ็ตว่างเสมอ                  -> แดง 2 (idempotent)
 //   2. planReversal ไม่เช็ค ownerRiderIds                      -> แดง 1
-//   3. แถวกลับเป็น CREDIT แทน DEBIT                             -> แดง 2 (รูปแถว + balance)
+//   3. แถวกลับเป็น CREDIT แทน DEBIT                             -> แดง 4 (รูปแถว + balance stub + balance จริง + สรุปงาน)
 //   4. waiveUpdates เขียน rider_fee                             -> แดง 1
 //   5. Pending ของไรเดอร์จ้างถูก waive ด้วย                    -> แดง 1
 //   6. ข้ามแถวที่ amount ใช้ไม่ได้ แต่ยังนับเข้า Σ               -> แดง 1
+//   (วัดจริง 5 ก.ย. 2569 หลัง commit checkpoint)
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

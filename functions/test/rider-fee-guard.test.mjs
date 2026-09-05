@@ -5,11 +5,12 @@
 //
 // INJECTION RESULTS (ทำทีละตัว วัดหลังรัน):
 //   1. assertRiderFeePayable ไม่ throw (return เฉยๆ)             -> แดง 4
-//   2. payoutRiderIdOf ไม่ trim ('   ' นับเป็นไรเดอร์)          -> แดง 2
-//   3. buildRiderFeeApproval เช็ค !== 'Paid' แทน !== 'Pending'   -> แดง 2 (Waived / ว่าง)
+//   2. payoutRiderIdOf ไม่ trim ('   ' นับเป็นไรเดอร์)          -> แดง 1 (เคส "ทุกรูปของค่าว่าง")
+//   3. buildRiderFeeApproval เช็ค !== 'Paid' แทน !== 'Pending'   -> แดง 1 (เคส "เฉพาะ Pending")
 //   4. buildRiderFeeWaive ไม่ตรวจ reason ว่าง                     -> แดง 1
 //   5. parseOwnerRiderIds split ด้วย ',' อย่างเดียว              -> แดง 1 (ช่องว่าง/ขึ้นบรรทัด)
 //   6. buildRiderFeeWaive แตะ rider_fee                           -> แดง 1
+//   (วัดจริง 5 ก.ย. 2569 หลัง commit checkpoint — ข้อ 2/3 คาดไว้ 2 ได้ 1 เพราะเคสหลายค่ารวมใน check เดียว)
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

@@ -7,8 +7,8 @@
 //   1. isFeeTriggerStatus เทียบ raw === แทน normalize   -> แดง 1 (เทส "ทั้งสองสะกด")
 //   2. ตัด SENT_TO_QC_LAB ออกจาก FEE_TRIGGER_CANONICAL  -> แดง 2
 //   3. isSafetyNetEntry คืน true เสมอ                    -> แดง 1 (ทางหลักถูกนับเป็นตาข่าย)
-//   4. feeCalcBlockReason ไม่เช็ค receive_method            -> แดง 1 (Store-in/Mail-in)
-//   5. feeCalcBlockReason เช็ค `!job.rider_id` แทน trim     -> แดง 1 ('   ')
+//   4. feeCalcBlockReason ไม่เช็ค receive_method            -> แดง 1 (Store-in/Mail-in) — วัดจริง 5 ก.ย. 2569
+//   5. feeCalcBlockReason เช็ค `!job.rider_id` แทน trim     -> แดง 1 ('   ') — วัดจริง 5 ก.ย. 2569
 //
 // ด่าน 4-5 มาจากบั๊กจริง 5 ก.ย. 2569: ทางหลัก (Pending QC) ของ onJobHandedOverCalcRiderFee
 // ไม่เช็ค rider_id/receive_method เลย (สองด่านอยู่เฉพาะบล็อกตาข่าย) งาน Store-in/Mail-in
