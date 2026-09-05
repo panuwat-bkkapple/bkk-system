@@ -450,7 +450,8 @@ export const AdminInspectionModal = ({ job, staffName, onClose, onSaved }: Admin
                 <ChevronLeft size={20} />
               </button>
               <h3 className="text-lg font-bold text-gray-900 leading-tight flex-1 line-clamp-1">
-                {devicesList[activeDeviceIndex].model}
+                {/* #N เหมือนในรายการ — จอนี้คือตอนที่ต้องรู้จริงว่ากำลังตรวจใบไหน (รูเดียวกับ InspectionModal ของแอปไรเดอร์ 5 ก.ย. 2569) */}
+                {devicesList.length > 1 ? `#${activeDeviceIndex + 1} ` : ''}{devicesList[activeDeviceIndex].model}
               </h3>
             </div>
 
