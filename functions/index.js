@@ -1689,6 +1689,30 @@ exports.onNewTicketCreated = onValueCreated(
     // so the cost of one resident instance is worth it (only the 3 notify
     // triggers are warmed; background jobs stay scale-to-zero).
     minInstances: 1,
+    // Half a CPU, not the default 1. A resident instance is billed for its CPU
+    // every second of every day whether or not it does anything, and that idle
+    // reservation -- not the work -- was 62% of the entire Google bill in the
+    // first half of Aug 2026 (Min-Instance CPU + Memory = 647 of 1,044 THB).
+    //
+    // Measured before changing, from run.googleapis.com/container/cpu/
+    // utilizations over 370 three-hour buckets (1 Jul - 17 Aug 2026):
+    //   median 0.50%   p95 0.95%   p99 0.99%   worst single bucket 17.1%
+    //   buckets above 20%: zero
+    // At 0.5 CPU that worst case becomes ~34%, so the peak we have actually
+    // seen still fits in a third of the allocation. 0.25 would fit too (~68%)
+    // and is the obvious next step, but the metric is a percentile of a
+    // percentile -- it cannot show a sub-second spike -- so take the safe half
+    // first and re-read the same graph in two weeks before going further.
+    //
+    // Running out of CPU does not fail, it slows down, which would undo the
+    // very thing minInstances is here to buy. That asymmetry is why this is
+    // 0.5 and not the number the arithmetic allows.
+    cpu: 0.5,
+    // Forced by cpu < 1 (firebase-functions rejects any other value). Each
+    // instance now handles one event at a time and a burst spins up extra
+    // instances, billed per-request -- the cheap line item (47 THB per half
+    // month across all 98 functions, against ~2.4 invocations per minute).
+    concurrency: 1,
   },
   async (event) => {
     try {
@@ -2475,6 +2499,10 @@ exports.onJobChatMessageV2 = onValueCreated(
     // Warm — see onNewTicketCreated. Chat pushes are latency-critical too
     // (admin/rider waiting on a live conversation), so avoid cold-start lag.
     minInstances: 1,
+    // Half a CPU + one request at a time — see onNewTicketCreated for the
+    // measurement and why 0.5 rather than the 0.25 the numbers would allow.
+    cpu: 0.5,
+    concurrency: 1,
   },
   async (event) => handleJobChatMessage(event.params.jobId, event.data.val())
 );
@@ -2780,6 +2808,9 @@ exports.onAdminJobStatusNotify = onValueUpdated(
     // Returned, ...); cold start here is what made the "cancel notification
     // arrived slowly" symptom.
     minInstances: 1,
+    // Half a CPU + one request at a time — see onNewTicketCreated.
+    cpu: 0.5,
+    concurrency: 1,
   },
   async (event) => {
     const before = event.data.before.val();

@@ -4136,6 +4136,22 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
       // as onChatMessageCreated). The LLM call dominates latency; a cold
       // start on top of it makes the first reply feel broken.
       minInstances: 1,
+      // Half a CPU — see onNewTicketCreated in index.js for the measurement
+      // and the reasoning behind halving rather than quartering.
+      //
+      // THIS ONE WAS NOT MEASURED. The 0.50% median / 17.1% worst case came
+      // from onNewTicketCreated; this function also parses a model reply and
+      // holds a 512MiB heap, so its profile could be higher. It is included
+      // because almost all of its wall-clock time is spent waiting on the
+      // Anthropic call, which costs no CPU at all -- but that is reasoning,
+      // not evidence. Pull the same cpu/utilizations graph for
+      // chatwidgetaireply after a week; if the peak is over ~60% put this one
+      // back to cpu: 1 and leave the other three at 0.5.
+      cpu: 0.5,
+      // Forced by cpu < 1. Two customers chatting at the same moment now need
+      // two instances, so the second one pays a cold start -- acceptable at
+      // current volume, and the first thing to revisit if chat traffic grows.
+      concurrency: 1,
       timeoutSeconds: 120,
       memory: "512MiB",
     },
