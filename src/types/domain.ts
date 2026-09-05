@@ -436,6 +436,14 @@ export interface Job {
   stock_cost?: number;
   /** child accessory job ชี้กลับงานแม่ */
   parent_job_id?: string;
+  /** ref_no ของงานแม่ (งานลูก Accessory / B2C-Unpacked) */
+  parent_ref_no?: string;
+  /** ตำแหน่งใน devices[] ของงานแม่ (งานลูก B2C-Unpacked) */
+  device_index?: number;
+  /** stamp ของการแตกงานหลายเครื่องเป็นงานลูก — เขียนโดย functions/b2c-unpack.js */
+  multi_unpack?: import('../utils/stockChildren').MultiUnpackStamp;
+  multi_unpacked_at?: number;
+  multi_child_count?: number;
 
   // วิธีชำระเงิน & ธนาคาร
   /** วิธีการชำระเงิน */

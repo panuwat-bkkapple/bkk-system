@@ -46,6 +46,7 @@ import type { BranchRecord } from '../../utils/receiveMethod';
 import { isAwaitingOffer } from '../../utils/offerRequest';
 import { CustomerOfferDecisionCard } from '../admin/components/CustomerOfferDecisionCard';
 import { unpackAccessoryItemsToStock, sumAccessoryItems } from '../../utils/accessoryItems';
+import { MultiDeviceUnpackCard } from '../../components/MultiDeviceUnpackCard';
 import PickupLocationPicker, { geocodeAddress } from '../../components/PickupLocationPicker';
 import { wasRiderWithdrawn } from '../../utils/riderWithdrawal';
 import { JOB_EVENT, type JobEvent, isPostSaleRewindable } from '../../utils/jobTransitions';
@@ -1052,6 +1053,7 @@ export const MobileTicketDetail = () => {
             {job.customer_offer && !isCancelled && (
               <CustomerOfferDecisionCard job={job} canReview={isPrivileged} onDecide={handleDecideCustomerOffer} light />
             )}
+            <div className="mb-3"><MultiDeviceUnpackCard job={job} light /></div>
             <div className="space-y-2">
               {/* งานที่ขายพ่วงอุปกรณ์เสริม: basePrice คือยอดรวมก้อนเดียว (invariant เดิม)
                   — โชว์ breakdown เครื่อง + รายชิ้นให้แอดมินเห็น ไม่แตะสูตรเงิน */}

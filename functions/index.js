@@ -6922,6 +6922,12 @@ Object.assign(exports, require("./ops-dashboard").registerOpsDashboard());
 Object.assign(exports, require("./rider-wht-issue").registerRiderWhtIssue());
 
 // =============================================================================
+// งาน B2C หลายเครื่อง → แตกเป็นงานลูกรายเครื่องตอนเข้าคิวคลัง (trigger บน
+// jobs/{id}/status + callable รันซ้ำ) — logic อยู่ b2c-unpack.js
+// =============================================================================
+Object.assign(exports, require("./b2c-unpack").registerB2cUnpack());
+
+// =============================================================================
 // ใบสำคัญเงินสดย่อยของใบเบิกไรเดอร์ — ออกอัตโนมัติเมื่อฝ่ายบัญชีกดจ่าย
 // (logic อยู่ rider-expense-voucher.js)
 // =============================================================================

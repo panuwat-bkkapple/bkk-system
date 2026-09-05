@@ -828,6 +828,58 @@ check("no rule can drop a job onto the corporate line without scoping to it", ()
   }
 });
 
+// ── multi_device_unpacked (b2c-unpack.js) ──────────────────────────────────
+// งาน B2C หลายเครื่องแตกเป็นงานลูกตอนเข้าคิวคลัง แม่ปิดที่ Completed — แถวนี้
+// ต้องบังคับลำดับ "ลูกก่อน แม่ทีหลัง" ที่ตาราง (requires multi_unpack) ไม่ใช่ที่
+// วินัยของผู้เรียก และต้องไม่เปิดทางให้แม่ปิดขณะเครื่องยังอยู่กับไรเดอร์ (Paid)
+
+check("multi_device_unpacked: ปิดแม่ได้จากสามสถานะเข้าคิวคลัง เมื่อลูกถูกเขียนแล้ว", () => {
+  for (const status of ["Pending QC", "Sent To QC Lab", "In Stock"]) {
+    const out = decideTransition({
+      job: job({ status, custody: "store", multi_unpack: { written: true } }),
+      event: "multi_device_unpacked",
+      actor: ACTOR.SYSTEM,
+    });
+    assert.ok(out.ok, `${status}: ${out.code}`);
+    assert.equal(out.to, "Completed");
+    assert.equal(out.custody, "store", "custody stays what it was — the parent holds nothing now");
+  }
+});
+
+check("multi_device_unpacked: ไม่มี multi_unpack = ปฏิเสธ (ลูกต้องเกิดก่อนแม่ปิด)", () => {
+  const out = decideTransition({
+    job: job({ status: "Pending QC" }),
+    event: "multi_device_unpacked",
+    actor: ACTOR.SYSTEM,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "missing_field");
+});
+
+check("multi_device_unpacked: จาก Paid ไม่ได้ — เครื่องยังอยู่กับไรเดอร์", () => {
+  const out = decideTransition({
+    job: job({ status: "Paid", multi_unpack: { written: true } }),
+    event: "multi_device_unpacked",
+    actor: ACTOR.SYSTEM,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "illegal_from");
+});
+
+check("multi_device_unpacked: ไรเดอร์ยิงไม่ได้ แอดมินและ system ได้", () => {
+  const base = job({ status: "Pending QC", multi_unpack: { written: true } });
+  assert.equal(decideTransition({ job: base, event: "multi_device_unpacked", actor: ACTOR.RIDER }).code, "wrong_actor");
+  assert.ok(decideTransition({ job: base, event: "multi_device_unpacked", actor: ACTOR.ADMIN_STAFF }).ok);
+  assert.ok(decideTransition({ job: base, event: "multi_device_unpacked", actor: ACTOR.SYSTEM }).ok);
+});
+
+check("multi_device_unpacked: from-list ตรงกับ ENTRY_STATUSES ของ b2c-unpack.js (สองที่ ห้าม drift)", () => {
+  const { TRANSITIONS } = require(path.join(root, "functions/status-engine.js"));
+  const { ENTRY_STATUSES, EVENT } = require(path.join(root, "functions/b2c-unpack.js"));
+  assert.equal(EVENT, "multi_device_unpacked");
+  assert.deepEqual([...TRANSITIONS[EVENT].from].sort(), [...ENTRY_STATUSES].sort());
+});
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { isStockChildJob } from '../../utils/stockChildren';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
 import { PlusCircle, Search, Building2, Smartphone, FileText, CheckCircle2, Clock, AlertCircle, Zap, History } from 'lucide-react';
@@ -53,13 +54,12 @@ export const TradeInDashboard = ({ onOpenWorkspace }: { onOpenWorkspace?: (id: s
     const list = Array.isArray(jobs) ? jobs : [];
     return list.filter(j => {
       const isB2BParent = j.type === 'B2B Trade-in';
-      const isB2BChild = j.type === 'B2B-Unpacked';
-      // child อุปกรณ์เสริมที่แตกจากงานแม่ (iPad + Pencil/Keyboard) เป็น stock record
-      // ไม่ใช่ ticket ลูกค้า — ดูที่หน้า Inventory เหมือน B2B-Unpacked
-      const isAccessoryChild = j.type === 'Accessory';
+      // งานลูกที่ระบบแตกจากงานแม่ (B2B-Unpacked / Accessory / B2C-Unpacked) เป็น
+      // stock record ไม่ใช่ ticket ลูกค้า — ดูที่หน้า Inventory / QC Station
+      const isStockChild = isStockChildJob(j);
 
       // 🛒 หน้า B2C: ห้ามโชว์งาน B2B และ stock child
-      if (workspace === 'B2C' && (isB2BParent || isB2BChild || isAccessoryChild)) return false;
+      if (workspace === 'B2C' && (isB2BParent || isStockChild)) return false;
       
       // 🏢 หน้า B2B: โชว์เฉพาะ "งานแม่ (เหมา)"
       if (workspace === 'B2B' && !isB2BParent) return false;

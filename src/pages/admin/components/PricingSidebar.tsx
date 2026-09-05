@@ -21,6 +21,7 @@ import { signedAmount } from '@/utils/signedAmount';
 import { JOB_EVENT, type JobEvent } from '@/utils/jobTransitions';
 import type { AmountDirection } from '@/utils/signedAmount';
 import { SignedAmountInput } from '@/components/SignedAmountInput';
+import { MultiDeviceUnpackCard } from '@/components/MultiDeviceUnpackCard';
 
 interface PricingSidebarHandlers {
   /** ส่ง event ให้ status engine ตัดสินปลายทาง — ตัวเดียวที่เปลี่ยนสถานะงานได้ */
@@ -384,6 +385,7 @@ export const PricingSidebar: React.FC<PricingSidebarProps> = ({
           {/* ราคาที่ยืนให้ลูกค้า — ตั้งตอนสร้างงานจาก settings/quote (lock_days)
               ล็อกเฉพาะ "ราคาตลาด" ไม่ได้ล็อกผลตรวจสภาพ ดังนั้นการหักจาก QC ยัง
               ทำได้ตามปกติ สิ่งที่ป้ายนี้บอกคือ "ห้ามลดเพราะราคาตลาดลง" เท่านั้น */}
+          <div className="mb-3"><MultiDeviceUnpackCard job={job} /></div>
           {job.price_locked_until && (
             <div className={`mb-4 p-3 rounded-xl border ${
               Date.now() > Number(job.price_locked_until)
