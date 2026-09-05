@@ -3,6 +3,7 @@ import { Repeat, Loader2 } from 'lucide-react';
 import { call, errorText, type ShiftOption, type ShiftRequestRow } from '../api';
 import { shiftTimeText } from '../geo';
 import { STATUS_LABEL, STATUS_TONE } from '../requestStatus';
+import DateField from '../DateField';
 
 interface ListRes { shifts: ShiftOption[]; requests: ShiftRequestRow[] }
 
@@ -46,7 +47,7 @@ export default function ShiftChange() {
         <h2><Repeat size={13} /> ขอเปลี่ยนกะ</h2>
         <form onSubmit={submit}>
           <label htmlFor="sd">วันที่ต้องการเปลี่ยน</label>
-          <input id="sd" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+          <DateField id="sd" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
           <label htmlFor="ss">เปลี่ยนไปกะ</label>
           <select id="ss" value={form.toShiftId} onChange={(e) => setForm({ ...form, toShiftId: e.target.value })} required>
             {(data?.shifts || []).map((s) => (

@@ -17,7 +17,8 @@
  *   ถอด `var(--safe-t)` ออกจาก `.head`                      -> แดง 1
  *   ถอด `var(--safe-t)` ออกจาก `.gate`                      -> แดง 1
  *   ถอดกฎ `.datefield.empty > input::-webkit-datetime-edit`  -> แดง 1
- *   ถอดการติดคลาส `empty` ใน Leave.tsx                       -> แดง 1
+ *   ถอดการติดคลาส `empty` ใน DateField.tsx                   -> แดง 1
+ *   หน้าใดหน้าหนึ่งเขียน `input type="date"` เองแทน DateField  -> แดง 1
  *   ลบ `viewport-fit=cover` ออกจาก index.html                -> เขียว (ดูหมายเหตุ)
  *
  * **หมายเหตุสองข้อที่เขียว และทั้งคู่เขียวถูกแล้ว ไม่ใช่รูของด่าน:**
@@ -32,7 +33,7 @@
  * ตัวหนังสือขาวไปนั่งบนพื้นสว่าง = อ่านไม่ออกจริง ชั้นเบราว์เซอร์จับได้ตัวเดียว
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
@@ -43,7 +44,20 @@ const here = join(__dirname);
 const css = readFileSync(join(here, 'styles.css'), 'utf8');
 const appTsx = readFileSync(join(here, 'App.tsx'), 'utf8');
 const headerTsx = readFileSync(join(here, 'AppHeader.tsx'), 'utf8');
-const leaveTsx = readFileSync(join(here, 'pages', 'Leave.tsx'), 'utf8');
+const dateFieldTsx = readFileSync(join(here, 'DateField.tsx'), 'utf8');
+
+/** ไฟล์ .tsx ทุกไฟล์ของแอป (ไม่รวมเทส) — กฎบางข้อต้องตรวจ *ทั้งแอป*
+ *  ไม่ใช่หน้าที่เราบังเอิญนึกถึง */
+function allTsx(dir: string): { path: string; src: string }[] {
+  const out: { path: string; src: string }[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) { out.push(...allTsx(full)); continue; }
+    if (!name.endsWith('.tsx') || name.includes('.test.')) continue;
+    out.push({ path: full.slice(here.length + 1), src: readFileSync(full, 'utf8') });
+  }
+  return out;
+}
 const indexHtml = readFileSync(join(here, '..', 'index.html'), 'utf8');
 
 /** คู่ (selector, บล็อกประกาศ) ของทุกกฎในไฟล์ — พอสำหรับกติกาที่เราตรวจ */
@@ -135,8 +149,22 @@ describe('เปลือกแอปพนักงาน — กติกา�
     // iOS วาดช่องว่างเป็นกล่องเปล่า (จึงต้องมีป้ายของเราเอง) ส่วน Chromium
     // วาด mm/dd/yyyy ให้ (จึงต้องซ่อนตอนว่าง) — ขาดข้อไหนก็ผิดบนเครื่องหนึ่ง
     expect(css).toMatch(/\.datefield\.empty\s*>\s*input::-webkit-datetime-edit\s*\{[^}]*opacity:\s*0/);
-    expect(leaveTsx).toMatch(/datefield empty/);
-    expect(leaveTsx).toMatch(/className=\{value \? 'datefield' : 'datefield empty'\}/);
+    expect(dateFieldTsx).toMatch(/className=\{value \? 'datefield' : 'datefield empty'\}/);
+  });
+
+  it('ไม่มีหน้าไหนเขียน input[type=date] เอง — ต้องผ่าน DateField ที่เดียว', () => {
+    // **รอบแรกแก้ที่หน้าขอลาหน้าเดียว หน้าเปลี่ยนกะยังเป็นกล่องเปล่าอยู่**
+    // และเทสรอบนั้นก็ดูแค่ `Leave.tsx` จึงเขียวสนิท — เจ้าของงานส่งภาพมาอีกรอบ
+    // (กฎ "กฎมีกี่คนอ่าน": กฎถูกแล้ว แต่ติดตั้งไม่ครบทุกคนที่อ่านมัน)
+    const offenders = allTsx(here)
+      .filter((f) => f.path !== 'DateField.tsx')
+      .filter((f) => /type=["']date["']/.test(f.src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '')))
+      .map((f) => f.path);
+    expect(offenders, 'ต้องใช้ <DateField /> แทน').toEqual([]);
+
+    // และต้องมีคนใช้จริง ไม่ใช่คอมโพเนนต์ที่ไม่มีใครเรียก
+    const users = allTsx(here).filter((f) => /<DateField\b/.test(f.src)).map((f) => f.path);
+    expect(users.length, 'ไม่มีใครใช้ DateField เลย').toBeGreaterThan(0);
   });
 });
 
