@@ -10,7 +10,7 @@ type SessionResolved = SessionFailure | { kind: 'employee'; me: EmployeeMe };
 import { call } from './api';
 import AppHeader from './AppHeader';
 import TabBar from './TabBar';
-import { type Tab } from './tabs';
+import { backTarget, titleOf, type Screen } from './nav';
 import { APP_NAME } from './appName';
 import GateShell from './GateShell';
 import Login from './pages/Login';
@@ -19,15 +19,26 @@ import Onboarding from './pages/Onboarding';
 import { onboardingSeen, shouldShowOnboarding } from './onboarding';
 import GpsGate from './pages/GpsGate';
 import Home from './pages/Home';
+import CheckIn from './pages/CheckIn';
+import Roster from './pages/Roster';
+import Swap from './pages/Swap';
+import Payslip from './pages/Payslip';
+import Documents from './pages/Documents';
+import Profile from './pages/Profile';
 import Leave from './pages/Leave';
 import ShiftChange from './pages/ShiftChange';
 import Inbox from './pages/Inbox';
 import History from './pages/History';
+import type { SupervisorInbox } from './api';
 
 export default function App() {
   const { user, ready, logout } = useEmployeeSession();
   const geo = useGeolocation();
-  const [tab, setTab] = useState<Tab>('home');
+  const [screen, setScreen] = useState<Screen>('home');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // เมนู "อนุมัติ" ขึ้นเฉพาะคนที่มีลูกน้องจริง — ถามครั้งเดียวตอนเข้าแอป
+  // และล้มได้เงียบๆ (ไม่มีเมนู ดีกว่าหน้าแรกพังเพราะถามเรื่องรองไม่สำเร็จ)
+  const [isSup, setIsSup] = useState(false);
   // **ผูกผลการตรวจไว้กับ uid ที่ตรวจ** — เก็บเป็น state เปล่าๆ แล้วล้างตอน user
   // เปลี่ยน จะมีช่วงหนึ่งที่ผลของ *คนก่อนหน้า* ยังค้างอยู่บนจอของคนใหม่
   // (และการล้างใน effect คือ setState ตอน render ซึ่ง lint จับถูกแล้ว)
@@ -89,6 +100,15 @@ export default function App() {
 
   const loginNotice = session?.state.kind === 'rejected' ? session.state.message : null;
 
+  useEffect(() => {
+    if (!ready || !user || state?.kind !== 'employee') return;
+    let alive = true;
+    void call<SupervisorInbox>('supervisorInbox')
+      .then((r) => { if (alive) setIsSup(Boolean(r.is_supervisor)); })
+      .catch(() => { /* ไม่มีเมนูอนุมัติ ดีกว่าหน้าแรกพัง */ });
+    return () => { alive = false; };
+  }, [ready, user, state]);
+
   const view = appGate({
     authReady: ready,
     signedIn: Boolean(user),
@@ -132,25 +152,39 @@ export default function App() {
   if (view.screen === 'geo') return <GpsGate block={view.block} onAct={geo.request} />;
 
   const me = state?.kind === 'employee' ? state.me : null;
+  const back = backTarget(screen);
 
   return (
     <div className="app">
       <AppHeader
-        name={me?.name || 'แอปพนักงาน'}
+        name={me?.name || APP_NAME}
         sub={`${me?.employee_code || APP_NAME}${me?.position ? ` · ${me.position}` : ''}`}
         photoUrl={me?.photo_url}
         onLogout={() => void logout()}
+        title={titleOf(screen)}
+        onBack={back ? () => setScreen(back) : undefined}
       />
 
       <div className="main">
-        {tab === 'home' && geo.fix && <Home fix={geo.fix} />}
-        {tab === 'leave' && <Leave />}
-        {tab === 'shift' && <ShiftChange />}
-        {tab === 'inbox' && <Inbox />}
-        {tab === 'history' && <History />}
+        {screen === 'home' && <Home onGo={setScreen} isSupervisor={isSup} />}
+        {screen === 'checkin' && geo.fix && <CheckIn fix={geo.fix} />}
+        {screen === 'roster' && <Roster onGo={setScreen} />}
+        {screen === 'swap' && <Swap />}
+        {screen === 'shift' && <ShiftChange />}
+        {screen === 'leave' && <Leave supervisorName={me?.supervisor?.name} />}
+        {screen === 'payslip' && <Payslip />}
+        {screen === 'documents' && <Documents onGo={setScreen} />}
+        {screen === 'profile' && <Profile onGo={setScreen} onLogout={() => void logout()} />}
+        {screen === 'inbox' && <Inbox />}
+        {screen === 'history' && <History />}
       </div>
 
-      <TabBar tab={tab} onSelect={setTab} />
+      <TabBar
+        screen={screen}
+        onSelect={setScreen}
+        sheetOpen={sheetOpen}
+        onToggleSheet={setSheetOpen}
+      />
 
     </div>
   );

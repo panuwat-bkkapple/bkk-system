@@ -1,204 +1,151 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, MapPin, Loader2, RefreshCw } from 'lucide-react';
-import { call, errorText, type AttendanceStatus, type PunchResult } from '../api';
-import { clockTime, durationText, formatDistance, shiftTimeText, type GeoFix } from '../geo';
-import SlideConfirm from '../SlideConfirm';
+import {
+  ChevronRight, Loader2, RefreshCw, TriangleAlert, Fingerprint,
+  CalendarPlus, Repeat, CalendarDays, Receipt, FolderClosed, Inbox as InboxIcon,
+} from 'lucide-react';
+import { call, errorText, type AttendanceStatus, type LeaveBalanceRow } from '../api';
+import { clockTime, shiftTimeText } from '../geo';
+import type { Screen } from '../nav';
 
-// หน้าลงเวลา — ปุ่มเดียวที่เปลี่ยนความหมายตามสถานะ (เข้า -> ออก -> จบแล้ว)
-//
-// **ระยะห่างต้องโชว์ก่อนกด** — ปุ่มที่กดแล้วค่อยรู้ว่าไกลไป คือปุ่มที่คนกดซ้ำๆ
-// ตอนยืนอยู่หน้าร้าน แล้วสรุปว่าระบบพัง
-//
-// ดีไซน์ต้นทาง (02) มีแผนที่ geofence · ปุ่มสแกน QR · ปุ่มเช็คอินนอกสถานที่ —
-// **สามอย่างนี้ยังไม่ได้ทำ** เพราะระบบไม่มี QR ไม่มีเส้นทางเช็คอินนอกสถานที่
-// และการวาดแผนที่ต้องโหลด Maps JS ทุกการเปิดแอปเพื่อภาพประกอบที่ไม่ได้เปลี่ยน
-// คำตอบ (ตัวเลขระยะทางบอกสิ่งเดียวกัน และ server เป็นคนตัดสินอยู่แล้ว)
-// ส่วน **แถบเลื่อนยืนยันทำแล้ว** — ดู `SlideConfirm`
-export default function Home({ fix }: { fix: GeoFix }) {
-  const [data, setData] = useState<AttendanceStatus | null>(null);
+/**
+ * หน้าแรกแบบแท่นรวม (ดีไซน์ 01)
+ *
+ * **การ์ดสถานะวันนี้เป็นปุ่ม ไม่ใช่ป้าย** — ต้นฉบับให้แตะการ์ดแล้วเข้าหน้าลงเวลา
+ * ซึ่งตรงกับสิ่งที่คนเปิดแอปมาทำจริง
+ *
+ * **ตะแกรงเมนูมีเฉพาะปลายทางที่มีจริง** — ต้นฉบับมีหกช่อง (รวมสวัสดิการ) เรามี
+ * ห้าที่กดแล้วไปถึงจริง ปุ่มที่กดแล้วไม่เกิดอะไรทำให้คนสรุปว่าแอปพัง ไม่ใช่ว่า
+ * เรายังไม่ได้ทำ · ปุ่ม "จัดเรียง" ของต้นฉบับไม่มี เพราะยังไม่มีที่เก็บลำดับ
+ * ที่ผู้ใช้จัดเอง (ทำเป็นปุ่มลวงไม่ได้)
+ */
+const MENU: { id: Screen; label: string; icon: typeof CalendarPlus }[] = [
+  { id: 'leave', label: 'ขอลา', icon: CalendarPlus },
+  { id: 'swap', label: 'สลับกะ', icon: Repeat },
+  { id: 'roster', label: 'ตารางกะ', icon: CalendarDays },
+  { id: 'payslip', label: 'เงินเดือน', icon: Receipt },
+  { id: 'documents', label: 'เอกสาร', icon: FolderClosed },
+];
+
+interface LeaveListRes { year: string; balances: LeaveBalanceRow[] }
+
+export default function Home({ onGo, isSupervisor }: {
+  onGo: (s: Screen) => void;
+  isSupervisor: boolean;
+}) {
+  const [att, setAtt] = useState<AttendanceStatus | null>(null);
+  const [leave, setLeave] = useState<LeaveListRes | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: 'ok' | 'bad' | 'warn'; text: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErr(null);
     try {
-      setData(await call<AttendanceStatus>('employeeAttendanceStatus'));
+      // ยอดสิทธิ์ลาพังได้โดยไม่ทำให้หน้าแรกพัง — การ์ดลงเวลาสำคัญกว่า
+      const [a, l] = await Promise.all([
+        call<AttendanceStatus>('employeeAttendanceStatus'),
+        call<LeaveListRes>('employeeLeaveList').catch(() => null),
+      ]);
+      setAtt(a);
+      setLeave(l);
     } catch (e) {
-      setMsg({ tone: 'bad', text: errorText(e) });
-    } finally {
-      setLoading(false);
-    }
+      setErr(errorText(e));
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
-  const punch = async (kind: 'in' | 'out') => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await call<PunchResult>(
-        kind === 'in' ? 'employeeAttendanceCheckIn' : 'employeeAttendanceCheckOut',
-        { lat: fix.lat, lng: fix.lng, accuracy_m: fix.accuracy_m },
-      );
-      if (!res.ok) {
-        // server เป็นคนตัดสิน — หน้าจอแค่เล่าเหตุผลที่มันส่งกลับมา ไม่ตีความใหม่
-        setMsg({ tone: 'warn', text: res.message || 'ลงเวลาไม่สำเร็จ' });
-      } else {
-        setMsg({ tone: 'ok', text: kind === 'in' ? 'ลงเวลาเข้างานแล้ว' : 'ลงเวลาออกงานแล้ว' });
-      }
-      await load();
-    } catch (e) {
-      setMsg({ tone: 'bad', text: errorText(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loading && !data) {
-    return <div className="card center"><Loader2 size={20} className="spin" /></div>;
-  }
-  if (!data) {
+  if (loading && !att) return <div className="card center"><Loader2 size={20} className="spin" /></div>;
+  if (!att) {
     return (
       <div className="card">
-        {msg && <div className={`note ${msg.tone}`}>{msg.text}</div>}
+        {err && <div className="note bad">{err}</div>}
         <button className="btn ghost" onClick={() => void load()}><RefreshCw size={16} /> ลองใหม่</button>
       </div>
     );
   }
 
-  const rec = data.record;
-  const nearest = data.sites
-    .map((s) => ({ s, d: haversine(fix, s) }))
-    .sort((a, b) => a.d - b.d)[0] || null;
-  const inRange = nearest ? nearest.d <= data.radius_m : false;
-  const accuracyOk = fix.accuracy_m <= data.min_accuracy_m;
+  const rec = att.record;
+  const late = rec.late_min !== null && rec.late_min > 0;
+  const statusText = rec.status === 'empty' ? 'ยังไม่เช็คอิน'
+    : rec.status === 'open' ? `เข้างานแล้ว ${clockTime(rec.in_at)}`
+      : `ลงเวลาครบแล้ว · ${clockTime(rec.in_at)} - ${clockTime(rec.out_at)}`;
 
-  const statusPill = rec.status === 'empty' ? { tone: 'grey', text: 'ยังไม่ลงเวลา' }
-    : rec.status === 'open' ? { tone: 'ok', text: 'อยู่ระหว่างกะ' }
-      : { tone: 'ok', text: 'ลงเวลาครบแล้ว' };
+  const shown = (leave?.balances || [])
+    .filter((b) => (b.entitled_paid_days ?? 0) > 0 || b.entitled_paid_days == null)
+    .slice(0, 2);
 
   return (
     <>
-      {msg && <div className={`note ${msg.tone}`}>{msg.text}</div>}
+      {err && <div className="note bad">{err}</div>}
 
       <div className="section"><h2>สถานะวันนี้</h2>
-        <div className="card">
+        <button className="card tap" onClick={() => onGo('checkin')}>
           <div className="split">
-            <div>
+            <div style={{ textAlign: 'left' }}>
               <div className="muted">
-                {data.shift ? `กะวันนี้ · ${data.shift.label}` : 'กะวันนี้'}
+                กะวันนี้{att.shift ? ` · ${att.shift.label}` : ''}
               </div>
-              <div style={{ fontSize: 23, fontWeight: 600, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-                {data.shift ? shiftTimeText(data.shift.start, data.shift.end) : 'ยังไม่ได้จัดเวร'}
+              <div className="num" style={{ fontSize: 22, fontWeight: 600, marginTop: 2 }}>
+                {att.shift ? shiftTimeText(att.shift.start, att.shift.end) : 'ยังไม่ได้จัดเวร'}
+              </div>
+              <div className={`statusline ${rec.status === 'empty' ? 'call' : ''}`}>
+                {statusText}
               </div>
             </div>
-            <span className={`pill ${statusPill.tone}`}>{statusPill.text}</span>
+            <span className="go"><Fingerprint size={20} strokeWidth={1.9} /><ChevronRight size={16} /></span>
           </div>
-
-          <div className="center" style={{ margin: '18px 0 4px' }}>
-            <div className="muted">
-              {rec.status === 'empty' ? 'ยังไม่ได้ลงเวลา' : rec.status === 'open' ? 'เข้างานเมื่อ' : 'ทำงานวันนี้'}
-            </div>
-            <div className="big">
-              {rec.status === 'empty' ? '--:--'
-                : rec.status === 'open' ? clockTime(rec.in_at)
-                  : durationText(rec.worked_min)}
-            </div>
-            {rec.status === 'closed' && (
-              <div className="muted">{clockTime(rec.in_at)} - {clockTime(rec.out_at)}</div>
-            )}
+        </button>
+        {late && (
+          <div className={`note ${rec.within_grace ? 'warn' : 'bad'}`} style={{ marginTop: 10 }}>
+            <TriangleAlert size={14} /> เข้างานสายวันนี้ {rec.late_min} นาที
+            {rec.within_grace ? ' (อยู่ในช่วงผ่อนผัน)' : ''}
           </div>
+        )}
+      </div>
 
-          {rec.status !== 'empty' && rec.late_min !== null && rec.late_min > 0 && (
-            <div className={`note ${rec.within_grace ? 'warn' : 'bad'}`} style={{ marginTop: 12, marginBottom: 0 }}>
-              เข้างานช้า {rec.late_min} นาที{rec.within_grace ? ' (อยู่ในช่วงผ่อนผัน)' : ''}
-            </div>
+      <div className="section"><h2>เมนูของฉัน</h2>
+        <div className="menugrid">
+          {MENU.map((m) => (
+            <button key={m.id} className="menuitem" onClick={() => onGo(m.id)}>
+              <span className="mi"><m.icon size={19} strokeWidth={1.9} /></span>
+              {m.label}
+            </button>
+          ))}
+          {/* กล่องอนุมัติขึ้นเฉพาะคนที่มีลูกน้องจริง — หัวหน้ารู้ตัวจากการมีเมนูนี้ */}
+          {isSupervisor && (
+            <button className="menuitem" onClick={() => onGo('inbox')}>
+              <span className="mi"><InboxIcon size={19} strokeWidth={1.9} /></span>
+              อนุมัติ
+            </button>
           )}
+        </div>
+      </div>
 
-          <div style={{ marginTop: 16 }}>
-            {rec.status === 'closed' ? (
-              <div className="center"><span className="pill ok">ลงเวลาครบแล้ววันนี้</span></div>
-            ) : (
-              <>
-                <SlideConfirm
-                  label={rec.status === 'open' ? 'ลงเวลาออกงาน' : 'ลงเวลาเข้างาน'}
-                  tone={rec.status === 'open' ? 'dark' : 'brand'}
-                  busy={busy}
-                  disabled={rec.status === 'empty' && (!inRange || !accuracyOk)}
-                  onConfirm={() => void punch(rec.status === 'open' ? 'out' : 'in')}
-                />
-                <div className="muted center" style={{ marginTop: 8 }}>
-                  ลากไปทางขวาเพื่อยืนยัน
+      {shown.length > 0 && (
+        <div className="section">
+          <h2 style={{ justifyContent: 'space-between' }}>
+            <span>สิทธิ์ลาที่ได้ค่าจ้าง</span>
+            <button className="opt" style={{ padding: '4px 12px', fontSize: 12 }}
+              onClick={() => onGo('leave')}>ดูทั้งหมด</button>
+          </h2>
+          <div className="grid2">
+            {shown.map((b) => (
+              <div className="tile" key={b.type}>
+                <div className="muted" style={{ fontSize: 11.5 }}>{b.label}</div>
+                <div className="btm">
+                  <div className="num" style={{ fontSize: 21, marginTop: 6 }}>
+                    {b.entitled_paid_days == null ? '—' : (b.remaining_paid_days ?? 0)}
+                  </div>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    {b.entitled_paid_days == null ? 'ตามที่แพทย์กำหนด' : `จาก ${b.entitled_paid_days} วัน`}
+                  </div>
                 </div>
-              </>
-            )}
+              </div>
+            ))}
           </div>
-
-          {!data.shift && (
-            // ไม่มีกะยังลงเวลาได้ (server ยอม) แต่ต้องบอกให้รู้ ไม่ใช่เงียบ
-            <div className="muted" style={{ marginTop: 10 }}>
-              ยังไม่มีตารางเวรของวันนี้ ลงเวลาได้ตามปกติ แต่ระบบจะไม่คิดว่าสายหรือไม่
-            </div>
-          )}
-          {data.shift?.crosses_midnight && (
-            <div className="muted" style={{ marginTop: 10 }}>
-              กะนี้ข้ามเที่ยงคืน — ลงเวลาออกงานเช้าวันถัดไปยังนับเป็นกะเดียวกัน
-            </div>
-          )}
         </div>
-      </div>
-
-      <div className="section"><h2>ตำแหน่งของคุณ</h2>
-        <div className="card">
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <span className={`dot ${nearest ? (inRange ? 'ok' : 'bad') : ''}`} />
-            <b style={{ fontSize: 15, fontWeight: 600 }}>
-              {nearest
-                ? (inRange ? `อยู่ในพื้นที่${nearest.s.name}` : `อยู่นอกพื้นที่${nearest.s.name}`)
-                : 'ยังไม่ได้ตั้งพิกัดสาขา'}
-            </b>
-          </div>
-          <div className="muted" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
-            <MapPin size={13} />
-            {nearest
-              ? <>ห่างจากจุดลงเวลา {formatDistance(nearest.d)} · ต้องอยู่ในระยะ {data.radius_m} ม. · ความแม่นยำ {Math.round(fix.accuracy_m)} ม.</>
-              : <>ยังไม่ได้ตั้งพิกัดสาขาสำหรับลงเวลา</>}
-          </div>
-          {!accuracyOk && (
-            // บอกว่า "รอสัญญาณ" ไม่ใช่ "อยู่ผิดที่" — ข้อความเดียวกับฝั่ง server
-            <div className="note warn" style={{ marginTop: 12, marginBottom: 0 }}>
-              สัญญาณ GPS ยังไม่แม่นพอ (คลาดเคลื่อน {Math.round(fix.accuracy_m)} ม.) รอสักครู่แล้วลองใหม่
-            </div>
-          )}
-          {rec.status === 'open' && (
-            <div className="muted" style={{ marginTop: 10 }}>
-              ออกงานกดได้แม้ไม่ได้อยู่ที่สาขา ระบบจะบันทึกระยะไว้ให้หัวหน้าเห็น
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="section"><h2><Clock size={13} /> รายละเอียดวันนี้</h2>
-        <div className="card">
-          <div className="kv"><span className="k">วันที่ของกะ</span><span className="v">{data.attendance_date}</span></div>
-          <div className="kv"><span className="k">เข้างาน</span><span className="v">{clockTime(rec.in_at)}{rec.in_site_name ? ` · ${rec.in_site_name}` : ''}</span></div>
-          <div className="kv"><span className="k">ออกงาน</span><span className="v">{clockTime(rec.out_at)}{rec.out_site_name ? ` · ${rec.out_site_name}` : ''}</span></div>
-          {rec.out_outside && <div className="muted" style={{ marginTop: 8 }}>ลงเวลาออกงานนอกพื้นที่สาขา</div>}
-        </div>
-      </div>
+      )}
     </>
   );
-}
-
-// ระยะทางฝั่งหน้าจอมีไว้ **บอกคนใช้ก่อนกด** เท่านั้น — การตัดสินว่าอยู่ในรัศมี
-// ไหมเป็นของ server เสมอ (hr-attendance.js) สองที่นี้ไม่ใช่สำเนาของกฎเดียวกัน
-function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const R = 6371000;
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(b.lat - a.lat);
-  const dLng = rad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2
-    + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(s))));
 }

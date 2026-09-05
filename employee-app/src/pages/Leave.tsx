@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarPlus, Loader2, X, Pencil, Save } from 'lucide-react';
+import { CalendarPlus, Loader2, X, Pencil, Save, Paperclip, UserCheck } from 'lucide-react';
 import {
   call, errorText,
   type LeaveBalanceRow, type LeaveRequestRow, type LeaveTypeRow,
@@ -7,6 +7,7 @@ import {
 import { thaiDateRange } from '../geo';
 import { STATUS_LABEL, STATUS_TONE } from '../requestStatus';
 import DateField from '../DateField';
+import { useRef } from 'react';
 
 interface ListRes {
   year: string;
@@ -19,7 +20,7 @@ interface PreviewRes {
   days: number | null; paid_days: number | null; unpaid_days: number | null;
 }
 
-const EMPTY = { type: '', from: '', to: '', reason: '' };
+const EMPTY = { type: '', from: '', to: '', reason: '', halfStart: false, halfEnd: false };
 
 /** ตัวเลขบนกล่องสิทธิ์ — สามสถานะที่ **ห้ามเขียนเป็น "0"** เหมือนกันหมด
  *  เพราะแต่ละอันแปลว่าคนละเรื่อง (ยังไม่ครบอายุงาน / ไม่มีเพดานตามกฎหมาย /
@@ -31,7 +32,7 @@ function balanceText(b: LeaveBalanceRow): { val: string; sub: string } {
   return { val: String(b.remaining_paid_days ?? 0), sub: `จาก ${b.entitled_paid_days} วัน` };
 }
 
-export default function Leave() {
+export default function Leave({ supervisorName }: { supervisorName?: string | null }) {
   const [data, setData] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY);
@@ -41,6 +42,9 @@ export default function Leave() {
   const [preview, setPreview] = useState<PreviewRes | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  // ไฟล์แนบ = id ของไฟล์ที่อัปโหลดไปแล้ว ไม่ใช่ตัวไฟล์ — ใบลาเก็บแค่ตัวชี้
+  const [attach, setAttach] = useState<{ id: string; name: string }[]>([]);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,19 +89,42 @@ export default function Leave() {
         await call('employeeLeaveUpdate', { ...form, requestId: editingId });
         setMsg({ tone: 'ok', text: 'แก้ใบลาแล้ว รอหัวหน้าอนุมัติ' });
       } else {
-        await call('employeeLeaveCreate', form);
+        await call('employeeLeaveCreate', { ...form, attachments: attach.map((a) => a.id) });
         setMsg({ tone: 'ok', text: 'ส่งใบลาแล้ว รอหัวหน้าอนุมัติ' });
       }
       resetForm();
+      setAttach([]);
       await load();
     } catch (e2) {
       setMsg({ tone: 'bad', text: errorText(e2) });
     } finally { setBusy(false); }
   };
 
+  /** อัปโหลดไฟล์ก่อน แล้วค่อยผูก id เข้ากับใบตอนกดส่ง — ทำให้ไฟล์มีเจ้าของ
+   *  ตั้งแต่วินาทีแรก ไม่ใช่ค้างอยู่ในหน่วยความจำของเบราว์เซอร์ */
+  const addFile = async (f: File) => {
+    setBusy(true); setMsg(null);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(',')[1] || '');
+        r.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+        r.readAsDataURL(f);
+      });
+      const res = await call<{ id: string }>('employeeFileUpload', {
+        kind: 'other', filename: f.name, contentType: f.type, base64,
+      });
+      setAttach((a) => [...a, { id: res.id, name: f.name }]);
+    } catch (e) { setMsg({ tone: 'bad', text: errorText(e) }); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
   const startEdit = (r: LeaveRequestRow) => {
     setEditingId(r.id);
-    setForm({ type: r.type, from: r.from, to: r.to, reason: r.reason || '' });
+    setForm({
+      type: r.type, from: r.from, to: r.to, reason: r.reason || '',
+      halfStart: r.half_start === true, halfEnd: r.half_end === true,
+    });
     setMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -197,6 +224,23 @@ export default function Leave() {
                 <DateField id="lto" value={form.to} onChange={(v) => setForm({ ...form, to: v })} />
               </div>
             </div>
+            {/* ครึ่งวันเป็นธงของวันหัวและวันท้าย ไม่ใช่ชนิดการลา — ลายาวห้าวันแล้ว
+                เริ่มบ่ายวันแรกเป็นเรื่องปกติ การผูกไว้กับทั้งใบแทนเคสนั้นไม่ได้ */}
+            {form.from && (
+              <div className="halfrow">
+                <button type="button" className="opt" aria-pressed={form.halfStart}
+                  onClick={() => setForm({ ...form, halfStart: !form.halfStart })}>
+                  วันแรกครึ่งวัน
+                </button>
+                {form.to && form.to !== form.from && (
+                  <button type="button" className="opt" aria-pressed={form.halfEnd}
+                    onClick={() => setForm({ ...form, halfEnd: !form.halfEnd })}>
+                    วันสุดท้ายครึ่งวัน
+                  </button>
+                )}
+              </div>
+            )}
+
             {preview?.ok && preview.days !== null && (
               <div className="totalrow">
                 <span>รวมวันลา</span>
@@ -217,6 +261,42 @@ export default function Leave() {
                 )}
               </div>
             )}
+
+            {/* แนบเอกสารทำได้เฉพาะตอนยื่นใบใหม่ — การเปลี่ยนไฟล์แนบของใบที่ยื่น
+                ไปแล้วแปลว่าหัวหน้าอาจเห็นคนละใบกับที่กดอนุมัติ */}
+            {!editingId && (
+              <>
+                <label style={{ marginTop: 16 }}>แนบเอกสาร (ถ้ามี)</label>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void addFile(f); }}
+                />
+                {attach.length > 0 && (
+                  <div className="chips">
+                    {attach.map((a) => (
+                      <span className="opt" key={a.id}>
+                        <Paperclip size={12} /> {a.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <button className="btn ghost sm" type="button" disabled={busy}
+                  onClick={() => fileRef.current?.click()} style={{ marginTop: 8 }}>
+                  <Paperclip size={14} /> เพิ่มไฟล์
+                </button>
+              </>
+            )}
+
+            {/* ใบนี้จะไปถึงใคร ต้องรู้ก่อนกดส่ง ไม่ใช่รู้ตอนใบค้างหลายวัน */}
+            <div className="approver">
+              <UserCheck size={14} />
+              <span>
+                ผู้อนุมัติ: {supervisorName || 'ยังไม่ได้ตั้งหัวหน้างาน — แจ้งฝ่ายบุคคลก่อน'}
+              </span>
+            </div>
 
             <button className="btn" type="submit" disabled={busy || (preview ? !preview.ok : true)} style={{ marginTop: 16 }}>
               {busy ? <Loader2 size={17} className="spin" /> : editingId ? <Save size={17} /> : <CalendarPlus size={17} />}

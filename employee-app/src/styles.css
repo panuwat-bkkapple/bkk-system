@@ -431,3 +431,135 @@ textarea { min-height: 84px; resize: vertical; line-height: 1.6; }
 .wordmark > span { color: var(--brand); }
 .splash-word > span { color: #8fe0d3; }
 .splash-foot { font-size: 10px; color: rgba(255, 255, 255, 0.85); margin-top: 26px; }
+
+/* ── หัวแอปโหมดหน้าลูก + โลโก้บนหัวแท่น ─────────────────────────────────── */
+.iconbtn {
+  width: 34px; height: 34px; flex: none; border: 0; border-radius: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.16); color: #ffffff; font-family: inherit;
+}
+.iconbtn.sm {
+  width: 30px; height: 30px; border-radius: 10px;
+  background: var(--card); color: var(--ink-2); border: 1px solid var(--line);
+}
+.head .headmark { margin-left: auto; opacity: 0.85; font-size: 14px; color: #ffffff; }
+.head .headmark span { color: #8fe0d3; }
+
+/* ── การ์ดที่กดได้ (หน้าแรกแบบแท่น) ─────────────────────────────────────── */
+.card.tap, .list .row.tap {
+  width: 100%; cursor: pointer; font-family: inherit; text-align: left;
+  color: var(--ink); background: var(--card);
+}
+.card.tap:disabled, .list .row.tap:disabled { opacity: 0.55; cursor: default; }
+.statusline { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.statusline.call { color: var(--brand); font-weight: 600; }
+.go {
+  display: flex; align-items: center; gap: 2px; flex: none;
+  color: var(--brand); background: var(--brand-bg);
+  border-radius: 14px; padding: 8px 8px 8px 10px;
+}
+
+/* ── ตะแกรงเมนู ─────────────────────────────────────────────────────────── */
+.menugrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.menuitem {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 14px 6px; border: 1px solid var(--line); border-radius: var(--r-tile);
+  background: var(--card); color: var(--ink); font-family: inherit;
+  font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: var(--sh-sm);
+}
+.mi {
+  width: 38px; height: 38px; border-radius: 13px; display: flex;
+  align-items: center; justify-content: center;
+  background: var(--brand-bg); color: var(--brand);
+}
+.mi.sm { width: 30px; height: 30px; border-radius: 10px; flex: none; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.grid2 > .tile { display: flex; flex-direction: column; }
+.grid2 > .tile > .btm { margin-top: auto; }
+
+/* ── รั้วพิกัด (วาดเอง ไม่ใช่แผนที่) ────────────────────────────────────── */
+.geofence {
+  margin-top: 12px; border-radius: var(--r-tile); background: var(--indigo-bg);
+  padding: 10px; display: flex; align-items: center; gap: 12px;
+}
+.geofence svg { width: 96px; height: 96px; flex: none; }
+.geofence .fence { fill: rgba(75, 90, 168, 0.10); stroke: var(--indigo); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.geofence .fence.ok { fill: rgba(12, 122, 109, 0.12); stroke: var(--brand); }
+.geofence .site { fill: var(--indigo); }
+.geofence .acc { fill: rgba(75, 90, 168, 0.14); stroke: none; }
+.geofence .me { fill: var(--bad); stroke: #ffffff; stroke-width: 2; }
+.geofence .me.ok { fill: var(--brand); }
+.geolabel { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.geolabel b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.geolabel span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ── แถวตารางกะ ─────────────────────────────────────────────────────────── */
+.list .row.day { flex-direction: row; align-items: flex-start; gap: 12px; }
+.list .row.day.today { border-color: var(--brand); }
+.daycol {
+  display: flex; flex-direction: column; align-items: center; width: 34px; flex: none;
+}
+.daycol .dow { font-size: 11px; color: var(--muted); }
+.daycol .dnum { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vline { width: 1px; align-self: stretch; background: var(--line-soft); flex: none; }
+
+/* ── สลับกะ ─────────────────────────────────────────────────────────────── */
+.swapbox {
+  margin-top: 14px; display: flex; align-items: center; gap: 8px;
+  background: var(--bg); border-radius: var(--r-tile); padding: 12px;
+}
+.swapbox .half { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.swapbox .half b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.swapicon {
+  width: 30px; height: 30px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--brand-bg); color: var(--brand);
+}
+.list.flat { gap: 6px; margin-top: 8px; }
+.peer {
+  display: flex; align-items: center; gap: 10px; width: 100%; cursor: pointer;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-tile);
+  background: var(--card); color: var(--ink); font-family: inherit; text-align: left;
+}
+.peer.on { border-color: var(--brand); background: var(--brand-bg); color: var(--ink); }
+.peer.off { opacity: 0.5; cursor: default; }
+.peer b { display: block; font-size: 14px; font-weight: 600; }
+.peer .muted { display: block; font-size: 12px; }
+.pav {
+  width: 34px; height: 34px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--indigo-bg); color: var(--indigo); font-size: 12px; font-weight: 600;
+}
+.approver {
+  margin-top: 14px; display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ink-2);
+  background: var(--bg); border-radius: 14px; padding: 10px 12px;
+}
+.halfrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── แฟ้มเอกสาร ─────────────────────────────────────────────────────────── */
+.fbadge {
+  flex: none; min-width: 42px; text-align: center; padding: 6px 8px; border-radius: 10px;
+  background: var(--indigo-bg); color: var(--indigo); font-size: 10.5px; font-weight: 600;
+}
+.list .row.tap { flex-direction: row; align-items: center; gap: 10px; }
+
+/* ── แผงทางลัดของปุ่มกลม ────────────────────────────────────────────────── */
+.sheetveil {
+  position: fixed; inset: 0; background: rgba(27, 35, 64, 0.28); border: 0;
+}
+.tabs .sheet {
+  position: absolute; left: 12px; right: 12px; bottom: calc(100% + 10px);
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--sh-dock);
+  padding: 8px; display: flex; flex-direction: column; gap: 2px;
+}
+.tabs .sheet button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 12px;
+  border: 0; border-radius: 14px; background: var(--card); color: var(--ink);
+  font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  flex-direction: row; justify-content: flex-start;
+}
+.acts.wide { display: flex; flex-direction: column; gap: 8px; }
+.acts.wide > .btn { width: 100%; }
+.num.neg { color: var(--bad); }
