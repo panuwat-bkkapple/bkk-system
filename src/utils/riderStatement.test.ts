@@ -122,6 +122,14 @@ describe('statement — เรียงเวลา, running balance ผ่า�
     expect(r.source).toBe('อนุมัติโดย Somchai · อนุมัติจาก UI');
   });
 
+  it('ผู้อนุมัติที่เก็บเป็น staff id ถูกแปลงเป็นชื่อเมื่อมี map · ไม่มี = id ดิบ (ไม่ซ่อน)', () => {
+    const jobs = JOBS.map((j) => (j.id === 'jobA' ? { ...j, rider_fee_approved_by: '-On_staffPushId' } : j));
+    const raw = build({ jobs });
+    expect(raw.rows[0].source).toBe('อนุมัติโดย -On_staffPushId · อนุมัติจาก UI');
+    const named = build({ jobs, staffNames: { '-On_staffPushId': 'สมชาย' } });
+    expect(named.rows[0].source).toBe('อนุมัติโดย สมชาย · อนุมัติจาก UI');
+  });
+
   it('EXPENSE_REIMBURSEMENT อ้างใบเบิก ไม่ใช่งาน', () => {
     expect(s.rows[5].ref).toEqual({ kind: 'expense', id: 'exp9', refNo: 'exp9' });
   });

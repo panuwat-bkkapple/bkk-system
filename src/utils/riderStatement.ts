@@ -162,6 +162,9 @@ export interface StatementInput {
   archived?: Readonly<Record<string, string | null>>;
   from?: number | null;
   to?: number | null;
+  /** ชื่อพนักงานตาม staff id (และ uid) — `rider_fee_approved_by` บนงานเก็บเป็น id ไม่ใช่ชื่อ
+   *  ไม่มี key = แสดง id ดิบ (ไม่ซ่อน เพราะ id ยังตามรอยได้) */
+  staffNames?: Readonly<Record<string, string>>;
 }
 
 /** number|string ที่แปลงเป็นเลข finite ได้ → number, อย่างอื่น → null (`Number(null) === 0` คือกับดัก) */
@@ -234,6 +237,8 @@ export function buildStatement(input: StatementInput): Statement {
   const archived = input.archived || {};
   const from = input.from ?? null;
   const to = input.to ?? null;
+  const staffNames = input.staffNames || {};
+  const personName = (id: string) => staffNames[id] || id;
 
   const jobsById: Record<string, Loose> = {};
   for (const j of input.jobs || []) if (j && typeof j.id === 'string') jobsById[j.id] = j;
@@ -329,7 +334,7 @@ export function buildStatement(input: StatementInput): Statement {
       const reason = str(rec(job?.rider_fee_meta)?.reason);
       const approvedBy = str(job?.rider_fee_approved_by);
       source = joinParts([
-        approvedBy ? `อนุมัติโดย ${approvedBy}` : null,
+        approvedBy ? `อนุมัติโดย ${personName(approvedBy)}` : null,
         payoutWriterLabel(t.description),
         reason && reason !== 'calculated' ? `ค่ารอบจาก ${reason}` : null,
       ]);

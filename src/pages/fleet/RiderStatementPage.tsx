@@ -37,6 +37,18 @@ export const RiderStatementPage = () => {
   const { data: riders } = useDatabase('riders');
   const { data: jobs } = useDatabase('jobs');
   const { data: withdrawals } = useDatabase('withdrawals');
+  // rider_fee_approved_by บนงานเป็น staff push id (RiderAuditPage ส่ง currentUser.id || uid) — แปลงเป็นชื่อ
+  const { data: staff } = useDatabase('staff');
+  const staffNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of (Array.isArray(staff) ? staff : []) as Loose[]) {
+      const name = typeof s.name === 'string' ? s.name : '';
+      if (!name) continue;
+      if (typeof s.id === 'string') m[s.id] = name;
+      if (typeof s.uid === 'string') m[s.uid] = name;
+    }
+    return m;
+  }, [staff]);
 
   const initial = useMemo(() => defaultRange(), []);
   const [fromYmd, setFromYmd] = useState(ymdOf(initial.from));
@@ -81,8 +93,9 @@ export const RiderStatementPage = () => {
       archived: archived.riderId === riderId ? archived.map : {},
       from: startOfYmd(fromYmd),
       to: endOfYmd(toYmd),
+      staffNames,
     });
-  }, [tx, riderId, jobs, withdrawals, archived, fromYmd, toYmd]);
+  }, [tx, riderId, jobs, withdrawals, archived, fromYmd, toYmd, staffNames]);
 
   // ref ที่หาไม่พบใน /jobs → เช็ค jobs_archived ทีละใบ (subpath เล็ก) ไม่เกินเพดาน
   // buildStatement ส่งเฉพาะ id ที่ยังไม่มีใน archived map จึงไม่วนซ้ำ (เช็คแล้วไม่พบ = บันทึก null)

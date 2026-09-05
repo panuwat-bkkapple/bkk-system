@@ -35,7 +35,11 @@ export interface RiderStatementViewProps {
 }
 
 const money = (n: number | null) => (n === null ? <span className="text-slate-300">—</span> : formatCurrency(n));
-const signed = (n: number) => (n < 0 ? `−${formatCurrency(Math.abs(n))}` : formatCurrency(n));
+// `-0` (เช่น -hold ตอน hold = 0) ต้องพิมพ์เป็น ฿0 ไม่ใช่ -฿0 — Intl พิมพ์เครื่องหมายของ -0
+const signed = (raw: number) => {
+  const n = raw === 0 ? 0 : raw;
+  return n < 0 ? `−${formatCurrency(Math.abs(n))}` : formatCurrency(n);
+};
 
 const RefCell = ({ row, jobHref }: { row: StatementRow; jobHref: (id: string) => string }) => {
   const { ref } = row;
