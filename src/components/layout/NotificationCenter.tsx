@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { isStockChildJob } from '../../utils/stockChildren';
 import { useNavigate } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -56,7 +57,7 @@ export const NotificationCenter = ({ newTicketAlerts = [] }: { newTicketAlerts?:
       // Pending jobs (waiting for action)
       const pendingJobs = jobs.filter((j: any) =>
         ['Pending QC', 'Awaiting Pickup'].includes(j.status) &&
-        j.type !== 'Withdrawal' && j.type !== 'B2B-Unpacked'
+        j.type !== 'Withdrawal' && !isStockChildJob(j)
       );
       if (pendingJobs.length > 0) {
         alerts.push({

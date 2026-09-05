@@ -12,6 +12,7 @@ import {
 import { JOB_STATUS } from '../../types/job-statuses';
 import { statusIs } from '../../utils/statusCompare';
 import { paidTrailEntry } from '../../utils/paidTrail';
+import { isStockChildJob } from '../../utils/stockChildren';
 
 // "ปิดจ๊อบ/จ่ายเงิน" = paid_at ก่อน แล้วค่อย qc_logs (utils/paidTrail.ts: Paid / Waiting
 // For Handover — ตั้งแต่ writer จ่ายเงินย้ายไป engine ไทม์ไลน์ B2C ไม่มี 'Paid' จนกว่า
@@ -52,7 +53,7 @@ export const CEODashboard = () => {
 
     // 2. สถิติการรับซื้อวันนี้ (อัปเกรดแบบ Accounting-Grade)
     const todaysJobs = allJobs.filter(j => {
-       if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
+       if (j.type === 'Withdrawal' || isStockChildJob(j)) return false;
 
        // 🌟 หาเวลาที่ "ปิดจ๊อบ/จ่ายเงิน" จริงๆ — paid_at ก่อน แล้วค่อยประวัติ Logs
        const closed = closedEntryOf(j);
@@ -92,7 +93,7 @@ export const CEODashboard = () => {
        
        // 🌟 กรองให้โชว์เฉพาะงานที่ "จ่ายเงินแล้ว/เข้าคลังแล้ว" เท่านั้น จะได้ไม่สับสนกับงานที่เพิ่งประเมินราคา
        ...allJobs.filter(j => {
-           if (j.type === 'Withdrawal' || j.type === 'B2B-Unpacked' || j.type === 'Accessory') return false;
+           if (j.type === 'Withdrawal' || isStockChildJob(j)) return false;
            return closedEntryOf(j) !== null;
        }).map(j => {
            // ดึงเวลาตอนที่ "ปิดจ๊อบ" มาโชว์ (ไม่ใช่เวลาที่เปิดบิลครั้งแรก)

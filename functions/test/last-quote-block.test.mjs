@@ -922,7 +922,10 @@ check("offer backstop accepts English phone asks", src.includes("!/เบอร�
   // the link waits in the widget, with order contact info pre-verified.
   check("no-chat guests get a seeded conversation", src.includes("const isNewConvo = !convoSnap.exists();"));
   check("seed carries account-verified phone", /isNewConvo[\s\S]{0,900}phone_source: "account"/.test(src));
-  check("seed skips system child rows", src.includes('job.type === "Accessory" || job.type === "B2B-Unpacked"'));
+  // ชนิดงานลูกมาจาก seam เดียว (stock-child-types.js — ครอบ B2C-Unpacked ด้วย) ไม่ใช่
+  // literal ที่พิมพ์ในไฟล์นี้ ซึ่งเคยได้รายการไม่ครบเมื่อมีชนิดที่สาม
+  check("seed skips system child rows", src.includes("if (STOCK_CHILD_TYPES.includes(job.type)) return;"));
+  check("...via the shared child-type list", src.includes('require("./stock-child-types")'));
   const idx = readFileSync(new URL("../index.js", import.meta.url), "utf8");
   check("wired up in index.js", idx.includes("exports.onJobCreatedChatTrackLink = chatAi.onJobCreatedChatTrackLink;"));
 }

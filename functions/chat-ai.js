@@ -31,6 +31,7 @@
 // =============================================================================
 
 const { onValueCreated } = require("firebase-functions/v2/database");
+const { STOCK_CHILD_TYPES } = require("./stock-child-types");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const {
   SICKW_ENDPOINT,
@@ -5525,7 +5526,7 @@ function registerChatAi({ dispatchAdminPush, dispatchOpsAlert }) {
         if (!uid) return;
         // Skip system-generated child rows (accessory unpack / B2B unpack) —
         // they duplicate the parent order the customer already got a link for.
-        if (job.type === "Accessory" || job.type === "B2B-Unpacked") return;
+        if (STOCK_CHILD_TYPES.includes(job.type)) return;
         const db = getDatabase();
         const convoSnap = await db.ref(`inbox/${uid}/lastMessageAt`).once("value");
         const isNewConvo = !convoSnap.exists();

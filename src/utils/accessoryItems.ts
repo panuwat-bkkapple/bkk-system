@@ -93,31 +93,51 @@ export const accessoryModelsForDevice = (modelsData: any, deviceModel: any): any
 };
 
 /**
- * Unpack a job's accessory_items into standalone stock jobs (child per item)
- * once the parent enters "In Stock" — the accessory version of the B2B
- * unpack. Children are created directly at In Stock so the create-triggers
- * (onNewTicketCreated / onJobCreatedSendEmails gate on new-order statuses)
- * stay silent. Returns the number of children created (0 = nothing to do).
+ * แถวงานลูกอุปกรณ์เสริม + stamp บนงานแม่ เป็น multi-path ล้วน — `keys` คือ push id
+ * ที่ผู้เรียกจองไว้ (ทำให้เทสตรึงรูปได้โดยไม่ต้องมี DB)
+ *
+ * MIRROR: `buildAccessoryChildUpdates` ใน functions/b2c-unpack-core.js — งานหลายเครื่อง
+ * ถูกแตกฝั่ง server และแม่ปิดที่ Completed โดยไม่ผ่านปุ่ม In Stock ที่ helper นี้
+ * เกาะอยู่ server จึงต้องแตกอุปกรณ์เสริมเองด้วยรูปเดียวกันเป๊ะ. ด่าน:
+ * accessoryUnpackParity.test.ts รันทั้งสองบน fixture เดียวกันแล้ว diff
  */
-export const unpackAccessoryItemsToStock = async (job: any, by: string): Promise<number> => {
-  const items = Array.isArray(job?.accessory_items) ? job.accessory_items.filter(Boolean) : [];
-  if (!job?.id || items.length === 0 || job.accessories_unpacked_at) return 0;
+export interface AccessoryUnpackParent {
+  id?: string;
+  ref_no?: string;
+  cust_name?: string;
+  receive_method?: string;
+  price?: unknown;
+  final_price?: unknown;
+  accessories_unpacked_at?: unknown;
+  accessory_items?: unknown;
+}
 
-  const now = Date.now();
+export const buildAccessoryChildUpdates = (
+  job: AccessoryUnpackParent | null | undefined,
+  keys: string[],
+  by: string,
+  now: number,
+): Record<string, unknown> => {
+  const raw = job?.accessory_items;
+  const items = (Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw as Record<string, unknown>) : [])
+    .filter(Boolean) as Partial<JobAccessoryItem>[];
+  const updates: Record<string, unknown> = {};
+  if (!job?.id || items.length === 0 || job.accessories_unpacked_at) return updates;
   const total = Number(job.final_price) || Number(job.price) || 0;
   const parentRef = job.ref_no || job.id;
-  const updates: Record<string, any> = {};
+  let accessoryTotal = 0;
 
-  items.forEach((it: any, idx: number) => {
-    const childKey = push(ref(db, 'jobs')).key;
-    updates[`jobs/${childKey}`] = {
+  items.forEach((it, idx) => {
+    const price = Number(it.price) || 0;
+    accessoryTotal += price;
+    updates[`jobs/${keys[idx]}`] = {
       ref_no: `${parentRef}-A${idx + 1}`,
       type: ACCESSORY_JOB_TYPE,
       model: it.model_name || 'Accessory',
       model_id: it.model_id || '',
       // final_price = ต้นทุนชิ้นนี้ — inventory/POS อ่าน cost จาก final_price||price อยู่แล้ว
-      price: Number(it.price) || 0,
-      final_price: Number(it.price) || 0,
+      price,
+      final_price: price,
       serial: it.serial || '',
       parent_job_id: job.id,
       parent_ref_no: job.ref_no || '',
@@ -131,7 +151,7 @@ export const unpackAccessoryItemsToStock = async (job: any, by: string): Promise
         action: 'Accessory Unpacked',
         by,
         timestamp: now,
-        details: `แตกอุปกรณ์เสริมจากงานแม่ ${parentRef} เข้าสต๊อก (฿${(Number(it.price) || 0).toLocaleString()})`,
+        details: `แตกอุปกรณ์เสริมจากงานแม่ ${parentRef} เข้าสต๊อก (฿${price.toLocaleString()})`,
       }],
     };
   });
@@ -139,9 +159,22 @@ export const unpackAccessoryItemsToStock = async (job: any, by: string): Promise
   // Parent: mark unpacked + split the stock cost so the iPad's inventory cost
   // no longer includes the accessory value (children carry it now).
   updates[`jobs/${job.id}/accessories_unpacked_at`] = now;
-  updates[`jobs/${job.id}/stock_cost`] = Math.max(0, total - sumAccessoryItems(items));
+  updates[`jobs/${job.id}/stock_cost`] = Math.max(0, total - accessoryTotal);
   updates[`jobs/${job.id}/updated_at`] = now;
+  return updates;
+};
 
-  await update(ref(db), updates);
+/**
+ * Unpack a job's accessory_items into standalone stock jobs (child per item)
+ * once the parent enters "In Stock" — the accessory version of the B2B
+ * unpack. Children are created directly at In Stock so the create-triggers
+ * (onNewTicketCreated / onJobCreatedSendEmails gate on new-order statuses)
+ * stay silent. Returns the number of children created (0 = nothing to do).
+ */
+export const unpackAccessoryItemsToStock = async (job: any, by: string): Promise<number> => {
+  const items = Array.isArray(job?.accessory_items) ? job.accessory_items.filter(Boolean) : [];
+  if (!job?.id || items.length === 0 || job.accessories_unpacked_at) return 0;
+  const keys = items.map(() => push(ref(db, 'jobs')).key as string);
+  await update(ref(db), buildAccessoryChildUpdates(job, keys, by, Date.now()));
   return items.length;
 };

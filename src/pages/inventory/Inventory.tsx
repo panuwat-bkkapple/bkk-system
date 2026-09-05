@@ -14,6 +14,7 @@ import { ref, update } from 'firebase/database';
 import { db } from '../../api/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { stockCost } from '../../utils/accessoryItems';
+import { ACCESSORY_CHILD_JOB_TYPE, isB2cUnpackedChild, isStockChildJob } from '../../utils/stockChildren';
 import { JOB_STATUS } from '../../types/job-statuses';
 import { RESERVED_STATUS, inventoryStatusOf, isInventoryStock, isInStock, isReadyToSell, isReserved } from '../../utils/inventoryStatus';
 
@@ -217,13 +218,14 @@ export const Inventory = () => {
                                  <div>
                                     <div className="font-black text-sm text-slate-800 flex items-center gap-2">
                                        {item.model}
-                                       {item.type === 'Accessory' && <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded">Accessory</span>}
+                                       {item.type === ACCESSORY_CHILD_JOB_TYPE && <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded">Accessory</span>}
+                                       {isB2cUnpackedChild(item) && <span className="text-[8px] font-black uppercase bg-sky-50 text-sky-700 border border-sky-100 px-1.5 py-0.5 rounded" title="แตกจากงานขายปลีกที่มีหลายเครื่อง">เครื่องที่ {Number(item.device_index ?? 0) + 1}</span>}
                                        {item.lot_id && <span className="text-[8px] font-black uppercase bg-orange-50 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded" title="ล็อกอยู่ในล็อตขายส่ง — จัดการผ่านหน้า Lots">{item.lot_no || 'IN LOT'}</span>}
                                     </div>
                                     <div className="text-[10px] font-mono font-bold text-slate-400 flex gap-2"><span>SN: {item.serial || 'N/A'}</span> • <span>{item.color}</span></div>
                                     <div className="mt-1 flex items-center gap-1">
                                        <span className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">{item.ref_no}</span>
-                                       {item.type === 'Accessory' && item.parent_ref_no && <span className="text-[8px] text-slate-400 font-bold">จากงาน {item.parent_ref_no}</span>}
+                                       {isStockChildJob(item) && item.parent_ref_no && <span className="text-[8px] text-slate-400 font-bold">จากงาน {item.parent_ref_no}</span>}
                                     </div>
                                  </div>
                               </div>

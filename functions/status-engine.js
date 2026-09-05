@@ -604,6 +604,26 @@ const TRANSITIONS = {
     custody: "=",
     actors: [ACTOR.ADMIN_STAFF],
   },
+  // งาน B2C ที่มีหลายเครื่อง (ตะกร้าหลายแถว / ปุ่ม "เพิ่มเครื่องแบบเดียวกัน")
+  // ถูกแตกเป็นงานลูกรายเครื่องตอนเข้าคิวคลัง — งานแม่ปิดที่ Completed เพราะ
+  // มันคือใบสั่งขายของลูกค้า (เงิน/ใบสำคัญรับเงิน/หน้า track อยู่ที่นี่ต่อ)
+  // ส่วน "เครื่อง" ที่ QC/คลัง/POS ต้องถือคือลูกแต่ละใบ ซึ่งเข้า Pending QC
+  // (แบบเดียวกับ b2b_unpacked_to_stock แต่คนละสาย จึงไม่มี jobTypes)
+  //
+  // from = สามสถานะที่แปลว่า "เครื่องถึงมือร้านและกำลังเข้าคิวคลัง" ชุดเดียวกับ
+  // FEE_TRIGGER_CANONICAL ของค่ารอบไรเดอร์ (rider-fee-trigger.js) — ทางหลักคือ
+  // Pending QC ที่เหลือคือตาข่ายเมื่อแอดมินข้ามขั้น (Store-in กด In Stock ตรง)
+  //
+  // requires multi_unpack = งานลูกต้องถูกเขียน **ก่อน** สถานะแม่ขยับ (b2c-unpack.js
+  // เขียนลูก + ประทับ multi_unpack ใน multi-path เดียว) — ลำดับกลับกันคือแม่ปิด
+  // แล้วลูกไม่เกิด ซึ่งมองไม่เห็นจนกว่าจะมีคนนับสต๊อก (ดูหัว b2b-unpack.js)
+  multi_device_unpacked: {
+    from: [S.PENDING_QC, S.SENT_TO_QC_LAB, S.IN_STOCK],
+    to: S.COMPLETED,
+    custody: "=",
+    actors: [ACTOR.ADMIN_STAFF],
+    requires: ["multi_unpack"],
+  },
 
   // Cancel, reopen, expiry ---------------------------------------------------
   // Cancelling is legal only while the deal has not been paid for. The

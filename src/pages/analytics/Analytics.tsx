@@ -1,5 +1,6 @@
 // src/pages/analytics/Analytics.tsx
 import React, { useMemo, useState, useEffect } from 'react';
+import { isStockChildJob } from '../../utils/stockChildren';
 import { useDatabase } from '../../hooks/useDatabase';
 import { ref, update, onValue } from 'firebase/database';
 import { db } from '../../api/firebase';
@@ -153,9 +154,10 @@ export const Analytics = ({ mode }: AnalyticsProps) => {
       // --- B. VELOCITY & TRUE P&L (เฉลี่ย 30 วัน) ---
       const dailyFixedCost = fixedCosts / 30; // 💸 แปลงค่าใช้จ่ายรายเดือนเป็นรายวัน
 
-      // ตัด child อุปกรณ์เสริม (type Accessory) — เงินที่จ่ายจริงอยู่ใน final_price
-      // ของงานแม่แล้ว นับ child ด้วยจะเป็น spend ซ้ำ
-      const recentJobs = jobsList.filter(j => j.created_at >= thirtyDaysAgo && j.type !== 'Withdrawal' && j.type !== 'Accessory');
+      // ตัดงานลูกในคลังทุกชนิด (Accessory / B2B-Unpacked / B2C-Unpacked) — เงินที่จ่าย
+      // จริงอยู่ใน final_price ของงานแม่แล้ว นับ child ด้วยจะเป็น spend ซ้ำ (เดิมตัด
+      // แค่ Accessory: ล็อต B2B ที่ระเบิดกล่องแล้วถูกนับสองรอบ)
+      const recentJobs = jobsList.filter(j => j.created_at >= thirtyDaysAgo && j.type !== 'Withdrawal' && !isStockChildJob(j));
       const totalSpent30d = recentJobs.reduce((sum, j) => sum + (Number(j.final_price) || Number(j.price) || 0), 0);
       const avgDailySpend = totalSpent30d / 30; // 📉 เงินออก/วัน (รับซื้อเครื่อง)
 
