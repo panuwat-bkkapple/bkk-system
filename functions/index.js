@@ -26,6 +26,7 @@ const {
 } = require("./notification-settings");
 // push ถึงไรเดอร์ต้อง data-only — ดูเหตุผลในไฟล์นั้น
 const { toDataOnlyRiderPush } = require("./rider-push-payload");
+const { revokedCouponLines } = require("./coupon-revoke-diff");
 const {
   loadEmailTemplates,
   emailEnabled,
@@ -4316,20 +4317,13 @@ exports.onJobCouponRevoked = onValueWritten(
 exports.onJobCouponsRevoked = onValueWritten(
   { ref: "/jobs/{jobId}/applied_coupons", region: "asia-southeast1" },
   async (event) => {
-    const toList = (raw) => {
-      const list = Array.isArray(raw)
-        ? raw
-        : (raw && typeof raw === "object" ? Object.values(raw) : []);
-      return list.filter(Boolean);
-    };
-    const before = toList(event.data.before.val());
-    const after = toList(event.data.after.val());
-    if (before.length === 0) return;
-
-    // Key by code — the same campaign cannot appear twice on one job, and a
-    // code is what the ledger rows are written against.
-    const stillThere = new Set(after.map((c) => String(c.code || "").trim().toUpperCase()));
-    const removed = before.filter((c) => !stillThere.has(String(c.code || "").trim().toUpperCase()));
+    // Keyed by code + device_id (coupon-revoke-diff.js): a device-bucket
+    // campaign rides every qualifying device, so one code can sit on two
+    // lines of the same job. Diffing by code alone missed the case where the
+    // admin removed one of the two rides — quota and ledger were never
+    // returned. reconcileRevokedCoupon runs once per removed LINE, matching
+    // how order creation reserved used_count once per line.
+    const removed = revokedCouponLines(event.data.before.val(), event.data.after.val());
     if (removed.length === 0) return;
 
     const db = getDatabase();
