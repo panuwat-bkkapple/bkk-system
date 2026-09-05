@@ -162,7 +162,7 @@ export const CustomerTracking = ({ jobId }: { jobId: string }) => {
               return (
                 <div key={idx} className="space-y-3">
                   {job.devices && job.devices.length > 1 && (
-                    <p className="text-xs font-black text-slate-800 border-l-4 border-blue-500 pl-2 uppercase">{device.model}</p>
+                    <p className="text-xs font-black text-slate-800 border-l-4 border-blue-500 pl-2 uppercase">#{idx + 1} {device.model}</p>
                   )}
 
                   {/* 1. ส่วนที่ลูกค้าแจ้ง (Customer Info) */}
